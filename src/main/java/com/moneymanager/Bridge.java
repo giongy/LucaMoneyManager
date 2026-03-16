@@ -162,6 +162,10 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                                  p.get("amounts").getAsJsonArray());
                 yield Map.of("ok", true);
             }
+            case "generateBudget" -> {
+                db.generateBudget(p.get("year").getAsInt(), p.get("from_history").getAsBoolean());
+                yield Map.of("ok", true);
+            }
 
             // ─── Portafoglio ───────────────────────────────────────────────
             case "getPortfolio"          -> db.getPortfolio();

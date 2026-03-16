@@ -510,6 +510,44 @@ public class Database {
         return Map.of("budgets", budgets, "actuals", actuals, "categories", categories);
     }
 
+    /** Genera il budget per tutte le categorie.
+     *  Se fromHistory=true copia i consuntivi dall'anno precedente. */
+    public void generateBudget(int year, boolean fromHistory) throws SQLException {
+        if (!fromHistory) return;
+
+        int prevYear = year - 1;
+        List<Map<String, Object>> actuals = queryList("""
+            SELECT category_id,
+                   CAST(strftime('%m', date) AS INTEGER) AS month,
+                   SUM(amount) AS total
+            FROM transactions
+            WHERE strftime('%Y', date)=? AND type IN ('expense','income')
+            GROUP BY category_id, strftime('%m', date)
+        """, String.valueOf(prevYear));
+
+        Map<Object, Map<Integer, Double>> map = new HashMap<>();
+        for (var a : actuals) {
+            Object catId = a.get("category_id");
+            int month = ((Number) a.get("month")).intValue();
+            double total = ((Number) a.get("total")).doubleValue();
+            map.computeIfAbsent(catId, k -> new HashMap<>()).put(month, total);
+        }
+
+        for (var cat : queryList("SELECT id FROM categories WHERE type != 'transfer'")) {
+            Object catId = cat.get("id");
+            Map<Integer, Double> months = map.getOrDefault(catId, Map.of());
+            for (int m = 1; m <= 12; m++) {
+                double amount = months.getOrDefault(m, 0.0);
+                if (amount > 0) {
+                    execute("""
+                        INSERT INTO budgets(category_id,amount,month,year) VALUES(?,?,?,?)
+                        ON CONFLICT(category_id,month,year) DO UPDATE SET amount=excluded.amount
+                    """, catId, amount, m, year);
+                }
+            }
+        }
+    }
+
     /** Imposta i 12 valori mensili per una categoria in un anno (0/null = rimuove). */
     public void setBudgetBulk(int categoryId, int year, com.google.gson.JsonArray amounts) throws SQLException {
         for (int m = 1; m <= 12; m++) {

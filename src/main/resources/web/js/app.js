@@ -66,6 +66,7 @@ const api = {
   deleteBudget:id           => callJava('deleteBudget',{id}),
   getBudgetYear: y          => callJava('getBudgetYear', {year:y}),
   setBudgetBulk: data       => callJava('setBudgetBulk', data),
+  generateBudget: data      => callJava('generateBudget', data),
 
   // Portafoglio
   getPortfolio:        ()   => callJava('getPortfolio'),
@@ -850,7 +851,7 @@ async function renderBudgets() {
         <span id="budgYearLabel"></span>
         <button id="budgNext">›</button>
       </div>
-      <button class="btn btn-primary" id="btnAddBudgetRow">+ Aggiungi categoria</button>
+      <button class="btn btn-primary" id="btnGenBudget">Genera budget</button>
     </div>
     <div class="budget-year-wrap">
       <table class="budget-table" id="budgetTable">
@@ -867,7 +868,7 @@ async function renderBudgets() {
   document.getElementById('budgYearLabel').textContent = budgetYear;
   document.getElementById('budgPrev').onclick = () => { budgetYear--; renderBudgets(); };
   document.getElementById('budgNext').onclick = () => { budgetYear++; renderBudgets(); };
-  document.getElementById('btnAddBudgetRow').onclick = () => showAddBudgetRowModal();
+  document.getElementById('btnGenBudget').onclick = () => showGenerateBudgetModal();
 
   await loadBudgetTable();
 }
@@ -882,6 +883,14 @@ async function loadBudgetTable() {
 function renderBudgetTable() {
   const { budgets, actuals, categories } = _budgetData;
 
+  if (!categories.length) {
+    document.getElementById('budgetBody').innerHTML =
+      `<tr><td colspan="15" style="text-align:center;padding:40px;color:var(--txt3)">
+        Nessuna categoria trovata. Aggiungile prima dalla pagina Categorie.
+      </td></tr>`;
+    return;
+  }
+
   // Lookup maps
   const budgetMap = {};  // catId -> {1:amt, 2:amt, ...}
   budgets.forEach(b => {
@@ -894,29 +903,8 @@ function renderBudgetTable() {
     actualMap[a.category_id][a.month] = a.total;
   });
 
-  // Categories that have at least one budget entry this year
-  const budgetedIds = new Set(Object.keys(budgetMap).map(Number));
-  if (budgetedIds.size === 0) {
-    document.getElementById('budgetBody').innerHTML =
-      `<tr><td colspan="15" style="text-align:center;padding:40px;color:var(--txt3)">
-        Nessun budget impostato. Clicca "+ Aggiungi categoria" per iniziare.
-      </td></tr>`;
-    return;
-  }
-
-  // Build ordered category list (only budgeted ones, with hierarchy)
-  const catMap = {};
-  categories.forEach(c => catMap[c.id] = c);
-
-  // Include parent if any child has budget, even if parent has no budget itself
-  const toShow = new Set();
-  budgetedIds.forEach(id => {
-    toShow.add(id);
-    const cat = catMap[id];
-    if (cat?.parent_id) toShow.add(cat.parent_id);
-  });
-
-  const ordered = categories.filter(c => toShow.has(c.id));
+  // Show ALL categories (all parents + their children)
+  const ordered = categories;
 
   const rows = ordered.map(cat => {
     const bm = budgetMap[cat.id] || {};
@@ -934,7 +922,7 @@ function renderBudgetTable() {
                   data-cat="${cat.id}" data-month="${m}"
                   onclick="_budgetCellEdit(this,${cat.id},${m})">
         <span class="budget-cell-val">${budget>0?fmt.currency(budget):''}</span>
-        ${budget>0?`<span class="budget-cell-actual ${over?'over':''}">${fmt.currency(actual)}</span>`:''}
+        ${actual>0?`<span class="budget-cell-actual ${over?'over':''}">${fmt.currency(actual)}</span>`:''}
       </td>`;
     }).join('');
 
@@ -1016,47 +1004,42 @@ window._budgetClearRow = async catId => {
   await loadBudgetTable();
 };
 
-async function showAddBudgetRowModal() {
-  const { categories, budgets } = await api.getBudgetYear(budgetYear);
-  const budgetedIds = new Set(budgets.map(b => b.category_id));
-  const available = categories.filter(c => !budgetedIds.has(c.id));
-  if (!available.length) { toast('Tutte le categorie hanno già un budget', 'info'); return; }
-
-  // Build options grouped by type
-  const expOpts = available.filter(c=>c.type==='expense').map(c=>
-    `<option value="${c.id}">${c.parent_id?'  └ ':''}${c.icon} ${c.name}</option>`).join('');
-  const incOpts = available.filter(c=>c.type==='income').map(c=>
-    `<option value="${c.id}">${c.parent_id?'  └ ':''}${c.icon} ${c.name}</option>`).join('');
-
-  openModal('Aggiungi budget categoria',
+function showGenerateBudgetModal() {
+  const prevYear = budgetYear - 1;
+  openModal(`Genera budget ${budgetYear}`,
     `<div class="form-group">
-       <label class="form-label">Categoria</label>
-       <select class="form-control" id="ab_cat">
-         <option value="">— Seleziona —</option>
-         ${expOpts ? `<optgroup label="Uscite">${expOpts}</optgroup>` : ''}
-         ${incOpts ? `<optgroup label="Entrate">${incOpts}</optgroup>` : ''}
-       </select>
-     </div>
-     <div class="form-group">
-       <label class="form-label">Tipo importo</label>
-       <select class="form-control" id="ab_mode">
-         <option value="monthly">Mensile (stesso importo ogni mese)</option>
-         <option value="annual">Annuale (diviso per 12)</option>
-       </select>
-     </div>
-     <div class="form-group">
-       <label class="form-label">Importo (€)</label>
-       <input type="number" step="0.01" min="0" class="form-control" id="ab_amount">
+       <label class="form-label">Basare i valori su:</label>
+       <label style="display:flex;align-items:center;gap:8px;margin:8px 0;cursor:pointer">
+         <input type="radio" name="bg_source" value="history" checked>
+         Storico ${prevYear} — copia le entrate/uscite effettive per categoria
+       </label>
+       <label style="display:flex;align-items:center;gap:8px;margin:8px 0;cursor:pointer">
+         <input type="radio" name="bg_source" value="zero">
+         Valori a zero — compila manualmente le celle
+       </label>
+       <div class="settings-hint" id="bg_hint">
+         I valori mensili di ogni categoria vengono copiati dallo storico ${prevYear}.
+         Potrai modificare ogni cella in seguito.
+       </div>
      </div>`,
     async () => {
-      const catId  = parseInt(document.getElementById('ab_cat').value);
-      const mode   = document.getElementById('ab_mode').value;
-      const amount = parseFloat(document.getElementById('ab_amount').value) || 0;
-      if (!catId || !amount) { toast('Compila tutti i campi', 'error'); return; }
-      const monthly = mode === 'annual' ? Math.round(amount/12*100)/100 : amount;
-      await api.setBudgetBulk({category_id:catId, year:budgetYear, amounts:Array(12).fill(monthly)});
-      closeModal(); await loadBudgetTable();
+      const fromHistory = document.querySelector('input[name="bg_source"]:checked').value === 'history';
+      await api.generateBudget({year: budgetYear, from_history: fromHistory});
+      closeModal();
+      await loadBudgetTable();
+      toast(fromHistory
+        ? `Budget ${budgetYear} generato dallo storico ${prevYear}`
+        : `Budget ${budgetYear} pronto — inserisci i valori nelle celle`, 'success');
     });
+  setTimeout(() => {
+    document.querySelectorAll('input[name="bg_source"]').forEach(r => {
+      r.onchange = () => {
+        document.getElementById('bg_hint').textContent = r.value === 'history'
+          ? `I valori mensili di ogni categoria vengono copiati dallo storico ${prevYear}. Potrai modificare ogni cella in seguito.`
+          : 'Tutte le celle partiranno vuote. Usa i pulsanti M/A per impostare gli importi o clicca una cella.';
+      };
+    });
+  }, 50);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════

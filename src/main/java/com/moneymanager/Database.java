@@ -115,7 +115,6 @@ public class Database {
                 account_id    INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
                 to_account_id INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
                 description   TEXT    NOT NULL,
-                notes         TEXT,
                 created_at    TEXT    DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE IF NOT EXISTS budgets (
@@ -157,6 +156,11 @@ public class Database {
         try {
             executePlain("ALTER TABLE categories ADD COLUMN parent_id INTEGER REFERENCES categories(id) ON DELETE CASCADE");
         } catch (SQLException ignored) { /* colonna già presente */ }
+        // Unifica notes in description, poi rimuove la colonna notes
+        try {
+            executePlain("UPDATE transactions SET description = TRIM(COALESCE(NULLIF(TRIM(description),''), '') || CASE WHEN notes IS NOT NULL AND TRIM(notes)!='' THEN CASE WHEN TRIM(description)!='' THEN ' - ' ELSE '' END || notes ELSE '' END)");
+            executePlain("ALTER TABLE transactions DROP COLUMN notes");
+        } catch (SQLException ignored) { /* colonna già rimossa */ }
         // Crea tabelle tag se non esistono (CREATE IF NOT EXISTS è idempotente)
         executePlain("CREATE TABLE IF NOT EXISTS tags (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, color TEXT DEFAULT '#58a6ff', created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
         executePlain("CREATE TABLE IF NOT EXISTS transaction_tags (transaction_id INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE, tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE, PRIMARY KEY (transaction_id, tag_id))");
@@ -342,8 +346,8 @@ public class Database {
             sql.append(" AND t.category_id=?"); params.add(f.get("category_id").getAsInt());
         }
         if (f.has("search") && !f.get("search").getAsString().isBlank()) {
-            sql.append(" AND (t.description LIKE ? OR t.notes LIKE ?)");
-            String s = "%" + str(f,"search") + "%"; params.add(s); params.add(s);
+            sql.append(" AND t.description LIKE ?");
+            params.add("%" + str(f,"search") + "%");
         }
         sql.append(" GROUP BY t.id ORDER BY t.date DESC, t.id DESC");
         if (f.has("limit")) { sql.append(" LIMIT ?"); params.add(f.get("limit").getAsInt()); }
@@ -353,13 +357,12 @@ public class Database {
 
     public Map<String, Object> addTransaction(JsonObject p) throws SQLException {
         long id = execute("""
-            INSERT INTO transactions(date,amount,type,category_id,account_id,to_account_id,description,notes)
-            VALUES(?,?,?,?,?,?,?,?)
+            INSERT INTO transactions(date,amount,type,category_id,account_id,to_account_id,description)
+            VALUES(?,?,?,?,?,?,?)
         """, str(p,"date"), dbl(p,"amount"), str(p,"type"),
                 intVal(p,"category_id"), p.get("account_id").getAsInt(),
                 intVal(p,"to_account_id"),
-                str(p,"description") != null ? str(p,"description") : "",
-                str(p,"notes"));
+                str(p,"description") != null ? str(p,"description") : "");
         saveTags(id, p);
         return getTransactionById(id);
     }
@@ -367,12 +370,12 @@ public class Database {
     public Map<String, Object> updateTransaction(int id, JsonObject p) throws SQLException {
         execute("""
             UPDATE transactions SET date=?,amount=?,type=?,category_id=?,account_id=?,
-                to_account_id=?,description=?,notes=? WHERE id=?
+                to_account_id=?,description=? WHERE id=?
         """, str(p,"date"), dbl(p,"amount"), str(p,"type"),
                 intVal(p,"category_id"), p.get("account_id").getAsInt(),
                 intVal(p,"to_account_id"),
                 str(p,"description") != null ? str(p,"description") : "",
-                str(p,"notes"), id);
+                id);
         saveTags(id, p);
         return getTransactionById(id);
     }

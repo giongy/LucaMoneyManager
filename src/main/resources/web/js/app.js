@@ -452,7 +452,7 @@ function renderTxBodyAndHeaders() {
   tbody.innerHTML = sorted.length ? sorted.map(t => `
     <tr data-tx-id="${t.id}">
       <td>${fmt.date(t.date)}</td>
-      <td class="td-main">${t.description||''}${t.notes?`<br><small class="text-muted">${t.notes}</small>`:''}${(t.tags&&t.tags.length)?`<br>${t.tags.map(tg=>`<span class="tag-inline" style="--tc:${tg.color}">${tg.name}</span>`).join('')}`:''}</td>
+      <td class="td-main">${t.description||''}${(t.tags&&t.tags.length)?`<br>${t.tags.map(tg=>`<span class="tag-inline" style="--tc:${tg.color}">${tg.name}</span>`).join('')}`:''}</td>
       <td><span class="badge badge-${t.type}">${t.type==='income'?'Entrata':t.type==='expense'?'Uscita':'Trasferimento'}</span></td>
       <td>${t.category_icon||''} ${t.category_name||'-'}</td>
       <td>${t.account_name||'-'}${t.to_account_name?` → ${t.to_account_name}`:''}</td>
@@ -499,10 +499,6 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
         <input type="date" class="form-control" id="f_date" value="${tx?.date||today}">
       </div>
     </div>
-    <div class="form-group">
-      <label class="form-label">Descrizione</label>
-      <input class="form-control" id="f_desc" placeholder="Es. Spesa supermercato" value="${tx?.description||''}">
-    </div>
     <div class="form-row">
       <div class="form-group">
         <label class="form-label">Importo (€)</label>
@@ -529,8 +525,8 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
       </div>
     </div>
     <div class="form-group">
-      <label class="form-label">Note</label>
-      <input class="form-control" id="f_notes" placeholder="Opzionale" value="${tx?.notes||''}">
+      <label class="form-label">Descrizione</label>
+      <textarea class="form-control" id="f_desc" rows="2" placeholder="Opzionale">${tx?.description||''}</textarea>
     </div>
       <div class="form-group">
         <label class="form-label">Tag</label>
@@ -576,7 +572,6 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
       category_id:   parseInt(document.getElementById('f_cat').value) || null,
       account_id:    parseInt(document.getElementById('f_account').value),
       to_account_id: type==='transfer' ? parseInt(document.getElementById('f_toAccount').value)||null : null,
-      notes:         document.getElementById('f_notes').value.trim() || null,
       tag_ids:       [...selectedTagIds],
     };
     if (!data.amount || !data.account_id) {

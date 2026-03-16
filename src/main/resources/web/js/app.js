@@ -178,8 +178,11 @@ const api = {
   minimize:    ()          => callJava('minimize'),
   maximize:    ()          => callJava('maximize'),
   close:       ()          => callJava('close'),
-  getWindowPos:()          => callJava('getWindowPos'),
-  setWindowPos:(x,y)       => callJava('setWindowPos', {x,y}),
+  getWindowPos:   ()          => callJava('getWindowPos'),
+  setWindowPos:   (x,y)       => callJava('setWindowPos', {x,y}),
+  getWindowBounds:()          => callJava('getWindowBounds'),
+  setWindowBounds:(x,y,w,h)   => callJava('setWindowBounds', {x,y,w,h}),
+  isMaximized:    ()          => callJava('isMaximized'),
 
   // Conti
   getAccounts:   ()     => callJava('getAccounts'),
@@ -236,7 +239,10 @@ const api = {
   addScheduled:    data  => callJava('addScheduled', data),
   updateScheduled: data  => callJava('updateScheduled', data),
   deleteScheduled: id    => callJava('deleteScheduled', {id}),
-  getUpcoming:     (n)   => callJava('getUpcoming', {limit: n||15}),
+  getUpcoming:     (n)   => callJava('getUpcoming',    {limit: n||15}),
+  getUpcomingAll:  (n)   => callJava('getUpcomingAll', {limit: n||15}),
+  getOverdue:      ()    => callJava('getOverdue'),
+  skipOccurrence:  (id, date) => callJava('skipOccurrence', {id, date}),
   getProjection:   data  => callJava('getProjection', data),
 };
 
@@ -260,7 +266,9 @@ function toast(msg, type='success') {
 
 function confirm(title, msg) {
   return new Promise(resolve => {
-    openModal(title, `<p style="color:var(--txt2);line-height:1.6">${msg}</p>`, resolve, 'Elimina', 'btn-danger');
+    openModal(title, `<p style="color:var(--txt2);line-height:1.6">${msg}</p>`,
+      () => { closeModal(); resolve(true); },
+      'Elimina', 'btn-danger');
     document.getElementById('modalCancel').onclick = () => { closeModal(); resolve(false); };
   });
 }
@@ -280,10 +288,42 @@ document.addEventListener('mousemove', e => {
   if (!drag) return;
   api.setWindowPos(winX + (e.screenX - startX), winY + (e.screenY - startY));
 });
-document.addEventListener('mouseup', () => drag = false);
+document.addEventListener('mouseup', () => { drag = false; _resizeDir = null; });
+
+/* ─── Resize handles ─────────────────────────────────────────────────────── */
+let _resizeDir = null, _resizeStartX = 0, _resizeStartY = 0, _resizeBounds = null;
+
+document.querySelectorAll('.rh').forEach(el => {
+  el.addEventListener('mousedown', async e => {
+    if (e.button !== 0) return;
+    const isMax = await api.isMaximized();
+    if (isMax.maximized) return;
+    e.preventDefault();
+    _resizeDir    = el.dataset.dir;
+    _resizeStartX = e.screenX;
+    _resizeStartY = e.screenY;
+    _resizeBounds = await api.getWindowBounds();
+  });
+});
+
+document.addEventListener('mousemove', e => {
+  if (!_resizeDir || !_resizeBounds) return;
+  const dx = e.screenX - _resizeStartX;
+  const dy = e.screenY - _resizeStartY;
+  let {x, y, w, h} = _resizeBounds;
+  if (_resizeDir.includes('e')) w += dx;
+  if (_resizeDir.includes('s')) h += dy;
+  if (_resizeDir.includes('w')) { x += dx; w -= dx; }
+  if (_resizeDir.includes('n')) { y += dy; h -= dy; }
+  api.setWindowBounds(x, y, w, h);
+});
 
 document.getElementById('btnMin').onclick   = () => api.minimize();
-document.getElementById('btnMax').onclick   = () => api.maximize();
+document.getElementById('btnMax').onclick   = async () => {
+  await api.maximize();
+  const {maximized} = await api.isMaximized();
+  document.querySelectorAll('.rh').forEach(el => el.style.display = maximized ? 'none' : '');
+};
 document.getElementById('btnClose').onclick = () => api.close();
 
 /* ─── Router ──────────────────────────────────────────────────────────────── */
@@ -372,35 +412,51 @@ async function renderDashboard() {
       <button id="dashNext">›</button>
     </div>
     <div class="stats-grid" id="statsGrid"></div>
-    <div class="card" style="margin-bottom:24px">
-      <div class="card-header"><span class="card-title">I miei conti</span>
-        <button class="btn btn-ghost" onclick="navigate('accounts')">Gestisci →</button>
+    <div class="dash-top-row" style="margin-bottom:24px">
+      <div class="card dash-accounts-card">
+        <div class="card-header"><span class="card-title">I miei conti</span>
+          <button class="btn btn-ghost" onclick="navigate('accounts')">Gestisci →</button>
+        </div>
+        <div id="dashAccounts"></div>
       </div>
-      <div id="dashAccounts"></div>
-    </div>
-    <div class="grid-2" style="margin-bottom:24px">
-      <div class="card"><div class="card-header"><span class="card-title">Entrate vs Uscite mensili</span></div>
-        <canvas id="barChart" height="200"></canvas></div>
-      <div class="card"><div class="card-header"><span class="card-title">Spese per categoria</span></div>
-        <canvas id="pieChart" height="200"></canvas></div>
-    </div>
-    <div class="card">
-      <div class="card-header">
-        <span class="card-title">Ultime transazioni</span>
-        <button class="btn btn-ghost" onclick="navigate('transactions')">Vedi tutte →</button>
+      <div class="card dash-barchart-card">
+        <div class="card-header"><span class="card-title">Entrate vs Uscite ${dashYear}</span></div>
+        <canvas id="barChart"></canvas>
       </div>
-      <div class="table-wrap"><table><thead><tr>
-        <th>Data</th><th>Descrizione</th><th>Categoria</th><th>Conto</th><th class="text-right">Importo</th>
-      </tr></thead><tbody id="recentRows"></tbody></table></div>
     </div>
-    <div class="card upcoming-card" style="margin-top:16px">
-      <div class="card-header">
-        <span class="card-title">🗓️ Prossime transazioni pianificate</span>
-        <button class="btn btn-ghost" onclick="navigate('scheduled')">Gestisci →</button>
+    <div class="dash-tables-row" style="margin-bottom:16px">
+      <div class="card dash-recent-card">
+        <div class="card-header">
+          <span class="card-title">Ultime transazioni</span>
+          <button class="btn btn-ghost" onclick="navigate('transactions')">Vedi tutte →</button>
+        </div>
+        <div class="table-wrap"><table><thead><tr>
+          <th>Data</th><th>Descrizione</th><th>Categoria</th><th>Conto</th><th class="text-right">Importo</th>
+        </tr></thead><tbody id="recentRows"></tbody></table></div>
       </div>
-      <div class="table-wrap"><table class="upcoming-table"><thead><tr>
-        <th>Data</th><th>Descrizione</th><th>Frequenza</th><th>Conto</th><th class="text-right">Importo</th>
-      </tr></thead><tbody id="upcomingRows"></tbody></table></div>
+      <div class="card dash-upcoming-card">
+        <div class="card-header">
+          <span class="card-title">🗓️ Prossime pianificate</span>
+          <button class="btn btn-ghost" onclick="navigate('scheduled')">Gestisci →</button>
+        </div>
+        <div class="table-wrap"><table><thead><tr>
+          <th>Data</th><th>Descrizione</th><th>Categoria</th><th>Freq.</th><th class="text-right">Importo</th>
+        </tr></thead><tbody id="upcomingRows"></tbody></table></div>
+      </div>
+    </div>
+    <div class="dash-bottom-charts">
+      <div class="card dash-chart-sm">
+        <div class="card-header"><span class="card-title">Spese per categoria</span></div>
+        <canvas id="pieChart"></canvas>
+      </div>
+      <div class="card dash-chart-sm">
+        <div class="card-header"><span class="card-title">Risparmio mensile</span></div>
+        <canvas id="savingsChart"></canvas>
+      </div>
+      <div class="card dash-chart-sm">
+        <div class="card-header"><span class="card-title">Top categorie spesa</span></div>
+        <canvas id="topCatChart"></canvas>
+      </div>
     </div>`;
 
   document.getElementById('dashYearLabel').textContent = dashYear;
@@ -413,7 +469,7 @@ async function renderDashboard() {
     api.getTransactions({year:dashYear, limit:10}),
     api.getMonthlyChartData(dashYear),
     api.getCategoryChartData(dashYear, 'expense'),
-    api.getUpcoming(15)
+    api.getUpcomingAll(12)
   ]);
 
   // Stat cards
@@ -444,23 +500,33 @@ async function renderDashboard() {
   accounts.forEach(a => { (grouped[a.type] = grouped[a.type] || []).push(a); });
   const orderedTypes = [...new Set([...ACC_TYPE_ORDER.filter(t => grouped[t]), ...Object.keys(grouped)])];
 
+  const totalBalance = accounts.reduce((s,a) => s + (a.balance||0), 0);
   document.getElementById('dashAccounts').innerHTML = orderedTypes.length ? `
-    <div class="dash-accounts-groups">
+    <table class="acc-list-table">
       ${orderedTypes.map(t => `
-        <div class="dash-acc-group">
-          <div class="dash-acc-group-label">${ACC_TYPE_LABELS[t] || t}</div>
-          <div class="dash-acc-cards">
-            ${grouped[t].map(a => `
-              <div class="dash-acc-card" onclick="navigateToAccountTx(${a.id})" style="--acc-color:${a.color || 'var(--accent)'}">
-                <div class="dash-acc-card-icon">${a.icon}</div>
-                <div class="dash-acc-card-info">
-                  <div class="dash-acc-card-name">${a.name}</div>
-                  <div class="dash-acc-card-balance" style="color:${a.color || 'var(--accent)'}; ${a.balance < 0 ? 'color:var(--expense)' : ''}">${fmt.currency(a.balance)}</div>
-                </div>
-              </div>`).join('')}
-          </div>
-        </div>`).join('')}
-    </div>` :
+        <tbody>
+          <tr class="acc-group-row"><td colspan="2">${ACC_TYPE_LABELS[t] || t}</td></tr>
+          ${grouped[t].map(a => `
+            <tr class="acc-list-row" onclick="navigateToAccountTx(${a.id})">
+              <td>
+                <span class="acc-dot" style="background:${a.color||'var(--accent)'}"></span>
+                <span class="acc-icon">${a.icon||''}</span>
+                <span class="acc-name">${a.name}</span>
+              </td>
+              <td class="acc-bal ${a.balance<0?'neg':''}" style="color:${a.balance<0?'var(--expense)':(a.color||'var(--accent)')}">
+                ${fmt.currency(a.balance)}
+              </td>
+            </tr>`).join('')}
+        </tbody>`).join('')}
+      <tbody>
+        <tr class="acc-total-row">
+          <td>Totale</td>
+          <td class="acc-bal ${totalBalance<0?'neg':''}" style="color:${totalBalance<0?'var(--expense)':'var(--income)'}">
+            ${fmt.currency(totalBalance)}
+          </td>
+        </tr>
+      </tbody>
+    </table>` :
     `<p class="text-muted" style="padding:20px;text-align:center">Nessun conto. <a onclick="navigate('accounts')" style="color:var(--accent);cursor:pointer">Aggiungi un conto →</a></p>`;
 
   // Bar chart
@@ -506,14 +572,45 @@ async function renderDashboard() {
   // Upcoming scheduled
   const freqLabel = f => ({once:'Una volta',daily:'Giornaliera',weekly:'Settimanale',biweekly:'Bisettimanale',monthly:'Mensile',quarterly:'Trimestrale',yearly:'Annuale'}[f]||f);
   document.getElementById('upcomingRows').innerHTML = upcoming.length ? upcoming.map(u => `
-    <tr>
-      <td>${fmt.date(u.date)}</td>
+    <tr class="${u.overdue ? 'upcoming-overdue' : ''}">
+      <td>${u.overdue ? `<span class="overdue-badge">⚠️</span>` : ''}${fmt.date(u.date)}</td>
       <td class="td-main">${u.description||'-'}</td>
+      <td><span class="cat-chip">${u.category_icon||''}${u.category_name||'-'}</span></td>
       <td><span class="sched-freq-badge">${freqLabel(u.frequency)}</span></td>
-      <td>${u.account_name||'-'}</td>
       <td class="text-right amount-${u.type}">${u.type==='expense'?'-':''}${fmt.currency(u.amount)}</td>
     </tr>`).join('') :
     '<tr><td colspan="5" class="text-muted" style="text-align:center;padding:20px">Nessuna transazione pianificata</td></tr>';
+
+  // Savings chart (monthly net = income - expenses)
+  const savArr = incArr.map((v,i) => v - expArr[i]);
+  if (charts.savings) charts.savings.destroy();
+  charts.savings = new Chart(document.getElementById('savingsChart'), {
+    type: 'bar',
+    data: { labels: months, datasets: [{
+      label: 'Risparmio',
+      data: savArr,
+      backgroundColor: savArr.map(v => v >= 0 ? 'rgba(63,185,80,.75)' : 'rgba(248,81,73,.75)'),
+      borderRadius: 4
+    }]},
+    options: { responsive:true, plugins:{legend:{display:false}},
+      scales:{ x:{ticks:{color:'#8b949e',font:{size:10}},grid:{color:'#21262d'}},
+               y:{ticks:{color:'#8b949e',font:{size:10}},grid:{color:'#21262d'}}}}
+  });
+
+  // Top categories chart (horizontal bar)
+  const top5 = [...catData].sort((a,b)=>b.total-a.total).slice(0,6);
+  if (charts.topCat) charts.topCat.destroy();
+  if (top5.length) {
+    charts.topCat = new Chart(document.getElementById('topCatChart'), {
+      type: 'bar',
+      data: { labels: top5.map(c => c.icon+' '+c.name),
+              datasets: [{label:'Spesa', data: top5.map(c=>c.total),
+                backgroundColor: top5.map(c=>c.color||'rgba(88,166,255,.7)'), borderRadius:4}]},
+      options: { indexAxis:'y', responsive:true, plugins:{legend:{display:false}},
+        scales:{ x:{ticks:{color:'#8b949e',font:{size:10}},grid:{color:'#21262d'}},
+                 y:{ticks:{color:'#8b949e',font:{size:10}},grid:{color:'#21262d'}}}}
+    });
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -709,8 +806,8 @@ function buildCatOptions(cats, selectedId) {
   }).join('');
 }
 
-function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = []) {
-  const isEdit = !!tx;
+function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [], onAfterSave = null) {
+  const isEdit = tx != null && tx.id != null;
   const initType = tx?.type || defaultType;
   const expCats = categories.filter(c=>c.type==='expense');
   const incCats = categories.filter(c=>c.type==='income');
@@ -824,6 +921,7 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
     try {
       if (isEdit) await api.updateTransaction(data);
       else        await api.addTransaction(data);
+      if (onAfterSave) await onAfterSave();
       closeModal();
       toast(isEdit ? 'Transazione aggiornata' : 'Transazione aggiunta');
       updateSidebar();
@@ -1986,8 +2084,8 @@ async function renderSchedTab() {
 }
 
 async function renderSchedLista() {
-  const [scheds, accounts, categories] = await Promise.all([
-    api.getScheduled(), api.getAccounts(), api.getCategories()
+  const [scheds, accounts, categories, upcoming] = await Promise.all([
+    api.getScheduled(), api.getAccounts(), api.getCategories(), api.getUpcomingAll(20)
   ]);
   const el = document.getElementById('schedContent');
   el.innerHTML = `
@@ -1995,7 +2093,18 @@ async function renderSchedLista() {
       <span></span>
       <button class="btn btn-primary" id="btnNewSched">+ Nuova</button>
     </div>
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-header"><span class="card-title">📅 Prossime occorrenze</span></div>
+      <div class="table-wrap">
+        <table><thead><tr>
+          <th>Data</th><th>Descrizione</th><th>Categoria</th><th>Conto</th>
+          <th class="text-right">Importo</th><th></th>
+        </tr></thead>
+        <tbody id="occBody"></tbody></table>
+      </div>
+    </div>
     <div class="card">
+      <div class="card-header"><span class="card-title">Transazioni pianificate</span></div>
       <div class="table-wrap">
         <table><thead><tr>
           <th>Attivo</th><th>Data inizio</th><th>Frequenza</th><th>Descrizione</th>
@@ -2007,6 +2116,27 @@ async function renderSchedLista() {
 
   document.getElementById('btnNewSched').onclick = () => showScheduledModal(null, accounts, categories);
 
+  // ── Prossime occorrenze ──────────────────────────────────────────────────
+  const occBody = document.getElementById('occBody');
+  window._occCache = upcoming;
+  if (!upcoming.length) {
+    occBody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--txt3)">Nessuna occorrenza</td></tr>';
+  } else {
+    occBody.innerHTML = upcoming.map((u, i) => `
+      <tr class="${u.overdue ? 'upcoming-overdue' : ''}">
+        <td>${u.overdue ? '<span class="overdue-badge">⚠️</span>' : ''}${fmt.date(u.date)}</td>
+        <td class="td-main">${u.description||'-'}</td>
+        <td><span class="cat-chip">${u.category_icon||''}${u.category_name||'-'}</span></td>
+        <td>${u.account_name||'-'}</td>
+        <td class="text-right amount-${u.type}">${u.type==='expense'?'-':''}${fmt.currency(u.amount)}</td>
+        <td style="white-space:nowrap">
+          <button class="btn btn-xs btn-success" onclick="registerOccurrence(${i})">✔ Registra</button>
+          <button class="btn btn-xs btn-ghost"   onclick="skipOcc(${u.id},'${u.date}')">⏭ Salta</button>
+        </td>
+      </tr>`).join('');
+  }
+
+  // ── Lista pianificate ────────────────────────────────────────────────────
   const tbody = document.getElementById('schedBody');
   if (!scheds.length) {
     tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:40px;color:var(--txt3)">Nessuna transazione pianificata. Creane una!</td></tr>';
@@ -2028,41 +2158,77 @@ async function renderSchedLista() {
     </tr>`).join('');
 }
 
+const PROJ_RANGES = [
+  {v:'3m',       l:'Prossimi 3 mesi'},
+  {v:'6m',       l:'Prossimi 6 mesi'},
+  {v:'1y',       l:'Prossimo anno'},
+  {v:'2y',       l:'Prossimi 2 anni'},
+  {v:'ytd',      l:'Anno corrente'},
+  {v:'nxt_year', l:'Anno prossimo'},
+  {v:'custom',   l:'Personalizza…'},
+];
+let _projRange = '6m';
+
+function projRangeToFilter(range, customMonths) {
+  const today = new Date();
+  const fmt = d => d.toISOString().slice(0,10);
+  const add = months => { const d=new Date(today); d.setMonth(d.getMonth()+months); return d; };
+  const y = today.getFullYear();
+  switch(range) {
+    case '3m':       return { from_date: fmt(today), to_date: fmt(add(3)) };
+    case '6m':       return { from_date: fmt(today), to_date: fmt(add(6)) };
+    case '1y':       return { from_date: fmt(today), to_date: fmt(add(12)) };
+    case '2y':       return { from_date: fmt(today), to_date: fmt(add(24)) };
+    case 'ytd':      return { from_date: `${y}-01-01`, to_date: `${y}-12-31` };
+    case 'nxt_year': return { from_date: `${y+1}-01-01`, to_date: `${y+1}-12-31` };
+    case 'custom':   { const m = parseInt(customMonths)||6;
+                       return { from_date: fmt(today), to_date: fmt(add(m)) }; }
+    default:         return { from_date: fmt(today), to_date: fmt(add(6)) };
+  }
+}
+
 async function renderSchedProjection() {
   const accounts = await api.getAccounts();
-  const today = new Date().toISOString().slice(0,10);
-  const future = new Date(); future.setMonth(future.getMonth()+6);
-  const futureStr = future.toISOString().slice(0,10);
   const el = document.getElementById('schedContent');
   el.innerHTML = `
     <div class="card" style="margin-bottom:16px">
       <div class="proj-controls">
-        <label class="form-label" style="margin:0">Da:</label>
-        <input type="date" class="form-control" id="projFrom" value="${today}">
-        <label class="form-label" style="margin:0">A:</label>
-        <input type="date" class="form-control" id="projTo" value="${futureStr}">
-        <label class="form-label" style="margin:0">Conti:</label>
-        <select class="form-control" id="projAccounts" multiple style="min-width:160px;height:60px">
-          ${accounts.map(a=>`<option value="${a.id}">${a.icon} ${a.name}</option>`).join('')}
+        <select class="form-control" id="projRange">
+          ${PROJ_RANGES.map(r=>`<option value="${r.v}" ${_projRange===r.v?'selected':''}>${r.l}</option>`).join('')}
         </select>
-        <button class="btn btn-primary" id="btnCalcProj">Calcola</button>
+        <span id="projCustomWrap" style="display:${_projRange==='custom'?'flex':'none'};align-items:center;gap:6px">
+          <input type="number" class="form-control" id="projMonths" value="6" min="1" max="120" style="width:80px">
+          <span class="settings-hint" style="white-space:nowrap">mesi</span>
+        </span>
+        <label class="form-label" style="margin:0;white-space:nowrap">Conti:</label>
+        <select class="form-control" id="projAccounts" multiple style="min-width:160px;height:56px">
+          ${accounts.map(a=>`<option value="${a.id}" selected>${a.icon} ${a.name}</option>`).join('')}
+        </select>
       </div>
       <div class="proj-chart-wrap"><canvas id="projChart"></canvas></div>
+      <div id="projTable" style="margin-top:16px;overflow-x:auto"></div>
     </div>`;
 
-  document.getElementById('btnCalcProj').onclick = () => loadProjectionChart(accounts);
+  document.getElementById('projRange').addEventListener('change', () => {
+    _projRange = document.getElementById('projRange').value;
+    document.getElementById('projCustomWrap').style.display = _projRange==='custom' ? 'flex' : 'none';
+    loadProjectionChart(accounts);
+  });
+  ['projAccounts','projMonths'].forEach(id =>
+    document.getElementById(id).addEventListener('change', () => loadProjectionChart(accounts)));
   await loadProjectionChart(accounts);
 }
 
 async function loadProjectionChart(accounts) {
-  const fromVal = document.getElementById('projFrom')?.value;
-  const toVal   = document.getElementById('projTo')?.value;
-  if (!fromVal || !toVal) return;
+  const range      = document.getElementById('projRange')?.value || '6m';
+  const customMths = document.getElementById('projMonths')?.value;
+  const { from_date, to_date } = projRangeToFilter(range, customMths);
+  if (!from_date || !to_date) return;
   const selOpts = [...(document.getElementById('projAccounts')?.selectedOptions||[])];
-  const accIds  = selOpts.length ? selOpts.map(o=>o.value).join(',') : '';
+  const accIds  = selOpts.map(o=>o.value).join(',');
 
   let data;
-  try { data = await api.getProjection({from_date:fromVal, to_date:toVal, account_ids:accIds}); }
+  try { data = await api.getProjection({from_date, to_date, account_ids:accIds}); }
   catch(e) { toast(e.message,'error'); return; }
 
   const { series, accounts: accList } = data;
@@ -2094,48 +2260,85 @@ async function loadProjectionChart(accounts) {
       responsive: true, maintainAspectRatio: false,
       plugins: { legend: { labels: { color:'#8b949e' } } },
       scales: {
-        x: { ticks:{ color:'#8b949e', maxTicksLimit:12 }, grid:{ color:'#21262d' } },
+        x: { ticks:{ color:'#8b949e', maxTicksLimit:14 }, grid:{ color:'#21262d' } },
         y: { ticks:{ color:'#8b949e', callback: v => fmt.currency(v) }, grid:{ color:'#21262d' } }
       }
     }
   });
+
+  // ── Tabella saldo mensile ──────────────────────────────────────────────────
+  // Per ogni mese nel range, prendi l'ultimo punto disponibile per ciascun conto
+  const monthKeys = [...new Set(dates.map(d=>d.slice(0,7)))].sort();
+  const tbl = document.getElementById('projTable');
+  if (!tbl || !monthKeys.length) return;
+
+  const monthBalances = monthKeys.map(m => {
+    const datesOfMonth = dates.filter(d=>d.startsWith(m));
+    const lastDate = datesOfMonth[datesOfMonth.length-1];
+    return { month: m, lastDate };
+  });
+
+  tbl.innerHTML = `
+    <table style="width:100%;border-collapse:collapse;font-size:12px">
+      <thead><tr>
+        <th style="text-align:left;padding:5px 8px;border-bottom:1px solid var(--border);color:var(--txt2)">Mese</th>
+        ${accList.map(a=>`<th style="text-align:right;padding:5px 8px;border-bottom:1px solid var(--border);color:var(--txt2)">${a.name}</th>`).join('')}
+      </tr></thead>
+      <tbody>${monthBalances.map(({month,lastDate}) => {
+        const cells = accList.map(a => {
+          const pt = series.find(p=>p.date===lastDate && p.account_id===a.id);
+          const bal = pt ? pt.balance : null;
+          const color = bal!=null && bal<0 ? 'color:var(--expense)' : '';
+          return `<td style="text-align:right;padding:4px 8px;border-bottom:1px solid var(--border);${color}">${bal!=null?fmt.currency(bal):'—'}</td>`;
+        }).join('');
+        return `<tr><td style="padding:4px 8px;border-bottom:1px solid var(--border)">${month}</td>${cells}</tr>`;
+      }).join('')}</tbody>
+    </table>`;
 }
+
+let _cfRange = '1y';
 
 async function renderSchedCashflow() {
   const accounts = await api.getAccounts();
-  const today = new Date().toISOString().slice(0,10);
-  const future = new Date(); future.setFullYear(future.getFullYear()+1);
-  const futureStr = future.toISOString().slice(0,10);
   const el = document.getElementById('schedContent');
   el.innerHTML = `
     <div class="card" style="margin-bottom:16px">
       <div class="proj-controls">
-        <label class="form-label" style="margin:0">Da:</label>
-        <input type="date" class="form-control" id="cfFrom" value="${today}">
-        <label class="form-label" style="margin:0">A:</label>
-        <input type="date" class="form-control" id="cfTo" value="${futureStr}">
-        <label class="form-label" style="margin:0">Conti:</label>
-        <select class="form-control" id="cfAccounts" multiple style="min-width:160px;height:60px">
-          ${accounts.map(a=>`<option value="${a.id}">${a.icon} ${a.name}</option>`).join('')}
+        <select class="form-control" id="cfRange">
+          ${PROJ_RANGES.map(r=>`<option value="${r.v}" ${_cfRange===r.v?'selected':''}>${r.l}</option>`).join('')}
         </select>
-        <button class="btn btn-primary" id="btnCalcCf">Calcola</button>
+        <span id="cfCustomWrap" style="display:${_cfRange==='custom'?'flex':'none'};align-items:center;gap:6px">
+          <input type="number" class="form-control" id="cfMonths" value="6" min="1" max="120" style="width:80px">
+          <span class="settings-hint" style="white-space:nowrap">mesi</span>
+        </span>
+        <label class="form-label" style="margin:0;white-space:nowrap">Conti:</label>
+        <select class="form-control" id="cfAccounts" multiple style="min-width:160px;height:56px">
+          ${accounts.map(a=>`<option value="${a.id}" selected>${a.icon} ${a.name}</option>`).join('')}
+        </select>
       </div>
       <div class="proj-chart-wrap"><canvas id="cfChart"></canvas></div>
     </div>`;
 
-  document.getElementById('btnCalcCf').onclick = () => loadCashflowChart();
+  document.getElementById('cfRange').addEventListener('change', () => {
+    _cfRange = document.getElementById('cfRange').value;
+    document.getElementById('cfCustomWrap').style.display = _cfRange==='custom' ? 'flex' : 'none';
+    loadCashflowChart();
+  });
+  ['cfAccounts','cfMonths'].forEach(id =>
+    document.getElementById(id).addEventListener('change', loadCashflowChart));
   await loadCashflowChart();
 }
 
 async function loadCashflowChart() {
-  const fromVal = document.getElementById('cfFrom')?.value;
-  const toVal   = document.getElementById('cfTo')?.value;
-  if (!fromVal || !toVal) return;
+  const range      = document.getElementById('cfRange')?.value || '1y';
+  const customMths = document.getElementById('cfMonths')?.value;
+  const { from_date, to_date } = projRangeToFilter(range, customMths);
+  if (!from_date || !to_date) return;
   const selOpts = [...(document.getElementById('cfAccounts')?.selectedOptions||[])];
-  const accIds  = selOpts.length ? selOpts.map(o=>o.value).join(',') : '';
+  const accIds  = selOpts.map(o=>o.value).join(',');
 
   let data;
-  try { data = await api.getProjection({from_date:fromVal, to_date:toVal, account_ids:accIds}); }
+  try { data = await api.getProjection({from_date:from_date, to_date:to_date, account_ids:accIds}); }
   catch(e) { toast(e.message,'error'); return; }
 
   const { cashflow } = data;
@@ -2180,6 +2383,37 @@ window.deleteSched = async id => {
   await api.deleteScheduled(id);
   toast('Transazione pianificata eliminata');
   renderSchedLista();
+};
+
+window.skipOcc = async (id, date) => {
+  await api.skipOccurrence(id, date);
+  toast('Occorrenza saltata — ricomparirà alla prossima scadenza');
+  renderSchedLista();
+};
+
+window.registerOccurrence = async (idx) => {
+  const u = window._occCache[idx];
+  if (!u) return;
+  const [cats, accs, tags] = await Promise.all([
+    api.getCategories(), api.getAccounts(), api.getTags()
+  ]);
+  const today = new Date().toISOString().slice(0,10);
+  const prefilled = {
+    id: null,
+    date: today,
+    amount: u.amount,
+    type: u.type,
+    category_id: u.category_id  || null,
+    account_id: u.account_id,
+    to_account_id: u.to_account_id || null,
+    description: u.description || '',
+    color: u.color || null,
+    tag_ids: []
+  };
+  showTxModal(prefilled, cats, accs, u.type, tags, async () => {
+    await api.skipOccurrence(u.id, u.date);
+    renderSchedLista();
+  });
 };
 
 function showScheduledModal(sched, accounts, categories) {
@@ -2318,9 +2552,45 @@ function showScheduledModal(sched, accounts, categories) {
 /* ═══════════════════════════════════════════════════════════════════════════
    INIT
 ═══════════════════════════════════════════════════════════════════════════ */
+function showOverdueNotice(list) {
+  const el = document.createElement('div');
+  el.className = 'overdue-notice';
+  el.innerHTML = `
+    <div class="overdue-notice-head">
+      <span>⚠️ ${list.length} transazion${list.length===1?'e pianificata scaduta':'i pianificate scadute'}</span>
+      <button onclick="this.closest('.overdue-notice').remove()">✕</button>
+    </div>
+    <div class="overdue-notice-body">
+      ${list.slice(0,4).map(u=>`<div class="overdue-row">
+        <span>${fmt.date(u.date)}</span>
+        <span class="td-main">${u.description||'-'}</span>
+        <span class="amount-${u.type}">${u.type==='expense'?'-':''}${fmt.currency(u.amount)}</span>
+      </div>`).join('')}
+      ${list.length>4?`<div class="overdue-more">+ altri ${list.length-4}…</div>`:''}
+    </div>
+    <div class="overdue-notice-bar"><div class="overdue-notice-progress"></div></div>`;
+  document.body.appendChild(el);
+  // progress bar animation then auto-remove
+  requestAnimationFrame(() => {
+    el.querySelector('.overdue-notice-progress').style.transition = 'width 8s linear';
+    el.querySelector('.overdue-notice-progress').style.width = '0%';
+  });
+  setTimeout(() => el.classList.add('fade-out'), 7800);
+  setTimeout(() => el.remove(), 8500);
+  el.querySelector('.overdue-notice-head').addEventListener('click', e => {
+    if (!e.target.closest('button')) navigate('scheduled');
+  });
+}
+
 async function init() {
+  // Nascondo gli handle se si parte massimizzato
+  const {maximized} = await api.isMaximized();
+  document.querySelectorAll('.rh').forEach(el => el.style.display = maximized ? 'none' : '');
   await updateSidebar();
   await renderDashboard();
+  // Notifica scadute (non bloccante, dopo il render)
+  const overdue = await api.getOverdue();
+  if (overdue.length) showOverdueNotice(overdue);
 }
 
 // Aspetta che il bridge JCEF sia pronto

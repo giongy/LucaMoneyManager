@@ -166,6 +166,11 @@ public class Database {
                 is_active     INTEGER DEFAULT 1,
                 color         TEXT,
                 created_at    TEXT    DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS scheduled_skips (
+                scheduled_id INTEGER NOT NULL REFERENCES scheduled_transactions(id) ON DELETE CASCADE,
+                skip_date    TEXT    NOT NULL,
+                PRIMARY KEY (scheduled_id, skip_date)
             )
         """);
     }
@@ -198,6 +203,14 @@ public class Database {
                 frequency TEXT NOT NULL DEFAULT 'monthly',
                 start_date TEXT NOT NULL, end_date TEXT, is_active INTEGER DEFAULT 1,
                 color TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """);
+        // scheduled_skips (idempotente)
+        executePlain("""
+            CREATE TABLE IF NOT EXISTS scheduled_skips (
+                scheduled_id INTEGER NOT NULL REFERENCES scheduled_transactions(id) ON DELETE CASCADE,
+                skip_date    TEXT    NOT NULL,
+                PRIMARY KEY (scheduled_id, skip_date)
             )
         """);
     }
@@ -737,8 +750,45 @@ public class Database {
         };
     }
 
-    /** Next N upcoming occurrences across all active scheduled transactions. */
+    /** Active scheduled transactions with at least one occurrence in the past 30 days. */
+    public List<Map<String, Object>> getOverdue() throws SQLException {
+        var scheds = getScheduled().stream()
+            .filter(s -> Integer.valueOf(1).equals(s.get("is_active")))
+            .toList();
+        LocalDate today    = LocalDate.now();
+        LocalDate lookback = today.minusDays(30);
+        LocalDate yesterday = today.minusDays(1);
+        List<Map<String, Object>> overdue = new ArrayList<>();
+        for (var s : scheds) {
+            LocalDate start = LocalDate.parse((String) s.get("start_date"));
+            String freq = (String) s.get("frequency");
+            String edStr = (String) s.get("end_date");
+            LocalDate endDate = edStr != null ? LocalDate.parse(edStr) : yesterday;
+            if (endDate.isAfter(yesterday)) endDate = yesterday;
+            LocalDate from = start.isBefore(lookback) ? firstOccurrenceFrom(start, freq, lookback) : start;
+            if (from == null || from.isAfter(endDate)) continue;
+            Map<String, Object> occ = new HashMap<>(s);
+            occ.put("date", from.toString());
+            overdue.add(occ);
+        }
+        overdue.sort(Comparator.comparing(o -> (String) o.get("date")));
+        return overdue;
+    }
+
+    private java.util.Set<String> getSkipKeys() throws SQLException {
+        return queryList("SELECT scheduled_id, skip_date FROM scheduled_skips")
+            .stream()
+            .map(r -> r.get("scheduled_id") + "_" + r.get("skip_date"))
+            .collect(java.util.stream.Collectors.toSet());
+    }
+
+    public void skipOccurrence(int scheduledId, String date) throws SQLException {
+        execute("INSERT OR IGNORE INTO scheduled_skips(scheduled_id,skip_date) VALUES(?,?)", scheduledId, date);
+    }
+
+    /** Next N upcoming occurrences across all active scheduled transactions (skips excluded). */
     public List<Map<String, Object>> getUpcoming(int limit) throws SQLException {
+        java.util.Set<String> skips = getSkipKeys();
         var scheds = getScheduled().stream()
             .filter(s -> Integer.valueOf(1).equals(s.get("is_active")))
             .toList();
@@ -746,6 +796,7 @@ public class Database {
         LocalDate horizon = today.plusYears(2);
         List<Map<String, Object>> all = new ArrayList<>();
         for (var s : scheds) {
+            int sid = ((Number) s.get("id")).intValue();
             LocalDate start = LocalDate.parse((String) s.get("start_date"));
             String freq = (String) s.get("frequency");
             LocalDate endDate = s.get("end_date") != null ? LocalDate.parse((String) s.get("end_date")) : horizon;
@@ -753,9 +804,11 @@ public class Database {
             LocalDate cur = firstOccurrenceFrom(start, freq, today);
             if (cur == null) continue;
             while (!cur.isAfter(endDate)) {
-                Map<String, Object> occ = new HashMap<>(s);
-                occ.put("date", cur.toString());
-                all.add(occ);
+                if (!skips.contains(sid + "_" + cur)) {
+                    Map<String, Object> occ = new HashMap<>(s);
+                    occ.put("date", cur.toString());
+                    all.add(occ);
+                }
                 if ("once".equals(freq)) break;
                 cur = advanceDate(cur, freq);
                 if (cur == null) break;
@@ -763,6 +816,46 @@ public class Database {
         }
         all.sort(Comparator.comparing(o -> (String) o.get("date")));
         return all.stream().limit(limit).collect(Collectors.toList());
+    }
+
+    /** Past 30 days + next N future occurrences, with overdue flag. Skips excluded. */
+    public List<Map<String, Object>> getUpcomingAll(int futureLimit) throws SQLException {
+        java.util.Set<String> skips = getSkipKeys();
+        var scheds = getScheduled().stream()
+            .filter(s -> Integer.valueOf(1).equals(s.get("is_active")))
+            .toList();
+        LocalDate today    = LocalDate.now();
+        LocalDate lookback = today.minusDays(30);
+        LocalDate horizon  = today.plusYears(2);
+        List<Map<String, Object>> all = new ArrayList<>();
+        for (var s : scheds) {
+            int sid = ((Number) s.get("id")).intValue();
+            LocalDate start = LocalDate.parse((String) s.get("start_date"));
+            String freq = (String) s.get("frequency");
+            LocalDate endDate = s.get("end_date") != null ? LocalDate.parse((String) s.get("end_date")) : horizon;
+            if (endDate.isAfter(horizon)) endDate = horizon;
+            LocalDate startFrom = start.isBefore(lookback) ? firstOccurrenceFrom(start, freq, lookback) : start;
+            if (startFrom == null) continue;
+            LocalDate cur = startFrom;
+            while (!cur.isAfter(endDate)) {
+                if (!skips.contains(sid + "_" + cur)) {
+                    Map<String, Object> occ = new HashMap<>(s);
+                    occ.put("date", cur.toString());
+                    occ.put("overdue", cur.isBefore(today));
+                    all.add(occ);
+                }
+                if ("once".equals(freq)) break;
+                cur = advanceDate(cur, freq);
+                if (cur == null) break;
+            }
+        }
+        all.sort(Comparator.comparing(o -> (String) o.get("date")));
+        List<Map<String, Object>> overdue = all.stream().filter(o -> Boolean.TRUE.equals(o.get("overdue"))).collect(Collectors.toList());
+        List<Map<String, Object>> future  = all.stream().filter(o -> !Boolean.TRUE.equals(o.get("overdue"))).limit(futureLimit).collect(Collectors.toList());
+        List<Map<String, Object>> result  = new ArrayList<>(overdue);
+        result.addAll(future);
+        result.sort(Comparator.comparing(o -> (String) o.get("date")));
+        return result;
     }
 
     /**

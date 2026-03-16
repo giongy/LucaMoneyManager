@@ -8,6 +8,7 @@ import org.cef.handler.CefMessageRouterHandlerAdapter;
 
 import javax.swing.*;
 import javax.swing.filechooser.FileNameExtensionFilter;
+import java.awt.*;
 import java.awt.event.WindowEvent;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
@@ -115,6 +116,10 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             case "maximize" -> {
                 SwingUtilities.invokeLater(() -> {
                     boolean max = (window.getExtendedState() & JFrame.MAXIMIZED_BOTH) != 0;
+                    if (!max) {
+                        GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
+                        window.setMaximizedBounds(ge.getMaximumWindowBounds());
+                    }
                     window.setExtendedState(max ? JFrame.NORMAL : JFrame.MAXIMIZED_BOTH);
                 });
                 yield Map.of("ok", true);
@@ -129,6 +134,17 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                 int x = p.get("x").getAsInt();
                 int y = p.get("y").getAsInt();
                 SwingUtilities.invokeLater(() -> window.setLocation(x, y));
+                yield Map.of("ok", true);
+            }
+            case "getWindowBounds" -> Map.of(
+                "x", window.getX(), "y", window.getY(),
+                "w", window.getWidth(), "h", window.getHeight());
+            case "setWindowBounds" -> {
+                int x = p.get("x").getAsInt(), y = p.get("y").getAsInt();
+                int w = p.get("w").getAsInt(), h = p.get("h").getAsInt();
+                Dimension min = window.getMinimumSize();
+                int fw = Math.max(w, min.width), fh = Math.max(h, min.height);
+                SwingUtilities.invokeLater(() -> window.setBounds(x, y, fw, fh));
                 yield Map.of("ok", true);
             }
             case "isMaximized" -> Map.of("maximized",
@@ -178,6 +194,9 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             case "updateScheduled"  -> db.updateScheduled(p.get("id").getAsInt(), p);
             case "deleteScheduled"  -> db.deleteScheduled(p.get("id").getAsInt());
             case "getUpcoming"      -> db.getUpcoming(p.has("limit") ? p.get("limit").getAsInt() : 15);
+            case "getUpcomingAll"   -> db.getUpcomingAll(p.has("limit") ? p.get("limit").getAsInt() : 15);
+            case "getOverdue"       -> db.getOverdue();
+            case "skipOccurrence"   -> { db.skipOccurrence(p.get("id").getAsInt(), p.get("date").getAsString()); yield Map.of("ok", true); }
             case "getProjection"    -> db.getProjection(
                 p.get("from_date").getAsString(), p.get("to_date").getAsString(),
                 p.has("account_ids") ? p.get("account_ids").getAsString() : "");

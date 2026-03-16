@@ -67,6 +67,8 @@ public class MainWindow {
     }
 
     public void show() {
+        GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
+        frame.setMaximizedBounds(ge.getMaximumWindowBounds());
         frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
         frame.setVisible(true);
     }

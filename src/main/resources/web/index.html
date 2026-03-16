@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LucaMoneyManager</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<div class="app">
+
+  <!-- ── SIDEBAR ── -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <span class="logo-icon">💰</span>
+      <span class="logo-text">MoneyManager</span>
+    </div>
+
+    <nav class="sidebar-nav">
+      <a class="nav-item active" data-page="dashboard">
+        <span class="nav-icon">📊</span><span>Dashboard</span>
+      </a>
+      <a class="nav-item" data-page="transactions">
+        <span class="nav-icon">💳</span><span>Transazioni</span>
+      </a>
+      <a class="nav-item" data-page="accounts">
+        <span class="nav-icon">🏦</span><span>Conti</span>
+      </a>
+      <a class="nav-item" data-page="budgets">
+        <span class="nav-icon">🎯</span><span>Budget</span>
+      </a>
+      <a class="nav-item" data-page="portfolio">
+        <span class="nav-icon">📈</span><span>Titoli</span>
+      </a>
+      <a class="nav-item" data-page="reports">
+        <span class="nav-icon">📉</span><span>Report</span>
+      </a>
+      <a class="nav-item" data-page="categories">
+        <span class="nav-icon">🏷️</span><span>Categorie</span>
+      </a>
+      <a class="nav-item" data-page="tags">
+        <span class="nav-icon">🔖</span><span>Tag</span>
+      </a>
+    </nav>
+
+    <div class="sidebar-accounts" id="sidebarAccounts"></div>
+
+    <div class="sidebar-bottom">
+      <a class="nav-item" data-page="settings">
+        <span class="nav-icon">⚙️</span><span>Impostazioni</span>
+      </a>
+    </div>
+  </aside>
+
+  <!-- ── MAIN ── -->
+  <div class="main">
+
+    <!-- Titlebar trascinabile + controlli finestra -->
+    <div class="titlebar" id="titlebar">
+      <div class="titlebar-title" id="pageTitle">Dashboard</div>
+      <div class="titlebar-drag"></div>
+      <div class="titlebar-controls">
+        <button class="tb-btn tb-min" id="btnMin" title="Riduci">─</button>
+        <button class="tb-btn tb-max" id="btnMax" title="Ingrandisci">□</button>
+        <button class="tb-btn tb-cls" id="btnClose" title="Chiudi">✕</button>
+      </div>
+    </div>
+
+    <!-- Pagine -->
+    <div class="page-container">
+      <div id="pg-dashboard"    class="page active"></div>
+      <div id="pg-transactions" class="page"></div>
+      <div id="pg-accounts"     class="page"></div>
+      <div id="pg-budgets"      class="page"></div>
+      <div id="pg-portfolio"    class="page"></div>
+      <div id="pg-reports"      class="page"></div>
+      <div id="pg-categories"  class="page"></div>
+      <div id="pg-tags"        class="page"></div>
+      <div id="pg-settings"    class="page"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── MODAL ── -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal" id="modal">
+    <div class="modal-header">
+      <h3 class="modal-title" id="modalTitle"></h3>
+      <button class="modal-close" id="modalClose">✕</button>
+    </div>
+    <div class="modal-body" id="modalBody"></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" id="modalCancel">Annulla</button>
+      <button class="btn btn-primary" id="modalConfirm">Salva</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── CONTEXT MENU ── -->
+<div id="ctxMenu" class="ctx-menu"></div>
+
+<!-- ── TOAST ── -->
+<div class="toast-container" id="toastContainer"></div>
+
+<script src="js/vendor/chart.min.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,26 @@
+# Maven
+target/
+*.class
+
+# Database (dati personali, non in repo)
+*.db
+*.db-shm
+*.db-wal
+
+# Log
+*.log
+
+# IntelliJ / VSCode
+.idea/
+*.iml
+.vscode/
+
+# Claude Code (configurazione locale)
+.claude/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# JCEF cache (scaricato automaticamente, ~200MB)
+%APPDATA%/LucaMoneyManager/jcef/

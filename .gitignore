@@ -8,8 +8,10 @@ dist/
 *.db-shm
 *.db-wal
 
-# Log
+# Log di avvio
 *.log
+run*.log
+debug.log
 
 # IntelliJ / VSCode
 .idea/

@@ -3,6 +3,151 @@
    Bridge JS→Java via cefQuery, tutte le pagine SPA
 ═══════════════════════════════════════════════════════════════════════════ */
 
+/* ─── Emoji picker ────────────────────────────────────────────────────────── */
+const EMOJI_LIST = [
+  // Cibo & Ristoranti
+  {e:'🍕',k:'pizza cibo ristorante'},{e:'🍔',k:'hamburger fast food burger'},
+  {e:'🍜',k:'pasta noodle cibo ristorante'},{e:'🍣',k:'sushi pesce ristorante'},
+  {e:'🥗',k:'insalata verdura pranzo'},{e:'🥩',k:'carne bistecca grill'},
+  {e:'🍱',k:'pranzo box bento cibo'},{e:'🥐',k:'croissant colazione bar'},
+  {e:'☕',k:'caffe bar colazione'},{e:'🍺',k:'birra bar locale'},
+  {e:'🍷',k:'vino ristorante cena'},{e:'🍸',k:'cocktail aperitivo bar'},
+  {e:'🍰',k:'torta dolci pasticceria'},{e:'🍦',k:'gelato dolci'},
+  {e:'🍿',k:'popcorn cinema snack'},{e:'🥤',k:'bibita drink takeaway'},
+  {e:'🧃',k:'succo bevanda'},{e:'🫖',k:'te infuso bevanda'},
+  {e:'🥪',k:'panino sandwich pranzo'},{e:'🍞',k:'pane forno bakery'},
+  // Supermercato & Spesa
+  {e:'🛒',k:'spesa supermercato alimentari'},{e:'🧺',k:'spesa acquisti'},
+  {e:'🥛',k:'latte spesa alimenti'},{e:'🥚',k:'uova spesa alimenti'},
+  {e:'🧀',k:'formaggio spesa alimenti'},{e:'🫙',k:'conserve dispensa'},
+  // Trasporti
+  {e:'🚗',k:'auto macchina trasporto'},{e:'⛽',k:'benzina carburante auto'},
+  {e:'🚌',k:'bus autobus trasporto pubblico'},{e:'🚇',k:'metro metropolitana'},
+  {e:'🚂',k:'treno ferrovia'},{e:'✈️',k:'aereo volo viaggio'},
+  {e:'🚕',k:'taxi uber trasporto'},{e:'🛵',k:'scooter moto'},
+  {e:'🚲',k:'bici bicicletta'},{e:'🛳️',k:'nave traghetto'},
+  {e:'🅿️',k:'parcheggio sosta'},
+  // Casa & Abitazione
+  {e:'🏠',k:'casa affitto mutuo abitazione'},{e:'🔧',k:'manutenzione riparazioni'},
+  {e:'💡',k:'elettricita luce bolletta'},{e:'💧',k:'acqua bolletta idrico'},
+  {e:'🔥',k:'gas riscaldamento bolletta'},{e:'🔌',k:'elettricita energia'},
+  {e:'🛋️',k:'arredamento mobili casa'},{e:'🪴',k:'piante giardino'},
+  {e:'🧹',k:'pulizie casa domestico'},{e:'🪣',k:'pulizie casa'},
+  {e:'🔑',k:'affitto casa chiavi'},{e:'🏗️',k:'ristrutturazione lavori'},
+  {e:'📦',k:'trasloco spedizione pacco'},
+  // Salute & Benessere
+  {e:'💊',k:'medicine farmacia salute'},{e:'🏥',k:'ospedale medico visita'},
+  {e:'🩺',k:'medico visita salute'},{e:'🦷',k:'dentista odontoiatra'},
+  {e:'👁️',k:'oculista vista occhi'},{e:'💪',k:'palestra fitness sport'},
+  {e:'🧘',k:'yoga meditazione benessere'},{e:'💆',k:'massaggio benessere spa'},
+  {e:'🧴',k:'cosmetici igiene cura'},{e:'🧼',k:'igiene personale'},
+  // Abbigliamento & Shopping
+  {e:'👗',k:'vestiti abbigliamento shopping'},{e:'👔',k:'camicia vestiti lavoro'},
+  {e:'👟',k:'scarpe sneaker abbigliamento'},{e:'👜',k:'borsa accessori'},
+  {e:'💄',k:'trucco cosmetici bellezza'},{e:'🛍️',k:'shopping acquisti'},
+  {e:'👒',k:'cappello accessori'},{e:'🧥',k:'giacca cappotto'},
+  {e:'👓',k:'occhiali accessori'},{e:'⌚',k:'orologio accessori'},
+  // Intrattenimento
+  {e:'🎬',k:'cinema film intrattenimento'},{e:'🎵',k:'musica concerto spotify'},
+  {e:'🎮',k:'videogiochi gaming intrattenimento'},{e:'📺',k:'tv streaming netflix'},
+  {e:'🎭',k:'teatro spettacolo'},{e:'🎨',k:'arte hobby'},
+  {e:'📚',k:'libri lettura cultura'},{e:'🎲',k:'giochi hobby'},
+  {e:'🎤',k:'karaoke musica concerto'},{e:'🎸',k:'musica strumento hobby'},
+  {e:'🎰',k:'gioco azzardo scommesse'},{e:'🎳',k:'bowling svago'},
+  // Finanza & Banca
+  {e:'💰',k:'soldi risparmio finanza'},{e:'💳',k:'carta credito banca pagamento'},
+  {e:'💵',k:'contanti soldi'},{e:'🏦',k:'banca istituto finanziario'},
+  {e:'📈',k:'investimenti borsa azioni'},{e:'📉',k:'perdita spese'},
+  {e:'💹',k:'investimenti finanza'},{e:'💸',k:'spese uscite soldi'},
+  {e:'🤑',k:'guadagno entrate soldi'},{e:'🪙',k:'moneta risparmio'},
+  {e:'🏧',k:'bancomat prelievo'},
+  // Lavoro & Professione
+  {e:'💼',k:'lavoro ufficio professione'},{e:'🖥️',k:'computer lavoro tech'},
+  {e:'📱',k:'telefono cellulare abbonamento'},{e:'📊',k:'report lavoro'},
+  {e:'📋',k:'documenti burocrazia'},{e:'🖊️',k:'scrittura ufficio'},
+  {e:'🏢',k:'ufficio azienda lavoro'},{e:'📞',k:'telefono comunicazione'},
+  {e:'💻',k:'laptop lavoro freelance'},{e:'🖨️',k:'stampa ufficio'},
+  {e:'✉️',k:'posta spedizione busta'},
+  // Famiglia & Persone
+  {e:'👶',k:'bambino figlio neonato'},{e:'🧒',k:'figlio bambino scuola'},
+  {e:'👨‍👩‍👧‍👦',k:'famiglia'},{e:'❤️',k:'amore regalo donazione'},
+  {e:'🎁',k:'regalo dono compleanno'},{e:'🎂',k:'compleanno festa'},
+  {e:'🎓',k:'istruzione universita diploma'},{e:'🏫',k:'scuola istruzione'},
+  {e:'🧸',k:'giocattoli bambini'},{e:'🍼',k:'bebé neonato'},
+  // Viaggi & Vacanze
+  {e:'🌍',k:'viaggio estero vacanza'},{e:'🏖️',k:'vacanza mare spiaggia'},
+  {e:'⛺',k:'camping vacanza'},{e:'🏔️',k:'montagna escursione'},
+  {e:'🗺️',k:'viaggio tour'},{e:'🎒',k:'zaino vacanza'},
+  {e:'🏨',k:'hotel albergo soggiorno'},{e:'🗼',k:'turismo viaggio'},
+  {e:'🌴',k:'vacanza tropici'},{e:'🎡',k:'parco divertimenti'},
+  // Sport & Fitness
+  {e:'⚽',k:'calcio sport'},{e:'🏀',k:'basket sport'},
+  {e:'🎾',k:'tennis sport'},{e:'🏊',k:'nuoto piscina sport'},
+  {e:'🚴',k:'ciclismo bici sport'},{e:'🏋️',k:'palestra pesi fitness'},
+  {e:'⛷️',k:'sci montagna sport invernale'},{e:'🧗',k:'arrampicata sport'},
+  {e:'🏄',k:'surf mare sport'},{e:'⛳',k:'golf sport'},
+  {e:'🎿',k:'sci sport invernale'},{e:'🥊',k:'boxe sport'},
+  // Animali
+  {e:'🐶',k:'cane animale domestico'},{e:'🐱',k:'gatto animale domestico'},
+  {e:'🐟',k:'pesce acquario animale'},{e:'🐰',k:'coniglio animale'},
+  {e:'🐾',k:'veterinario animale cura'},
+  // Istruzione
+  {e:'✏️',k:'matita scuola istruzione'},{e:'📝',k:'appunti studio'},
+  {e:'🔬',k:'scienza laboratorio corso'},{e:'🧮',k:'matematica calcolo'},
+  // Generici / Varie
+  {e:'📁',k:'cartella generale'},{e:'⭐',k:'preferito speciale'},
+  {e:'🔔',k:'abbonamento notifica'},{e:'🌱',k:'ambiente ecologia'},
+  {e:'♻️',k:'riciclaggio ambiente'},{e:'🌞',k:'energia solare'},
+  {e:'🎪',k:'eventi fiera'},{e:'🏛️',k:'comune burocrazia tasse'},
+  {e:'⚖️',k:'legale avvocato tasse'},{e:'🧾',k:'ricevuta scontrino tasse'},
+  {e:'📮',k:'posta corrispondenza'},{e:'🖼️',k:'arte quadri arredamento'},
+  {e:'🕯️',k:'decorazione casa'},{e:'🧰',k:'attrezzi bricolage'},
+  {e:'🪟',k:'finestre casa'},{e:'🚿',k:'bagno idraulico'},
+  {e:'📷',k:'foto fotografia hobby'},{e:'🎥',k:'video riprese hobby'},
+  {e:'🕹️',k:'gaming videogiochi hobby'},{e:'🧩',k:'hobby passatempo'},
+  {e:'🌐',k:'internet web abbonamento'},{e:'☁️',k:'cloud storage servizi'},
+  {e:'🔐',k:'sicurezza assicurazione'},
+];
+
+function _iconPickerBuild(containerId, currentEmoji) {
+  const wrap = document.getElementById(containerId);
+  if (!wrap) return;
+  wrap.innerHTML = `
+    <div class="icon-picker-preview" onclick="_iconPickerToggle('${containerId}')">
+      <span id="${containerId}_preview" style="font-size:22px">${currentEmoji}</span>
+      <span class="icon-picker-hint">Clicca per cambiare</span>
+    </div>
+    <div id="${containerId}_panel" class="icon-picker-panel" style="display:none">
+      <input type="text" class="form-input" style="margin-bottom:6px"
+             placeholder="Cerca icona…" oninput="_iconPickerSearch('${containerId}',this.value)">
+      <div id="${containerId}_grid" class="icon-grid"></div>
+    </div>`;
+  _iconPickerSearch(containerId, '');
+}
+
+function _iconPickerToggle(cid) {
+  const panel = document.getElementById(cid + '_panel');
+  const open = panel.style.display === 'none';
+  panel.style.display = open ? '' : 'none';
+  if (open) panel.querySelector('input').focus();
+}
+
+function _iconPickerSearch(cid, q) {
+  const ql = q.toLowerCase().trim();
+  const list = ql ? EMOJI_LIST.filter(e => e.k.includes(ql)) : EMOJI_LIST;
+  document.getElementById(cid + '_grid').innerHTML =
+    list.slice(0, 150).map(e =>
+      `<button type="button" class="icon-btn" title="${e.k}"
+               onclick="_iconPickerSelect('${cid}','${e.e}')">${e.e}</button>`
+    ).join('');
+}
+
+function _iconPickerSelect(cid, emoji) {
+  document.getElementById('c_icon').value = emoji;
+  document.getElementById(cid + '_preview').textContent = emoji;
+  document.getElementById(cid + '_panel').style.display = 'none';
+}
+
 /* ─── Bridge Java ─────────────────────────────────────────────────────────── */
 // JCEF tronca le stringhe per byte, non per carattere: un emoji a 4 byte
 // (es. 🏦) sfasa l'offset JSON causando MalformedJsonException in Gson.
@@ -46,7 +191,9 @@ const api = {
   getCategories:   ()   => callJava('getCategories'),
   addCategory:     data => callJava('addCategory',    data),
   updateCategory:  data => callJava('updateCategory', data),
-  deleteCategory:  id   => callJava('deleteCategory', {id}),
+  deleteCategory:    id   => callJava('deleteCategory', {id}),
+  getCategoryUsage:  id   => callJava('getCategoryUsage', {id}),
+  reassignCategory:  data => callJava('reassignCategory', data),
 
   // Tag
   getTags:    ()   => callJava('getTags'),
@@ -83,6 +230,14 @@ const api = {
   getSettings:   ()           => callJava('getSettings'),
   setSetting:    (key, value) => callJava('setSetting', {key, value}),
   chooseDbFile:  (mode)       => callJava('chooseDbFile', {mode}),
+
+  // Pianificate
+  getScheduled:    ()    => callJava('getScheduled'),
+  addScheduled:    data  => callJava('addScheduled', data),
+  updateScheduled: data  => callJava('updateScheduled', data),
+  deleteScheduled: id    => callJava('deleteScheduled', {id}),
+  getUpcoming:     (n)   => callJava('getUpcoming', {limit: n||15}),
+  getProjection:   data  => callJava('getProjection', data),
 };
 
 /* ─── Utils ───────────────────────────────────────────────────────────────── */
@@ -134,7 +289,8 @@ document.getElementById('btnClose').onclick = () => api.close();
 /* ─── Router ──────────────────────────────────────────────────────────────── */
 const PAGE_TITLES = {
   dashboard:'Dashboard', transactions:'Transazioni', accounts:'Conti',
-  budgets:'Budget', portfolio:'Portafoglio', reports:'Report', settings:'Impostazioni'
+  budgets:'Budget', portfolio:'Portafoglio', reports:'Report', settings:'Impostazioni',
+  scheduled:'Transazioni Pianificate'
 };
 let currentPage = 'dashboard';
 let charts = {};
@@ -165,6 +321,7 @@ function renderPage(page) {
     case 'categories':   renderCategories();   break;
     case 'tags':         renderTags();         break;
     case 'settings':     renderSettings();     break;
+    case 'scheduled':    renderScheduled();    break;
   }
 }
 
@@ -235,18 +392,28 @@ async function renderDashboard() {
       <div class="table-wrap"><table><thead><tr>
         <th>Data</th><th>Descrizione</th><th>Categoria</th><th>Conto</th><th class="text-right">Importo</th>
       </tr></thead><tbody id="recentRows"></tbody></table></div>
+    </div>
+    <div class="card upcoming-card" style="margin-top:16px">
+      <div class="card-header">
+        <span class="card-title">🗓️ Prossime transazioni pianificate</span>
+        <button class="btn btn-ghost" onclick="navigate('scheduled')">Gestisci →</button>
+      </div>
+      <div class="table-wrap"><table class="upcoming-table"><thead><tr>
+        <th>Data</th><th>Descrizione</th><th>Frequenza</th><th>Conto</th><th class="text-right">Importo</th>
+      </tr></thead><tbody id="upcomingRows"></tbody></table></div>
     </div>`;
 
   document.getElementById('dashYearLabel').textContent = dashYear;
   document.getElementById('dashPrev').onclick = () => { dashYear--; renderDashboard(); };
   document.getElementById('dashNext').onclick = () => { dashYear++; renderDashboard(); };
 
-  const [stats, accounts, recent, monthly, catData] = await Promise.all([
+  const [stats, accounts, recent, monthly, catData, upcoming] = await Promise.all([
     api.getDashboardStats(dashYear),
     api.getAccounts(),
     api.getTransactions({year:dashYear, limit:10}),
     api.getMonthlyChartData(dashYear),
-    api.getCategoryChartData(dashYear, 'expense')
+    api.getCategoryChartData(dashYear, 'expense'),
+    api.getUpcoming(15)
   ]);
 
   // Stat cards
@@ -335,17 +502,50 @@ async function renderDashboard() {
       <td class="text-right amount-${t.type}">${t.type==='expense'?'-':''}${fmt.currency(t.amount)}</td>
     </tr>`).join('') :
     '<tr><td colspan="5" class="text-muted" style="text-align:center;padding:30px">Nessuna transazione</td></tr>';
+
+  // Upcoming scheduled
+  const freqLabel = f => ({once:'Una volta',daily:'Giornaliera',weekly:'Settimanale',biweekly:'Bisettimanale',monthly:'Mensile',quarterly:'Trimestrale',yearly:'Annuale'}[f]||f);
+  document.getElementById('upcomingRows').innerHTML = upcoming.length ? upcoming.map(u => `
+    <tr>
+      <td>${fmt.date(u.date)}</td>
+      <td class="td-main">${u.description||'-'}</td>
+      <td><span class="sched-freq-badge">${freqLabel(u.frequency)}</span></td>
+      <td>${u.account_name||'-'}</td>
+      <td class="text-right amount-${u.type}">${u.type==='expense'?'-':''}${fmt.currency(u.amount)}</td>
+    </tr>`).join('') :
+    '<tr><td colspan="5" class="text-muted" style="text-align:center;padding:20px">Nessuna transazione pianificata</td></tr>';
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
    TRANSAZIONI
 ═══════════════════════════════════════════════════════════════════════════ */
-let txFilters = { month: new Date().getMonth()+1, year: new Date().getFullYear() };
+let txFilters = { range: '30d' };
+
+function rangeToFilter(range, from, to) {
+  const today = new Date();
+  const fmt = d => d.toISOString().slice(0,10);
+  const sub = days => { const d = new Date(today); d.setDate(d.getDate()-days); return d; };
+  switch (range) {
+    case '7d':        return { date_from: fmt(sub(6)),  date_to: fmt(today) };
+    case '14d':       return { date_from: fmt(sub(13)), date_to: fmt(today) };
+    case '30d':       return { date_from: fmt(sub(29)), date_to: fmt(today) };
+    case '3m':        { const d=new Date(today); d.setMonth(d.getMonth()-3);
+                        return { date_from: fmt(d), date_to: fmt(today) }; }
+    case '6m':        { const d=new Date(today); d.setMonth(d.getMonth()-6);
+                        return { date_from: fmt(d), date_to: fmt(today) }; }
+    case 'ytd':       return { date_from: `${today.getFullYear()}-01-01`, date_to: fmt(today) };
+    case 'last_year': { const y=today.getFullYear()-1;
+                        return { date_from: `${y}-01-01`, date_to: `${y}-12-31` }; }
+    case 'all':       return {};
+    case 'custom':    return { date_from: from||'', date_to: to||'' };
+    default:          return { date_from: fmt(sub(29)), date_to: fmt(today) };
+  }
+}
 let txSort    = { col: 'date', dir: 'desc' };
 let txCache   = [];
 
 function navigateToAccountTx(accountId) {
-  txFilters = { month: new Date().getMonth()+1, year: new Date().getFullYear(), account_id: String(accountId) };
+  txFilters = { range: '30d', account_id: String(accountId) };
   navigate('transactions');
 }
 
@@ -363,24 +563,34 @@ async function renderTransactions() {
       </div>
     </div>
     <div class="filter-bar">
-      <select class="form-control" id="txMonth">
-        ${Array.from({length:12},(_,i)=>`<option value="${i+1}" ${i+1==txFilters.month?'selected':''}>${new Date(0,i).toLocaleString('it-IT',{month:'long'})}</option>`).join('')}
+      <select class="form-control" id="txRange">
+        ${[
+          {v:'7d',        l:'Ultimi 7 giorni'},
+          {v:'14d',       l:'Ultime 2 settimane'},
+          {v:'30d',       l:'Ultimi 30 giorni'},
+          {v:'3m',        l:'Ultimi 3 mesi'},
+          {v:'6m',        l:'Ultimi 6 mesi'},
+          {v:'ytd',       l:'Da inizio anno'},
+          {v:'last_year', l:'Anno scorso'},
+          {v:'all',       l:'Tutto'},
+          {v:'custom',    l:'Personalizza…'},
+        ].map(o=>`<option value="${o.v}" ${(txFilters.range||'30d')===o.v?'selected':''}>${o.l}</option>`).join('')}
       </select>
-      <select class="form-control" id="txYear">
-        ${[2023,2024,2025,2026].map(y=>`<option ${y==txFilters.year?'selected':''}>${y}</option>`).join('')}
-      </select>
+      <input type="date" class="form-control" id="txFrom" value="${txFilters.date_from||''}"
+             style="display:${txFilters.range==='custom'?'':'none'}">
+      <input type="date" class="form-control" id="txTo"   value="${txFilters.date_to||''}"
+             style="display:${txFilters.range==='custom'?'':'none'}">
       <select class="form-control" id="txType">
         <option value="">Tutti i tipi</option>
-        <option value="income">Entrate</option>
-        <option value="expense">Uscite</option>
-        <option value="transfer">Trasferimenti</option>
+        <option value="income"   ${txFilters.type==='income'?'selected':''}>Entrate</option>
+        <option value="expense"  ${txFilters.type==='expense'?'selected':''}>Uscite</option>
+        <option value="transfer" ${txFilters.type==='transfer'?'selected':''}>Trasferimenti</option>
       </select>
       <select class="form-control" id="txAccount">
         <option value="">Tutti i conti</option>
         ${accounts.map(a=>`<option value="${a.id}" ${String(a.id)===String(txFilters.account_id)?'selected':''}>${a.icon} ${a.name}</option>`).join('')}
       </select>
-      <input class="form-control" id="txSearch" placeholder="🔍 Cerca..." style="min-width:160px">
-      <button class="btn btn-ghost" id="btnApplyFilter">Filtra</button>
+      <input class="form-control" id="txSearch" value="${txFilters.search||''}" placeholder="🔍 Cerca..." style="min-width:160px">
     </div>
     <div class="card">
       <div class="table-wrap">
@@ -396,16 +606,35 @@ async function renderTransactions() {
       </div>
     </div>`;
 
-  document.getElementById('btnApplyFilter').onclick = () => {
+  const applyFilters = () => {
+    const range = document.getElementById('txRange').value;
+    const from  = document.getElementById('txFrom').value;
+    const to    = document.getElementById('txTo').value;
     txFilters = {
-      month:     parseInt(document.getElementById('txMonth').value),
-      year:      parseInt(document.getElementById('txYear').value),
-      type:      document.getElementById('txType').value,
-      account_id:document.getElementById('txAccount').value || undefined,
-      search:    document.getElementById('txSearch').value,
+      range,
+      ...rangeToFilter(range, from, to),
+      type:       document.getElementById('txType').value,
+      account_id: document.getElementById('txAccount').value || undefined,
+      search:     document.getElementById('txSearch').value,
     };
     loadTxRows(categories, accounts);
   };
+
+  document.getElementById('txRange').addEventListener('change', () => {
+    const isCustom = document.getElementById('txRange').value === 'custom';
+    document.getElementById('txFrom').style.display = isCustom ? '' : 'none';
+    document.getElementById('txTo').style.display   = isCustom ? '' : 'none';
+    applyFilters();
+  });
+  let _txSearchTimer;
+  ['txType','txAccount'].forEach(id =>
+    document.getElementById(id).addEventListener('change', applyFilters));
+  ['txFrom','txTo'].forEach(id =>
+    document.getElementById(id).addEventListener('change', applyFilters));
+  document.getElementById('txSearch').addEventListener('input', () => {
+    clearTimeout(_txSearchTimer);
+    _txSearchTimer = setTimeout(applyFilters, 300);
+  });
 
   document.getElementById('btnAddIncome').onclick   = () => showTxModal(null, categories, accounts, 'income',   tags);
   document.getElementById('btnAddExpense').onclick  = () => showTxModal(null, categories, accounts, 'expense',  tags);
@@ -453,7 +682,7 @@ function renderTxBodyAndHeaders() {
   if (!tbody) return;
   const sorted = sortTxs(txCache);
   tbody.innerHTML = sorted.length ? sorted.map(t => `
-    <tr data-tx-id="${t.id}">
+    <tr data-tx-id="${t.id}" ${t.color ? `style="background:${t.color}18" class="tx-colored"` : ''}>
       <td>${fmt.date(t.date)}</td>
       <td class="td-main">${t.description||''}${(t.tags&&t.tags.length)?`<br>${t.tags.map(tg=>`<span class="tag-inline" style="--tc:${tg.color}">${tg.name}</span>`).join('')}`:''}</td>
       <td><span class="badge badge-${t.type}">${t.type==='income'?'Entrata':t.type==='expense'?'Uscita':'Trasferimento'}</span></td>
@@ -531,6 +760,16 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
       <label class="form-label">Descrizione</label>
       <textarea class="form-control" id="f_desc" rows="2" placeholder="Opzionale">${tx?.description||''}</textarea>
     </div>
+    <div class="form-group">
+      <label class="form-label">Colore riga <span class="settings-hint">(opzionale — evidenzia la riga)</span></label>
+      <div style="display:flex;align-items:center;gap:8px">
+        <input type="color" id="f_color" class="form-color-tx" value="${tx?.color||'#ffffff'}">
+        <label class="settings-hint" style="display:flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="checkbox" id="f_color_use" ${tx?.color?'checked':''} style="margin:0">
+          Usa colore
+        </label>
+      </div>
+    </div>
       <div class="form-group">
         <label class="form-label">Tag</label>
         <div class="tag-selector" id="tagSelector">
@@ -576,6 +815,8 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
       account_id:    parseInt(document.getElementById('f_account').value),
       to_account_id: type==='transfer' ? parseInt(document.getElementById('f_toAccount').value)||null : null,
       tag_ids:       [...selectedTagIds],
+      color: document.getElementById('f_color_use')?.checked
+               ? document.getElementById('f_color').value : null,
     };
     if (!data.amount || !data.account_id) {
       toast('Compila i campi obbligatori', 'error'); return;
@@ -903,22 +1144,58 @@ function renderBudgetTable() {
     actualMap[a.category_id][a.month] = a.total;
   });
 
-  // Show ALL categories (all parents + their children)
-  const ordered = categories;
+  // Categorie che hanno figli → solo riepilogo, non editabili (come le transazioni)
+  const parentIds = new Set(categories.filter(c => c.parent_id).map(c => c.parent_id));
+  // Figli raggruppati per parent
+  const childrenOf = {};
+  categories.forEach(c => { if (c.parent_id) (childrenOf[c.parent_id] ??= []).push(c); });
 
-  const rows = ordered.map(cat => {
-    const bm = budgetMap[cat.id] || {};
-    const am = actualMap[cat.id] || {};
-    const isParent = !cat.parent_id;
+  // Somma ricorsiva budget/actual per una categoria e i suoi figli
+  const sumBm = id => {
+    const direct = budgetMap[id] || {};
+    const kids = childrenOf[id] || [];
+    const result = {...direct};
+    kids.forEach(k => {
+      const km = budgetMap[k.id] || {};
+      for (let m = 1; m <= 12; m++) result[m] = (result[m]||0) + (km[m]||0);
+    });
+    return result;
+  };
+  const sumAm = id => {
+    const direct = actualMap[id] || {};
+    const kids = childrenOf[id] || [];
+    const result = {...direct};
+    kids.forEach(k => {
+      const km = actualMap[k.id] || {};
+      for (let m = 1; m <= 12; m++) result[m] = (result[m]||0) + (km[m]||0);
+    });
+    return result;
+  };
+
+  const rows = categories.map(cat => {
+    const isGroupHeader = parentIds.has(cat.id);  // macrocategoria con figli
+    const isChild = !!cat.parent_id;
+    const bm = isGroupHeader ? sumBm(cat.id) : (budgetMap[cat.id] || {});
+    const am = isGroupHeader ? sumAm(cat.id) : (actualMap[cat.id] || {});
     const annualBudget = Object.values(bm).reduce((s,v)=>s+v,0);
     const annualActual = Object.values(am).reduce((s,v)=>s+v,0);
+
+    // Per uscite: rosso se spendi più del budget. Per entrate: rosso se guadagni meno del previsto.
+    const isIncome = cat.type === 'income';
+    const isOver = (budget, actual) => budget > 0 && (isIncome ? actual < budget : actual > budget);
 
     const cells = Array.from({length:12},(_,i)=>{
       const m = i+1;
       const budget = bm[m] || 0;
       const actual = am[m] || 0;
-      const over   = actual > budget && budget > 0;
-      return `<td class="budget-cell ${isParent?'budget-cell-parent':''}"
+      const over = isOver(budget, actual);
+      if (isGroupHeader) {
+        return `<td class="budget-cell budget-cell-parent budget-cell-readonly">
+          <span class="budget-cell-val">${budget>0?fmt.currency(budget):''}</span>
+          ${actual>0?`<span class="budget-cell-actual ${over?'over':''}">${fmt.currency(actual)}</span>`:''}
+        </td>`;
+      }
+      return `<td class="budget-cell"
                   data-cat="${cat.id}" data-month="${m}"
                   onclick="_budgetCellEdit(this,${cat.id},${m})">
         <span class="budget-cell-val">${budget>0?fmt.currency(budget):''}</span>
@@ -926,21 +1203,26 @@ function renderBudgetTable() {
       </td>`;
     }).join('');
 
-    const totalOver = annualActual > annualBudget && annualBudget > 0;
-    return `<tr class="${isParent?'budget-row-parent':'budget-row-child'}" data-cat-id="${cat.id}">
-      <td class="budget-cat-cell ${isParent?'':'budget-child-indent'}">
+    const totalOver = isOver(annualBudget, annualActual);
+    const actions = isGroupHeader
+      ? `<td class="budget-actions-cell"></td>`
+      : `<td class="budget-actions-cell">
+           <button class="btn btn-ghost btn-icon" title="Imposta mensile" onclick="_budgetSetMonthly(${cat.id},'${cat.name}')">M</button>
+           <button class="btn btn-ghost btn-icon" title="Imposta annuale" onclick="_budgetSetAnnual(${cat.id},'${cat.name}')">A</button>
+           <button class="btn btn-ghost btn-icon" title="Svuota" onclick="_budgetClearRow(${cat.id})">🗑️</button>
+         </td>`;
+
+    return `<tr class="${isGroupHeader?'budget-row-parent':''} ${isChild?'budget-row-child':''}" data-cat-id="${cat.id}">
+      <td class="budget-cat-cell ${isChild?'budget-child-indent':''}">
         <span style="color:${cat.color}">${cat.icon}</span> ${cat.name}
+        ${isGroupHeader?'<span class="budget-group-hint"> (riepilogo)</span>':''}
       </td>
       ${cells}
-      <td class="budget-total-cell ${isParent?'budget-cell-parent':''}">
+      <td class="budget-total-cell ${isGroupHeader?'budget-cell-parent':''}">
         ${annualBudget>0?`<b>${fmt.currency(annualBudget)}</b>`:''}
         ${annualBudget>0?`<span class="budget-cell-actual ${totalOver?'over':''}">${fmt.currency(annualActual)}</span>`:''}
       </td>
-      <td class="budget-actions-cell">
-        <button class="btn btn-ghost btn-icon" title="Imposta mensile" onclick="_budgetSetMonthly(${cat.id},'${cat.name}')">M</button>
-        <button class="btn btn-ghost btn-icon" title="Imposta annuale" onclick="_budgetSetAnnual(${cat.id},'${cat.name}')">A</button>
-        <button class="btn btn-ghost btn-icon" title="Svuota" onclick="_budgetClearRow(${cat.id})">🗑️</button>
-      </td>
+      ${actions}
     </tr>`;
   }).join('');
 
@@ -948,22 +1230,34 @@ function renderBudgetTable() {
 }
 
 window._budgetCellEdit = (td, catId, month) => {
+  const originalHtml = td.innerHTML;
   const valSpan = td.querySelector('.budget-cell-val');
-  const current = (valSpan?.textContent || '').replace(/[^0-9.,]/g,'').replace(',','.');
+  // Formato italiano: "€ 1.200,50" → rimuovi tutto tranne cifre e virgola → "1200,50" → "1200.50"
+  const originalVal = parseFloat((valSpan?.textContent || '').replace(/[^0-9,]/g,'').replace(',','.')) || 0;
+
   const inp = document.createElement('input');
   inp.type = 'number'; inp.step = '0.01'; inp.min = '0';
-  inp.value = current || '';
+  inp.value = originalVal || '';
   inp.className = 'budget-cell-input';
   inp.onclick = e => e.stopPropagation();
 
+  let committed = false;
+  const restore = () => { td.innerHTML = originalHtml; };
   const save = async () => {
-    const val = parseFloat(inp.value) || 0;
-    td.replaceWith(td); // restore original td
+    if (committed) return;
+    committed = true;
+    const raw = inp.value.trim();
+    // Se vuoto o invariato, non fare nulla
+    if (raw === '' || parseFloat(raw) === originalVal) { restore(); return; }
+    const val = parseFloat(raw) || 0;
     await api.setBudget({category_id: catId, amount: val, month, year: budgetYear});
     await loadBudgetTable();
   };
-  inp.onblur  = save;
-  inp.onkeydown = e => { if (e.key==='Enter') inp.blur(); if (e.key==='Escape') loadBudgetTable(); };
+  inp.onblur    = save;
+  inp.onkeydown = e => {
+    if (e.key === 'Enter')  { inp.blur(); }
+    if (e.key === 'Escape') { committed = true; restore(); }
+  };
 
   td.innerHTML = '';
   td.appendChild(inp);
@@ -1447,12 +1741,61 @@ async function editCategory(id) {
 }
 
 async function deleteCategory(id) {
-  if (!confirm('Eliminare questa categoria? Le transazioni associate perderanno la categoria.')) return;
-  try {
-    await api.deleteCategory(id);
-    toast('Categoria eliminata');
-    renderCategories();
-  } catch(e) { toast(e.message, 'error'); }
+  const [usage, allCats] = await Promise.all([api.getCategoryUsage(id), api.getCategories()]);
+  const cat = allCats.find(c => c.id === id);
+  if (!cat) return;
+
+  const totalTx = (usage.tx_count || 0) + (usage.child_tx_count || 0);
+  const hasBudget = (usage.budget_count || 0) > 0;
+  const hasChildren = (usage.child_count || 0) > 0;
+
+  // Nessun uso → semplice conferma
+  if (totalTx === 0 && !hasBudget && !hasChildren) {
+    openModal('Elimina categoria',
+      `<p style="margin:0">Eliminare <b>${cat.icon} ${cat.name}</b>?</p>`,
+      async () => {
+        await api.deleteCategory(id); closeModal();
+        toast('Categoria eliminata'); renderCategories();
+      }, 'Elimina', 'btn-danger');
+    return;
+  }
+
+  // Ha dipendenze → proponi spostamento
+  const descParts = [];
+  if (totalTx > 0) descParts.push(`${totalTx} transazion${totalTx===1?'e':'i'}`);
+  if (hasBudget)   descParts.push(`${usage.budget_count} voc${usage.budget_count===1?'e':'i'} di budget`);
+  if (hasChildren) descParts.push(`${usage.child_count} sottocategor${usage.child_count===1?'ia':'ie'}`);
+
+  // Categorie disponibili per lo spostamento (stesso tipo, esclude questa e i suoi figli)
+  const childIds = new Set(allCats.filter(c => c.parent_id === id).map(c => c.id));
+  const targets = allCats.filter(c =>
+    c.id !== id && !childIds.has(c.id) && c.type === cat.type && c.type !== 'transfer'
+  );
+  const opts = targets.map(c =>
+    `<option value="${c.id}">${c.parent_id ? '  └ ' : ''}${c.icon} ${c.name}</option>`
+  ).join('');
+
+  openModal('Elimina categoria',
+    `<p style="margin-bottom:12px">
+       <b>${cat.icon} ${cat.name}</b> è usata da: <b>${descParts.join(', ')}</b>.<br>
+       <span class="settings-hint">Sposta tutto su un'altra categoria prima di eliminare.</span>
+     </p>
+     <div class="form-group">
+       <label class="form-label">Sposta su</label>
+       <select id="del_target" class="form-input">
+         <option value="">— Seleziona categoria —</option>
+         ${opts}
+       </select>
+     </div>
+     <div class="settings-hint" style="margin-top:6px">
+       Le voci di budget verranno eliminate. Le transazioni verranno spostate sulla categoria scelta.
+     </div>`,
+    async () => {
+      const toId = parseInt(document.getElementById('del_target').value);
+      if (!toId) { toast('Seleziona una categoria di destinazione', 'error'); return false; }
+      await api.reassignCategory({from_id: id, to_id: toId});
+      closeModal(); toast('Categoria eliminata e transazioni spostate'); renderCategories();
+    }, 'Sposta ed elimina', 'btn-danger');
 }
 
 async function showCategoryModal(cat, type, parentId) {
@@ -1486,9 +1829,10 @@ async function showCategoryModal(cat, type, parentId) {
         <label class="form-label">Nome *</label>
         <input id="c_name" class="form-input" value="${cat?.name ?? ''}" placeholder="es. Supermercato">
       </div>
-      <div class="form-group">
+      <div class="form-group" style="grid-column:1/-1">
         <label class="form-label">Icona</label>
-        <input id="c_icon" class="form-input" value="${cat?.icon ?? '📁'}" maxlength="4">
+        <input type="hidden" id="c_icon" value="${cat?.icon ?? '📁'}">
+        <div id="iconPickerWrap"></div>
       </div>
       <div class="form-group">
         <label class="form-label">Colore</label>
@@ -1499,7 +1843,7 @@ async function showCategoryModal(cat, type, parentId) {
     const data = {
       name:      document.getElementById('c_name').value.trim(),
       type,
-      icon:      document.getElementById('c_icon').value.trim() || '📁',
+      icon:      document.getElementById('c_icon').value || '📁',
       color:     document.getElementById('c_color').value,
       parent_id: document.getElementById('c_parent').value
                    ? parseInt(document.getElementById('c_parent').value) : null,
@@ -1511,6 +1855,7 @@ async function showCategoryModal(cat, type, parentId) {
       renderCategories();
     } catch(e) { toast(e.message, 'error'); return false; }
   });
+  setTimeout(() => _iconPickerBuild('iconPickerWrap', cat?.icon ?? '📁'), 30);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -1587,13 +1932,388 @@ window.editTagMgmt = async id => {
 };
 
 window.deleteTagMgmt = async id => {
-  if (!confirm('Eliminare questo tag? Verrà rimosso da tutte le transazioni.')) return;
+  const ok = await confirm('Elimina tag', 'Eliminare questo tag? Verrà rimosso da tutte le transazioni.');
+  if (!ok) return;
   try {
     await api.deleteTag(id);
     toast('Tag eliminato');
     renderTags();
   } catch(e) { toast(e.message, 'error'); }
 };
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   TRANSAZIONI PIANIFICATE
+═══════════════════════════════════════════════════════════════════════════ */
+const FREQ_LABELS = {
+  once:'Una volta', daily:'Giornaliera', weekly:'Settimanale',
+  biweekly:'Bisettimanale', monthly:'Mensile', quarterly:'Trimestrale', yearly:'Annuale'
+};
+
+let schedTab = 'lista';
+let schedCharts = {};
+
+async function renderScheduled() {
+  const pg = document.getElementById('pg-scheduled');
+  pg.innerHTML = `
+    <div class="section-header">
+      <h2 class="section-title">Transazioni Pianificate</h2>
+    </div>
+    <div class="scheduled-tabs">
+      <button class="sched-tab ${schedTab==='lista'?'active':''}"      onclick="setSchedTab('lista')">📋 Lista</button>
+      <button class="sched-tab ${schedTab==='projection'?'active':''}" onclick="setSchedTab('projection')">📈 Proiezione Saldo</button>
+      <button class="sched-tab ${schedTab==='cashflow'?'active':''}"   onclick="setSchedTab('cashflow')">💰 Flusso di Cassa</button>
+    </div>
+    <div id="schedContent"></div>`;
+
+  renderSchedTab();
+}
+
+window.setSchedTab = tab => {
+  schedTab = tab;
+  document.querySelectorAll('.sched-tab').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.sched-tab').forEach(b => {
+    if ((tab==='lista'&&b.textContent.includes('Lista'))||
+        (tab==='projection'&&b.textContent.includes('Proiezione'))||
+        (tab==='cashflow'&&b.textContent.includes('Flusso'))) b.classList.add('active');
+  });
+  renderSchedTab();
+};
+
+async function renderSchedTab() {
+  if (schedTab === 'lista')       await renderSchedLista();
+  else if (schedTab === 'projection') await renderSchedProjection();
+  else if (schedTab === 'cashflow')   await renderSchedCashflow();
+}
+
+async function renderSchedLista() {
+  const [scheds, accounts, categories] = await Promise.all([
+    api.getScheduled(), api.getAccounts(), api.getCategories()
+  ]);
+  const el = document.getElementById('schedContent');
+  el.innerHTML = `
+    <div class="section-header" style="margin-bottom:12px">
+      <span></span>
+      <button class="btn btn-primary" id="btnNewSched">+ Nuova</button>
+    </div>
+    <div class="card">
+      <div class="table-wrap">
+        <table><thead><tr>
+          <th>Attivo</th><th>Data inizio</th><th>Frequenza</th><th>Descrizione</th>
+          <th class="text-right">Importo</th><th>Tipo</th><th>Conto</th><th></th>
+        </tr></thead>
+        <tbody id="schedBody"></tbody></table>
+      </div>
+    </div>`;
+
+  document.getElementById('btnNewSched').onclick = () => showScheduledModal(null, accounts, categories);
+
+  const tbody = document.getElementById('schedBody');
+  if (!scheds.length) {
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:40px;color:var(--txt3)">Nessuna transazione pianificata. Creane una!</td></tr>';
+    return;
+  }
+  tbody.innerHTML = scheds.map(s => `
+    <tr ${s.color ? `style="background:${s.color}18"` : ''}>
+      <td><span style="font-size:16px">${s.is_active ? '✅' : '⏸️'}</span></td>
+      <td>${fmt.date(s.start_date)}${s.end_date?`<br><span class="text-small text-muted">fino ${fmt.date(s.end_date)}</span>`:''}</td>
+      <td><span class="sched-freq-badge">${FREQ_LABELS[s.frequency]||s.frequency}</span></td>
+      <td class="td-main">${s.description||'-'}${s.category_name?`<br><span class="text-small text-muted">${s.category_icon||''} ${s.category_name}</span>`:''}</td>
+      <td class="text-right amount-${s.type}">${s.type==='expense'?'-':''}${fmt.currency(s.amount)}</td>
+      <td><span class="badge badge-${s.type}">${s.type==='income'?'Entrata':s.type==='expense'?'Uscita':'Trasferimento'}</span></td>
+      <td>${s.account_name||'-'}${s.to_account_name?` → ${s.to_account_name}`:''}</td>
+      <td>
+        <button class="btn btn-ghost btn-icon" onclick="editSched(${s.id})">✏️</button>
+        <button class="btn btn-ghost btn-icon" onclick="deleteSched(${s.id})">🗑️</button>
+      </td>
+    </tr>`).join('');
+}
+
+async function renderSchedProjection() {
+  const accounts = await api.getAccounts();
+  const today = new Date().toISOString().slice(0,10);
+  const future = new Date(); future.setMonth(future.getMonth()+6);
+  const futureStr = future.toISOString().slice(0,10);
+  const el = document.getElementById('schedContent');
+  el.innerHTML = `
+    <div class="card" style="margin-bottom:16px">
+      <div class="proj-controls">
+        <label class="form-label" style="margin:0">Da:</label>
+        <input type="date" class="form-control" id="projFrom" value="${today}">
+        <label class="form-label" style="margin:0">A:</label>
+        <input type="date" class="form-control" id="projTo" value="${futureStr}">
+        <label class="form-label" style="margin:0">Conti:</label>
+        <select class="form-control" id="projAccounts" multiple style="min-width:160px;height:60px">
+          ${accounts.map(a=>`<option value="${a.id}">${a.icon} ${a.name}</option>`).join('')}
+        </select>
+        <button class="btn btn-primary" id="btnCalcProj">Calcola</button>
+      </div>
+      <div class="proj-chart-wrap"><canvas id="projChart"></canvas></div>
+    </div>`;
+
+  document.getElementById('btnCalcProj').onclick = () => loadProjectionChart(accounts);
+  await loadProjectionChart(accounts);
+}
+
+async function loadProjectionChart(accounts) {
+  const fromVal = document.getElementById('projFrom')?.value;
+  const toVal   = document.getElementById('projTo')?.value;
+  if (!fromVal || !toVal) return;
+  const selOpts = [...(document.getElementById('projAccounts')?.selectedOptions||[])];
+  const accIds  = selOpts.length ? selOpts.map(o=>o.value).join(',') : '';
+
+  let data;
+  try { data = await api.getProjection({from_date:fromVal, to_date:toVal, account_ids:accIds}); }
+  catch(e) { toast(e.message,'error'); return; }
+
+  const { series, accounts: accList } = data;
+  const dates = [...new Set(series.map(p=>p.date))].sort();
+  const CHART_COLORS = ['#58a6ff','#3fb950','#f85149','#d29922','#a371f7','#f0883e','#00d4aa','#8b949e'];
+
+  const datasets = accList.map((a,i) => {
+    const aid = a.id;
+    const pts = dates.map(d => {
+      const found = series.find(p=>p.date===d && p.account_id===aid);
+      return found ? found.balance : null;
+    });
+    return {
+      label: a.name,
+      data: pts,
+      borderColor: CHART_COLORS[i % CHART_COLORS.length],
+      backgroundColor: CHART_COLORS[i % CHART_COLORS.length] + '22',
+      fill: false, tension: 0.3, pointRadius: 2, spanGaps: true
+    };
+  });
+
+  if (schedCharts.proj) schedCharts.proj.destroy();
+  const ctx = document.getElementById('projChart');
+  if (!ctx) return;
+  schedCharts.proj = new Chart(ctx, {
+    type: 'line',
+    data: { labels: dates, datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { color:'#8b949e' } } },
+      scales: {
+        x: { ticks:{ color:'#8b949e', maxTicksLimit:12 }, grid:{ color:'#21262d' } },
+        y: { ticks:{ color:'#8b949e', callback: v => fmt.currency(v) }, grid:{ color:'#21262d' } }
+      }
+    }
+  });
+}
+
+async function renderSchedCashflow() {
+  const accounts = await api.getAccounts();
+  const today = new Date().toISOString().slice(0,10);
+  const future = new Date(); future.setFullYear(future.getFullYear()+1);
+  const futureStr = future.toISOString().slice(0,10);
+  const el = document.getElementById('schedContent');
+  el.innerHTML = `
+    <div class="card" style="margin-bottom:16px">
+      <div class="proj-controls">
+        <label class="form-label" style="margin:0">Da:</label>
+        <input type="date" class="form-control" id="cfFrom" value="${today}">
+        <label class="form-label" style="margin:0">A:</label>
+        <input type="date" class="form-control" id="cfTo" value="${futureStr}">
+        <label class="form-label" style="margin:0">Conti:</label>
+        <select class="form-control" id="cfAccounts" multiple style="min-width:160px;height:60px">
+          ${accounts.map(a=>`<option value="${a.id}">${a.icon} ${a.name}</option>`).join('')}
+        </select>
+        <button class="btn btn-primary" id="btnCalcCf">Calcola</button>
+      </div>
+      <div class="proj-chart-wrap"><canvas id="cfChart"></canvas></div>
+    </div>`;
+
+  document.getElementById('btnCalcCf').onclick = () => loadCashflowChart();
+  await loadCashflowChart();
+}
+
+async function loadCashflowChart() {
+  const fromVal = document.getElementById('cfFrom')?.value;
+  const toVal   = document.getElementById('cfTo')?.value;
+  if (!fromVal || !toVal) return;
+  const selOpts = [...(document.getElementById('cfAccounts')?.selectedOptions||[])];
+  const accIds  = selOpts.length ? selOpts.map(o=>o.value).join(',') : '';
+
+  let data;
+  try { data = await api.getProjection({from_date:fromVal, to_date:toVal, account_ids:accIds}); }
+  catch(e) { toast(e.message,'error'); return; }
+
+  const { cashflow } = data;
+  const labels  = cashflow.map(m=>m.month);
+  const incomes = cashflow.map(m=>m.income);
+  const expenses= cashflow.map(m=>m.expense);
+
+  if (schedCharts.cf) schedCharts.cf.destroy();
+  const ctx = document.getElementById('cfChart');
+  if (!ctx) return;
+  schedCharts.cf = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label:'Entrate',  data:incomes,  backgroundColor:'rgba(63,185,80,.7)',  borderRadius:4 },
+        { label:'Uscite',   data:expenses, backgroundColor:'rgba(248,81,73,.7)', borderRadius:4 }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { color:'#8b949e' } } },
+      scales: {
+        x: { ticks:{ color:'#8b949e' }, grid:{ color:'#21262d' } },
+        y: { ticks:{ color:'#8b949e', callback: v => fmt.currency(v) }, grid:{ color:'#21262d' } }
+      }
+    }
+  });
+}
+
+window.editSched = async id => {
+  const [scheds, accounts, categories] = await Promise.all([
+    api.getScheduled(), api.getAccounts(), api.getCategories()
+  ]);
+  const s = scheds.find(x=>x.id===id);
+  if (s) showScheduledModal(s, accounts, categories);
+};
+
+window.deleteSched = async id => {
+  const ok = await confirm('Elimina transazione pianificata', 'Eliminare questa transazione pianificata?');
+  if (!ok) return;
+  await api.deleteScheduled(id);
+  toast('Transazione pianificata eliminata');
+  renderSchedLista();
+};
+
+function showScheduledModal(sched, accounts, categories) {
+  const isEdit = !!sched;
+  const today  = new Date().toISOString().slice(0,10);
+  const initType = sched?.type || 'expense';
+
+  const expCats = categories.filter(c=>c.type==='expense');
+  const incCats = categories.filter(c=>c.type==='income');
+
+  const body = `
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Tipo</label>
+        <select class="form-control" id="sc_type" onchange="schedToggleCats()">
+          <option value="expense"  ${initType==='expense' ?'selected':''}>Uscita</option>
+          <option value="income"   ${initType==='income'  ?'selected':''}>Entrata</option>
+          <option value="transfer" ${initType==='transfer'?'selected':''}>Trasferimento</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Importo (€) *</label>
+        <input type="number" step="0.01" min="0" class="form-control" id="sc_amount" value="${sched?.amount||''}">
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Descrizione</label>
+      <input class="form-control" id="sc_desc" placeholder="Opzionale" value="${sched?.description||''}">
+    </div>
+    <div class="form-row">
+      <div class="form-group" id="sc_catGroup">
+        <label class="form-label">Categoria</label>
+        <select class="form-control" id="sc_cat"></select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Frequenza</label>
+        <select class="form-control" id="sc_freq">
+          ${Object.entries(FREQ_LABELS).map(([v,l])=>`<option value="${v}" ${sched?.frequency===v?'selected':v==='monthly'&&!sched?'selected':''}>${l}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Conto *</label>
+        <select class="form-control" id="sc_account">
+          ${accounts.map(a=>`<option value="${a.id}" ${sched?.account_id==a.id?'selected':''}>${a.icon} ${a.name}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group" id="sc_toAccGroup" style="${initType!=='transfer'?'display:none':''}">
+        <label class="form-label">Conto destinazione</label>
+        <select class="form-control" id="sc_toAccount">
+          <option value="">— Seleziona —</option>
+          ${accounts.map(a=>`<option value="${a.id}" ${sched?.to_account_id==a.id?'selected':''}>${a.icon} ${a.name}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Data inizio *</label>
+        <input type="date" class="form-control" id="sc_start" value="${sched?.start_date||today}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Data fine (opzionale)</label>
+        <input type="date" class="form-control" id="sc_end" value="${sched?.end_date||''}">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Colore riga <span class="settings-hint">(opzionale)</span></label>
+        <div style="display:flex;align-items:center;gap:8px">
+          <input type="color" id="sc_color" class="form-color-tx" value="${sched?.color||'#ffffff'}">
+          <label class="settings-hint" style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="checkbox" id="sc_color_use" ${sched?.color?'checked':''} style="margin:0">
+            Usa colore
+          </label>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Attivo</label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:6px">
+          <input type="checkbox" id="sc_active" ${sched?.is_active!==0?'checked':''} style="margin:0">
+          Transazione attiva
+        </label>
+      </div>
+    </div>`;
+
+  function updateSchedCatSelect(keepSelected) {
+    const type = document.getElementById('sc_type')?.value;
+    const sel  = document.getElementById('sc_cat');
+    if (!sel) return;
+    if (type === 'transfer') { sel.innerHTML = '<option value="">Nessuna categoria</option>'; return; }
+    const cats = type === 'expense' ? expCats : incCats;
+    sel.innerHTML = `<option value="">— Seleziona —</option>${buildCatOptions(cats, keepSelected)}`;
+  }
+
+  window.schedToggleCats = () => {
+    const type = document.getElementById('sc_type')?.value;
+    const toAcc = document.getElementById('sc_toAccGroup');
+    if (toAcc) toAcc.style.display = type === 'transfer' ? '' : 'none';
+    updateSchedCatSelect(null);
+  };
+
+  openModal(isEdit ? 'Modifica Transazione Pianificata' : 'Nuova Transazione Pianificata', body, async () => {
+    const type = document.getElementById('sc_type').value;
+    const data = {
+      id:            sched?.id,
+      description:   document.getElementById('sc_desc').value.trim(),
+      amount:        parseFloat(document.getElementById('sc_amount').value),
+      type,
+      category_id:   parseInt(document.getElementById('sc_cat').value)||null,
+      account_id:    parseInt(document.getElementById('sc_account').value),
+      to_account_id: type==='transfer' ? parseInt(document.getElementById('sc_toAccount').value)||null : null,
+      frequency:     document.getElementById('sc_freq').value,
+      start_date:    document.getElementById('sc_start').value,
+      end_date:      document.getElementById('sc_end').value || null,
+      is_active:     document.getElementById('sc_active').checked ? 1 : 0,
+      color: document.getElementById('sc_color_use')?.checked
+               ? document.getElementById('sc_color').value : null,
+    };
+    if (!data.amount || !data.account_id || !data.start_date) {
+      toast('Compila i campi obbligatori', 'error'); return;
+    }
+    try {
+      if (isEdit) await api.updateScheduled(data);
+      else        await api.addScheduled(data);
+      closeModal();
+      toast(isEdit ? 'Transazione pianificata aggiornata' : 'Transazione pianificata aggiunta');
+      renderSchedLista();
+    } catch(e) { toast(e.message, 'error'); }
+  });
+
+  // populate category select after modal renders
+  setTimeout(() => updateSchedCatSelect(sched?.category_id), 30);
+}
 
 /* ═══════════════════════════════════════════════════════════════════════════
    INIT

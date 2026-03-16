@@ -4,7 +4,9 @@ import com.google.gson.JsonObject;
 import org.sqlite.SQLiteConfig;
 
 import java.sql.*;
+import java.time.LocalDate;
 import java.util.*;
+import java.util.stream.Collectors;
 
 public class Database {
 
@@ -149,6 +151,23 @@ public class Database {
                 PRIMARY KEY (transaction_id, tag_id)
             );
         """);
+        executePlain("""
+            CREATE TABLE IF NOT EXISTS scheduled_transactions (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                description   TEXT,
+                amount        REAL    NOT NULL,
+                type          TEXT    NOT NULL,
+                category_id   INTEGER REFERENCES categories(id) ON DELETE SET NULL,
+                account_id    INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+                to_account_id INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
+                frequency     TEXT    NOT NULL DEFAULT 'monthly',
+                start_date    TEXT    NOT NULL,
+                end_date      TEXT,
+                is_active     INTEGER DEFAULT 1,
+                color         TEXT,
+                created_at    TEXT    DEFAULT CURRENT_TIMESTAMP
+            )
+        """);
     }
 
     private void migrate() throws SQLException {
@@ -161,9 +180,26 @@ public class Database {
             executePlain("UPDATE transactions SET description = TRIM(COALESCE(NULLIF(TRIM(description),''), '') || CASE WHEN notes IS NOT NULL AND TRIM(notes)!='' THEN CASE WHEN TRIM(description)!='' THEN ' - ' ELSE '' END || notes ELSE '' END)");
             executePlain("ALTER TABLE transactions DROP COLUMN notes");
         } catch (SQLException ignored) { /* colonna già rimossa */ }
+        // Aggiunge colonna color alle transazioni (evidenziazione riga)
+        try {
+            executePlain("ALTER TABLE transactions ADD COLUMN color TEXT");
+        } catch (SQLException ignored) { /* già presente */ }
         // Crea tabelle tag se non esistono (CREATE IF NOT EXISTS è idempotente)
         executePlain("CREATE TABLE IF NOT EXISTS tags (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, color TEXT DEFAULT '#58a6ff', created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
         executePlain("CREATE TABLE IF NOT EXISTS transaction_tags (transaction_id INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE, tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE, PRIMARY KEY (transaction_id, tag_id))");
+        // scheduled_transactions (idempotente)
+        executePlain("""
+            CREATE TABLE IF NOT EXISTS scheduled_transactions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                description TEXT, amount REAL NOT NULL, type TEXT NOT NULL,
+                category_id INTEGER REFERENCES categories(id) ON DELETE SET NULL,
+                account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+                to_account_id INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
+                frequency TEXT NOT NULL DEFAULT 'monthly',
+                start_date TEXT NOT NULL, end_date TEXT, is_active INTEGER DEFAULT 1,
+                color TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """);
     }
 
     private void seedDefaultData() throws SQLException {
@@ -306,6 +342,33 @@ public class Database {
         return Map.of("id", id, "deleted", true);
     }
 
+    /** Conta transazioni, budget e figli associati a questa categoria (e ai suoi figli). */
+    public Map<String, Object> getCategoryUsage(int id) throws SQLException {
+        var tx = queryOne("SELECT COUNT(*) AS n FROM transactions WHERE category_id=?", id);
+        var bg = queryOne("SELECT COUNT(*) AS n FROM budgets WHERE category_id=?", id);
+        var ch = queryOne("SELECT COUNT(*) AS n FROM categories WHERE parent_id=?", id);
+        long txCount  = tx != null ? ((Number) tx.get("n")).longValue() : 0;
+        long bgCount  = bg != null ? ((Number) bg.get("n")).longValue() : 0;
+        long chCount  = ch != null ? ((Number) ch.get("n")).longValue() : 0;
+        // Transazioni nei figli
+        long chTx = 0;
+        for (var c : queryList("SELECT id FROM categories WHERE parent_id=?", id)) {
+            var r = queryOne("SELECT COUNT(*) AS n FROM transactions WHERE category_id=?", c.get("id"));
+            if (r != null) chTx += ((Number) r.get("n")).longValue();
+        }
+        return Map.of("tx_count", txCount, "budget_count", bgCount,
+                      "child_count", chCount, "child_tx_count", chTx);
+    }
+
+    /** Sposta transazioni (e quelle dei figli) su toId, poi elimina la categoria. */
+    public void reassignCategory(int fromId, int toId) throws SQLException {
+        execute("UPDATE transactions SET category_id=? WHERE category_id=?", toId, fromId);
+        for (var c : queryList("SELECT id FROM categories WHERE parent_id=?", fromId))
+            execute("UPDATE transactions SET category_id=? WHERE category_id=?", toId, c.get("id"));
+        // Budget CASCADE eliminati con DELETE
+        execute("DELETE FROM categories WHERE id=?", fromId);
+    }
+
     // ─── Transazioni ──────────────────────────────────────────────────────────
 
     public List<Map<String, Object>> getTransactions(JsonObject f) throws SQLException {
@@ -326,13 +389,21 @@ public class Database {
         """);
         List<Object> params = new ArrayList<>();
 
-        if (f.has("month") && f.has("year")) {
-            sql.append(" AND strftime('%m',t.date)=? AND strftime('%Y',t.date)=?");
-            params.add(String.format("%02d", f.get("month").getAsInt()));
-            params.add(String.valueOf(f.get("year").getAsInt()));
-        } else if (f.has("year")) {
-            sql.append(" AND strftime('%Y',t.date)=?");
-            params.add(String.valueOf(f.get("year").getAsInt()));
+        if (f.has("date_from") && !str(f,"date_from").isBlank()) {
+            sql.append(" AND t.date >= ?"); params.add(str(f,"date_from"));
+        }
+        if (f.has("date_to") && !str(f,"date_to").isBlank()) {
+            sql.append(" AND t.date <= ?"); params.add(str(f,"date_to"));
+        }
+        if (!f.has("date_from") && !f.has("date_to")) {
+            if (f.has("month") && f.has("year")) {
+                sql.append(" AND strftime('%m',t.date)=? AND strftime('%Y',t.date)=?");
+                params.add(String.format("%02d", f.get("month").getAsInt()));
+                params.add(String.valueOf(f.get("year").getAsInt()));
+            } else if (f.has("year")) {
+                sql.append(" AND strftime('%Y',t.date)=?");
+                params.add(String.valueOf(f.get("year").getAsInt()));
+            }
         }
         if (f.has("type") && !f.get("type").getAsString().isBlank()) {
             sql.append(" AND t.type=?"); params.add(str(f,"type"));
@@ -357,12 +428,13 @@ public class Database {
 
     public Map<String, Object> addTransaction(JsonObject p) throws SQLException {
         long id = execute("""
-            INSERT INTO transactions(date,amount,type,category_id,account_id,to_account_id,description)
-            VALUES(?,?,?,?,?,?,?)
+            INSERT INTO transactions(date,amount,type,category_id,account_id,to_account_id,description,color)
+            VALUES(?,?,?,?,?,?,?,?)
         """, str(p,"date"), dbl(p,"amount"), str(p,"type"),
                 intVal(p,"category_id"), p.get("account_id").getAsInt(),
                 intVal(p,"to_account_id"),
-                str(p,"description") != null ? str(p,"description") : "");
+                str(p,"description") != null ? str(p,"description") : "",
+                str(p,"color"));
         saveTags(id, p);
         return getTransactionById(id);
     }
@@ -370,12 +442,12 @@ public class Database {
     public Map<String, Object> updateTransaction(int id, JsonObject p) throws SQLException {
         execute("""
             UPDATE transactions SET date=?,amount=?,type=?,category_id=?,account_id=?,
-                to_account_id=?,description=? WHERE id=?
+                to_account_id=?,description=?,color=? WHERE id=?
         """, str(p,"date"), dbl(p,"amount"), str(p,"type"),
                 intVal(p,"category_id"), p.get("account_id").getAsInt(),
                 intVal(p,"to_account_id"),
                 str(p,"description") != null ? str(p,"description") : "",
-                id);
+                str(p,"color"), id);
         saveTags(id, p);
         return getTransactionById(id);
     }
@@ -496,7 +568,7 @@ public class Database {
                    CAST(strftime('%m', t.date) AS INTEGER) AS month,
                    SUM(t.amount) AS total
             FROM transactions t
-            WHERE strftime('%Y', t.date)=? AND t.type='expense'
+            WHERE strftime('%Y', t.date)=? AND t.type IN ('expense','income')
             GROUP BY t.category_id, strftime('%m', t.date)
         """, String.valueOf(year));
         List<Map<String, Object>> categories = queryList("""
@@ -562,6 +634,272 @@ public class Database {
                 """, categoryId, el.getAsDouble(), m, year);
             }
         }
+    }
+
+    // ─── Transazioni Pianificate ──────────────────────────────────────────────
+
+    public List<Map<String, Object>> getScheduled() throws SQLException {
+        return queryList("""
+            SELECT s.*, c.name AS category_name, c.icon AS category_icon,
+                   a.name AS account_name, a.icon AS account_icon,
+                   ta.name AS to_account_name
+            FROM scheduled_transactions s
+            LEFT JOIN categories c ON s.category_id = c.id
+            LEFT JOIN accounts   a ON s.account_id  = a.id
+            LEFT JOIN accounts  ta ON s.to_account_id = ta.id
+            ORDER BY s.start_date, s.id
+        """);
+    }
+
+    public Map<String, Object> addScheduled(JsonObject p) throws SQLException {
+        long id = execute("""
+            INSERT INTO scheduled_transactions
+                (description,amount,type,category_id,account_id,to_account_id,
+                 frequency,start_date,end_date,is_active,color)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?)
+        """, str(p,"description"), dbl(p,"amount"), str(p,"type"),
+                intVal(p,"category_id"), p.get("account_id").getAsInt(),
+                intVal(p,"to_account_id"), str(p,"frequency"),
+                str(p,"start_date"), str(p,"end_date"),
+                p.has("is_active") ? p.get("is_active").getAsInt() : 1,
+                str(p,"color"));
+        return queryOne("SELECT * FROM scheduled_transactions WHERE id=?", id);
+    }
+
+    public Map<String, Object> updateScheduled(int id, JsonObject p) throws SQLException {
+        execute("""
+            UPDATE scheduled_transactions SET
+                description=?,amount=?,type=?,category_id=?,account_id=?,to_account_id=?,
+                frequency=?,start_date=?,end_date=?,is_active=?,color=?
+            WHERE id=?
+        """, str(p,"description"), dbl(p,"amount"), str(p,"type"),
+                intVal(p,"category_id"), p.get("account_id").getAsInt(),
+                intVal(p,"to_account_id"), str(p,"frequency"),
+                str(p,"start_date"), str(p,"end_date"),
+                p.has("is_active") ? p.get("is_active").getAsInt() : 1,
+                str(p,"color"), id);
+        return queryOne("SELECT * FROM scheduled_transactions WHERE id=?", id);
+    }
+
+    public Map<String, Object> deleteScheduled(int id) throws SQLException {
+        execute("DELETE FROM scheduled_transactions WHERE id=?", id);
+        return Map.of("id", id, "deleted", true);
+    }
+
+    /** Returns the next occurrence of a scheduled transaction on or after `from`. */
+    private LocalDate firstOccurrenceFrom(LocalDate start, String freq, LocalDate from) {
+        LocalDate cur = start;
+        if (!cur.isBefore(from)) return cur;
+        switch (freq) {
+            case "monthly" -> {
+                long months = java.time.temporal.ChronoUnit.MONTHS.between(start, from);
+                cur = start.plusMonths(months);
+                if (cur.isBefore(from)) cur = cur.plusMonths(1);
+            }
+            case "yearly" -> {
+                long years = java.time.temporal.ChronoUnit.YEARS.between(start, from);
+                cur = start.plusYears(years);
+                if (cur.isBefore(from)) cur = cur.plusYears(1);
+            }
+            case "quarterly" -> {
+                long months = java.time.temporal.ChronoUnit.MONTHS.between(start, from);
+                long q = months / 3;
+                cur = start.plusMonths(q * 3);
+                if (cur.isBefore(from)) cur = cur.plusMonths(3);
+            }
+            case "weekly" -> {
+                long days = java.time.temporal.ChronoUnit.DAYS.between(start, from);
+                long w = days / 7;
+                cur = start.plusWeeks(w);
+                if (cur.isBefore(from)) cur = cur.plusWeeks(1);
+            }
+            case "biweekly" -> {
+                long days = java.time.temporal.ChronoUnit.DAYS.between(start, from);
+                long bw = days / 14;
+                cur = start.plusWeeks(bw * 2);
+                if (cur.isBefore(from)) cur = cur.plusWeeks(2);
+            }
+            case "daily" -> cur = from;
+            case "once" -> { return start.isBefore(from) ? null : start; }
+        }
+        return cur;
+    }
+
+    private LocalDate advanceDate(LocalDate d, String freq) {
+        return switch (freq) {
+            case "daily"     -> d.plusDays(1);
+            case "weekly"    -> d.plusWeeks(1);
+            case "biweekly"  -> d.plusWeeks(2);
+            case "monthly"   -> d.plusMonths(1);
+            case "quarterly" -> d.plusMonths(3);
+            case "yearly"    -> d.plusYears(1);
+            default          -> null;
+        };
+    }
+
+    /** Next N upcoming occurrences across all active scheduled transactions. */
+    public List<Map<String, Object>> getUpcoming(int limit) throws SQLException {
+        var scheds = getScheduled().stream()
+            .filter(s -> Integer.valueOf(1).equals(s.get("is_active")))
+            .toList();
+        LocalDate today = LocalDate.now();
+        LocalDate horizon = today.plusYears(2);
+        List<Map<String, Object>> all = new ArrayList<>();
+        for (var s : scheds) {
+            LocalDate start = LocalDate.parse((String) s.get("start_date"));
+            String freq = (String) s.get("frequency");
+            LocalDate endDate = s.get("end_date") != null ? LocalDate.parse((String) s.get("end_date")) : horizon;
+            if (endDate.isAfter(horizon)) endDate = horizon;
+            LocalDate cur = firstOccurrenceFrom(start, freq, today);
+            if (cur == null) continue;
+            while (!cur.isAfter(endDate)) {
+                Map<String, Object> occ = new HashMap<>(s);
+                occ.put("date", cur.toString());
+                all.add(occ);
+                if ("once".equals(freq)) break;
+                cur = advanceDate(cur, freq);
+                if (cur == null) break;
+            }
+        }
+        all.sort(Comparator.comparing(o -> (String) o.get("date")));
+        return all.stream().limit(limit).collect(Collectors.toList());
+    }
+
+    /**
+     * Proiezione saldi: per ogni conto selezionato, ritorna una lista di
+     * {date, account_id, balance} con saldo giornaliero nel periodo.
+     * accountIds = "1,2,3" oppure "" per tutti.
+     */
+    public Map<String, Object> getProjection(String fromDate, String toDate, String accountIds) throws SQLException {
+        LocalDate from = LocalDate.parse(fromDate);
+        LocalDate to   = LocalDate.parse(toDate);
+        // Current real balances
+        List<Map<String, Object>> accounts = queryList("SELECT id, name, icon FROM accounts");
+        Set<Integer> filter = new HashSet<>();
+        if (accountIds != null && !accountIds.isBlank())
+            for (String id : accountIds.split(",")) filter.add(Integer.parseInt(id.trim()));
+        if (!filter.isEmpty()) accounts = accounts.stream()
+            .filter(a -> filter.contains(((Number)a.get("id")).intValue())).collect(Collectors.toList());
+
+        // Real balance up to (from - 1 day)
+        Map<Integer, Double> balance = new HashMap<>();
+        for (var a : accounts) {
+            int aid = ((Number) a.get("id")).intValue();
+            var r = queryOne("""
+                SELECT COALESCE(SUM(CASE WHEN type='income' THEN amount
+                                         WHEN type='expense' THEN -amount
+                                         WHEN type='transfer' AND account_id=? THEN -amount
+                                         WHEN type='transfer' AND to_account_id=? THEN amount
+                                         ELSE 0 END), 0) AS bal
+                FROM transactions WHERE date < ?
+            """, aid, aid, fromDate);
+            double initialBal = r != null ? ((Number) r.get("bal")).doubleValue() : 0.0;
+            var acc = queryOne("SELECT initial_balance FROM accounts WHERE id=?", aid);
+            double init = acc != null && acc.get("initial_balance") != null
+                ? ((Number) acc.get("initial_balance")).doubleValue() : 0.0;
+            balance.put(aid, init + initialBal);
+        }
+
+        // Expand scheduled transactions in [from, to] into allDeltas
+        var scheds = getScheduled().stream()
+            .filter(s -> Integer.valueOf(1).equals(s.get("is_active")))
+            .toList();
+        Map<String, Map<Integer, Double>> allDeltas = new TreeMap<>();
+        for (var s : scheds) {
+            int aid = ((Number) s.get("account_id")).intValue();
+            Integer toAid = s.get("to_account_id") != null ? ((Number) s.get("to_account_id")).intValue() : null;
+            if (!filter.isEmpty() && !filter.contains(aid) && (toAid == null || !filter.contains(toAid))) continue;
+            String freq = (String) s.get("frequency");
+            LocalDate start = LocalDate.parse((String) s.get("start_date"));
+            LocalDate endDate = s.get("end_date") != null ? LocalDate.parse((String) s.get("end_date")) : to;
+            if (endDate.isAfter(to)) endDate = to;
+            LocalDate cur = firstOccurrenceFrom(start, freq, from);
+            if (cur == null) continue;
+            double amount = ((Number) s.get("amount")).doubleValue();
+            String type = (String) s.get("type");
+            while (!cur.isAfter(endDate)) {
+                String ds = cur.toString();
+                allDeltas.computeIfAbsent(ds, k -> new HashMap<>());
+                if ("income".equals(type) && (filter.isEmpty() || filter.contains(aid))) {
+                    allDeltas.get(ds).merge(aid, amount, Double::sum);
+                } else if ("expense".equals(type) && (filter.isEmpty() || filter.contains(aid))) {
+                    allDeltas.get(ds).merge(aid, -amount, Double::sum);
+                } else if ("transfer".equals(type)) {
+                    if (filter.isEmpty() || filter.contains(aid))
+                        allDeltas.get(ds).merge(aid, -amount, Double::sum);
+                    if (toAid != null && (filter.isEmpty() || filter.contains(toAid)))
+                        allDeltas.get(ds).merge(toAid, amount, Double::sum);
+                }
+                if ("once".equals(freq)) break;
+                cur = advanceDate(cur, freq);
+                if (cur == null) break;
+            }
+        }
+
+        // Build time series
+        long days = java.time.temporal.ChronoUnit.DAYS.between(from, to);
+        int step = days <= 60 ? 1 : days <= 180 ? 7 : 30;
+        List<Map<String, Object>> series = new ArrayList<>();
+        Map<Integer, Double> running = new HashMap<>(balance);
+
+        List<String> deltaKeys = new ArrayList<>(allDeltas.keySet());
+        int di = 0;
+        LocalDate c = from;
+        while (!c.isAfter(to)) {
+            String cs = c.toString();
+            // Apply all deltas on or before this date
+            while (di < deltaKeys.size() && deltaKeys.get(di).compareTo(cs) <= 0) {
+                for (var e : allDeltas.get(deltaKeys.get(di)).entrySet())
+                    running.merge(e.getKey(), e.getValue(), Double::sum);
+                di++;
+            }
+            long dayIndex = java.time.temporal.ChronoUnit.DAYS.between(from, c);
+            if (dayIndex % step == 0 || c.equals(to)) {
+                for (var a : accounts) {
+                    int aid = ((Number) a.get("id")).intValue();
+                    Map<String, Object> pt = new HashMap<>();
+                    pt.put("date", cs);
+                    pt.put("account_id", aid);
+                    pt.put("account_name", a.get("name"));
+                    pt.put("balance", running.getOrDefault(aid, 0.0));
+                    series.add(pt);
+                }
+            }
+            c = c.plusDays(1);
+        }
+
+        // Monthly cash flow
+        Map<String, double[]> cashflow = new TreeMap<>();
+        for (var s : getScheduled().stream()
+                .filter(sc -> Integer.valueOf(1).equals(sc.get("is_active"))).toList()) {
+            int aid = ((Number) s.get("account_id")).intValue();
+            if (!filter.isEmpty() && !filter.contains(aid)) continue;
+            String freq = (String) s.get("frequency");
+            LocalDate start = LocalDate.parse((String) s.get("start_date"));
+            LocalDate endDate = s.get("end_date") != null ? LocalDate.parse((String) s.get("end_date")) : to;
+            if (endDate.isAfter(to)) endDate = to;
+            LocalDate cur2 = firstOccurrenceFrom(start, freq, from);
+            if (cur2 == null) continue;
+            double amount = ((Number) s.get("amount")).doubleValue();
+            String type = (String) s.get("type");
+            while (!cur2.isAfter(endDate)) {
+                String month = cur2.toString().substring(0, 7);
+                cashflow.computeIfAbsent(month, k -> new double[]{0,0});
+                if ("income".equals(type))  cashflow.get(month)[0] += amount;
+                if ("expense".equals(type)) cashflow.get(month)[1] += amount;
+                if ("once".equals(freq)) break;
+                cur2 = advanceDate(cur2, freq);
+                if (cur2 == null) break;
+            }
+        }
+        List<Map<String, Object>> cfList = new ArrayList<>();
+        cashflow.forEach((month, vals) -> {
+            Map<String, Object> m = new HashMap<>();
+            m.put("month", month); m.put("income", vals[0]); m.put("expense", vals[1]);
+            cfList.add(m);
+        });
+
+        return Map.of("series", series, "cashflow", cfList, "accounts", accounts);
     }
 
     // ─── Portafoglio ──────────────────────────────────────────────────────────

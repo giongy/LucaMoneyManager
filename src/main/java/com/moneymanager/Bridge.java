@@ -141,10 +141,15 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             case "deleteAccount"  -> db.deleteAccount(p.get("id").getAsInt());
 
             // ─── Categorie ─────────────────────────────────────────────────
-            case "getCategories"   -> db.getCategories();
-            case "addCategory"     -> db.addCategory(p);
-            case "updateCategory"  -> db.updateCategory(p.get("id").getAsInt(), p);
-            case "deleteCategory"  -> db.deleteCategory(p.get("id").getAsInt());
+            case "getCategories"     -> db.getCategories();
+            case "addCategory"       -> db.addCategory(p);
+            case "updateCategory"    -> db.updateCategory(p.get("id").getAsInt(), p);
+            case "deleteCategory"    -> db.deleteCategory(p.get("id").getAsInt());
+            case "getCategoryUsage"  -> db.getCategoryUsage(p.get("id").getAsInt());
+            case "reassignCategory"  -> {
+                db.reassignCategory(p.get("from_id").getAsInt(), p.get("to_id").getAsInt());
+                yield Map.of("ok", true);
+            }
 
             // ─── Transazioni ───────────────────────────────────────────────
             case "getTransactions"    -> db.getTransactions(p);
@@ -166,6 +171,16 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                 db.generateBudget(p.get("year").getAsInt(), p.get("from_history").getAsBoolean());
                 yield Map.of("ok", true);
             }
+
+            // ─── Transazioni Pianificate ───────────────────────────────────────────
+            case "getScheduled"     -> db.getScheduled();
+            case "addScheduled"     -> db.addScheduled(p);
+            case "updateScheduled"  -> db.updateScheduled(p.get("id").getAsInt(), p);
+            case "deleteScheduled"  -> db.deleteScheduled(p.get("id").getAsInt());
+            case "getUpcoming"      -> db.getUpcoming(p.has("limit") ? p.get("limit").getAsInt() : 15);
+            case "getProjection"    -> db.getProjection(
+                p.get("from_date").getAsString(), p.get("to_date").getAsString(),
+                p.has("account_ids") ? p.get("account_ids").getAsString() : "");
 
             // ─── Portafoglio ───────────────────────────────────────────────
             case "getPortfolio"          -> db.getPortfolio();

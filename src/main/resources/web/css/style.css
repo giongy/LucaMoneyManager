@@ -212,16 +212,55 @@ tr:hover td { background:var(--bg3); }
 .dash-acc-card-balance { font-size:14px; font-weight:700; }
 
 /* ─── Budget ──────────────────────────────────────────────────────────────── */
-.budget-card { background:var(--bg2); border:1px solid var(--border); border-radius:var(--radius); padding:12px; }
-.budget-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
-.budget-category { display:flex; align-items:center; gap:6px; font-weight:600; }
-.budget-amounts { font-size:11px; color:var(--txt2); }
-.progress-bar { height:5px; background:var(--bg4); border-radius:3px; overflow:hidden; margin:6px 0; }
-.progress-fill { height:100%; border-radius:3px; transition:width .4s ease; }
-.progress-ok   { background:var(--income); }
-.progress-warn { background:var(--warn); }
-.progress-over { background:var(--expense); }
-.budget-footer { display:flex; justify-content:space-between; font-size:11px; color:var(--txt3); }
+.budget-year-wrap { overflow-x:auto; margin-top:14px; }
+.budget-table { width:100%; border-collapse:collapse; min-width:900px; }
+.budget-table th {
+  padding:7px 6px; font-size:10px; font-weight:700; text-transform:uppercase;
+  letter-spacing:.4px; color:var(--txt2); background:var(--bg2);
+  border-bottom:2px solid var(--border); white-space:nowrap; text-align:center;
+}
+.budget-cat-th  { text-align:left; width:160px; min-width:140px; position:sticky; left:0; background:var(--bg2); z-index:2; }
+.budget-month-th { min-width:72px; }
+.budget-total-th { min-width:90px; background:var(--bg3) !important; }
+.budget-act-th   { min-width:80px; }
+
+.budget-cat-cell {
+  padding:7px 10px; font-size:12px; font-weight:600; color:var(--txt);
+  white-space:nowrap; position:sticky; left:0; background:var(--bg2); z-index:1;
+  border-bottom:1px solid var(--border);
+}
+.budget-child-indent { padding-left:22px; font-weight:400; color:var(--txt2); }
+.budget-row-parent td { background:var(--bg2); }
+.budget-row-child  td { background:var(--bg3); }
+.budget-row-parent:hover td, .budget-row-child:hover td { background:var(--bg4); }
+
+.budget-cell {
+  padding:5px 4px; text-align:center; cursor:pointer;
+  border-bottom:1px solid var(--border); border-left:1px solid var(--border);
+  min-width:72px; vertical-align:top; transition:background .1s;
+}
+.budget-cell:hover { background:var(--bg4) !important; }
+.budget-cell-parent { font-weight:600; }
+.budget-cell-val { display:block; font-size:12px; color:var(--txt); }
+.budget-cell-actual { display:block; font-size:10px; color:var(--income); margin-top:1px; }
+.budget-cell-actual.over { color:var(--expense); }
+.budget-cell-input {
+  width:64px; padding:3px 4px; font-size:12px; text-align:center;
+  background:var(--bg); border:1px solid var(--accent); border-radius:4px;
+  color:var(--txt); outline:none;
+}
+
+.budget-total-cell {
+  padding:5px 8px; text-align:right; font-size:12px;
+  background:var(--bg3); border-bottom:1px solid var(--border);
+  border-left:2px solid var(--border);
+}
+.budget-total-cell b { display:block; color:var(--txt); }
+.budget-actions-cell {
+  padding:3px 4px; white-space:nowrap;
+  border-bottom:1px solid var(--border); border-left:1px solid var(--border);
+}
+.budget-actions-cell .btn { font-size:10px; padding:3px 5px; }
 
 /* ─── Portfolio ───────────────────────────────────────────────────────────── */
 .portfolio-summary { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:16px; }

@@ -486,6 +486,46 @@ public class Database {
         return Map.of("id", id, "deleted", true);
     }
 
+    /** Restituisce budget e consuntivo per tutte le categorie in un anno. */
+    public Map<String, Object> getBudgetYear(int year) throws SQLException {
+        List<Map<String, Object>> budgets = queryList(
+            "SELECT category_id, month, amount FROM budgets WHERE year=? ORDER BY category_id, month",
+            year);
+        List<Map<String, Object>> actuals = queryList("""
+            SELECT t.category_id,
+                   CAST(strftime('%m', t.date) AS INTEGER) AS month,
+                   SUM(t.amount) AS total
+            FROM transactions t
+            WHERE strftime('%Y', t.date)=? AND t.type='expense'
+            GROUP BY t.category_id, strftime('%m', t.date)
+        """, String.valueOf(year));
+        List<Map<String, Object>> categories = queryList("""
+            SELECT c.id, c.name, c.icon, c.color, c.type, c.parent_id, p.name AS parent_name
+            FROM categories c
+            LEFT JOIN categories p ON c.parent_id = p.id
+            WHERE c.type != 'transfer'
+            ORDER BY CASE WHEN c.parent_id IS NULL THEN c.id ELSE c.parent_id END,
+                     c.parent_id NULLS FIRST, c.name
+        """);
+        return Map.of("budgets", budgets, "actuals", actuals, "categories", categories);
+    }
+
+    /** Imposta i 12 valori mensili per una categoria in un anno (0/null = rimuove). */
+    public void setBudgetBulk(int categoryId, int year, com.google.gson.JsonArray amounts) throws SQLException {
+        for (int m = 1; m <= 12; m++) {
+            var el = amounts.get(m - 1);
+            if (el.isJsonNull() || el.getAsDouble() <= 0) {
+                execute("DELETE FROM budgets WHERE category_id=? AND year=? AND month=?",
+                        categoryId, year, m);
+            } else {
+                execute("""
+                    INSERT INTO budgets(category_id,amount,month,year) VALUES(?,?,?,?)
+                    ON CONFLICT(category_id,month,year) DO UPDATE SET amount=excluded.amount
+                """, categoryId, el.getAsDouble(), m, year);
+            }
+        }
+    }
+
     // ─── Portafoglio ──────────────────────────────────────────────────────────
 
     public List<Map<String, Object>> getPortfolio() throws SQLException {

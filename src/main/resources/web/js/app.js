@@ -64,6 +64,8 @@ const api = {
   getBudgets:  (month,year) => callJava('getBudgets', {month,year}),
   setBudget:   data         => callJava('setBudget',  data),
   deleteBudget:id           => callJava('deleteBudget',{id}),
+  getBudgetYear: y          => callJava('getBudgetYear', {year:y}),
+  setBudgetBulk: data       => callJava('setBudgetBulk', data),
 
   // Portafoglio
   getPortfolio:        ()   => callJava('getPortfolio'),
@@ -832,108 +834,230 @@ window.deleteAccount = async id => {
 /* ═══════════════════════════════════════════════════════════════════════════
    BUDGET
 ═══════════════════════════════════════════════════════════════════════════ */
-let budgetMonth = new Date().getMonth()+1, budgetYear = new Date().getFullYear();
+let budgetYear = new Date().getFullYear();
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   BUDGET
+═══════════════════════════════════════════════════════════════════════════ */
+const MONTHS_SHORT = ['Gen','Feb','Mar','Apr','Mag','Giu','Lug','Ago','Set','Ott','Nov','Dic'];
 
 async function renderBudgets() {
   const pg = document.getElementById('pg-budgets');
   pg.innerHTML = `
     <div class="section-header">
-      <h2 class="section-title">Budget</h2>
-      <button class="btn btn-primary" id="btnAddBudget">+ Nuovo Budget</button>
+      <div class="month-nav" style="margin-bottom:0">
+        <button id="budgPrev">‹</button>
+        <span id="budgYearLabel"></span>
+        <button id="budgNext">›</button>
+      </div>
+      <button class="btn btn-primary" id="btnAddBudgetRow">+ Aggiungi categoria</button>
     </div>
-    <div class="month-nav">
-      <button id="budgPrev">‹</button>
-      <span id="budgLabel"></span>
-      <button id="budgNext">›</button>
-    </div>
-    <div class="grid-3" id="budgetGrid"></div>`;
-
-  document.getElementById('budgLabel').textContent = fmt.month(budgetMonth,budgetYear);
-  document.getElementById('budgPrev').onclick = () => {
-    budgetMonth--; if(budgetMonth<1){budgetMonth=12;budgetYear--;} renderBudgets();
-  };
-  document.getElementById('budgNext').onclick = () => {
-    budgetMonth++; if(budgetMonth>12){budgetMonth=1;budgetYear++;} renderBudgets();
-  };
-  document.getElementById('btnAddBudget').onclick = async () => {
-    const cats = await api.getCategories();
-    showBudgetModal(null, cats);
-  };
-  loadBudgetCards();
-}
-
-async function loadBudgetCards() {
-  const grid = document.getElementById('budgetGrid');
-  if (!grid) return;
-  const budgets = await api.getBudgets(budgetMonth, budgetYear);
-  grid.innerHTML = budgets.length ? budgets.map(b => {
-    const pct = Math.min((b.spent/b.amount)*100, 100);
-    const cls = pct<70?'ok':pct<100?'warn':'over';
-    return `
-      <div class="budget-card">
-        <div class="budget-header">
-          <div class="budget-category">${b.category_icon} ${b.category_name}</div>
-          <div style="display:flex;gap:6px">
-            <button class="btn btn-ghost btn-icon" onclick="editBudget(${b.id})">✏️</button>
-            <button class="btn btn-ghost btn-icon" onclick="deleteBudget(${b.id})">🗑️</button>
-          </div>
-        </div>
-        <div class="progress-bar"><div class="progress-fill progress-${cls}" style="width:${pct}%"></div></div>
-        <div class="budget-footer">
-          <span>Speso: <strong>${fmt.currency(b.spent)}</strong></span>
-          <span>Budget: <strong>${fmt.currency(b.amount)}</strong></span>
-        </div>
-        <div style="margin-top:6px;font-size:11px;color:var(--txt3)">
-          ${pct>=100?'⚠️ Superato!':pct>=70?`⚡ ${(100-pct).toFixed(0)}% rimanente`:`✅ ${(100-pct).toFixed(0)}% disponibile`}
-        </div>
-      </div>`;}).join('') :
-    '<div class="empty-state" style="grid-column:1/-1"><div class="empty-icon">🎯</div><p>Nessun budget impostato per questo mese</p></div>';
-}
-
-function showBudgetModal(budget, categories) {
-  const expCats = categories.filter(c=>c.type==='expense');
-  const body = `
-    <div class="form-group">
-      <label class="form-label">Categoria</label>
-      <select class="form-control" id="b_cat">
-        <option value="">— Seleziona —</option>
-        ${expCats.map(c=>`<option value="${c.id}" ${budget?.category_id==c.id?'selected':''}>${c.icon} ${c.name}</option>`).join('')}
-      </select>
-    </div>
-    <div class="form-group">
-      <label class="form-label">Importo Budget (€)</label>
-      <input type="number" step="0.01" min="0" class="form-control" id="b_amount" value="${budget?.amount||''}">
+    <div class="budget-year-wrap">
+      <table class="budget-table" id="budgetTable">
+        <thead><tr>
+          <th class="budget-cat-th">Categoria</th>
+          ${MONTHS_SHORT.map(m=>`<th class="budget-month-th">${m}</th>`).join('')}
+          <th class="budget-total-th">Anno</th>
+          <th class="budget-act-th"></th>
+        </tr></thead>
+        <tbody id="budgetBody"></tbody>
+      </table>
     </div>`;
 
-  openModal(budget?'Modifica Budget':'Nuovo Budget', body, async () => {
-    const data = {
-      id:          budget?.id,
-      category_id: parseInt(document.getElementById('b_cat').value),
-      amount:      parseFloat(document.getElementById('b_amount').value),
-      month:       budgetMonth,
-      year:        budgetYear,
-    };
-    if (!data.category_id || !data.amount) { toast('Compila tutti i campi','error'); return; }
-    try {
-      await api.setBudget(data);
-      closeModal();
-      toast(budget ? 'Budget aggiornato' : 'Budget creato');
-      loadBudgetCards();
-    } catch(e) { toast(e.message,'error'); }
-  });
+  document.getElementById('budgYearLabel').textContent = budgetYear;
+  document.getElementById('budgPrev').onclick = () => { budgetYear--; renderBudgets(); };
+  document.getElementById('budgNext').onclick = () => { budgetYear++; renderBudgets(); };
+  document.getElementById('btnAddBudgetRow').onclick = () => showAddBudgetRowModal();
+
+  await loadBudgetTable();
 }
 
-window.editBudget = async id => {
-  const [budgets, cats] = await Promise.all([api.getBudgets(budgetMonth,budgetYear), api.getCategories()]);
-  showBudgetModal(budgets.find(b=>b.id===id), cats);
+let _budgetData = null;
+
+async function loadBudgetTable() {
+  _budgetData = await api.getBudgetYear(budgetYear);
+  renderBudgetTable();
+}
+
+function renderBudgetTable() {
+  const { budgets, actuals, categories } = _budgetData;
+
+  // Lookup maps
+  const budgetMap = {};  // catId -> {1:amt, 2:amt, ...}
+  budgets.forEach(b => {
+    if (!budgetMap[b.category_id]) budgetMap[b.category_id] = {};
+    budgetMap[b.category_id][b.month] = b.amount;
+  });
+  const actualMap = {};  // catId -> {1:total, ...}
+  actuals.forEach(a => {
+    if (!actualMap[a.category_id]) actualMap[a.category_id] = {};
+    actualMap[a.category_id][a.month] = a.total;
+  });
+
+  // Categories that have at least one budget entry this year
+  const budgetedIds = new Set(Object.keys(budgetMap).map(Number));
+  if (budgetedIds.size === 0) {
+    document.getElementById('budgetBody').innerHTML =
+      `<tr><td colspan="15" style="text-align:center;padding:40px;color:var(--txt3)">
+        Nessun budget impostato. Clicca "+ Aggiungi categoria" per iniziare.
+      </td></tr>`;
+    return;
+  }
+
+  // Build ordered category list (only budgeted ones, with hierarchy)
+  const catMap = {};
+  categories.forEach(c => catMap[c.id] = c);
+
+  // Include parent if any child has budget, even if parent has no budget itself
+  const toShow = new Set();
+  budgetedIds.forEach(id => {
+    toShow.add(id);
+    const cat = catMap[id];
+    if (cat?.parent_id) toShow.add(cat.parent_id);
+  });
+
+  const ordered = categories.filter(c => toShow.has(c.id));
+
+  const rows = ordered.map(cat => {
+    const bm = budgetMap[cat.id] || {};
+    const am = actualMap[cat.id] || {};
+    const isParent = !cat.parent_id;
+    const annualBudget = Object.values(bm).reduce((s,v)=>s+v,0);
+    const annualActual = Object.values(am).reduce((s,v)=>s+v,0);
+
+    const cells = Array.from({length:12},(_,i)=>{
+      const m = i+1;
+      const budget = bm[m] || 0;
+      const actual = am[m] || 0;
+      const over   = actual > budget && budget > 0;
+      return `<td class="budget-cell ${isParent?'budget-cell-parent':''}"
+                  data-cat="${cat.id}" data-month="${m}"
+                  onclick="_budgetCellEdit(this,${cat.id},${m})">
+        <span class="budget-cell-val">${budget>0?fmt.currency(budget):''}</span>
+        ${budget>0?`<span class="budget-cell-actual ${over?'over':''}">${fmt.currency(actual)}</span>`:''}
+      </td>`;
+    }).join('');
+
+    const totalOver = annualActual > annualBudget && annualBudget > 0;
+    return `<tr class="${isParent?'budget-row-parent':'budget-row-child'}" data-cat-id="${cat.id}">
+      <td class="budget-cat-cell ${isParent?'':'budget-child-indent'}">
+        <span style="color:${cat.color}">${cat.icon}</span> ${cat.name}
+      </td>
+      ${cells}
+      <td class="budget-total-cell ${isParent?'budget-cell-parent':''}">
+        ${annualBudget>0?`<b>${fmt.currency(annualBudget)}</b>`:''}
+        ${annualBudget>0?`<span class="budget-cell-actual ${totalOver?'over':''}">${fmt.currency(annualActual)}</span>`:''}
+      </td>
+      <td class="budget-actions-cell">
+        <button class="btn btn-ghost btn-icon" title="Imposta mensile" onclick="_budgetSetMonthly(${cat.id},'${cat.name}')">M</button>
+        <button class="btn btn-ghost btn-icon" title="Imposta annuale" onclick="_budgetSetAnnual(${cat.id},'${cat.name}')">A</button>
+        <button class="btn btn-ghost btn-icon" title="Svuota" onclick="_budgetClearRow(${cat.id})">🗑️</button>
+      </td>
+    </tr>`;
+  }).join('');
+
+  document.getElementById('budgetBody').innerHTML = rows;
+}
+
+window._budgetCellEdit = (td, catId, month) => {
+  const valSpan = td.querySelector('.budget-cell-val');
+  const current = (valSpan?.textContent || '').replace(/[^0-9.,]/g,'').replace(',','.');
+  const inp = document.createElement('input');
+  inp.type = 'number'; inp.step = '0.01'; inp.min = '0';
+  inp.value = current || '';
+  inp.className = 'budget-cell-input';
+  inp.onclick = e => e.stopPropagation();
+
+  const save = async () => {
+    const val = parseFloat(inp.value) || 0;
+    td.replaceWith(td); // restore original td
+    await api.setBudget({category_id: catId, amount: val, month, year: budgetYear});
+    await loadBudgetTable();
+  };
+  inp.onblur  = save;
+  inp.onkeydown = e => { if (e.key==='Enter') inp.blur(); if (e.key==='Escape') loadBudgetTable(); };
+
+  td.innerHTML = '';
+  td.appendChild(inp);
+  inp.focus(); inp.select();
 };
-window.deleteBudget = async id => {
-  const ok = await confirm('Elimina budget','Eliminare questo budget?');
-  if (!ok) return;
-  await api.deleteBudget(id);
-  toast('Budget eliminato');
-  loadBudgetCards();
+
+window._budgetSetMonthly = (catId, catName) => {
+  openModal(`Budget mensile — ${catName}`,
+    `<div class="form-group">
+       <label class="form-label">Importo mensile (€)</label>
+       <input type="number" step="0.01" min="0" class="form-control" id="bm_amount" placeholder="Es. 500">
+       <div class="settings-hint">Stesso importo per tutti i 12 mesi</div>
+     </div>`,
+    async () => {
+      const v = parseFloat(document.getElementById('bm_amount').value) || 0;
+      await api.setBudgetBulk({category_id:catId, year:budgetYear, amounts:Array(12).fill(v)});
+      closeModal(); await loadBudgetTable();
+    });
 };
+
+window._budgetSetAnnual = (catId, catName) => {
+  openModal(`Budget annuale — ${catName}`,
+    `<div class="form-group">
+       <label class="form-label">Importo annuale (€)</label>
+       <input type="number" step="0.01" min="0" class="form-control" id="ba_amount" placeholder="Es. 6000">
+       <div class="settings-hint">Verrà diviso equamente nei 12 mesi (÷12)</div>
+     </div>`,
+    async () => {
+      const total = parseFloat(document.getElementById('ba_amount').value) || 0;
+      const monthly = Math.round(total / 12 * 100) / 100;
+      await api.setBudgetBulk({category_id:catId, year:budgetYear, amounts:Array(12).fill(monthly)});
+      closeModal(); await loadBudgetTable();
+    });
+};
+
+window._budgetClearRow = async catId => {
+  await api.setBudgetBulk({category_id:catId, year:budgetYear, amounts:Array(12).fill(0)});
+  await loadBudgetTable();
+};
+
+async function showAddBudgetRowModal() {
+  const { categories, budgets } = await api.getBudgetYear(budgetYear);
+  const budgetedIds = new Set(budgets.map(b => b.category_id));
+  const available = categories.filter(c => !budgetedIds.has(c.id));
+  if (!available.length) { toast('Tutte le categorie hanno già un budget', 'info'); return; }
+
+  // Build options grouped by type
+  const expOpts = available.filter(c=>c.type==='expense').map(c=>
+    `<option value="${c.id}">${c.parent_id?'  └ ':''}${c.icon} ${c.name}</option>`).join('');
+  const incOpts = available.filter(c=>c.type==='income').map(c=>
+    `<option value="${c.id}">${c.parent_id?'  └ ':''}${c.icon} ${c.name}</option>`).join('');
+
+  openModal('Aggiungi budget categoria',
+    `<div class="form-group">
+       <label class="form-label">Categoria</label>
+       <select class="form-control" id="ab_cat">
+         <option value="">— Seleziona —</option>
+         ${expOpts ? `<optgroup label="Uscite">${expOpts}</optgroup>` : ''}
+         ${incOpts ? `<optgroup label="Entrate">${incOpts}</optgroup>` : ''}
+       </select>
+     </div>
+     <div class="form-group">
+       <label class="form-label">Tipo importo</label>
+       <select class="form-control" id="ab_mode">
+         <option value="monthly">Mensile (stesso importo ogni mese)</option>
+         <option value="annual">Annuale (diviso per 12)</option>
+       </select>
+     </div>
+     <div class="form-group">
+       <label class="form-label">Importo (€)</label>
+       <input type="number" step="0.01" min="0" class="form-control" id="ab_amount">
+     </div>`,
+    async () => {
+      const catId  = parseInt(document.getElementById('ab_cat').value);
+      const mode   = document.getElementById('ab_mode').value;
+      const amount = parseFloat(document.getElementById('ab_amount').value) || 0;
+      if (!catId || !amount) { toast('Compila tutti i campi', 'error'); return; }
+      const monthly = mode === 'annual' ? Math.round(amount/12*100)/100 : amount;
+      await api.setBudgetBulk({category_id:catId, year:budgetYear, amounts:Array(12).fill(monthly)});
+      closeModal(); await loadBudgetTable();
+    });
+}
 
 /* ═══════════════════════════════════════════════════════════════════════════
    PORTAFOGLIO

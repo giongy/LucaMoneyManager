@@ -156,6 +156,12 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             case "getBudgets"   -> db.getBudgets(p.get("month").getAsInt(), p.get("year").getAsInt());
             case "setBudget"    -> db.setBudget(p);
             case "deleteBudget" -> db.deleteBudget(p.get("id").getAsInt());
+            case "getBudgetYear" -> db.getBudgetYear(p.get("year").getAsInt());
+            case "setBudgetBulk" -> {
+                db.setBudgetBulk(p.get("category_id").getAsInt(), p.get("year").getAsInt(),
+                                 p.get("amounts").getAsJsonArray());
+                yield Map.of("ok", true);
+            }
 
             // ─── Portafoglio ───────────────────────────────────────────────
             case "getPortfolio"          -> db.getPortfolio();

@@ -218,6 +218,7 @@ const api = {
   deleteBudget:id           => callJava('deleteBudget',{id}),
   getBudgetYear: y          => callJava('getBudgetYear', {year:y}),
   setBudgetBulk: data       => callJava('setBudgetBulk', data),
+  deleteBudgetMonth: data      => callJava('deleteBudgetMonth', data),
   setBudgetConfig: data       => callJava('setBudgetConfig', data),
   generateBudget: data      => callJava('generateBudget', data),
 
@@ -1345,8 +1346,7 @@ async function renderBudgets() {
 }
 
 let _budgetData = null;
-let _budgetCollapsed = new Set(); // id macrocategorie compresse
-let _budgetPinned = {};           // catId -> Set<month> — mesi modificati manualmente
+let _budgetCollapsed = new Set();
 
 async function loadBudgetTable() {
   _budgetData = await api.getBudgetYear(budgetYear);
@@ -1383,12 +1383,29 @@ function renderBudgetTable() {
   const childrenOf = {};
   categories.forEach(c => { if (c.parent_id) (childrenOf[c.parent_id] ??= []).push(c); });
 
+  // Ritorna i 12 valori effettivi: DB per i mesi manuali, calcolato per i liberi
+  const getEffective = catId => {
+    const cfg = configMap[catId];
+    const stored = budgetMap[catId] || {};
+    if (!cfg || !cfg.master_amount) return stored;
+    const lockedTotal = cfg.mode === 'annuale' ? cfg.master_amount : cfg.master_amount * 12;
+    const pinnedMonths = Object.keys(stored).map(Number);
+    const pinnedSum = pinnedMonths.reduce((s, m) => s + (stored[m] || 0), 0);
+    const freeCount = 12 - pinnedMonths.length;
+    const freeVal = freeCount > 0 ? Math.round((lockedTotal - pinnedSum) / freeCount * 100) / 100 : 0;
+    const result = {...stored};
+    for (let m = 1; m <= 12; m++) {
+      if (result[m] === undefined) result[m] = Math.max(0, freeVal);
+    }
+    return result;
+  };
+
   const sumBm = id => {
-    const direct = budgetMap[id] || {};
+    const direct = getEffective(id);
     const kids = childrenOf[id] || [];
     const result = {...direct};
     kids.forEach(k => {
-      const km = budgetMap[k.id] || {};
+      const km = getEffective(k.id);
       for (let m = 1; m <= 12; m++) result[m] = (result[m]||0) + (km[m]||0);
     });
     return result;
@@ -1407,7 +1424,7 @@ function renderBudgetTable() {
   const rows = categories.map(cat => {
     const isGroupHeader = parentIds.has(cat.id);
     const isChild = !!cat.parent_id;
-    const bm = isGroupHeader ? sumBm(cat.id) : (budgetMap[cat.id] || {});
+    const bm = isGroupHeader ? sumBm(cat.id) : getEffective(cat.id);
     const am = isGroupHeader ? sumAm(cat.id) : (actualMap[cat.id] || {});
     const annualBudget = Object.values(bm).reduce((s,v)=>s+v,0);
     const annualActual = Object.values(am).reduce((s,v)=>s+v,0);
@@ -1438,7 +1455,8 @@ function renderBudgetTable() {
           ${actual>0?`<span class="budget-cell-actual ${over?'over':''}">${fmt.currency(actual)}</span>`:''}
         </td>`;
       }
-      return `<td class="budget-cell"
+      const isCalc = hasCfg && (budgetMap[cat.id]?.[m] === undefined);
+      return `<td class="budget-cell${isCalc?' budget-cell-calc':''}"
                   data-cat="${cat.id}" data-month="${m}"
                   onclick="_budgetCellEdit(this,${cat.id},${m})">
         <span class="budget-cell-val">${budgetStr}</span>
@@ -1448,7 +1466,7 @@ function renderBudgetTable() {
 
     // Totale: se annuale usa master_amount, altrimenti somma mesi
     const displayTotal = (!isGroupHeader && cfg && cfg.mode === 'annuale' && cfg.master_amount > 0)
-      ? cfg.master_amount : annualBudget;
+      ? Math.max(cfg.master_amount, annualBudget) : annualBudget;
     const totalOver = isOver(displayTotal, annualActual);
     const actions = isGroupHeader
       ? `<td class="budget-actions-cell"></td>`
@@ -1481,7 +1499,7 @@ function renderBudgetTable() {
   const mReale = {}, mBudget = {};
   for (let m = 1; m <= 12; m++) {
     mReale[m]  = leafCats.reduce((s,c) => s + (actualMap[c.id]?.[m]||0), 0);
-    mBudget[m] = leafCats.reduce((s,c) => s + (budgetMap[c.id]?.[m]||0), 0);
+    mBudget[m] = leafCats.reduce((s,c) => s + (getEffective(c.id)[m]||0), 0);
   }
   const totReale  = Object.values(mReale).reduce((s,v)=>s+v,0);
   const totBudget = Object.values(mBudget).reduce((s,v)=>s+v,0);
@@ -1562,62 +1580,13 @@ window._budgetCellEdit = (td, catId, month) => {
     if (committed) return;
     committed = true;
     const raw = inp.value.trim();
-    const cfg = (_budgetData.configs || []).find(c => c.category_id === catId);
-
-    let val;
     if (raw === '') {
-      if (cfg && cfg.master_amount > 0) {
-        // Cella svuotata: ripristina il valore config di default per quel mese
-        val = cfg.mode === 'annuale'
-          ? Math.round(cfg.master_amount / 12 * 100) / 100
-          : cfg.master_amount;
-        if (val === originalVal) { restore(); return; }
-      } else {
-        restore(); return;
-      }
+      // Svuota → rimuove dal DB, il mese torna calcolato a runtime
+      await api.deleteBudgetMonth({category_id: catId, month, year: budgetYear});
     } else {
-      val = parseFloat(raw) || 0;
-      if (val === originalVal) { restore(); return; }
-    }
-    if (cfg && cfg.master_amount > 0) {
-      // Segna questo mese come "bloccato" dall'utente
-      if (!_budgetPinned[catId]) _budgetPinned[catId] = new Set();
-      _budgetPinned[catId].add(month);
-
-      const lockedTotal = cfg.mode === 'annuale' ? cfg.master_amount : cfg.master_amount * 12;
-      const pinned = _budgetPinned[catId];
-
-      // Valori correnti dal DB
-      const curVals = {};
-      (_budgetData.budgets || []).filter(b => b.category_id === catId)
-        .forEach(b => { curVals[b.month] = b.amount; });
-
-      // Mesi bloccati (escluso quello corrente) e loro somma
-      const pinnedOthers = Array.from({length:12}, (_,i)=>i+1)
-        .filter(m => m !== month && pinned.has(m));
-      const pinnedSum = pinnedOthers.reduce((s, m) => s + (curVals[m] || 0), 0);
-
-      // Mesi liberi (non bloccati, non corrente) → ricevono la quota residua
-      const freeMonths = Array.from({length:12}, (_,i)=>i+1)
-        .filter(m => m !== month && !pinned.has(m));
-
-      const remaining = Math.max(0, lockedTotal - val - pinnedSum);
-      const newAmounts = Array(12).fill(0);
-      newAmounts[month - 1] = val;
-      pinnedOthers.forEach(m => { newAmounts[m - 1] = curVals[m] || 0; });
-
-      let left = remaining;
-      freeMonths.forEach((m, i) => {
-        if (i === freeMonths.length - 1) {
-          newAmounts[m - 1] = Math.max(0, Math.round(left * 100) / 100);
-        } else {
-          const share = freeMonths.length > 0 ? Math.round(remaining / freeMonths.length * 100) / 100 : 0;
-          newAmounts[m - 1] = Math.max(0, share);
-          left -= share;
-        }
-      });
-      await api.setBudgetBulk({category_id: catId, year: budgetYear, amounts: newAmounts});
-    } else {
+      const val = parseFloat(raw) || 0;
+      const stored = (_budgetData.budgets || []).find(b => b.category_id === catId && b.month === month);
+      if (val === originalVal && stored) { restore(); return; }
       await api.setBudget({category_id: catId, amount: val, month, year: budgetYear});
     }
     await loadBudgetTable();
@@ -1654,10 +1623,8 @@ window._budgetEditGestione = (catId, catName) => {
     async () => {
       const mode = document.getElementById('bc_mode').value;
       const amount = parseFloat(document.getElementById('bc_amount').value) || 0;
-      const monthly = mode === 'annuale' ? Math.round(amount / 12 * 100) / 100 : amount;
-      delete _budgetPinned[catId]; // reset pin quando si reimosta la gestione
       await api.setBudgetConfig({category_id: catId, year: budgetYear, mode, master_amount: amount});
-      await api.setBudgetBulk({category_id: catId, year: budgetYear, amounts: Array(12).fill(monthly)});
+      await api.setBudgetBulk({category_id: catId, year: budgetYear, amounts: Array(12).fill(0)});
       closeModal();
       await loadBudgetTable();
     });
@@ -1680,7 +1647,6 @@ window._budgetToggle = catId => {
 };
 
 window._budgetClearRow = async catId => {
-  delete _budgetPinned[catId];
   await api.setBudgetBulk({category_id:catId, year:budgetYear, amounts:Array(12).fill(0)});
   await api.setBudgetConfig({category_id:catId, year:budgetYear, mode:'mensile', master_amount:0});
   await loadBudgetTable();

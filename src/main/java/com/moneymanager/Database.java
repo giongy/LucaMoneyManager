@@ -747,6 +747,12 @@ public class Database {
         }
     }
 
+    /** Rimuove il budget per una singola cella (categoria + mese + anno). */
+    public void deleteBudgetMonth(int categoryId, int month, int year) throws SQLException {
+        execute("DELETE FROM budgets WHERE category_id=? AND month=? AND year=?",
+                categoryId, month, year);
+    }
+
     // ─── Transazioni Pianificate ──────────────────────────────────────────────
 
     public List<Map<String, Object>> getScheduled() throws SQLException {

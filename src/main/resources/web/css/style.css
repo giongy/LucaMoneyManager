@@ -727,3 +727,9 @@ tr.tx-selected td { background:rgba(88,166,255,.07); }
   text-transform: uppercase;
   letter-spacing: .05em;
 }
+
+/* ── Budget: celle calcolate (non pinnate) ──────────────────────────────── */
+.budget-cell-calc .budget-cell-val {
+  color: var(--txt3);
+  font-style: italic;
+}

@@ -378,6 +378,9 @@ function openModal(title, bodyHtml, onConfirm, confirmLabel='Salva', confirmClas
   document.getElementById('modalConfirm').textContent = confirmLabel;
   document.getElementById('modalConfirm').className   = `btn ${confirmClass}`;
   modalConfirmCallback = onConfirm;
+  const hasActions = onConfirm !== null;
+  document.getElementById('modalCancel').style.display  = hasActions ? '' : 'none';
+  document.getElementById('modalConfirm').style.display = hasActions ? '' : 'none';
   document.getElementById('modalOverlay').classList.add('open');
 }
 
@@ -1641,6 +1644,11 @@ window._budgetEditGestione = (catId, catName) => {
       document.getElementById('bc_label').textContent = m === 'mensile' ? 'Importo mensile (€)' : 'Importo annuale (€)';
       document.getElementById('bc_hint').textContent  = m === 'mensile' ? 'Stesso importo per tutti i 12 mesi' : 'Verrà diviso in 12 mesi (÷12)';
     });
+    const inp = document.getElementById('bc_amount');
+    if (inp) {
+      inp.focus();
+      inp.addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('modalConfirm').click(); });
+    }
   }, 0);
 };
 

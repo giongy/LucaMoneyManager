@@ -3,14 +3,6 @@ package com.moneymanager;
 import org.cef.CefApp;
 import org.cef.CefClient;
 import org.cef.browser.CefBrowser;
-import org.cef.browser.CefFrame;
-import org.cef.handler.CefDisplayHandlerAdapter;
-import org.cef.handler.CefLoadHandlerAdapter;
-import org.cef.network.CefRequest;
-import org.cef.callback.CefQueryCallback;
-import org.cef.handler.CefMessageRouterHandler;
-import org.cef.CefSettings;
-import me.friwi.jcefmaven.impl.progress.ConsoleProgressHandler;
 
 import javax.swing.*;
 import java.awt.*;

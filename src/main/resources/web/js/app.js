@@ -384,6 +384,9 @@ function openModal(title, bodyHtml, onConfirm, confirmLabel='Salva', confirmClas
 function closeModal() {
   document.getElementById('modalOverlay').classList.remove('open');
   modalConfirmCallback = null;
+  const modal = document.querySelector('.modal');
+  if (modal) modal.style.width = '';
+  if (window._budgetDetailChart) { window._budgetDetailChart.destroy(); window._budgetDetailChart = null; }
 }
 
 document.getElementById('modalClose').onclick  = closeModal;
@@ -1483,6 +1486,7 @@ function renderBudgetTable() {
         ${isGroupHeader ? `<button class="btn-budget-toggle" onclick="_budgetToggle(${cat.id})">${isCollapsed?'▶':'▼'}</button>` : ''}
         <span style="color:${cat.color}">${cat.icon}</span> ${cat.name}
         ${isGroupHeader?'<span class="budget-group-hint"> (riepilogo)</span>':''}
+        <button class="btn-budget-detail" title="Dettaglio" onclick="event.stopPropagation();_budgetShowDetail(${cat.id},'${cat.name.replace(/'/g,"\\'")}')">📊</button>
       </td>
       ${gestioneCell}
       ${cells}
@@ -1644,6 +1648,137 @@ window._budgetToggle = catId => {
   if (_budgetCollapsed.has(catId)) _budgetCollapsed.delete(catId);
   else _budgetCollapsed.add(catId);
   renderBudgetTable();
+};
+
+window._budgetShowDetail = (catId, catName) => {
+  if (!_budgetData) return;
+  const { budgets, actuals, categories, configs } = _budgetData;
+
+  // Rebuild maps (same logic as renderBudgetTable)
+  const budgetMap = {};
+  budgets.forEach(b => { if (!budgetMap[b.category_id]) budgetMap[b.category_id] = {}; budgetMap[b.category_id][b.month] = b.amount; });
+  const actualMap = {};
+  actuals.forEach(a => { if (!actualMap[a.category_id]) actualMap[a.category_id] = {}; actualMap[a.category_id][a.month] = a.total; });
+  const configMap = {};
+  (configs || []).forEach(c => { configMap[c.category_id] = c; });
+
+  const parentIds = new Set(categories.filter(c => c.parent_id).map(c => c.parent_id));
+  const childrenOf = {};
+  categories.forEach(c => { if (c.parent_id) (childrenOf[c.parent_id] ??= []).push(c); });
+
+  const getEffective = catId => {
+    const cfg = configMap[catId];
+    const stored = budgetMap[catId] || {};
+    if (!cfg || !cfg.master_amount) return stored;
+    const lockedTotal = cfg.mode === 'annuale' ? cfg.master_amount : cfg.master_amount * 12;
+    const pinnedMonths = Object.keys(stored).map(Number);
+    const pinnedSum = pinnedMonths.reduce((s, m) => s + (stored[m] || 0), 0);
+    const freeCount = 12 - pinnedMonths.length;
+    const freeVal = freeCount > 0 ? Math.round((lockedTotal - pinnedSum) / freeCount * 100) / 100 : 0;
+    const result = {...stored};
+    for (let m = 1; m <= 12; m++) { if (result[m] === undefined) result[m] = Math.max(0, freeVal); }
+    return result;
+  };
+
+  const isGroup = parentIds.has(catId);
+  const bm = {}, am = {};
+  if (isGroup) {
+    const kids = childrenOf[catId] || [];
+    for (let m = 1; m <= 12; m++) {
+      bm[m] = kids.reduce((s,k) => s + (getEffective(k.id)[m]||0), 0);
+      am[m] = kids.reduce((s,k) => s + (actualMap[k.id]?.[m]||0), 0);
+    }
+  } else {
+    const eff = getEffective(catId);
+    const act = actualMap[catId] || {};
+    for (let m = 1; m <= 12; m++) { bm[m] = eff[m]||0; am[m] = act[m]||0; }
+  }
+
+  const tableRows = MONTHS_SHORT.map((mn, i) => {
+    const m = i + 1;
+    const b = bm[m], a = am[m], d = b - a;
+    const dc = d > 0 ? 'color:var(--income)' : d < 0 ? 'color:var(--expense)' : '';
+    return `<tr>
+      <td class="td-main">${mn}</td>
+      <td style="text-align:right">${a ? fmt.currency(a) : '—'}</td>
+      <td style="text-align:right">${b ? fmt.currency(b) : '—'}</td>
+      <td style="text-align:right;${dc}">${(b||a) ? fmt.currency(d) : '—'}</td>
+    </tr>`;
+  }).join('');
+
+  const totB = Object.values(bm).reduce((s,v)=>s+v,0);
+  const totA = Object.values(am).reduce((s,v)=>s+v,0);
+  const totD = totB - totA;
+  const totDc = totD > 0 ? 'color:var(--income)' : totD < 0 ? 'color:var(--expense)' : '';
+
+  const body = `
+    <div style="position:relative;height:220px;margin-bottom:18px">
+      <canvas id="budgetDetailChart"></canvas>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Mese</th>
+          <th style="text-align:right">Reale</th>
+          <th style="text-align:right">Budget</th>
+          <th style="text-align:right">Differenza</th>
+        </tr></thead>
+        <tbody>${tableRows}</tbody>
+        <tfoot><tr style="font-weight:700;border-top:2px solid var(--border)">
+          <td class="td-main">Totale</td>
+          <td style="text-align:right">${totA ? fmt.currency(totA) : '—'}</td>
+          <td style="text-align:right">${totB ? fmt.currency(totB) : '—'}</td>
+          <td style="text-align:right;${totDc}">${(totB||totA) ? fmt.currency(totD) : '—'}</td>
+        </tr></tfoot>
+      </table>
+    </div>`;
+
+  openModal(`📊 ${catName} — ${budgetYear}`, body, null);
+
+  // Widen modal and draw chart after modal renders
+  setTimeout(() => {
+    const modal = document.querySelector('.modal');
+    if (modal) modal.style.width = '660px';
+    const canvas = document.getElementById('budgetDetailChart');
+    if (!canvas) return;
+    if (window._budgetDetailChart) { window._budgetDetailChart.destroy(); window._budgetDetailChart = null; }
+    window._budgetDetailChart = new Chart(canvas, {
+      type: 'line',
+      data: {
+        labels: MONTHS_SHORT,
+        datasets: [
+          {
+            label: 'Budget',
+            data: MONTHS_SHORT.map((_,i) => bm[i+1]||0),
+            borderColor: '#58a6ff',
+            backgroundColor: 'rgba(88,166,255,0.08)',
+            borderWidth: 2,
+            pointRadius: 3,
+            tension: 0.3,
+            fill: false,
+          },
+          {
+            label: 'Reale',
+            data: MONTHS_SHORT.map((_,i) => am[i+1]||0),
+            borderColor: '#3fb950',
+            backgroundColor: 'rgba(63,185,80,0.08)',
+            borderWidth: 2,
+            pointRadius: 3,
+            tension: 0.3,
+            fill: false,
+          },
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { labels: { color: '#8b949e', font: { size: 11 } } } },
+        scales: {
+          x: { ticks: { color: '#8b949e', font: { size: 10 } }, grid: { color: '#21262d' } },
+          y: { ticks: { color: '#8b949e', font: { size: 10 }, callback: v => fmt.currency(v) }, grid: { color: '#21262d' } },
+        }
+      }
+    });
+  }, 50);
 };
 
 window._budgetClearRow = async catId => {

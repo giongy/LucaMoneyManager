@@ -1748,8 +1748,8 @@ window._budgetShowDetail = (catId, catName) => {
         labels: MONTHS_SHORT,
         datasets: [
           {
-            label: 'Budget',
-            data: MONTHS_SHORT.map((_,i) => bm[i+1]||0),
+            label: 'Budget (cumulativo)',
+            data: MONTHS_SHORT.map((_,i) => { let s=0; for(let m=1;m<=i+1;m++) s+=bm[m]||0; return s; }),
             borderColor: '#58a6ff',
             backgroundColor: 'rgba(88,166,255,0.08)',
             borderWidth: 2,
@@ -1758,8 +1758,8 @@ window._budgetShowDetail = (catId, catName) => {
             fill: false,
           },
           {
-            label: 'Reale',
-            data: MONTHS_SHORT.map((_,i) => am[i+1]||0),
+            label: 'Reale (cumulativo)',
+            data: MONTHS_SHORT.map((_,i) => { let s=0; for(let m=1;m<=i+1;m++) s+=am[m]||0; return s; }),
             borderColor: '#3fb950',
             backgroundColor: 'rgba(63,185,80,0.08)',
             borderWidth: 2,

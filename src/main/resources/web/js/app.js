@@ -1711,15 +1711,21 @@ window._budgetShowDetail = (catId, catName) => {
     for (let m = 1; m <= 12; m++) { bm[m] = eff[m]||0; am[m] = act[m]||0; }
   }
 
+  let cumB = 0, cumA = 0;
   const tableRows = MONTHS_SHORT.map((mn, i) => {
     const m = i + 1;
     const b = bm[m], a = am[m], d = b - a;
-    const dc = d > 0 ? 'color:var(--income)' : d < 0 ? 'color:var(--expense)' : '';
+    cumB += b; cumA += a;
+    const dc  = d    > 0 ? 'color:var(--income)' : d    < 0 ? 'color:var(--expense)' : '';
+    const dcc = cumB > cumA ? 'color:var(--income)' : cumB < cumA ? 'color:var(--expense)' : '';
     return `<tr>
       <td class="td-main">${mn}</td>
       <td style="text-align:right">${a ? fmt.currency(a) : '—'}</td>
       <td style="text-align:right">${b ? fmt.currency(b) : '—'}</td>
       <td style="text-align:right;${dc}">${(b||a) ? fmt.currency(d) : '—'}</td>
+      <td style="text-align:right;color:var(--txt3)">${cumA ? fmt.currency(cumA) : '—'}</td>
+      <td style="text-align:right;color:var(--txt3)">${cumB ? fmt.currency(cumB) : '—'}</td>
+      <td style="text-align:right;${dcc}">${(cumB||cumA) ? fmt.currency(cumB - cumA) : '—'}</td>
     </tr>`;
   }).join('');
 
@@ -1734,17 +1740,29 @@ window._budgetShowDetail = (catId, catName) => {
     </div>
     <div class="table-wrap">
       <table>
-        <thead><tr>
-          <th>Mese</th>
-          <th style="text-align:right">Reale</th>
-          <th style="text-align:right">Budget</th>
-          <th style="text-align:right">Differenza</th>
-        </tr></thead>
+        <thead>
+          <tr>
+            <th rowspan="2">Mese</th>
+            <th colspan="3" style="text-align:center;border-bottom:1px solid var(--border)">Mensile</th>
+            <th colspan="3" style="text-align:center;border-bottom:1px solid var(--border)">Cumulativo</th>
+          </tr>
+          <tr>
+            <th style="text-align:right">Reale</th>
+            <th style="text-align:right">Budget</th>
+            <th style="text-align:right">Diff.</th>
+            <th style="text-align:right">Reale</th>
+            <th style="text-align:right">Budget</th>
+            <th style="text-align:right">Diff.</th>
+          </tr>
+        </thead>
         <tbody>${tableRows}</tbody>
         <tfoot><tr style="font-weight:700;border-top:2px solid var(--border)">
           <td class="td-main">Totale</td>
           <td style="text-align:right">${totA ? fmt.currency(totA) : '—'}</td>
           <td style="text-align:right">${totB ? fmt.currency(totB) : '—'}</td>
+          <td style="text-align:right;${totDc}">${(totB||totA) ? fmt.currency(totD) : '—'}</td>
+          <td style="text-align:right;color:var(--txt3)">${totA ? fmt.currency(totA) : '—'}</td>
+          <td style="text-align:right;color:var(--txt3)">${totB ? fmt.currency(totB) : '—'}</td>
           <td style="text-align:right;${totDc}">${(totB||totA) ? fmt.currency(totD) : '—'}</td>
         </tr></tfoot>
       </table>

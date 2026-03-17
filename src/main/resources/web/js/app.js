@@ -205,10 +205,12 @@ const api = {
   deleteTag:  id   => callJava('deleteTag', {id}),
 
   // Transazioni
-  getTransactions:   f    => callJava('getTransactions',   f || {}),
-  addTransaction:    data => callJava('addTransaction',    data),
-  updateTransaction: data => callJava('updateTransaction', data),
-  deleteTransaction: id   => callJava('deleteTransaction', {id}),
+  getTransactions:             f    => callJava('getTransactions',             f || {}),
+  addTransaction:              data => callJava('addTransaction',              data),
+  updateTransaction:           data => callJava('updateTransaction',           data),
+  deleteTransaction:           id   => callJava('deleteTransaction',           {id}),
+  updateTransactionReconciled: (id, reconciled) => callJava('updateTransactionReconciled', {id, reconciled}),
+  getAccountSummary:           account_id => callJava('getAccountSummary',    {account_id}),
 
   // Budget
   getBudgets:  (month,year) => callJava('getBudgets', {month,year}),
@@ -216,6 +218,7 @@ const api = {
   deleteBudget:id           => callJava('deleteBudget',{id}),
   getBudgetYear: y          => callJava('getBudgetYear', {year:y}),
   setBudgetBulk: data       => callJava('setBudgetBulk', data),
+  setBudgetConfig: data       => callJava('setBudgetConfig', data),
   generateBudget: data      => callJava('generateBudget', data),
 
   // Portafoglio
@@ -242,7 +245,7 @@ const api = {
   getUpcoming:     (n)   => callJava('getUpcoming',    {limit: n||15}),
   getUpcomingAll:  (n)   => callJava('getUpcomingAll', {limit: n||15}),
   getOverdue:      ()    => callJava('getOverdue'),
-  skipOccurrence:  (id, date) => callJava('skipOccurrence', {id, date}),
+  advanceScheduled: (id, date) => callJava('advanceScheduled', {id, date}),
   getProjection:   data  => callJava('getProjection', data),
 };
 
@@ -385,7 +388,6 @@ function closeModal() {
 document.getElementById('modalClose').onclick  = closeModal;
 document.getElementById('modalCancel').onclick = closeModal;
 document.getElementById('modalConfirm').onclick = () => { if (modalConfirmCallback) modalConfirmCallback(); };
-document.getElementById('modalOverlay').addEventListener('click', e => { if(e.target===e.currentTarget) closeModal(); });
 
 /* ─── Sidebar accounts ───────────────────────────────────────────────────── */
 async function updateSidebar() {
@@ -401,16 +403,10 @@ async function updateSidebar() {
 /* ═══════════════════════════════════════════════════════════════════════════
    DASHBOARD
 ═══════════════════════════════════════════════════════════════════════════ */
-let dashYear = new Date().getFullYear();
-
 async function renderDashboard() {
+  const dashYear = new Date().getFullYear();
   const pg = document.getElementById('pg-dashboard');
   pg.innerHTML = `
-    <div class="month-nav">
-      <button id="dashPrev">‹</button>
-      <span id="dashYearLabel"></span>
-      <button id="dashNext">›</button>
-    </div>
     <div class="stats-grid" id="statsGrid"></div>
     <div class="dash-top-row" style="margin-bottom:24px">
       <div class="card dash-accounts-card">
@@ -440,7 +436,7 @@ async function renderDashboard() {
           <button class="btn btn-ghost" onclick="navigate('scheduled')">Gestisci →</button>
         </div>
         <div class="table-wrap"><table><thead><tr>
-          <th>Data</th><th>Descrizione</th><th>Categoria</th><th>Freq.</th><th class="text-right">Importo</th>
+          <th>Categoria</th><th>Descrizione</th><th>Giorni</th><th class="text-right">Importo</th>
         </tr></thead><tbody id="upcomingRows"></tbody></table></div>
       </div>
     </div>
@@ -458,10 +454,6 @@ async function renderDashboard() {
         <canvas id="topCatChart"></canvas>
       </div>
     </div>`;
-
-  document.getElementById('dashYearLabel').textContent = dashYear;
-  document.getElementById('dashPrev').onclick = () => { dashYear--; renderDashboard(); };
-  document.getElementById('dashNext').onclick = () => { dashYear++; renderDashboard(); };
 
   const [stats, accounts, recent, monthly, catData, upcoming] = await Promise.all([
     api.getDashboardStats(dashYear),
@@ -570,16 +562,24 @@ async function renderDashboard() {
     '<tr><td colspan="5" class="text-muted" style="text-align:center;padding:30px">Nessuna transazione</td></tr>';
 
   // Upcoming scheduled
-  const freqLabel = f => ({once:'Una volta',daily:'Giornaliera',weekly:'Settimanale',biweekly:'Bisettimanale',monthly:'Mensile',quarterly:'Trimestrale',yearly:'Annuale'}[f]||f);
-  document.getElementById('upcomingRows').innerHTML = upcoming.length ? upcoming.map(u => `
+  const dashTodayStr = new Date().toLocaleDateString('en-CA');
+  const dashToday = new Date(dashTodayStr + 'T00:00:00');
+  document.getElementById('upcomingRows').innerHTML = upcoming.length ? upcoming.map(u => {
+    const nextStr = (!u.end_date || u.start_date <= u.end_date) ? u.start_date : null;
+    const days = nextStr ? Math.round((new Date(nextStr + 'T00:00:00') - dashToday) / 86400000) : null;
+    const daysHtml = days === null ? '—'
+      : days < 0  ? `<span class="sched-days-badge overdue">⚠️ ${Math.abs(days)}g fa</span>`
+      : days === 0 ? `<span class="sched-days-badge today">Oggi</span>`
+      : `<span class="sched-days-badge upcoming">${days}g</span>`;
+    return `
     <tr class="${u.overdue ? 'upcoming-overdue' : ''}">
-      <td>${u.overdue ? `<span class="overdue-badge">⚠️</span>` : ''}${fmt.date(u.date)}</td>
-      <td class="td-main">${u.description||'-'}</td>
       <td><span class="cat-chip">${u.category_icon||''}${u.category_name||'-'}</span></td>
-      <td><span class="sched-freq-badge">${freqLabel(u.frequency)}</span></td>
+      <td class="td-main">${u.description||'-'}</td>
+      <td>${daysHtml}</td>
       <td class="text-right amount-${u.type}">${u.type==='expense'?'-':''}${fmt.currency(u.amount)}</td>
-    </tr>`).join('') :
-    '<tr><td colspan="5" class="text-muted" style="text-align:center;padding:20px">Nessuna transazione pianificata</td></tr>';
+    </tr>`;
+  }).join('') :
+    '<tr><td colspan="4" class="text-muted" style="text-align:center;padding:20px">Nessuna transazione pianificata</td></tr>';
 
   // Savings chart (monthly net = income - expenses)
   const savArr = incArr.map((v,i) => v - expArr[i]);
@@ -638,8 +638,9 @@ function rangeToFilter(range, from, to) {
     default:          return { date_from: fmt(sub(29)), date_to: fmt(today) };
   }
 }
-let txSort    = { col: 'date', dir: 'desc' };
-let txCache   = [];
+let txSort       = { col: 'date', dir: 'desc' };
+let txCache      = [];
+let _selectedTxId = null;
 
 function navigateToAccountTx(accountId) {
   txFilters = { range: '30d', account_id: String(accountId) };
@@ -647,12 +648,14 @@ function navigateToAccountTx(accountId) {
 }
 
 async function renderTransactions() {
+  _selectedTxId = null;
   const pg = document.getElementById('pg-transactions');
   const [categories, accounts, tags] = await Promise.all([api.getCategories(), api.getAccounts(), api.getTags()]);
 
   pg.innerHTML = `
     <div class="section-header">
       <h2 class="section-title">Transazioni</h2>
+      <div id="txHeaderSummary" class="tx-header-summary"></div>
       <div class="tx-add-group">
         <button class="btn btn-add-income"   id="btnAddIncome">📥 Entrata</button>
         <button class="btn btn-add-expense"  id="btnAddExpense">📤 Uscita</button>
@@ -693,11 +696,14 @@ async function renderTransactions() {
       <div class="table-wrap">
         <table id="txTable"><thead><tr>
           <th class="th-sort" data-col="date"        onclick="_txSortBy('date')">Data<span class="sort-ind">▼</span></th>
+          <th class="th-reconciled" id="thReconciled" title="Stato conciliazione">Stato</th>
           <th class="th-sort" data-col="description" onclick="_txSortBy('description')">Descrizione<span class="sort-ind"></span></th>
+          <th class="th-tags">Tag</th>
           <th class="th-sort" data-col="type"        onclick="_txSortBy('type')">Tipo<span class="sort-ind"></span></th>
           <th class="th-sort" data-col="category"    onclick="_txSortBy('category')">Categoria<span class="sort-ind"></span></th>
           <th class="th-sort" data-col="account"     onclick="_txSortBy('account')">Conto<span class="sort-ind"></span></th>
           <th class="th-sort text-right" data-col="amount" onclick="_txSortBy('amount')">Importo<span class="sort-ind"></span></th>
+          <th class="text-right th-balance" id="thBalance" style="display:none">Saldo</th>
           <th></th>
         </tr></thead><tbody id="txBody"></tbody></table>
       </div>
@@ -740,8 +746,35 @@ async function renderTransactions() {
   loadTxRows(categories, accounts);
 }
 
+function _renderTxHeaderSummary(summary, accounts) {
+  const el = document.getElementById('txHeaderSummary');
+  if (!el) return;
+  if (!summary) { el.innerHTML = ''; return; }
+  const acc = accounts.find(a => String(a.id) === String(txFilters.account_id));
+  el.innerHTML = `
+    <span class="txhs-item txhs-account">${acc ? acc.icon + ' ' + acc.name : ''}</span>
+    <span class="txhs-sep">·</span>
+    <span class="txhs-item"><span class="txhs-label">Saldo</span>
+      <span class="txhs-val ${summary.balance >= 0 ? 'positive' : 'negative'}" id="txhsBal">${fmt.currency(summary.balance)}</span>
+    </span>
+    <span class="txhs-sep">·</span>
+    <span class="txhs-item"><span class="txhs-label">Conciliato</span>
+      <span class="txhs-val ${summary.reconciled_balance >= 0 ? 'positive' : 'negative'}" id="txhsRec">${fmt.currency(summary.reconciled_balance)}</span>
+    </span>`;
+}
+
 async function loadTxRows(categories, accounts) {
-  txCache = await api.getTransactions(txFilters);
+  const hasAccount = txFilters.account_id && String(txFilters.account_id).trim() !== '';
+  const [rows, summary] = await Promise.all([
+    api.getTransactions(txFilters),
+    hasAccount ? api.getAccountSummary(parseInt(txFilters.account_id)) : Promise.resolve(null),
+  ]);
+  txCache = rows;
+  // Mostra/nascondi colonna Saldo
+  const thBal = document.getElementById('thBalance');
+  if (thBal) thBal.style.display = hasAccount ? '' : 'none';
+  // Aggiorna riepilogo nell'header
+  _renderTxHeaderSummary(summary, accounts);
   renderTxBodyAndHeaders();
 }
 
@@ -777,22 +810,56 @@ function renderTxBodyAndHeaders() {
   });
   const tbody = document.getElementById('txBody');
   if (!tbody) return;
+  const showBalance = txFilters.account_id && String(txFilters.account_id).trim() !== '';
   const sorted = sortTxs(txCache);
-  tbody.innerHTML = sorted.length ? sorted.map(t => `
-    <tr data-tx-id="${t.id}" ${t.color ? `style="background:${t.color}18" class="tx-colored"` : ''}>
+  const colCount = showBalance ? 10 : 9;
+  tbody.innerHTML = sorted.length ? sorted.map(t => {
+    const isRec = t.reconciled == 1;
+    const isSel = t.id === _selectedTxId;
+    const balCell = showBalance && t.balance != null
+      ? `<td class="text-right tx-balance ${t.balance >= 0 ? 'positive' : 'negative'}">${fmt.currency(t.balance)}</td>`
+      : (showBalance ? '<td></td>' : '');
+    const bgStyle = t.color ? `style="background:${t.color}18"` : '';
+    return `
+    <tr data-tx-id="${t.id}" class="${t.color ? 'tx-colored' : ''}${isSel ? ' tx-selected' : ''}" ${bgStyle}>
       <td>${fmt.date(t.date)}</td>
-      <td class="td-main">${t.description||''}${(t.tags&&t.tags.length)?`<br>${t.tags.map(tg=>`<span class="tag-inline" style="--tc:${tg.color}">${tg.name}</span>`).join('')}`:''}</td>
+      <td class="td-reconciled">
+        <button class="btn-reconcile ${isRec ? 'reconciled' : 'unreconciled'}" title="${isRec ? 'Conciliata [R] – clicca per annullare' : 'Da verificare [V] – clicca per conciliare'}" onclick="toggleReconciled(${t.id}, ${isRec ? 0 : 1})">
+          ${isRec ? '✅' : '🔲'}
+        </button>
+      </td>
+      <td class="td-main">${t.description||''}</td>
+      <td class="td-tags">${(t.tags&&t.tags.length)?t.tags.map(tg=>`<span class="tag-inline" style="--tc:${tg.color}">${tg.name}</span>`).join(''):''}</td>
       <td><span class="badge badge-${t.type}">${t.type==='income'?'Entrata':t.type==='expense'?'Uscita':'Trasferimento'}</span></td>
       <td>${t.category_icon||''} ${t.category_name||'-'}</td>
       <td>${t.account_name||'-'}${t.to_account_name?` → ${t.to_account_name}`:''}</td>
       <td class="text-right amount-${t.type}">${t.type==='expense'?'-':''}${fmt.currency(t.amount)}</td>
+      ${balCell}
       <td>
         <button class="btn btn-ghost btn-icon" onclick="editTx(${t.id})">✏️</button>
         <button class="btn btn-ghost btn-icon" onclick="deleteTx(${t.id})">🗑️</button>
       </td>
-    </tr>`).join('') :
-    '<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--txt3)">Nessuna transazione trovata</td></tr>';
+    </tr>`;
+  }).join('') :
+    `<tr><td colspan="${colCount}" style="text-align:center;padding:40px;color:var(--txt3)">Nessuna transazione trovata</td></tr>`;
 }
+
+window.toggleReconciled = async (id, newVal) => {
+  await api.updateTransactionReconciled(id, newVal === 1);
+  // Aggiorna solo la riga in cache senza ricaricare tutto
+  const tx = txCache.find(t => t.id === id);
+  if (tx) tx.reconciled = newVal;
+  renderTxBodyAndHeaders();
+  // Aggiorna i valori nell'header senza re-render completo
+  const hasAccount = txFilters.account_id && String(txFilters.account_id).trim() !== '';
+  if (hasAccount) {
+    const summary = await api.getAccountSummary(parseInt(txFilters.account_id));
+    const balEl = document.getElementById('txhsBal');
+    const recEl = document.getElementById('txhsRec');
+    if (balEl) { balEl.textContent = fmt.currency(summary.balance); balEl.className = `txhs-val ${summary.balance >= 0 ? 'positive' : 'negative'}`; }
+    if (recEl) { recEl.textContent = fmt.currency(summary.reconciled_balance); recEl.className = `txhs-val ${summary.reconciled_balance >= 0 ? 'positive' : 'negative'}`; }
+  }
+};
 
 // Restituisce solo <option> (no optgroup) per le categorie foglia del gruppo.
 // Macrocategorie senza figli = selezionabili; macrocategorie CON figli = escluse.
@@ -857,14 +924,29 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
       <label class="form-label">Descrizione</label>
       <textarea class="form-control" id="f_desc" rows="2" placeholder="Opzionale">${tx?.description||''}</textarea>
     </div>
-    <div class="form-group">
-      <label class="form-label">Colore riga <span class="settings-hint">(opzionale — evidenzia la riga)</span></label>
-      <div style="display:flex;align-items:center;gap:8px">
-        <input type="color" id="f_color" class="form-color-tx" value="${tx?.color||'#ffffff'}">
-        <label class="settings-hint" style="display:flex;align-items:center;gap:6px;cursor:pointer">
-          <input type="checkbox" id="f_color_use" ${tx?.color?'checked':''} style="margin:0">
-          Usa colore
-        </label>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Colore riga <span class="settings-hint">(opzionale)</span></label>
+        <div style="display:flex;align-items:center;gap:8px">
+          <input type="color" id="f_color" class="form-color-tx" value="${tx?.color||'#ffffff'}">
+          <label class="settings-hint" style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="checkbox" id="f_color_use" ${tx?.color?'checked':''} style="margin:0">
+            Usa colore
+          </label>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Stato</label>
+        <div style="display:flex;align-items:center;gap:10px;padding-top:6px">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="radio" name="f_reconciled" id="f_rec_pending"  value="0" ${tx?.reconciled==0?'checked':''}>
+            <span>🔲 Da verificare</span>
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="radio" name="f_reconciled" id="f_rec_done"     value="1" ${tx==null||tx.reconciled==1?'checked':''}>
+            <span>✅ Conciliata</span>
+          </label>
+        </div>
       </div>
     </div>
       <div class="form-group">
@@ -914,6 +996,7 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
       tag_ids:       [...selectedTagIds],
       color: document.getElementById('f_color_use')?.checked
                ? document.getElementById('f_color').value : null,
+      reconciled: parseInt(document.querySelector('input[name="f_reconciled"]:checked')?.value ?? '1'),
     };
     if (!data.amount || !data.account_id) {
       toast('Compila i campi obbligatori', 'error'); return;
@@ -1008,14 +1091,22 @@ let _ctxTxId = null;
 
 function _showCtxMenu(txId, x, y) {
   _ctxTxId = txId;
+  const tx = txCache.find(t => t.id === txId);
+  const isRec = tx?.reconciled == 1;
   const m = document.getElementById('ctxMenu');
   m.innerHTML = `
     <div class="ctx-item" onclick="_ctxDo('dup')">📋 Duplica transazione</div>
     <div class="ctx-separator"></div>
     <div class="ctx-item" onclick="_ctxDo('edit')">✏️ Modifica</div>
-    <div class="ctx-item ctx-danger" onclick="_ctxDo('del')">🗑️ Elimina</div>`;
+    <div class="ctx-separator"></div>
+    ${isRec
+      ? `<div class="ctx-item" onclick="_ctxDo('unreconcile')">🔲 Segna come "Da verificare" <kbd>V</kbd></div>`
+      : `<div class="ctx-item" onclick="_ctxDo('reconcile')">✅ Segna come "Conciliata" <kbd>R</kbd></div>`
+    }
+    <div class="ctx-separator"></div>
+    <div class="ctx-item ctx-danger" onclick="_ctxDo('del')">🗑️ Elimina <kbd>Canc</kbd></div>`;
   m.style.display = 'block';
-  const mw = 200, mh = 120;
+  const mw = 230, mh = 160;
   m.style.left = (x + mw > window.innerWidth  ? x - mw : x) + 'px';
   m.style.top  = (y + mh > window.innerHeight ? y - mh : y) + 'px';
 }
@@ -1027,9 +1118,11 @@ function _hideCtxMenu() {
 
 window._ctxDo = action => {
   const id = _ctxTxId; _hideCtxMenu();
-  if (action === 'dup')  duplicateTx(id);
-  if (action === 'edit') window.editTx(id);
-  if (action === 'del')  window.deleteTx(id);
+  if (action === 'dup')         duplicateTx(id);
+  if (action === 'edit')        window.editTx(id);
+  if (action === 'del')         window.deleteTx(id);
+  if (action === 'reconcile')   toggleReconciled(id, 1);
+  if (action === 'unreconcile') toggleReconciled(id, 0);
 };
 
 window.duplicateTx = async id => {
@@ -1040,15 +1133,48 @@ window.duplicateTx = async id => {
   if (tx) showTxModal({...tx, id: undefined}, cats, accs, tx.type, tgs);
 };
 
-// Delegazione eventi a livello documento (funziona anche dopo re-render)
+// ── Selezione riga con click (non su bottoni) ────────────────────────────
+document.addEventListener('click', e => {
+  _hideCtxMenu();
+  const tr = e.target.closest('#txBody tr[data-tx-id]');
+  if (!tr || e.target.closest('button')) { return; }
+  const id = parseInt(tr.dataset.txId);
+  _selectedTxId = _selectedTxId === id ? null : id;  // toggle
+  renderTxBodyAndHeaders();
+});
+
+// Delegazione eventi contestuali
 document.addEventListener('contextmenu', e => {
   const tr = e.target.closest('#txBody tr[data-tx-id]');
   if (!tr) { _hideCtxMenu(); return; }
   e.preventDefault();
-  _showCtxMenu(parseInt(tr.dataset.txId), e.clientX, e.clientY);
+  const id = parseInt(tr.dataset.txId);
+  // Seleziona la riga su cui si fa tasto destro
+  if (_selectedTxId !== id) { _selectedTxId = id; renderTxBodyAndHeaders(); }
+  _showCtxMenu(id, e.clientX, e.clientY);
 });
-document.addEventListener('click', () => _hideCtxMenu());
-document.addEventListener('keydown', e => { if (e.key === 'Escape') _hideCtxMenu(); });
+
+// ── Scorciatoie da tastiera ──────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') { _hideCtxMenu(); return; }
+  // Attive solo se: pagina transazioni visibile, nessun modal aperto, nessun input focalizzato
+  const txPage = document.getElementById('pg-transactions');
+  if (!txPage || !txPage.classList.contains('active')) return;
+  if (document.getElementById('modalOverlay')?.classList.contains('open')) return;
+  const tag = document.activeElement?.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+  if (!_selectedTxId) return;
+  if (e.key === 'r' || e.key === 'R') {
+    e.preventDefault();
+    toggleReconciled(_selectedTxId, 1);
+  } else if (e.key === 'v' || e.key === 'V') {
+    e.preventDefault();
+    toggleReconciled(_selectedTxId, 0);
+  } else if (e.key === 'Delete') {
+    e.preventDefault();
+    window.deleteTx(_selectedTxId);
+  }
+});
 
 /* ═══════════════════════════════════════════════════════════════════════════
    CONTI
@@ -1190,16 +1316,14 @@ async function renderBudgets() {
         <span id="budgYearLabel"></span>
         <button id="budgNext">›</button>
       </div>
-      <button class="btn btn-primary" id="btnGenBudget">Genera budget</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost" id="btnBudgToggleAll">Comprimi tutto</button>
+        <button class="btn btn-primary" id="btnGenBudget">Genera budget</button>
+      </div>
     </div>
     <div class="budget-year-wrap">
       <table class="budget-table" id="budgetTable">
-        <thead><tr>
-          <th class="budget-cat-th">Categoria</th>
-          ${MONTHS_SHORT.map(m=>`<th class="budget-month-th">${m}</th>`).join('')}
-          <th class="budget-total-th">Anno</th>
-          <th class="budget-act-th"></th>
-        </tr></thead>
+        <thead id="budgetThead"></thead>
         <tbody id="budgetBody"></tbody>
       </table>
     </div>`;
@@ -1208,11 +1332,21 @@ async function renderBudgets() {
   document.getElementById('budgPrev').onclick = () => { budgetYear--; renderBudgets(); };
   document.getElementById('budgNext').onclick = () => { budgetYear++; renderBudgets(); };
   document.getElementById('btnGenBudget').onclick = () => showGenerateBudgetModal();
+  document.getElementById('btnBudgToggleAll').onclick = () => {
+    const parentIds = new Set((_budgetData?.categories||[]).filter(c=>c.parent_id).map(c=>c.parent_id));
+    const allCollapsed = [...parentIds].every(id => _budgetCollapsed.has(id));
+    if (allCollapsed) _budgetCollapsed.clear();
+    else parentIds.forEach(id => _budgetCollapsed.add(id));
+    document.getElementById('btnBudgToggleAll').textContent = allCollapsed ? 'Comprimi tutto' : 'Espandi tutto';
+    renderBudgetTable();
+  };
 
   await loadBudgetTable();
 }
 
 let _budgetData = null;
+let _budgetCollapsed = new Set(); // id macrocategorie compresse
+let _budgetPinned = {};           // catId -> Set<month> — mesi modificati manualmente
 
 async function loadBudgetTable() {
   _budgetData = await api.getBudgetYear(budgetYear);
@@ -1220,11 +1354,11 @@ async function loadBudgetTable() {
 }
 
 function renderBudgetTable() {
-  const { budgets, actuals, categories } = _budgetData;
+  const { budgets, actuals, categories, configs } = _budgetData;
 
   if (!categories.length) {
     document.getElementById('budgetBody').innerHTML =
-      `<tr><td colspan="15" style="text-align:center;padding:40px;color:var(--txt3)">
+      `<tr><td colspan="16" style="text-align:center;padding:40px;color:var(--txt3)">
         Nessuna categoria trovata. Aggiungile prima dalla pagina Categorie.
       </td></tr>`;
     return;
@@ -1241,14 +1375,14 @@ function renderBudgetTable() {
     if (!actualMap[a.category_id]) actualMap[a.category_id] = {};
     actualMap[a.category_id][a.month] = a.total;
   });
+  const configMap = {};  // catId -> {mode, master_amount}
+  (configs || []).forEach(c => { configMap[c.category_id] = c; });
 
-  // Categorie che hanno figli → solo riepilogo, non editabili (come le transazioni)
+  // Categorie che hanno figli → solo riepilogo, non editabili
   const parentIds = new Set(categories.filter(c => c.parent_id).map(c => c.parent_id));
-  // Figli raggruppati per parent
   const childrenOf = {};
   categories.forEach(c => { if (c.parent_id) (childrenOf[c.parent_id] ??= []).push(c); });
 
-  // Somma ricorsiva budget/actual per una categoria e i suoi figli
   const sumBm = id => {
     const direct = budgetMap[id] || {};
     const kids = childrenOf[id] || [];
@@ -1271,22 +1405,33 @@ function renderBudgetTable() {
   };
 
   const rows = categories.map(cat => {
-    const isGroupHeader = parentIds.has(cat.id);  // macrocategoria con figli
+    const isGroupHeader = parentIds.has(cat.id);
     const isChild = !!cat.parent_id;
     const bm = isGroupHeader ? sumBm(cat.id) : (budgetMap[cat.id] || {});
     const am = isGroupHeader ? sumAm(cat.id) : (actualMap[cat.id] || {});
     const annualBudget = Object.values(bm).reduce((s,v)=>s+v,0);
     const annualActual = Object.values(am).reduce((s,v)=>s+v,0);
 
-    // Per uscite: rosso se spendi più del budget. Per entrate: rosso se guadagni meno del previsto.
     const isIncome = cat.type === 'income';
     const isOver = (budget, actual) => budget > 0 && (isIncome ? actual < budget : actual > budget);
 
+    // Colonna Gestione
+    const cfg = configMap[cat.id];
+    const gestioneCell = isGroupHeader
+      ? `<td class="budget-gestione-cell budget-cell-parent"></td>`
+      : `<td class="budget-gestione-cell" onclick="_budgetEditGestione(${cat.id},'${cat.name.replace(/'/g,"\\'")}')">
+          ${cfg && cfg.master_amount > 0
+            ? `<span class="budget-gestione-badge ${cfg.mode === 'annuale' ? 'annual' : 'monthly'}">${cfg.mode === 'annuale' ? 'Annuale' : 'Mensile'} / ${fmt.currency(cfg.master_amount)}</span>`
+            : `<span class="budget-gestione-empty">+ Imposta</span>`}
+        </td>`;
+
+    const hasCfg = !isGroupHeader && cfg && cfg.master_amount > 0;
     const cells = Array.from({length:12},(_,i)=>{
       const m = i+1;
       const budget = bm[m] || 0;
       const actual = am[m] || 0;
       const over = isOver(budget, actual);
+      const budgetStr = (budget > 0 || hasCfg) ? fmt.currency(budget) : '';
       if (isGroupHeader) {
         return `<td class="budget-cell budget-cell-parent budget-cell-readonly">
           <span class="budget-cell-val">${budget>0?fmt.currency(budget):''}</span>
@@ -1296,35 +1441,107 @@ function renderBudgetTable() {
       return `<td class="budget-cell"
                   data-cat="${cat.id}" data-month="${m}"
                   onclick="_budgetCellEdit(this,${cat.id},${m})">
-        <span class="budget-cell-val">${budget>0?fmt.currency(budget):''}</span>
+        <span class="budget-cell-val">${budgetStr}</span>
         ${actual>0?`<span class="budget-cell-actual ${over?'over':''}">${fmt.currency(actual)}</span>`:''}
       </td>`;
     }).join('');
 
-    const totalOver = isOver(annualBudget, annualActual);
+    // Totale: se annuale usa master_amount, altrimenti somma mesi
+    const displayTotal = (!isGroupHeader && cfg && cfg.mode === 'annuale' && cfg.master_amount > 0)
+      ? cfg.master_amount : annualBudget;
+    const totalOver = isOver(displayTotal, annualActual);
     const actions = isGroupHeader
       ? `<td class="budget-actions-cell"></td>`
       : `<td class="budget-actions-cell">
-           <button class="btn btn-ghost btn-icon" title="Imposta mensile" onclick="_budgetSetMonthly(${cat.id},'${cat.name}')">M</button>
-           <button class="btn btn-ghost btn-icon" title="Imposta annuale" onclick="_budgetSetAnnual(${cat.id},'${cat.name}')">A</button>
            <button class="btn btn-ghost btn-icon" title="Svuota" onclick="_budgetClearRow(${cat.id})">🗑️</button>
          </td>`;
 
-    return `<tr class="${isGroupHeader?'budget-row-parent':''} ${isChild?'budget-row-child':''}" data-cat-id="${cat.id}">
+    const isCollapsed = isGroupHeader && _budgetCollapsed.has(cat.id);
+    const parentCollapsed = isChild && _budgetCollapsed.has(cat.parent_id);
+    const rowStyle = parentCollapsed ? 'display:none' : '';
+
+    return `<tr class="${isGroupHeader?'budget-row-parent':''} ${isChild?'budget-row-child':''}" data-cat-id="${cat.id}" data-parent-id="${cat.parent_id||''}" style="${rowStyle}" ${isGroupHeader?`ondblclick="_budgetToggle(${cat.id})"`:''}">
       <td class="budget-cat-cell ${isChild?'budget-child-indent':''}">
+        ${isGroupHeader ? `<button class="btn-budget-toggle" onclick="_budgetToggle(${cat.id})">${isCollapsed?'▶':'▼'}</button>` : ''}
         <span style="color:${cat.color}">${cat.icon}</span> ${cat.name}
         ${isGroupHeader?'<span class="budget-group-hint"> (riepilogo)</span>':''}
       </td>
+      ${gestioneCell}
       ${cells}
       <td class="budget-total-cell ${isGroupHeader?'budget-cell-parent':''}">
-        ${annualBudget>0?`<b>${fmt.currency(annualBudget)}</b>`:''}
-        ${annualBudget>0?`<span class="budget-cell-actual ${totalOver?'over':''}">${fmt.currency(annualActual)}</span>`:''}
+        ${displayTotal>0?`<b>${fmt.currency(displayTotal)}</b>`:''}
+        ${displayTotal>0?`<span class="budget-cell-actual ${totalOver?'over':''}">${fmt.currency(annualActual)}</span>`:''}
       </td>
       ${actions}
     </tr>`;
   }).join('');
 
+  // ── Righe sommario (Reale / Budget / Differenza) ─────────────────────────
+  const leafCats = categories.filter(c => !parentIds.has(c.id));
+  const mReale = {}, mBudget = {};
+  for (let m = 1; m <= 12; m++) {
+    mReale[m]  = leafCats.reduce((s,c) => s + (actualMap[c.id]?.[m]||0), 0);
+    mBudget[m] = leafCats.reduce((s,c) => s + (budgetMap[c.id]?.[m]||0), 0);
+  }
+  const totReale  = Object.values(mReale).reduce((s,v)=>s+v,0);
+  const totBudget = Object.values(mBudget).reduce((s,v)=>s+v,0);
+  const totDiff   = totBudget - totReale;
+
+  const s = 'padding:5px 8px;white-space:nowrap;border-bottom:1px solid var(--border)';
+  const numCell = (v, show, colorize, bold) => {
+    const col = colorize ? (v>0?'color:var(--income)':v<0?'color:var(--expense)':'') : '';
+    return `<td style="${s};text-align:right;${bold?'font-weight:700;':''}${col}">${show?fmt.currency(v):''}</td>`;
+  };
+
+  document.getElementById('budgetThead').innerHTML = `
+    <tr class="budget-thead-months">
+      <th style="${s};min-width:160px">Categoria</th>
+      <th style="${s};min-width:110px">Gestione</th>
+      ${MONTHS_SHORT.map(m=>`<th style="${s};text-align:right">${m}</th>`).join('')}
+      <th style="${s};text-align:right">Totale</th>
+      <th style="${s}"></th>
+    </tr>
+    <tr class="budget-summary-row budget-row-reale">
+      <td style="${s};font-weight:600;color:var(--txt2)">Reale</td>
+      <td style="${s}"></td>
+      ${Array.from({length:12},(_,i)=>numCell(mReale[i+1], mReale[i+1]!==0, false, false)).join('')}
+      ${numCell(totReale, totReale!==0, false, true)}
+      <td style="${s}"></td>
+    </tr>
+    <tr class="budget-summary-row budget-row-budget">
+      <td style="${s};font-weight:600;color:var(--txt2)">Budget</td>
+      <td style="${s}"></td>
+      ${Array.from({length:12},(_,i)=>numCell(mBudget[i+1], mBudget[i+1]!==0, false, false)).join('')}
+      ${numCell(totBudget, totBudget!==0, false, true)}
+      <td style="${s}"></td>
+    </tr>
+    <tr class="budget-summary-row budget-row-diff">
+      <td style="${s};font-weight:600;color:var(--txt2)">Differenza</td>
+      <td style="${s}"></td>
+      ${Array.from({length:12},(_,i)=>{
+        const diff = mBudget[i+1] - mReale[i+1];
+        return numCell(diff, mBudget[i+1]!==0||mReale[i+1]!==0, true, false);
+      }).join('')}
+      ${numCell(totDiff, totBudget!==0||totReale!==0, true, true)}
+      <td style="${s}"></td>
+    </tr>`;
+
   document.getElementById('budgetBody').innerHTML = rows;
+
+  // Sticky: calcola top offset di ogni riga del thead dopo il render
+  setTimeout(() => {
+    const thead = document.getElementById('budgetThead');
+    if (!thead) return;
+    let top = 0;
+    thead.querySelectorAll('tr').forEach(tr => {
+      tr.querySelectorAll('th,td').forEach(cell => {
+        cell.style.position = 'sticky';
+        cell.style.top = top + 'px';
+        cell.style.zIndex = '20';
+      });
+      top += tr.getBoundingClientRect().height;
+    });
+  }, 0);
 }
 
 window._budgetCellEdit = (td, catId, month) => {
@@ -1345,10 +1562,64 @@ window._budgetCellEdit = (td, catId, month) => {
     if (committed) return;
     committed = true;
     const raw = inp.value.trim();
-    // Se vuoto o invariato, non fare nulla
-    if (raw === '' || parseFloat(raw) === originalVal) { restore(); return; }
-    const val = parseFloat(raw) || 0;
-    await api.setBudget({category_id: catId, amount: val, month, year: budgetYear});
+    const cfg = (_budgetData.configs || []).find(c => c.category_id === catId);
+
+    let val;
+    if (raw === '') {
+      if (cfg && cfg.master_amount > 0) {
+        // Cella svuotata: ripristina il valore config di default per quel mese
+        val = cfg.mode === 'annuale'
+          ? Math.round(cfg.master_amount / 12 * 100) / 100
+          : cfg.master_amount;
+        if (val === originalVal) { restore(); return; }
+      } else {
+        restore(); return;
+      }
+    } else {
+      val = parseFloat(raw) || 0;
+      if (val === originalVal) { restore(); return; }
+    }
+    if (cfg && cfg.master_amount > 0) {
+      // Segna questo mese come "bloccato" dall'utente
+      if (!_budgetPinned[catId]) _budgetPinned[catId] = new Set();
+      _budgetPinned[catId].add(month);
+
+      const lockedTotal = cfg.mode === 'annuale' ? cfg.master_amount : cfg.master_amount * 12;
+      const pinned = _budgetPinned[catId];
+
+      // Valori correnti dal DB
+      const curVals = {};
+      (_budgetData.budgets || []).filter(b => b.category_id === catId)
+        .forEach(b => { curVals[b.month] = b.amount; });
+
+      // Mesi bloccati (escluso quello corrente) e loro somma
+      const pinnedOthers = Array.from({length:12}, (_,i)=>i+1)
+        .filter(m => m !== month && pinned.has(m));
+      const pinnedSum = pinnedOthers.reduce((s, m) => s + (curVals[m] || 0), 0);
+
+      // Mesi liberi (non bloccati, non corrente) → ricevono la quota residua
+      const freeMonths = Array.from({length:12}, (_,i)=>i+1)
+        .filter(m => m !== month && !pinned.has(m));
+
+      const remaining = Math.max(0, lockedTotal - val - pinnedSum);
+      const newAmounts = Array(12).fill(0);
+      newAmounts[month - 1] = val;
+      pinnedOthers.forEach(m => { newAmounts[m - 1] = curVals[m] || 0; });
+
+      let left = remaining;
+      freeMonths.forEach((m, i) => {
+        if (i === freeMonths.length - 1) {
+          newAmounts[m - 1] = Math.max(0, Math.round(left * 100) / 100);
+        } else {
+          const share = freeMonths.length > 0 ? Math.round(remaining / freeMonths.length * 100) / 100 : 0;
+          newAmounts[m - 1] = Math.max(0, share);
+          left -= share;
+        }
+      });
+      await api.setBudgetBulk({category_id: catId, year: budgetYear, amounts: newAmounts});
+    } else {
+      await api.setBudget({category_id: catId, amount: val, month, year: budgetYear});
+    }
     await loadBudgetTable();
   };
   inp.onblur    = save;
@@ -1362,37 +1633,56 @@ window._budgetCellEdit = (td, catId, month) => {
   inp.focus(); inp.select();
 };
 
-window._budgetSetMonthly = (catId, catName) => {
-  openModal(`Budget mensile — ${catName}`,
+window._budgetEditGestione = (catId, catName) => {
+  const cfg = (_budgetData.configs || []).find(c => c.category_id === catId) || {};
+  const currentMode = cfg.mode || 'mensile';
+  const currentAmount = cfg.master_amount || 0;
+
+  openModal(`Gestione budget — ${catName}`,
     `<div class="form-group">
-       <label class="form-label">Importo mensile (€)</label>
-       <input type="number" step="0.01" min="0" class="form-control" id="bm_amount" placeholder="Es. 500">
-       <div class="settings-hint">Stesso importo per tutti i 12 mesi</div>
+       <label class="form-label">Modalità</label>
+       <select class="form-control" id="bc_mode">
+         <option value="mensile" ${currentMode==='mensile'?'selected':''}>Mensile</option>
+         <option value="annuale" ${currentMode==='annuale'?'selected':''}>Annuale</option>
+       </select>
+     </div>
+     <div class="form-group">
+       <label class="form-label" id="bc_label">${currentMode==='mensile'?'Importo mensile (€)':'Importo annuale (€)'}</label>
+       <input type="number" step="0.01" min="0" class="form-control" id="bc_amount" value="${currentAmount||''}">
+       <div class="settings-hint" id="bc_hint">${currentMode==='mensile'?'Stesso importo per tutti i 12 mesi':'Verrà diviso in 12 mesi (÷12)'}</div>
      </div>`,
     async () => {
-      const v = parseFloat(document.getElementById('bm_amount').value) || 0;
-      await api.setBudgetBulk({category_id:catId, year:budgetYear, amounts:Array(12).fill(v)});
-      closeModal(); await loadBudgetTable();
+      const mode = document.getElementById('bc_mode').value;
+      const amount = parseFloat(document.getElementById('bc_amount').value) || 0;
+      const monthly = mode === 'annuale' ? Math.round(amount / 12 * 100) / 100 : amount;
+      delete _budgetPinned[catId]; // reset pin quando si reimosta la gestione
+      await api.setBudgetConfig({category_id: catId, year: budgetYear, mode, master_amount: amount});
+      await api.setBudgetBulk({category_id: catId, year: budgetYear, amounts: Array(12).fill(monthly)});
+      closeModal();
+      await loadBudgetTable();
     });
+
+  setTimeout(() => {
+    const sel = document.getElementById('bc_mode');
+    if (!sel) return;
+    sel.addEventListener('change', () => {
+      const m = sel.value;
+      document.getElementById('bc_label').textContent = m === 'mensile' ? 'Importo mensile (€)' : 'Importo annuale (€)';
+      document.getElementById('bc_hint').textContent  = m === 'mensile' ? 'Stesso importo per tutti i 12 mesi' : 'Verrà diviso in 12 mesi (÷12)';
+    });
+  }, 0);
 };
 
-window._budgetSetAnnual = (catId, catName) => {
-  openModal(`Budget annuale — ${catName}`,
-    `<div class="form-group">
-       <label class="form-label">Importo annuale (€)</label>
-       <input type="number" step="0.01" min="0" class="form-control" id="ba_amount" placeholder="Es. 6000">
-       <div class="settings-hint">Verrà diviso equamente nei 12 mesi (÷12)</div>
-     </div>`,
-    async () => {
-      const total = parseFloat(document.getElementById('ba_amount').value) || 0;
-      const monthly = Math.round(total / 12 * 100) / 100;
-      await api.setBudgetBulk({category_id:catId, year:budgetYear, amounts:Array(12).fill(monthly)});
-      closeModal(); await loadBudgetTable();
-    });
+window._budgetToggle = catId => {
+  if (_budgetCollapsed.has(catId)) _budgetCollapsed.delete(catId);
+  else _budgetCollapsed.add(catId);
+  renderBudgetTable();
 };
 
 window._budgetClearRow = async catId => {
+  delete _budgetPinned[catId];
   await api.setBudgetBulk({category_id:catId, year:budgetYear, amounts:Array(12).fill(0)});
+  await api.setBudgetConfig({category_id:catId, year:budgetYear, mode:'mensile', master_amount:0});
   await loadBudgetTable();
 };
 
@@ -2083,77 +2373,144 @@ async function renderSchedTab() {
   else if (schedTab === 'cashflow')   await renderSchedCashflow();
 }
 
+// Restituisce la prossima occorrenza di una transazione pianificata.
+// Con il sistema attuale start_date viene già avanzata ad ogni registrazione/salto,
+// quindi start_date È la prossima occorrenza (passata = scaduta, futura = in arrivo).
+function computeSchedNext(startDate, _freq, endDate) {
+  const d = new Date(startDate + 'T00:00:00');
+  if (endDate && d > new Date(endDate + 'T00:00:00')) return null;
+  return d;
+}
+
+let _schedSort   = { col: 'days', dir: 'asc' };
+let _schedFilter = { type: '', active: '1' };
+
 async function renderSchedLista() {
-  const [scheds, accounts, categories, upcoming] = await Promise.all([
-    api.getScheduled(), api.getAccounts(), api.getCategories(), api.getUpcomingAll(20)
+  const [scheds, accounts, categories] = await Promise.all([
+    api.getScheduled(), api.getAccounts(), api.getCategories()
   ]);
+
+  // Arricchisce ogni pianificata con prossima data e giorni rimanenti
+  const todayStr = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD locale-safe
+  const today = new Date(todayStr + 'T00:00:00');
+  scheds.forEach(s => {
+    if (!s.is_active) { s._next = null; s._days = null; return; }
+    // start_date IS già la prossima occorrenza — nessuna conversione Date per evitare bug timezone
+    const hasEnded = s.end_date && s.start_date > s.end_date;
+    s._next = hasEnded ? null : s.start_date;
+    const nextD = s._next ? new Date(s._next + 'T00:00:00') : null;
+    s._days = nextD ? Math.round((nextD - today) / 86400000) : null;
+  });
+  window._schedCache = Object.fromEntries(scheds.map(s => [s.id, s]));
+
   const el = document.getElementById('schedContent');
   el.innerHTML = `
-    <div class="section-header" style="margin-bottom:12px">
-      <span></span>
+    <div class="sched-toolbar">
+      <div class="filter-bar" style="margin-bottom:0;flex:1">
+        <select class="form-control" id="sfActive">
+          <option value="">Tutte</option>
+          <option value="1" ${_schedFilter.active==='1'?'selected':''}>Solo attive</option>
+          <option value="0" ${_schedFilter.active==='0'?'selected':''}>Solo inattive</option>
+        </select>
+        <select class="form-control" id="sfType">
+          <option value="">Tutti i tipi</option>
+          <option value="income"   ${_schedFilter.type==='income'  ?'selected':''}>Entrate</option>
+          <option value="expense"  ${_schedFilter.type==='expense' ?'selected':''}>Uscite</option>
+          <option value="transfer" ${_schedFilter.type==='transfer'?'selected':''}>Trasferimenti</option>
+        </select>
+      </div>
       <button class="btn btn-primary" id="btnNewSched">+ Nuova</button>
     </div>
-    <div class="card" style="margin-bottom:16px">
-      <div class="card-header"><span class="card-title">📅 Prossime occorrenze</span></div>
-      <div class="table-wrap">
-        <table><thead><tr>
-          <th>Data</th><th>Descrizione</th><th>Categoria</th><th>Conto</th>
-          <th class="text-right">Importo</th><th></th>
-        </tr></thead>
-        <tbody id="occBody"></tbody></table>
-      </div>
-    </div>
     <div class="card">
-      <div class="card-header"><span class="card-title">Transazioni pianificate</span></div>
       <div class="table-wrap">
-        <table><thead><tr>
-          <th>Attivo</th><th>Data inizio</th><th>Frequenza</th><th>Descrizione</th>
-          <th class="text-right">Importo</th><th>Tipo</th><th>Conto</th><th></th>
-        </tr></thead>
-        <tbody id="schedBody"></tbody></table>
+        <table id="schedTable"><thead><tr>
+          <th class="sched-th-sort" data-scol="active"  onclick="_schedSortBy('active')">Stato<span class="sort-ind"></span></th>
+          <th class="sched-th-sort" data-scol="desc"    onclick="_schedSortBy('desc')">Descrizione<span class="sort-ind"></span></th>
+          <th class="sched-th-sort" data-scol="freq"    onclick="_schedSortBy('freq')">Frequenza<span class="sort-ind"></span></th>
+          <th class="sched-th-sort" data-scol="amount"  onclick="_schedSortBy('amount')">Importo<span class="sort-ind"></span></th>
+          <th class="sched-th-sort" data-scol="next"    onclick="_schedSortBy('next')">Prossima scadenza<span class="sort-ind"></span></th>
+          <th class="sched-th-sort th-sort-active" data-scol="days" onclick="_schedSortBy('days')">Giorni<span class="sort-ind">▲</span></th>
+          <th></th>
+        </tr></thead><tbody id="schedBody"></tbody></table>
       </div>
     </div>`;
 
   document.getElementById('btnNewSched').onclick = () => showScheduledModal(null, accounts, categories);
+  document.getElementById('sfActive').addEventListener('change', e => { _schedFilter.active = e.target.value; _renderSchedRows(scheds); });
+  document.getElementById('sfType').addEventListener('change',   e => { _schedFilter.type   = e.target.value; _renderSchedRows(scheds); });
 
-  // ── Prossime occorrenze ──────────────────────────────────────────────────
-  const occBody = document.getElementById('occBody');
-  window._occCache = upcoming;
-  if (!upcoming.length) {
-    occBody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--txt3)">Nessuna occorrenza</td></tr>';
-  } else {
-    occBody.innerHTML = upcoming.map((u, i) => `
-      <tr class="${u.overdue ? 'upcoming-overdue' : ''}">
-        <td>${u.overdue ? '<span class="overdue-badge">⚠️</span>' : ''}${fmt.date(u.date)}</td>
-        <td class="td-main">${u.description||'-'}</td>
-        <td><span class="cat-chip">${u.category_icon||''}${u.category_name||'-'}</span></td>
-        <td>${u.account_name||'-'}</td>
-        <td class="text-right amount-${u.type}">${u.type==='expense'?'-':''}${fmt.currency(u.amount)}</td>
-        <td style="white-space:nowrap">
-          <button class="btn btn-xs btn-success" onclick="registerOccurrence(${i})">✔ Registra</button>
-          <button class="btn btn-xs btn-ghost"   onclick="skipOcc(${u.id},'${u.date}')">⏭ Salta</button>
-        </td>
-      </tr>`).join('');
-  }
+  _renderSchedRows(scheds);
+}
 
-  // ── Lista pianificate ────────────────────────────────────────────────────
+window._schedSortBy = col => {
+  _schedSort.dir = _schedSort.col === col ? (_schedSort.dir === 'asc' ? 'desc' : 'asc') : 'asc';
+  _schedSort.col = col;
+  document.querySelectorAll('#schedTable th[data-scol]').forEach(th => {
+    const active = _schedSort.col === th.dataset.scol;
+    th.classList.toggle('th-sort-active', active);
+    const ind = th.querySelector('.sort-ind');
+    if (ind) ind.textContent = active ? (_schedSort.dir === 'asc' ? '▲' : '▼') : '';
+  });
+  _renderSchedRows(Object.values(window._schedCache || {}));
+};
+
+function _renderSchedRows(scheds) {
   const tbody = document.getElementById('schedBody');
-  if (!scheds.length) {
-    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:40px;color:var(--txt3)">Nessuna transazione pianificata. Creane una!</td></tr>';
+  if (!tbody) return;
+
+  // Filter
+  let rows = scheds.filter(s => {
+    if (_schedFilter.active !== '' && String(s.is_active) !== _schedFilter.active) return false;
+    if (_schedFilter.type   !== '' && s.type !== _schedFilter.type) return false;
+    return true;
+  });
+
+  // Sort
+  rows = [...rows].sort((a, b) => {
+    let va, vb;
+    switch (_schedSort.col) {
+      case 'active': va = a.is_active; vb = b.is_active; break;
+      case 'desc':   va = (a.description||'').toLowerCase(); vb = (b.description||'').toLowerCase(); break;
+      case 'freq':   va = a.frequency; vb = b.frequency; break;
+      case 'amount': va = a.amount;    vb = b.amount;    break;
+      case 'next':   va = a._next||'9'; vb = b._next||'9'; break;
+      case 'days':
+      default:
+        va = a._days ?? 99999; vb = b._days ?? 99999;
+    }
+    const c = va < vb ? -1 : va > vb ? 1 : 0;
+    return _schedSort.dir === 'asc' ? c : -c;
+  });
+
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--txt3)">Nessuna transazione pianificata.</td></tr>';
     return;
   }
-  tbody.innerHTML = scheds.map(s => `
+
+  const daysLabel = s => {
+    if (!s.is_active) return '<span class="sched-days-badge inactive">Inattiva</span>';
+    if (s._days === null) return '<span class="sched-days-badge ended">Terminata</span>';
+    if (s._days < 0)  return `<span class="sched-days-badge overdue">⚠️ ${Math.abs(s._days)}g fa</span>`;
+    if (s._days === 0) return '<span class="sched-days-badge today">Oggi</span>';
+    return `<span class="sched-days-badge upcoming">${s._days}g</span>`;
+  };
+
+  tbody.innerHTML = rows.map(s => `
     <tr ${s.color ? `style="background:${s.color}18"` : ''}>
-      <td><span style="font-size:16px">${s.is_active ? '✅' : '⏸️'}</span></td>
-      <td>${fmt.date(s.start_date)}${s.end_date?`<br><span class="text-small text-muted">fino ${fmt.date(s.end_date)}</span>`:''}</td>
+      <td style="text-align:center"><span style="font-size:15px">${s.is_active ? '✅' : '⏸️'}</span></td>
+      <td class="td-main">
+        ${s.description||'-'}
+        <br><span class="text-small text-muted">${s.category_icon||''} ${s.category_name||''} · ${s.account_name||''}${s.to_account_name?' → '+s.to_account_name:''}</span>
+      </td>
       <td><span class="sched-freq-badge">${FREQ_LABELS[s.frequency]||s.frequency}</span></td>
-      <td class="td-main">${s.description||'-'}${s.category_name?`<br><span class="text-small text-muted">${s.category_icon||''} ${s.category_name}</span>`:''}</td>
       <td class="text-right amount-${s.type}">${s.type==='expense'?'-':''}${fmt.currency(s.amount)}</td>
-      <td><span class="badge badge-${s.type}">${s.type==='income'?'Entrata':s.type==='expense'?'Uscita':'Trasferimento'}</span></td>
-      <td>${s.account_name||'-'}${s.to_account_name?` → ${s.to_account_name}`:''}</td>
-      <td>
-        <button class="btn btn-ghost btn-icon" onclick="editSched(${s.id})">✏️</button>
-        <button class="btn btn-ghost btn-icon" onclick="deleteSched(${s.id})">🗑️</button>
+      <td>${s._next ? fmt.date(s._next) : '—'}</td>
+      <td>${daysLabel(s)}</td>
+      <td class="sched-actions" style="white-space:nowrap">
+        ${s.is_active && s._next ? `<button class="btn btn-xs btn-success" onclick="registerSched(${s.id})" title="Inserisci transazione">✔ Inserisci</button>
+        <button class="btn btn-xs btn-ghost" onclick="skipSched(${s.id})" title="Salta questa occorrenza">⏭ Salta</button>` : ''}
+        <button class="btn btn-ghost btn-icon" onclick="editSched(${s.id})" title="Modifica">✏️</button>
+        <button class="btn btn-ghost btn-icon" onclick="deleteSched(${s.id})" title="Elimina">🗑️</button>
       </td>
     </tr>`).join('');
 }
@@ -2168,6 +2525,7 @@ const PROJ_RANGES = [
   {v:'custom',   l:'Personalizza…'},
 ];
 let _projRange = '6m';
+let _projMonths = 6;
 
 function projRangeToFilter(range, customMonths) {
   const today = new Date();
@@ -2197,7 +2555,7 @@ async function renderSchedProjection() {
           ${PROJ_RANGES.map(r=>`<option value="${r.v}" ${_projRange===r.v?'selected':''}>${r.l}</option>`).join('')}
         </select>
         <span id="projCustomWrap" style="display:${_projRange==='custom'?'flex':'none'};align-items:center;gap:6px">
-          <input type="number" class="form-control" id="projMonths" value="6" min="1" max="120" style="width:80px">
+          <input type="number" class="form-control" id="projMonths" value="${_projMonths}" min="1" max="120" style="width:80px">
           <span class="settings-hint" style="white-space:nowrap">mesi</span>
         </span>
         <label class="form-label" style="margin:0;white-space:nowrap">Conti:</label>
@@ -2212,10 +2570,15 @@ async function renderSchedProjection() {
   document.getElementById('projRange').addEventListener('change', () => {
     _projRange = document.getElementById('projRange').value;
     document.getElementById('projCustomWrap').style.display = _projRange==='custom' ? 'flex' : 'none';
+    api.setSetting('proj.range', _projRange);
     loadProjectionChart(accounts);
   });
-  ['projAccounts','projMonths'].forEach(id =>
-    document.getElementById(id).addEventListener('change', () => loadProjectionChart(accounts)));
+  document.getElementById('projMonths').addEventListener('change', () => {
+    _projMonths = parseInt(document.getElementById('projMonths').value) || 6;
+    api.setSetting('proj.months', String(_projMonths));
+    loadProjectionChart(accounts);
+  });
+  document.getElementById('projAccounts').addEventListener('change', () => loadProjectionChart(accounts));
   await loadProjectionChart(accounts);
 }
 
@@ -2278,25 +2641,32 @@ async function loadProjectionChart(accounts) {
     return { month: m, lastDate };
   });
 
+  const thStyle   = 'text-align:right;padding:5px 8px;border-bottom:1px solid var(--border);color:var(--txt2)';
+  const tdStyle   = (neg,bold) => `text-align:right;padding:4px 8px;border-bottom:1px solid var(--border);${neg?'color:var(--expense)':''}${bold?';font-weight:700':''}`;
+
   tbl.innerHTML = `
     <table style="width:100%;border-collapse:collapse;font-size:12px">
       <thead><tr>
         <th style="text-align:left;padding:5px 8px;border-bottom:1px solid var(--border);color:var(--txt2)">Mese</th>
-        ${accList.map(a=>`<th style="text-align:right;padding:5px 8px;border-bottom:1px solid var(--border);color:var(--txt2)">${a.name}</th>`).join('')}
+        ${accList.map(a=>`<th style="${thStyle}">${a.name}</th>`).join('')}
+        <th style="${thStyle};border-left:2px solid var(--border)">Totale</th>
       </tr></thead>
       <tbody>${monthBalances.map(({month,lastDate}) => {
+        let total = 0; let hasAny = false;
         const cells = accList.map(a => {
           const pt = series.find(p=>p.date===lastDate && p.account_id===a.id);
           const bal = pt ? pt.balance : null;
-          const color = bal!=null && bal<0 ? 'color:var(--expense)' : '';
-          return `<td style="text-align:right;padding:4px 8px;border-bottom:1px solid var(--border);${color}">${bal!=null?fmt.currency(bal):'—'}</td>`;
+          if (bal != null) { total += bal; hasAny = true; }
+          return `<td style="${tdStyle(bal!=null&&bal<0,false)}">${bal!=null?fmt.currency(bal):'—'}</td>`;
         }).join('');
-        return `<tr><td style="padding:4px 8px;border-bottom:1px solid var(--border)">${month}</td>${cells}</tr>`;
+        const totCell = `<td style="${tdStyle(total<0,true)};border-left:2px solid var(--border)">${hasAny?fmt.currency(total):'—'}</td>`;
+        return `<tr><td style="padding:4px 8px;border-bottom:1px solid var(--border)">${month}</td>${cells}${totCell}</tr>`;
       }).join('')}</tbody>
     </table>`;
 }
 
 let _cfRange = '1y';
+let _cfMonths = 6;
 
 async function renderSchedCashflow() {
   const accounts = await api.getAccounts();
@@ -2308,7 +2678,7 @@ async function renderSchedCashflow() {
           ${PROJ_RANGES.map(r=>`<option value="${r.v}" ${_cfRange===r.v?'selected':''}>${r.l}</option>`).join('')}
         </select>
         <span id="cfCustomWrap" style="display:${_cfRange==='custom'?'flex':'none'};align-items:center;gap:6px">
-          <input type="number" class="form-control" id="cfMonths" value="6" min="1" max="120" style="width:80px">
+          <input type="number" class="form-control" id="cfMonths" value="${_cfMonths}" min="1" max="120" style="width:80px">
           <span class="settings-hint" style="white-space:nowrap">mesi</span>
         </span>
         <label class="form-label" style="margin:0;white-space:nowrap">Conti:</label>
@@ -2322,10 +2692,15 @@ async function renderSchedCashflow() {
   document.getElementById('cfRange').addEventListener('change', () => {
     _cfRange = document.getElementById('cfRange').value;
     document.getElementById('cfCustomWrap').style.display = _cfRange==='custom' ? 'flex' : 'none';
+    api.setSetting('cf.range', _cfRange);
     loadCashflowChart();
   });
-  ['cfAccounts','cfMonths'].forEach(id =>
-    document.getElementById(id).addEventListener('change', loadCashflowChart));
+  document.getElementById('cfMonths').addEventListener('change', () => {
+    _cfMonths = parseInt(document.getElementById('cfMonths').value) || 6;
+    api.setSetting('cf.months', String(_cfMonths));
+    loadCashflowChart();
+  });
+  document.getElementById('cfAccounts').addEventListener('change', loadCashflowChart);
   await loadCashflowChart();
 }
 
@@ -2385,33 +2760,35 @@ window.deleteSched = async id => {
   renderSchedLista();
 };
 
-window.skipOcc = async (id, date) => {
-  await api.skipOccurrence(id, date);
-  toast('Occorrenza saltata — ricomparirà alla prossima scadenza');
+window.skipSched = async id => {
+  const s = window._schedCache?.[id];
+  if (!s || !s._next) return;
+  await api.advanceScheduled(id, s._next);
+  toast('Occorrenza saltata');
   renderSchedLista();
 };
 
-window.registerOccurrence = async (idx) => {
-  const u = window._occCache[idx];
-  if (!u) return;
+window.registerSched = async id => {
+  const s = window._schedCache?.[id];
+  if (!s || !s._next) return;
   const [cats, accs, tags] = await Promise.all([
     api.getCategories(), api.getAccounts(), api.getTags()
   ]);
-  const today = new Date().toISOString().slice(0,10);
   const prefilled = {
     id: null,
-    date: today,
-    amount: u.amount,
-    type: u.type,
-    category_id: u.category_id  || null,
-    account_id: u.account_id,
-    to_account_id: u.to_account_id || null,
-    description: u.description || '',
-    color: u.color || null,
+    date: s._next,
+    amount:        s.amount,
+    type:          s.type,
+    category_id:   s.category_id   || null,
+    account_id:    s.account_id,
+    to_account_id: s.to_account_id || null,
+    description:   s.description   || '',
+    color:         s.color         || null,
+    reconciled:    s.reconciled    ?? 1,
     tag_ids: []
   };
-  showTxModal(prefilled, cats, accs, u.type, tags, async () => {
-    await api.skipOccurrence(u.id, u.date);
+  showTxModal(prefilled, cats, accs, s.type, tags, async () => {
+    await api.advanceScheduled(id, s._next);
     renderSchedLista();
   });
 };
@@ -2498,6 +2875,19 @@ function showScheduledModal(sched, accounts, categories) {
           Transazione attiva
         </label>
       </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Stato alla registrazione</label>
+      <div style="display:flex;align-items:center;gap:16px;padding-top:4px">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="radio" name="sc_reconciled" value="0" ${sched?.reconciled==0?'checked':''}>
+          <span>🔲 Da verificare</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="radio" name="sc_reconciled" value="1" ${sched==null||sched?.reconciled!=0?'checked':''}>
+          <span>✅ Conciliata</span>
+        </label>
+      </div>
     </div>`;
 
   function updateSchedCatSelect(keepSelected) {
@@ -2529,9 +2919,10 @@ function showScheduledModal(sched, accounts, categories) {
       frequency:     document.getElementById('sc_freq').value,
       start_date:    document.getElementById('sc_start').value,
       end_date:      document.getElementById('sc_end').value || null,
-      is_active:     document.getElementById('sc_active').checked ? 1 : 0,
-      color: document.getElementById('sc_color_use')?.checked
-               ? document.getElementById('sc_color').value : null,
+      is_active:  document.getElementById('sc_active').checked ? 1 : 0,
+      color:      document.getElementById('sc_color_use')?.checked
+                    ? document.getElementById('sc_color').value : null,
+      reconciled: parseInt(document.querySelector('input[name="sc_reconciled"]:checked')?.value ?? '1'),
     };
     if (!data.amount || !data.account_id || !data.start_date) {
       toast('Compila i campi obbligatori', 'error'); return;
@@ -2586,6 +2977,12 @@ async function init() {
   // Nascondo gli handle se si parte massimizzato
   const {maximized} = await api.isMaximized();
   document.querySelectorAll('.rh').forEach(el => el.style.display = maximized ? 'none' : '');
+  // Carica preferenze persistenti
+  const s = await api.getSettings();
+  if (s['proj.range'])   _projRange  = s['proj.range'];
+  if (s['proj.months'])  _projMonths = parseInt(s['proj.months']) || 6;
+  if (s['cf.range'])     _cfRange    = s['cf.range'];
+  if (s['cf.months'])    _cfMonths   = parseInt(s['cf.months'])   || 6;
   await updateSidebar();
   await renderDashboard();
   // Notifica scadute (non bloccante, dopo il render)

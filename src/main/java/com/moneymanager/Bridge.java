@@ -172,6 +172,9 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             case "addTransaction"     -> db.addTransaction(p);
             case "updateTransaction"  -> db.updateTransaction(p.get("id").getAsInt(), p);
             case "deleteTransaction"  -> db.deleteTransaction(p.get("id").getAsInt());
+            case "updateTransactionReconciled" -> db.updateTransactionReconciled(
+                    p.get("id").getAsInt(), p.get("reconciled").getAsBoolean());
+            case "getAccountSummary"  -> db.getAccountSummary(p.get("account_id").getAsInt());
 
             // ─── Budget ────────────────────────────────────────────────────
             case "getBudgets"   -> db.getBudgets(p.get("month").getAsInt(), p.get("year").getAsInt());
@@ -187,6 +190,12 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                 db.generateBudget(p.get("year").getAsInt(), p.get("from_history").getAsBoolean());
                 yield Map.of("ok", true);
             }
+            case "setBudgetConfig" -> {
+                db.setBudgetConfig(
+                    p.get("category_id").getAsInt(), p.get("year").getAsInt(),
+                    p.get("mode").getAsString(), p.get("master_amount").getAsDouble());
+                yield Map.of("ok", true);
+            }
 
             // ─── Transazioni Pianificate ───────────────────────────────────────────
             case "getScheduled"     -> db.getScheduled();
@@ -196,7 +205,7 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             case "getUpcoming"      -> db.getUpcoming(p.has("limit") ? p.get("limit").getAsInt() : 15);
             case "getUpcomingAll"   -> db.getUpcomingAll(p.has("limit") ? p.get("limit").getAsInt() : 15);
             case "getOverdue"       -> db.getOverdue();
-            case "skipOccurrence"   -> { db.skipOccurrence(p.get("id").getAsInt(), p.get("date").getAsString()); yield Map.of("ok", true); }
+            case "advanceScheduled"  -> { db.advanceScheduled(p.get("id").getAsInt(), p.get("date").getAsString()); yield Map.of("ok", true); }
             case "getProjection"    -> db.getProjection(
                 p.get("from_date").getAsString(), p.get("to_date").getAsString(),
                 p.has("account_ids") ? p.get("account_ids").getAsString() : "");

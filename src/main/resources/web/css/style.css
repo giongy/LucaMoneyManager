@@ -252,8 +252,8 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 .acc-total-row td:last-child { text-align:right; }
 
 /* ─── Budget ──────────────────────────────────────────────────────────────── */
-.budget-year-wrap { overflow-x:auto; margin-top:14px; }
-.budget-table { width:100%; border-collapse:collapse; min-width:900px; }
+.budget-year-wrap { overflow-x:auto; overflow-y:auto; max-height:calc(100vh - 140px); margin-top:14px; }
+.budget-table { width:100%; border-collapse:separate; border-spacing:0; min-width:900px; }
 .budget-table th {
   padding:7px 6px; font-size:10px; font-weight:700; text-transform:uppercase;
   letter-spacing:.4px; color:var(--txt2); background:var(--bg2);
@@ -391,6 +391,46 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 .amount-expense  { color:var(--expense); font-weight:600; }
 .amount-transfer { color:var(--accent);  font-weight:600; }
 
+/* ─── Saldo progressivo e stato conciliazione ────────────────────────────── */
+.tx-balance { font-weight:600; font-size:12px; }
+.positive   { color:var(--income); }
+.negative   { color:var(--expense); }
+
+.td-reconciled { width:36px; text-align:center; padding:0 2px; }
+.th-reconciled { width:36px; text-align:center; font-size:11px; }
+.th-balance    { font-size:11px; }
+.btn-reconcile {
+  background:none; border:none; cursor:pointer; font-size:14px; padding:2px 4px;
+  border-radius:4px; transition:transform .1s;
+  opacity:.45;
+}
+.btn-reconcile:hover { opacity:1; transform:scale(1.15); }
+.btn-reconcile.reconciled { opacity:1; }
+
+/* ─── Riga selezionata (tastiera) ────────────────────────────────────────── */
+tr.tx-selected { outline:2px solid var(--accent); outline-offset:-2px; }
+tr.tx-selected td { background:rgba(88,166,255,.07); }
+
+/* ─── Tasto kbd nel context menu ─────────────────────────────────────────── */
+.ctx-item kbd {
+  display:inline-block; margin-left:auto; padding:1px 5px;
+  font-size:10px; font-family:monospace;
+  background:var(--bg4); border:1px solid var(--border);
+  border-radius:3px; color:var(--txt3); line-height:1.5;
+}
+
+/* ─── Riepilogo conto nell'header Transazioni ────────────────────────────── */
+.tx-header-summary {
+  display:flex; align-items:center; gap:8px;
+  flex:1; justify-content:flex-start; margin-left:20px;
+  flex-wrap:wrap;
+}
+.txhs-account { font-size:13px; font-weight:700; color:var(--txt); }
+.txhs-sep     { color:var(--border); font-size:16px; }
+.txhs-item    { display:flex; align-items:baseline; gap:5px; }
+.txhs-label   { font-size:11px; color:var(--txt3); text-transform:uppercase; letter-spacing:.3px; }
+.txhs-val     { font-size:14px; font-weight:700; }
+
 /* ─── Empty state ────────────────────────────────────────────────────────── */
 .empty-state { text-align:center; padding:40px 16px; color:var(--txt3); }
 .empty-state .empty-icon { font-size:36px; margin-bottom:10px; }
@@ -495,6 +535,9 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
   width:36px; height:30px; padding:2px; border:1px solid var(--border);
   border-radius:5px; background:var(--bg3); cursor:pointer;
 }
+.th-tags { font-size:11px; white-space:nowrap; }
+.td-tags  { white-space:nowrap; }
+
 .tag-inline {
   display:inline-flex; align-items:center;
   padding:2px 8px; border-radius:20px; font-size:11px; font-weight:600;
@@ -574,6 +617,21 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 .btn-success { background:rgba(63,185,80,.15); color:var(--income); border-color:rgba(63,185,80,.3); }
 .btn-success:hover { background:rgba(63,185,80,.25); }
 
+.sched-toolbar { display:flex; align-items:center; gap:10px; margin-bottom:12px; }
+.sched-th-sort { cursor:pointer; user-select:none; white-space:nowrap; }
+.sched-th-sort:hover { color:var(--txt); }
+.sched-actions { white-space:nowrap; display:flex; gap:4px; align-items:center; }
+
+.sched-days-badge {
+  display:inline-block; padding:2px 8px; border-radius:20px;
+  font-size:11px; font-weight:700; white-space:nowrap;
+}
+.sched-days-badge.upcoming { background:rgba(88,166,255,.15); color:var(--accent); }
+.sched-days-badge.today    { background:rgba(63,185,80,.2);  color:var(--income); }
+.sched-days-badge.overdue  { background:rgba(210,153,34,.2); color:var(--warn); }
+.sched-days-badge.ended    { background:var(--bg4); color:var(--txt3); }
+.sched-days-badge.inactive { background:var(--bg4); color:var(--txt3); }
+
 /* ─── Utils ──────────────────────────────────────────────────────────────── */
 .mt-16 { margin-top:16px; }
 .text-right { text-align:right; }
@@ -581,3 +639,91 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 .text-small { font-size:11px; }
 .flex-center { display:flex; align-items:center; gap:6px; }
 .w-full { width:100%; }
+
+/* ── Budget: colonna Gestione ────────────────────────────────────────────── */
+.budget-gestione-th {
+  text-align: center;
+  padding: 6px 8px;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--txt2);
+  min-width: 110px;
+}
+.budget-gestione-cell {
+  text-align: center;
+  padding: 4px 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.budget-gestione-cell:hover { background: var(--hover); }
+.budget-gestione-badge {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.budget-gestione-badge.monthly { background: #1f4d7a33; color: #58a6ff; border: 1px solid #58a6ff55; }
+.budget-gestione-badge.annual  { background: #1f4d2a33; color: #3fb950; border: 1px solid #3fb95055; }
+.budget-gestione-empty {
+  color: var(--txt3);
+  font-size: 11px;
+  font-style: italic;
+}
+
+
+/* ── Budget: toggle macrocategoria ─────────────────────────────────────── */
+.btn-budget-toggle {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 10px;
+  color: var(--txt3);
+  padding: 0 4px 0 0;
+  line-height: 1;
+  vertical-align: middle;
+}
+.btn-budget-toggle:hover { color: var(--txt1); }
+
+/* ── Budget: righe summary sticky ───────────────────────────────────────── */
+.budget-thead-months th {
+  background: var(--bg3);
+  border-bottom: 2px solid var(--border);
+  font-size: 11px;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--txt2);
+}
+.budget-summary-row td {
+  font-size: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.budget-row-reale td { background: #161b22; }
+.budget-row-reale td:first-child {
+  border-left: 3px solid #8b949e;
+  color: #8b949e;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+.budget-row-budget td { background: #0d1f2d; }
+.budget-row-budget td:first-child {
+  border-left: 3px solid #58a6ff;
+  color: #58a6ff;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+.budget-row-diff td {
+  background: #0d1a13;
+  border-bottom: 8px solid var(--bg1);
+  box-shadow: 0 6px 12px rgba(0,0,0,0.6);
+}
+.budget-row-diff td:first-child {
+  border-left: 3px solid #3fb950;
+  color: #3fb950;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}

@@ -117,6 +117,7 @@ public class Database {
                 account_id    INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
                 to_account_id INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
                 description   TEXT    NOT NULL,
+                reconciled    INTEGER DEFAULT 1,
                 created_at    TEXT    DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE IF NOT EXISTS budgets (
@@ -126,6 +127,13 @@ public class Database {
                 month       INTEGER NOT NULL,
                 year        INTEGER NOT NULL,
                 UNIQUE(category_id, month, year)
+            );
+            CREATE TABLE IF NOT EXISTS budget_config (
+                category_id   INTEGER NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
+                year          INTEGER NOT NULL,
+                mode          TEXT    NOT NULL DEFAULT 'mensile',
+                master_amount REAL    NOT NULL DEFAULT 0,
+                PRIMARY KEY (category_id, year)
             );
             CREATE TABLE IF NOT EXISTS portfolio (
                 id             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -165,13 +173,9 @@ public class Database {
                 end_date      TEXT,
                 is_active     INTEGER DEFAULT 1,
                 color         TEXT,
+                reconciled    INTEGER DEFAULT 1,
                 created_at    TEXT    DEFAULT CURRENT_TIMESTAMP
             );
-            CREATE TABLE IF NOT EXISTS scheduled_skips (
-                scheduled_id INTEGER NOT NULL REFERENCES scheduled_transactions(id) ON DELETE CASCADE,
-                skip_date    TEXT    NOT NULL,
-                PRIMARY KEY (scheduled_id, skip_date)
-            )
         """);
     }
 
@@ -189,6 +193,12 @@ public class Database {
         try {
             executePlain("ALTER TABLE transactions ADD COLUMN color TEXT");
         } catch (SQLException ignored) { /* già presente */ }
+        // Aggiunge colonna reconciled alle transazioni (conciliata/da verificare)
+        try {
+            executePlain("ALTER TABLE transactions ADD COLUMN reconciled INTEGER DEFAULT 1");
+            // Imposta tutte le transazioni esistenti come conciliate (default retroattivo)
+            executePlain("UPDATE transactions SET reconciled=1 WHERE reconciled IS NULL OR reconciled=0");
+        } catch (SQLException ignored) { /* già presente */ }
         // Crea tabelle tag se non esistono (CREATE IF NOT EXISTS è idempotente)
         executePlain("CREATE TABLE IF NOT EXISTS tags (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, color TEXT DEFAULT '#58a6ff', created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
         executePlain("CREATE TABLE IF NOT EXISTS transaction_tags (transaction_id INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE, tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE, PRIMARY KEY (transaction_id, tag_id))");
@@ -205,14 +215,23 @@ public class Database {
                 color TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
         """);
-        // scheduled_skips (idempotente)
+        // Rimuove scheduled_skips (non più usata — start_date viene avanzata direttamente)
+        try { executePlain("DROP TABLE IF EXISTS scheduled_skips"); } catch (SQLException ignored) {}
+        // Crea budget_config se non esiste
         executePlain("""
-            CREATE TABLE IF NOT EXISTS scheduled_skips (
-                scheduled_id INTEGER NOT NULL REFERENCES scheduled_transactions(id) ON DELETE CASCADE,
-                skip_date    TEXT    NOT NULL,
-                PRIMARY KEY (scheduled_id, skip_date)
+            CREATE TABLE IF NOT EXISTS budget_config (
+                category_id   INTEGER NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
+                year          INTEGER NOT NULL,
+                mode          TEXT    NOT NULL DEFAULT 'mensile',
+                master_amount REAL    NOT NULL DEFAULT 0,
+                PRIMARY KEY (category_id, year)
             )
         """);
+        // Aggiunge reconciled a scheduled_transactions
+        try {
+            executePlain("ALTER TABLE scheduled_transactions ADD COLUMN reconciled INTEGER DEFAULT 1");
+            executePlain("UPDATE scheduled_transactions SET reconciled=1 WHERE reconciled IS NULL");
+        } catch (SQLException ignored) {}
     }
 
     private void seedDefaultData() throws SQLException {
@@ -310,7 +329,7 @@ public class Database {
             FROM categories c
             LEFT JOIN categories p ON c.parent_id = p.id
             ORDER BY
-                CASE WHEN c.parent_id IS NULL THEN c.id ELSE c.parent_id END,
+                COALESCE(p.name, c.name),
                 c.parent_id NULLS FIRST,
                 c.name
         """);
@@ -436,33 +455,103 @@ public class Database {
         sql.append(" GROUP BY t.id ORDER BY t.date DESC, t.id DESC");
         if (f.has("limit")) { sql.append(" LIMIT ?"); params.add(f.get("limit").getAsInt()); }
 
-        return parseTags(queryList(sql.toString(), params.toArray()));
+        List<Map<String, Object>> rows = parseTags(queryList(sql.toString(), params.toArray()));
+
+        // Calcola saldo progressivo quando si filtra per un singolo conto
+        if (f.has("account_id") && !f.get("account_id").isJsonNull()
+                && !f.get("account_id").getAsString().isBlank()) {
+            int accountId = f.get("account_id").getAsInt();
+            Map<String, Object> acc = queryOne("SELECT initial_balance FROM accounts WHERE id=?", accountId);
+            double init = acc != null && acc.get("initial_balance") != null
+                    ? ((Number) acc.get("initial_balance")).doubleValue() : 0.0;
+            // Tutte le transazioni del conto in ordine ASC per costruire mappa saldo
+            List<Map<String, Object>> allTx = queryList("""
+                SELECT id, amount, type, account_id, to_account_id FROM transactions
+                WHERE account_id=? OR to_account_id=?
+                ORDER BY date ASC, id ASC
+            """, accountId, accountId);
+            Map<Long, Double> balMap = new java.util.LinkedHashMap<>();
+            double running = init;
+            for (Map<String, Object> tx : allTx) {
+                String type = (String) tx.get("type");
+                double amount = ((Number) tx.get("amount")).doubleValue();
+                long txAccId = tx.get("account_id") != null ? ((Number) tx.get("account_id")).longValue() : -1;
+                if ("income".equals(type))        running += amount;
+                else if ("expense".equals(type))  running -= amount;
+                else if ("transfer".equals(type)) {
+                    if (txAccId == accountId) running -= amount; else running += amount;
+                }
+                balMap.put(((Number) tx.get("id")).longValue(), running);
+            }
+            for (Map<String, Object> row : rows) {
+                long id = ((Number) row.get("id")).longValue();
+                row.put("balance", balMap.getOrDefault(id, null));
+            }
+        }
+
+        return rows;
     }
 
     public Map<String, Object> addTransaction(JsonObject p) throws SQLException {
+        int reconciled = p.has("reconciled") && !p.get("reconciled").isJsonNull()
+                ? p.get("reconciled").getAsInt() : 0;
         long id = execute("""
-            INSERT INTO transactions(date,amount,type,category_id,account_id,to_account_id,description,color)
-            VALUES(?,?,?,?,?,?,?,?)
+            INSERT INTO transactions(date,amount,type,category_id,account_id,to_account_id,description,color,reconciled)
+            VALUES(?,?,?,?,?,?,?,?,?)
         """, str(p,"date"), dbl(p,"amount"), str(p,"type"),
                 intVal(p,"category_id"), p.get("account_id").getAsInt(),
                 intVal(p,"to_account_id"),
                 str(p,"description") != null ? str(p,"description") : "",
-                str(p,"color"));
+                str(p,"color"), reconciled);
         saveTags(id, p);
         return getTransactionById(id);
     }
 
     public Map<String, Object> updateTransaction(int id, JsonObject p) throws SQLException {
+        int reconciled = p.has("reconciled") && !p.get("reconciled").isJsonNull()
+                ? p.get("reconciled").getAsInt() : 0;
         execute("""
             UPDATE transactions SET date=?,amount=?,type=?,category_id=?,account_id=?,
-                to_account_id=?,description=?,color=? WHERE id=?
+                to_account_id=?,description=?,color=?,reconciled=? WHERE id=?
         """, str(p,"date"), dbl(p,"amount"), str(p,"type"),
                 intVal(p,"category_id"), p.get("account_id").getAsInt(),
                 intVal(p,"to_account_id"),
                 str(p,"description") != null ? str(p,"description") : "",
-                str(p,"color"), id);
+                str(p,"color"), reconciled, id);
         saveTags(id, p);
         return getTransactionById(id);
+    }
+
+    public Map<String, Object> updateTransactionReconciled(int id, boolean reconciled) throws SQLException {
+        execute("UPDATE transactions SET reconciled=? WHERE id=?", reconciled ? 1 : 0, id);
+        return Map.of("ok", true);
+    }
+
+    public Map<String, Object> getAccountSummary(int accountId) throws SQLException {
+        Map<String, Object> acc = queryOne("SELECT initial_balance FROM accounts WHERE id=?", accountId);
+        double init = acc != null && acc.get("initial_balance") != null
+                ? ((Number) acc.get("initial_balance")).doubleValue() : 0.0;
+        Map<String, Object> tot = queryOne("""
+            SELECT COALESCE(SUM(CASE
+                WHEN type='income'                             THEN  amount
+                WHEN type='expense'                            THEN -amount
+                WHEN type='transfer' AND account_id=?          THEN -amount
+                WHEN type='transfer' AND to_account_id=?       THEN  amount
+                ELSE 0 END), 0) AS delta
+            FROM transactions WHERE account_id=? OR to_account_id=?
+        """, accountId, accountId, accountId, accountId);
+        Map<String, Object> rec = queryOne("""
+            SELECT COALESCE(SUM(CASE
+                WHEN type='income'                             THEN  amount
+                WHEN type='expense'                            THEN -amount
+                WHEN type='transfer' AND account_id=?          THEN -amount
+                WHEN type='transfer' AND to_account_id=?       THEN  amount
+                ELSE 0 END), 0) AS delta
+            FROM transactions WHERE (account_id=? OR to_account_id=?) AND reconciled=1
+        """, accountId, accountId, accountId, accountId);
+        double balance = init + ((Number) tot.get("delta")).doubleValue();
+        double reconciledBalance = init + ((Number) rec.get("delta")).doubleValue();
+        return Map.of("balance", balance, "reconciled_balance", reconciledBalance);
     }
 
     public Map<String, Object> deleteTransaction(int id) throws SQLException {
@@ -589,10 +678,11 @@ public class Database {
             FROM categories c
             LEFT JOIN categories p ON c.parent_id = p.id
             WHERE c.type != 'transfer'
-            ORDER BY CASE WHEN c.parent_id IS NULL THEN c.id ELSE c.parent_id END,
-                     c.parent_id NULLS FIRST, c.name
+            ORDER BY COALESCE(p.name, c.name), c.parent_id NULLS FIRST, c.name
         """);
-        return Map.of("budgets", budgets, "actuals", actuals, "categories", categories);
+        List<Map<String, Object>> configs = queryList(
+            "SELECT category_id, mode, master_amount FROM budget_config WHERE year=?", year);
+        return Map.of("budgets", budgets, "actuals", actuals, "categories", categories, "configs", configs);
     }
 
     /** Genera il budget per tutte le categorie.
@@ -633,6 +723,14 @@ public class Database {
         }
     }
 
+    /** Imposta la modalità (mensile/annuale) e l'importo master per una categoria in un anno. */
+    public void setBudgetConfig(int categoryId, int year, String mode, double masterAmount) throws SQLException {
+        execute("""
+            INSERT INTO budget_config(category_id, year, mode, master_amount) VALUES(?,?,?,?)
+            ON CONFLICT(category_id, year) DO UPDATE SET mode=excluded.mode, master_amount=excluded.master_amount
+        """, categoryId, year, mode, masterAmount);
+    }
+
     /** Imposta i 12 valori mensili per una categoria in un anno (0/null = rimuove). */
     public void setBudgetBulk(int categoryId, int year, com.google.gson.JsonArray amounts) throws SQLException {
         for (int m = 1; m <= 12; m++) {
@@ -668,14 +766,15 @@ public class Database {
         long id = execute("""
             INSERT INTO scheduled_transactions
                 (description,amount,type,category_id,account_id,to_account_id,
-                 frequency,start_date,end_date,is_active,color)
-            VALUES(?,?,?,?,?,?,?,?,?,?,?)
+                 frequency,start_date,end_date,is_active,color,reconciled)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
         """, str(p,"description"), dbl(p,"amount"), str(p,"type"),
                 intVal(p,"category_id"), p.get("account_id").getAsInt(),
                 intVal(p,"to_account_id"), str(p,"frequency"),
                 str(p,"start_date"), str(p,"end_date"),
                 p.has("is_active") ? p.get("is_active").getAsInt() : 1,
-                str(p,"color"));
+                str(p,"color"),
+                p.has("reconciled") && !p.get("reconciled").isJsonNull() ? p.get("reconciled").getAsInt() : 1);
         return queryOne("SELECT * FROM scheduled_transactions WHERE id=?", id);
     }
 
@@ -683,14 +782,16 @@ public class Database {
         execute("""
             UPDATE scheduled_transactions SET
                 description=?,amount=?,type=?,category_id=?,account_id=?,to_account_id=?,
-                frequency=?,start_date=?,end_date=?,is_active=?,color=?
+                frequency=?,start_date=?,end_date=?,is_active=?,color=?,reconciled=?
             WHERE id=?
         """, str(p,"description"), dbl(p,"amount"), str(p,"type"),
                 intVal(p,"category_id"), p.get("account_id").getAsInt(),
                 intVal(p,"to_account_id"), str(p,"frequency"),
                 str(p,"start_date"), str(p,"end_date"),
                 p.has("is_active") ? p.get("is_active").getAsInt() : 1,
-                str(p,"color"), id);
+                str(p,"color"),
+                p.has("reconciled") && !p.get("reconciled").isJsonNull() ? p.get("reconciled").getAsInt() : 1,
+                id);
         return queryOne("SELECT * FROM scheduled_transactions WHERE id=?", id);
     }
 
@@ -775,20 +876,29 @@ public class Database {
         return overdue;
     }
 
-    private java.util.Set<String> getSkipKeys() throws SQLException {
-        return queryList("SELECT scheduled_id, skip_date FROM scheduled_skips")
-            .stream()
-            .map(r -> r.get("scheduled_id") + "_" + r.get("skip_date"))
-            .collect(java.util.stream.Collectors.toSet());
+    /**
+     * Avanza start_date alla prossima occorrenza dopo registeredDate.
+     * Chiamato dopo aver registrato un'occorrenza pianificata: in questo modo
+     * le occorrenze passate non vengono più generate e non risultano scadute.
+     * Se la frequenza è "once", marca la transazione come inattiva.
+     */
+    public void advanceScheduled(int scheduledId, String registeredDate) throws SQLException {
+        Map<String, Object> s = queryOne(
+                "SELECT frequency, start_date FROM scheduled_transactions WHERE id=?", scheduledId);
+        if (s == null) return;
+        String freq = (String) s.get("frequency");
+        if ("once".equals(freq)) {
+            execute("UPDATE scheduled_transactions SET is_active=0 WHERE id=?", scheduledId);
+            return;
+        }
+        LocalDate registered = LocalDate.parse(registeredDate);
+        LocalDate next = advanceDate(registered, freq);
+        if (next == null) return;
+        execute("UPDATE scheduled_transactions SET start_date=? WHERE id=?", next.toString(), scheduledId);
     }
 
-    public void skipOccurrence(int scheduledId, String date) throws SQLException {
-        execute("INSERT OR IGNORE INTO scheduled_skips(scheduled_id,skip_date) VALUES(?,?)", scheduledId, date);
-    }
-
-    /** Next N upcoming occurrences across all active scheduled transactions (skips excluded). */
+    /** Next N upcoming occurrences across all active scheduled transactions. */
     public List<Map<String, Object>> getUpcoming(int limit) throws SQLException {
-        java.util.Set<String> skips = getSkipKeys();
         var scheds = getScheduled().stream()
             .filter(s -> Integer.valueOf(1).equals(s.get("is_active")))
             .toList();
@@ -796,7 +906,6 @@ public class Database {
         LocalDate horizon = today.plusYears(2);
         List<Map<String, Object>> all = new ArrayList<>();
         for (var s : scheds) {
-            int sid = ((Number) s.get("id")).intValue();
             LocalDate start = LocalDate.parse((String) s.get("start_date"));
             String freq = (String) s.get("frequency");
             LocalDate endDate = s.get("end_date") != null ? LocalDate.parse((String) s.get("end_date")) : horizon;
@@ -804,11 +913,9 @@ public class Database {
             LocalDate cur = firstOccurrenceFrom(start, freq, today);
             if (cur == null) continue;
             while (!cur.isAfter(endDate)) {
-                if (!skips.contains(sid + "_" + cur)) {
-                    Map<String, Object> occ = new HashMap<>(s);
-                    occ.put("date", cur.toString());
-                    all.add(occ);
-                }
+                Map<String, Object> occ = new HashMap<>(s);
+                occ.put("date", cur.toString());
+                all.add(occ);
                 if ("once".equals(freq)) break;
                 cur = advanceDate(cur, freq);
                 if (cur == null) break;
@@ -818,9 +925,8 @@ public class Database {
         return all.stream().limit(limit).collect(Collectors.toList());
     }
 
-    /** Past 30 days + next N future occurrences, with overdue flag. Skips excluded. */
+    /** Past 30 days + next N future occurrences, with overdue flag. */
     public List<Map<String, Object>> getUpcomingAll(int futureLimit) throws SQLException {
-        java.util.Set<String> skips = getSkipKeys();
         var scheds = getScheduled().stream()
             .filter(s -> Integer.valueOf(1).equals(s.get("is_active")))
             .toList();
@@ -829,7 +935,6 @@ public class Database {
         LocalDate horizon  = today.plusYears(2);
         List<Map<String, Object>> all = new ArrayList<>();
         for (var s : scheds) {
-            int sid = ((Number) s.get("id")).intValue();
             LocalDate start = LocalDate.parse((String) s.get("start_date"));
             String freq = (String) s.get("frequency");
             LocalDate endDate = s.get("end_date") != null ? LocalDate.parse((String) s.get("end_date")) : horizon;
@@ -838,12 +943,10 @@ public class Database {
             if (startFrom == null) continue;
             LocalDate cur = startFrom;
             while (!cur.isAfter(endDate)) {
-                if (!skips.contains(sid + "_" + cur)) {
-                    Map<String, Object> occ = new HashMap<>(s);
-                    occ.put("date", cur.toString());
-                    occ.put("overdue", cur.isBefore(today));
-                    all.add(occ);
-                }
+                Map<String, Object> occ = new HashMap<>(s);
+                occ.put("date", cur.toString());
+                occ.put("overdue", cur.isBefore(today));
+                all.add(occ);
                 if ("once".equals(freq)) break;
                 cur = advanceDate(cur, freq);
                 if (cur == null) break;

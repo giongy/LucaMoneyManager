@@ -18,8 +18,8 @@ public class App {
                 "AppData", "Roaming", "LucaMoneyManager");
         Files.createDirectories(dataDir);
 
-        // Impostazioni (settings.properties)
-        Settings settings = new Settings(dataDir.resolve("settings.properties"));
+        // Impostazioni (settings.properties) — nella cartella di lavoro (root progetto o cartella del JAR)
+        Settings settings = new Settings(Path.of(System.getProperty("user.dir")).resolve("settings.properties"));
 
         // Percorso DB: dal file impostazioni, altrimenti default
         String dbPath = settings.get(Settings.DB_PATH);

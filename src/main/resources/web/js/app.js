@@ -223,10 +223,13 @@ const api = {
   generateBudget: data      => callJava('generateBudget', data),
 
   // Portafoglio
-  getPortfolio:        ()   => callJava('getPortfolio'),
-  addPortfolioItem:    data => callJava('addPortfolioItem',    data),
-  updatePortfolioItem: data => callJava('updatePortfolioItem', data),
-  deletePortfolioItem: id   => callJava('deletePortfolioItem', {id}),
+  getPortfolio:             ()      => callJava('getPortfolio', {}),
+  getPortfolioTransactions: (id)    => callJava('getPortfolioTransactions', {portfolio_id: id}),
+  buyStock:                 (data)  => callJava('buyStock', data),
+  sellStock:                (data)  => callJava('sellStock', data),
+  updateStockPrice:         (id, p) => callJava('updateStockPrice', {id, price: p}),
+  importPosition:           (data)  => callJava('importPosition', data),
+  deletePortfolioItem:      (id)    => callJava('deletePortfolioItem', {id}),
 
   // Stats
   getDashboardStats:   y          => callJava('getDashboardStats',   {year:y}),
@@ -236,7 +239,10 @@ const api = {
   // Impostazioni
   getSettings:   ()           => callJava('getSettings'),
   setSetting:    (key, value) => callJava('setSetting', {key, value}),
-  chooseDbFile:  (mode)       => callJava('chooseDbFile', {mode}),
+  chooseDbFile:    (mode)     => callJava('chooseDbFile', {mode}),
+  reloadDb:        (path)     => callJava('reloadDb', {path}),
+  chooseBackupDir: ()         => callJava('chooseBackupDir', {}),
+  doBackup:        ()         => callJava('doBackup', {}),
 
   // Pianificate
   getScheduled:    ()    => callJava('getScheduled'),
@@ -249,6 +255,16 @@ const api = {
   advanceScheduled: (id, date) => callJava('advanceScheduled', {id, date}),
   getProjection:   data  => callJava('getProjection', data),
 };
+
+/* ─── Chart theme helpers ─────────────────────────────────────────────────── */
+const chartColors = () => document.documentElement.dataset.theme === 'light'
+  ? { tick: '#636c76', grid: '#e8ecf0' }
+  : { tick: '#8b949e', grid: '#21262d' };
+
+/* ─── Account visibility helpers ─────────────────────────────────────────── */
+const isAccountVisible = a =>
+  _accFavoritesOnly ? (a.is_favorite && !a.is_closed) : true;
+const isAccountActive  = a => !a.is_closed;
 
 /* ─── Utils ───────────────────────────────────────────────────────────────── */
 const fmt = {
@@ -400,9 +416,9 @@ document.getElementById('modalConfirm').onclick = () => { if (modalConfirmCallba
 async function updateSidebar() {
   const accounts = await api.getAccounts();
   const el = document.getElementById('sidebarAccounts');
-  el.innerHTML = accounts.map(a => `
-    <div class="sidebar-account-item">
-      <div class="acc-name"><span>${a.icon}</span><span>${a.name}</span></div>
+  el.innerHTML = accounts.filter(isAccountVisible).map(a => `
+    <div class="sidebar-account-item" style="${a.is_closed ? 'opacity:.55' : ''}">
+      <div class="acc-name"><span>${a.icon}</span><span>${a.name}${a.is_favorite ? ' ⭐' : ''}</span></div>
       <div class="acc-balance" style="color:${a.color}">${fmt.currency(a.balance)}</div>
     </div>`).join('');
 }
@@ -468,7 +484,7 @@ async function renderDashboard() {
     api.getTransactions({year:dashYear, limit:10}),
     api.getMonthlyChartData(dashYear),
     api.getCategoryChartData(dashYear, 'expense'),
-    api.getUpcomingAll(12)
+    api.getUpcomingAll(10)
   ]);
 
   // Stat cards
@@ -499,13 +515,17 @@ async function renderDashboard() {
   accounts.forEach(a => { (grouped[a.type] = grouped[a.type] || []).push(a); });
   const orderedTypes = [...new Set([...ACC_TYPE_ORDER.filter(t => grouped[t]), ...Object.keys(grouped)])];
 
-  const totalBalance = accounts.reduce((s,a) => s + (a.balance||0), 0);
-  document.getElementById('dashAccounts').innerHTML = orderedTypes.length ? `
+  const visibleAccounts = accounts.filter(isAccountVisible);
+  const totalBalance = visibleAccounts.reduce((s,a) => s + (a.balance||0), 0);
+  const visGrouped = {};
+  visibleAccounts.forEach(a => { (visGrouped[a.type] = visGrouped[a.type] || []).push(a); });
+  const visOrderedTypes = [...new Set([...ACC_TYPE_ORDER.filter(t => visGrouped[t]), ...Object.keys(visGrouped)])];
+  document.getElementById('dashAccounts').innerHTML = visOrderedTypes.length ? `
     <table class="acc-list-table">
-      ${orderedTypes.map(t => `
+      ${visOrderedTypes.map(t => `
         <tbody>
           <tr class="acc-group-row"><td colspan="2">${ACC_TYPE_LABELS[t] || t}</td></tr>
-          ${grouped[t].map(a => `
+          ${visGrouped[t].map(a => `
             <tr class="acc-list-row" onclick="navigateToAccountTx(${a.id})">
               <td>
                 <span class="acc-dot" style="background:${a.color||'var(--accent)'}"></span>
@@ -541,9 +561,9 @@ async function renderDashboard() {
         {label:'Entrate', data:incArr, backgroundColor:'rgba(63,185,80,.7)', borderRadius:4},
         {label:'Uscite',  data:expArr, backgroundColor:'rgba(248,81,73,.7)',  borderRadius:4}
       ]},
-    options:{ responsive:true, plugins:{legend:{labels:{color:'#8b949e'}}},
-      scales:{x:{ticks:{color:'#8b949e'},grid:{color:'#21262d'}},
-              y:{ticks:{color:'#8b949e'},grid:{color:'#21262d'}}}}
+    options:{ responsive:true, plugins:{legend:{labels:{color:chartColors().tick}}},
+      scales:{x:{ticks:{color:chartColors().tick},grid:{color:chartColors().grid}},
+              y:{ticks:{color:chartColors().tick},grid:{color:chartColors().grid}}}}
   });
 
   // Pie chart
@@ -553,7 +573,7 @@ async function renderDashboard() {
       type:'doughnut',
       data:{ labels:catData.map(c=>c.icon+' '+c.name),
              datasets:[{data:catData.map(c=>c.total), backgroundColor:catData.map(c=>c.color), borderWidth:0}]},
-      options:{ responsive:true, plugins:{legend:{position:'right',labels:{color:'#8b949e',font:{size:11}}}}}
+      options:{ responsive:true, plugins:{legend:{position:'right',labels:{color:chartColors().tick,font:{size:11}}}}}
     });
   }
 
@@ -572,7 +592,7 @@ async function renderDashboard() {
   const dashTodayStr = new Date().toLocaleDateString('en-CA');
   const dashToday = new Date(dashTodayStr + 'T00:00:00');
   document.getElementById('upcomingRows').innerHTML = upcoming.length ? upcoming.map(u => {
-    const nextStr = (!u.end_date || u.start_date <= u.end_date) ? u.start_date : null;
+    const nextStr = u.date || u.start_date;
     const days = nextStr ? Math.round((new Date(nextStr + 'T00:00:00') - dashToday) / 86400000) : null;
     const daysHtml = days === null ? '—'
       : days < 0  ? `<span class="sched-days-badge overdue">⚠️ ${Math.abs(days)}g fa</span>`
@@ -580,7 +600,7 @@ async function renderDashboard() {
       : `<span class="sched-days-badge upcoming">${days}g</span>`;
     return `
     <tr class="${u.overdue ? 'upcoming-overdue' : ''}">
-      <td><span class="cat-chip">${u.category_icon||''}${u.category_name||'-'}</span></td>
+      <td><span class="cat-chip">${u.category_icon||''}${u.parent_category_name?u.parent_category_name+':'+u.category_name:u.category_name||'-'}</span></td>
       <td class="td-main">${u.description||'-'}</td>
       <td>${daysHtml}</td>
       <td class="text-right amount-${u.type}">${u.type==='expense'?'-':''}${fmt.currency(u.amount)}</td>
@@ -600,8 +620,8 @@ async function renderDashboard() {
       borderRadius: 4
     }]},
     options: { responsive:true, plugins:{legend:{display:false}},
-      scales:{ x:{ticks:{color:'#8b949e',font:{size:10}},grid:{color:'#21262d'}},
-               y:{ticks:{color:'#8b949e',font:{size:10}},grid:{color:'#21262d'}}}}
+      scales:{ x:{ticks:{color:chartColors().tick,font:{size:10}},grid:{color:chartColors().grid}},
+               y:{ticks:{color:chartColors().tick,font:{size:10}},grid:{color:chartColors().grid}}}}
   });
 
   // Top categories chart (horizontal bar)
@@ -614,8 +634,8 @@ async function renderDashboard() {
               datasets: [{label:'Spesa', data: top5.map(c=>c.total),
                 backgroundColor: top5.map(c=>c.color||'rgba(88,166,255,.7)'), borderRadius:4}]},
       options: { indexAxis:'y', responsive:true, plugins:{legend:{display:false}},
-        scales:{ x:{ticks:{color:'#8b949e',font:{size:10}},grid:{color:'#21262d'}},
-                 y:{ticks:{color:'#8b949e',font:{size:10}},grid:{color:'#21262d'}}}}
+        scales:{ x:{ticks:{color:chartColors().tick,font:{size:10}},grid:{color:chartColors().grid}},
+                 y:{ticks:{color:chartColors().tick,font:{size:10}},grid:{color:chartColors().grid}}}}
     });
   }
 }
@@ -663,11 +683,6 @@ async function renderTransactions() {
     <div class="section-header">
       <h2 class="section-title">Transazioni</h2>
       <div id="txHeaderSummary" class="tx-header-summary"></div>
-      <div class="tx-add-group">
-        <button class="btn btn-add-income"   id="btnAddIncome">📥 Entrata</button>
-        <button class="btn btn-add-expense"  id="btnAddExpense">📤 Uscita</button>
-        <button class="btn btn-add-transfer" id="btnAddTransfer">🔁 Trasferimento</button>
-      </div>
     </div>
     <div class="filter-bar">
       <select class="form-control" id="txRange">
@@ -695,7 +710,7 @@ async function renderTransactions() {
       </select>
       <select class="form-control" id="txAccount">
         <option value="">Tutti i conti</option>
-        ${accounts.map(a=>`<option value="${a.id}" ${String(a.id)===String(txFilters.account_id)?'selected':''}>${a.icon} ${a.name}</option>`).join('')}
+        ${accounts.filter(isAccountVisible).map(a=>`<option value="${a.id}" ${String(a.id)===String(txFilters.account_id)?'selected':''}>${a.icon} ${a.name}</option>`).join('')}
       </select>
       <input class="form-control" id="txSearch" value="${txFilters.search||''}" placeholder="🔍 Cerca..." style="min-width:160px">
     </div>
@@ -714,6 +729,11 @@ async function renderTransactions() {
           <th></th>
         </tr></thead><tbody id="txBody"></tbody></table>
       </div>
+      <div class="tx-add-group">
+        <button class="btn btn-add-income"   id="btnAddIncome">📥 Entrata</button>
+        <button class="btn btn-add-expense"  id="btnAddExpense">📤 Uscita</button>
+        <button class="btn btn-add-transfer" id="btnAddTransfer">🔁 Trasferimento</button>
+      </div>
     </div>`;
 
   const applyFilters = () => {
@@ -727,6 +747,7 @@ async function renderTransactions() {
       account_id: document.getElementById('txAccount').value || undefined,
       search:     document.getElementById('txSearch').value,
     };
+    api.setSetting('tx.range', range);
     loadTxRows(categories, accounts);
   };
 
@@ -916,7 +937,7 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
       <div class="form-group">
         <label class="form-label">Conto</label>
         <select class="form-control" id="f_account">
-          ${accounts.map(a=>`<option value="${a.id}" ${(tx ? tx.account_id==a.id : String(a.id)===String(txFilters.account_id))?'selected':''}>${a.icon} ${a.name}</option>`).join('')}
+          ${accounts.filter(a => isAccountActive(a) && a.type !== 'investment').map(a=>`<option value="${a.id}" ${(tx ? tx.account_id==a.id : String(a.id)===String(txFilters.account_id))?'selected':''}>${a.icon} ${a.name}</option>`).join('')}
         </select>
       </div>
       <div class="form-group" id="toAccGroup" style="${tx?.type!=='transfer'?'display:none':''}">
@@ -1203,12 +1224,14 @@ async function loadAccountCards() {
   if (!grid) return;
   const accounts = await api.getAccounts();
   grid.innerHTML = accounts.length ? accounts.map(a => `
-    <div class="account-card" style="--acc-color:${a.color}">
+    <div class="account-card${a.is_closed ? ' account-card-closed' : ''}" style="--acc-color:${a.color}">
       <div style="position:absolute;top:0;left:0;right:0;height:3px;background:${a.color}"></div>
+      ${a.is_favorite ? '<div class="acc-badge-fav">⭐ Preferito</div>' : ''}
+      ${a.is_closed   ? '<div class="acc-badge-closed">🔒 Chiuso</div>' : ''}
       <div class="account-icon">${a.icon}</div>
       <div class="account-name">${a.name}</div>
       <div class="account-type">${accTypeLabel(a.type)}</div>
-      <div class="account-balance" style="color:${a.color}">${fmt.currency(a.balance)}</div>
+      <div class="account-balance" style="color:${a.is_closed ? 'var(--txt3)' : a.color}">${fmt.currency(a.balance)}</div>
       <div class="account-actions">
         <button class="btn btn-ghost btn-icon" onclick="editAccount(${a.id})">✏️ Modifica</button>
         <button class="btn btn-ghost btn-icon" onclick="deleteAccount(${a.id})">🗑️</button>
@@ -1257,6 +1280,16 @@ function showAccountModal(account) {
         </div>
         <input type="hidden" id="a_color" value="${account?.color||'#58a6ff'}">
       </div>
+    </div>
+    <div class="form-row" style="margin-top:8px">
+      <label class="acc-check-label">
+        <input type="checkbox" id="a_favorite" ${account?.is_favorite ? 'checked' : ''}>
+        ⭐ Preferito
+      </label>
+      <label class="acc-check-label">
+        <input type="checkbox" id="a_closed" ${account?.is_closed ? 'checked' : ''}>
+        🔒 Chiuso
+      </label>
     </div>`;
 
   openModal(account ? 'Modifica Conto' : 'Nuovo Conto', body, async () => {
@@ -1268,6 +1301,8 @@ function showAccountModal(account) {
       icon:            document.getElementById('a_icon').value,
       color:           document.getElementById('a_color').value,
       currency:        'EUR',
+      is_favorite:     document.getElementById('a_favorite').checked ? 1 : 0,
+      is_closed:       document.getElementById('a_closed').checked   ? 1 : 0,
     };
     if (!data.name) { toast('Inserisci un nome per il conto','error'); return; }
     try {
@@ -1358,6 +1393,7 @@ async function renderBudgets() {
   await loadBudgetTable();
 }
 
+let _accFavoritesOnly = false;
 let _budgetData = null;
 let _budgetCollapsed = new Set();
 let _budgetOnlyRed = false;
@@ -1865,18 +1901,32 @@ function showGenerateBudgetModal() {
 ═══════════════════════════════════════════════════════════════════════════ */
 async function renderPortfolio() {
   const pg = document.getElementById('pg-portfolio');
-  const items = await api.getPortfolio();
+  const [items, accounts] = await Promise.all([api.getPortfolio(), api.getAccounts()]);
+  const investAccounts = accounts.filter(a => a.type === 'investment' && !a.is_closed);
 
-  const totalInvested = items.reduce((s,i)=>s+i.quantity*i.purchase_price,0);
-  const totalCurrent  = items.reduce((s,i)=>s+i.quantity*(i.current_price||i.purchase_price),0);
+  const totalInvested = items.reduce((s,i)=>s+i.quantity*i.avg_price,0);
+  const totalCurrent  = items.reduce((s,i)=>s+i.quantity*(i.current_price||i.avg_price),0);
   const totalPnL      = totalCurrent - totalInvested;
   const pnlPct        = totalInvested ? (totalPnL/totalInvested)*100 : 0;
 
   pg.innerHTML = `
     <div class="section-header">
       <h2 class="section-title">Portafoglio Titoli</h2>
-      <button class="btn btn-primary" id="btnAddStock">+ Aggiungi Titolo</button>
+      ${investAccounts.length ? `
+        <div class="theme-toggle-group" style="margin-right:8px">
+          <button class="btn theme-btn ${_portfolioActiveOnly?'theme-btn-active':''}"  onclick="_setPortfolioFilter(true)">Solo attivi</button>
+          <button class="btn theme-btn ${!_portfolioActiveOnly?'theme-btn-active':''}" onclick="_setPortfolioFilter(false)">Tutti</button>
+        </div>
+        <button class="btn btn-secondary" id="btnImportPos">📥 Carica esistente</button>
+        <button class="btn btn-primary" id="btnBuyStock">+ Acquista</button>` : ''}
     </div>
+    ${!investAccounts.length ? `
+      <div class="card" style="padding:32px;text-align:center;color:var(--txt2)">
+        <div style="font-size:32px;margin-bottom:12px">💼</div>
+        <div style="font-size:16px;font-weight:600;margin-bottom:8px">Nessun conto investimento</div>
+        <div style="margin-bottom:16px">Per usare il portafoglio crea prima un conto di tipo <strong>Investimento</strong>.</div>
+        <button class="btn btn-primary" onclick="navigate('accounts')">Vai ai Conti →</button>
+      </div>` : `
     <div class="portfolio-summary">
       <div class="stat-card">
         <div class="stat-label">💼 Investito</div>
@@ -1895,115 +1945,390 @@ async function renderPortfolio() {
     <div class="card">
       <div class="table-wrap">
         <table><thead><tr>
-          <th>Ticker</th><th>Nome</th><th>Quantità</th><th>Prezzo Acq.</th>
-          <th>Prezzo Att.</th><th class="text-right">Valore</th><th class="text-right">P&L</th><th></th>
+          <th>Ticker</th><th>Nome</th><th>Conto</th><th>Quantità</th>
+          <th>Prezzo Medio</th><th>Prezzo Att.</th>
+          <th class="text-right">Valore</th><th class="text-right">P&L</th><th></th>
         </tr></thead><tbody>
-        ${items.length ? items.map(i => {
-          const val = i.quantity*(i.current_price||i.purchase_price);
-          const pnl = val - i.quantity*i.purchase_price;
-          const pnlP = i.purchase_price ? (pnl/(i.quantity*i.purchase_price))*100 : 0;
+        ${items.length ? items.filter(i=>_portfolioActiveOnly ? i.quantity>0 : true).map(i => {
+          const val  = i.quantity * (i.current_price || i.avg_price);
+          const cost = i.quantity * i.avg_price;
+          const pnl  = val - cost;
+          const pnlP = cost ? (pnl/cost)*100 : 0;
           return `<tr>
             <td class="td-main" style="font-weight:700">${i.ticker}</td>
             <td>${i.name}</td>
+            <td><span style="color:${i.account_color}">${i.account_icon}</span> ${i.account_name}</td>
             <td>${i.quantity}</td>
-            <td>${fmt.currency(i.purchase_price)}</td>
-            <td>${fmt.currency(i.current_price||i.purchase_price)}</td>
-            <td class="text-right">${fmt.currency(val)}</td>
-            <td class="text-right ${pnl>=0?'pnl-positive':'pnl-negative'}">${fmt.currency(pnl)}<br>
-              <small>${fmt.pct(pnlP)}</small></td>
+            <td>${fmt.currency(i.avg_price)}</td>
             <td>
-              <button class="btn btn-ghost btn-icon" onclick="editStock(${i.id})">✏️</button>
-              <button class="btn btn-ghost btn-icon" onclick="deleteStock(${i.id})">🗑️</button>
+              <input type="text" inputmode="decimal" class="form-control" style="width:90px;padding:2px 6px;font-size:12px"
+                value="${i.current_price||''}"
+                onblur="updateStockPrice(${i.id}, this.value)"
+                onkeydown="if(event.key==='Enter'){this.blur()}"
+                placeholder="—">
+            </td>
+            <td class="text-right">${fmt.currency(val)}</td>
+            <td class="text-right ${pnl>=0?'pnl-positive':'pnl-negative'}">${fmt.currency(pnl)}<br><small>${fmt.pct(pnlP)}</small></td>
+            <td style="white-space:nowrap">
+              <button class="btn btn-ghost btn-icon" title="Acquista altro" onclick="showBuyModal(${i.id})">➕</button>
+              <button class="btn btn-ghost btn-icon" title="Vendi" onclick="showSellModal(${i.id})">➖</button>
+              <button class="btn btn-ghost btn-icon" title="Storico" onclick="showPortfolioHistory(${i.id})">📋</button>
+              <button class="btn btn-ghost btn-icon" title="Elimina" onclick="deleteStock(${i.id})">🗑️</button>
             </td>
           </tr>`;}).join('') :
-          '<tr><td colspan="8" style="text-align:center;padding:40px;color:var(--txt3)">Nessun titolo in portafoglio</td></tr>'}
+          '<tr><td colspan="9" style="text-align:center;padding:40px;color:var(--txt3)">Nessun titolo in portafoglio. Clicca "+ Acquista" per iniziare.</td></tr>'}
         </tbody></table>
       </div>
-    </div>`;
+    </div>`}`;
 
-  document.getElementById('btnAddStock').onclick = () => showStockModal(null);
+  if (investAccounts.length) {
+    document.getElementById('btnBuyStock').onclick  = () => showBuyModal(null, investAccounts, accounts).catch(e => toast(e.message,'error'));
+    document.getElementById('btnImportPos').onclick = () => showImportModal(investAccounts);
+  }
 }
 
-async function showStockModal(item) {
-  const accounts = await api.getAccounts();
+async function showBuyModal(portfolioId, investAccounts, allAccounts) {
+  if (!investAccounts || !allAccounts) {
+    const accounts = await api.getAccounts();
+    investAccounts = accounts.filter(a => a.type === 'investment' && !a.is_closed);
+    allAccounts = accounts;
+  }
+  const regularAccounts = allAccounts.filter(a => a.type !== 'investment' && !a.is_closed);
   const today = new Date().toISOString().split('T')[0];
+
+  // If buying more of existing position, pre-fill ticker/name
+  let prefillTicker = '', prefillName = '', prefillAccountId = '';
+  if (portfolioId) {
+    const items = await api.getPortfolio();
+    const pos = items.find(i => i.id === portfolioId);
+    if (pos) { prefillTicker = pos.ticker; prefillName = pos.name; prefillAccountId = pos.account_id; }
+  }
+
   const body = `
     <div class="form-row">
       <div class="form-group">
-        <label class="form-label">Ticker</label>
-        <input class="form-control" id="s_ticker" placeholder="Es. AAPL, ENI.MI" value="${item?.ticker||''}" style="text-transform:uppercase">
+        <label class="form-label">Conto investimento *</label>
+        <select class="form-control" id="b_inv_account">
+          ${investAccounts.map(a=>`<option value="${a.id}" ${String(a.id)===String(prefillAccountId)?'selected':''}>${a.icon} ${a.name}</option>`).join('')}
+        </select>
       </div>
       <div class="form-group">
-        <label class="form-label">Nome</label>
-        <input class="form-control" id="s_name" placeholder="Es. Apple Inc." value="${item?.name||''}">
+        <label class="form-label">Paga da *</label>
+        <select class="form-control" id="b_from_account">
+          <option value="">— Seleziona conto —</option>
+          ${regularAccounts.map(a=>`<option value="${a.id}">${a.icon} ${a.name}</option>`).join('')}
+        </select>
       </div>
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label class="form-label">Quantità</label>
-        <input type="number" step="0.0001" min="0" class="form-control" id="s_qty" value="${item?.quantity||''}">
+        <label class="form-label">Ticker *</label>
+        <input class="form-control" id="b_ticker" placeholder="Es. AAPL" value="${prefillTicker}" style="text-transform:uppercase" ${prefillTicker?'readonly':''}>
       </div>
       <div class="form-group">
-        <label class="form-label">Prezzo acquisto (€)</label>
-        <input type="number" step="0.01" min="0" class="form-control" id="s_buy" value="${item?.purchase_price||''}">
+        <label class="form-label">Nome *</label>
+        <input class="form-control" id="b_name" placeholder="Es. Apple Inc." value="${prefillName}" ${prefillName?'readonly':''}>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Quantità *</label>
+        <input type="text" inputmode="decimal" class="form-control" id="b_qty" placeholder="Es. 25000">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Prezzo unitario (€) *</label>
+        <input type="text" inputmode="decimal" class="form-control" id="b_price" placeholder="Es. 0,13">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Data *</label>
+        <input type="date" class="form-control" id="b_date" value="${today}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Totale</label>
+        <input type="text" class="form-control" id="b_total" readonly placeholder="—" style="background:var(--bg3)">
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Note</label>
+      <input class="form-control" id="b_notes" placeholder="Opzionale">
+    </div>`;
+
+  openModal('Acquisto Titolo', body, async () => {
+    const data = {
+      account_id:      parseInt(document.getElementById('b_inv_account').value),
+      from_account_id: parseInt(document.getElementById('b_from_account').value),
+      ticker:          document.getElementById('b_ticker').value.trim().toUpperCase(),
+      name:            document.getElementById('b_name').value.trim(),
+      quantity:        parseFloat(document.getElementById('b_qty').value.replace(',','.')),
+      price:           parseFloat(document.getElementById('b_price').value.replace(',','.')),
+      date:            document.getElementById('b_date').value,
+      notes:           document.getElementById('b_notes').value.trim() || null,
+    };
+    if (!data.account_id)      { toast('Seleziona il conto investimento','error'); return; }
+    if (!data.from_account_id) { toast('Seleziona il conto da cui pagare','error'); return; }
+    if (!data.ticker)          { toast('Inserisci il ticker','error'); return; }
+    if (!data.name)            { toast('Inserisci il nome del titolo','error'); return; }
+    if (!data.quantity || data.quantity <= 0) { toast('Inserisci una quantità valida','error'); return; }
+    if (!data.price || data.price <= 0)       { toast('Inserisci un prezzo valido','error'); return; }
+    try {
+      await api.buyStock(data);
+      closeModal();
+      toast('Acquisto registrato');
+      renderPortfolio();
+    } catch(e) { toast(e.message,'error'); }
+  });
+
+  // Live total calculation
+  const calcTotal = () => {
+    const q = parseFloat((document.getElementById('b_qty')?.value||'').replace(',','.'))||0;
+    const p = parseFloat((document.getElementById('b_price')?.value||'').replace(',','.'))||0;
+    const t = document.getElementById('b_total');
+    if (t) t.value = q && p ? fmt.currency(q*p) : '—';
+  };
+  setTimeout(() => {
+    document.getElementById('b_qty')?.addEventListener('input', calcTotal);
+    document.getElementById('b_price')?.addEventListener('input', calcTotal);
+  }, 50);
+}
+
+async function showImportModal(investAccounts) {
+  const body = `
+    <div class="settings-hint" style="margin-bottom:14px">
+      Carica una posizione già in tuo possesso senza creare movimenti bancari.
+      Il prezzo medio può includere le commissioni di acquisto.
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Conto investimento *</label>
+        <select class="form-control" id="ip_account">
+          ${investAccounts.map(a=>`<option value="${a.id}">${a.icon} ${a.name}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Ticker *</label>
+        <input class="form-control" id="ip_ticker" placeholder="Es. ENI.MI" style="text-transform:uppercase">
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Nome titolo *</label>
+      <input class="form-control" id="ip_name" placeholder="Es. Eni SpA">
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Quantità *</label>
+        <input type="number" step="0.0001" min="0.0001" class="form-control" id="ip_qty">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Prezzo unitario pagato (€) *</label>
+        <input type="number" step="0.00001" min="0" class="form-control" id="ip_price">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Commissioni totali (€)</label>
+        <input type="number" step="0.01" min="0" class="form-control" id="ip_comm" placeholder="0.00">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Prezzo medio effettivo (€)</label>
+        <input type="number" step="0.00001" class="form-control" id="ip_avg" style="background:var(--bg3)" readonly
+               placeholder="Calcolato automaticamente">
       </div>
     </div>
     <div class="form-row">
       <div class="form-group">
         <label class="form-label">Prezzo attuale (€)</label>
-        <input type="number" step="0.01" min="0" class="form-control" id="s_cur" value="${item?.current_price||''}">
+        <input type="number" step="0.01" min="0" class="form-control" id="ip_cur" placeholder="Opzionale">
       </div>
       <div class="form-group">
-        <label class="form-label">Data acquisto</label>
-        <input type="date" class="form-control" id="s_date" value="${item?.purchase_date||today}">
+        <label class="form-label">Note</label>
+        <input class="form-control" id="ip_notes" placeholder="Opzionale">
       </div>
-    </div>
-    <div class="form-group">
-      <label class="form-label">Conto associato</label>
-      <select class="form-control" id="s_account">
-        <option value="">— Nessuno —</option>
-        ${accounts.map(a=>`<option value="${a.id}" ${item?.account_id==a.id?'selected':''}>${a.icon} ${a.name}</option>`).join('')}
-      </select>
-    </div>
-    <div class="form-group">
-      <label class="form-label">Note</label>
-      <input class="form-control" id="s_notes" placeholder="Opzionale" value="${item?.notes||''}">
     </div>`;
 
-  openModal(item?'Modifica Titolo':'Nuovo Titolo', body, async () => {
-    const data = {
-      id:             item?.id,
-      ticker:         document.getElementById('s_ticker').value.trim().toUpperCase(),
-      name:           document.getElementById('s_name').value.trim(),
-      quantity:       parseFloat(document.getElementById('s_qty').value),
-      purchase_price: parseFloat(document.getElementById('s_buy').value),
-      current_price:  parseFloat(document.getElementById('s_cur').value)||0,
-      purchase_date:  document.getElementById('s_date').value,
-      account_id:     parseInt(document.getElementById('s_account').value)||null,
-      notes:          document.getElementById('s_notes').value.trim()||null,
+  openModal('Carica posizione esistente', body, async () => {
+    const qty   = parseFloat(document.getElementById('ip_qty').value);
+    const price = parseFloat(document.getElementById('ip_price').value);
+    const comm  = parseFloat(document.getElementById('ip_comm').value) || 0;
+    const avg   = qty && price ? (qty * price + comm) / qty : NaN;
+    const cur   = parseFloat(document.getElementById('ip_cur').value) || null;
+    const data  = {
+      account_id:    parseInt(document.getElementById('ip_account').value),
+      ticker:        document.getElementById('ip_ticker').value.trim().toUpperCase(),
+      name:          document.getElementById('ip_name').value.trim(),
+      quantity:      qty,
+      avg_price:     avg,
+      current_price: cur,
+      notes:         document.getElementById('ip_notes').value.trim() || null,
     };
-    if (!data.ticker||!data.name||!data.quantity||!data.purchase_price) {
-      toast('Compila i campi obbligatori','error'); return;
-    }
+    if (!data.ticker)              { toast('Inserisci il ticker','error'); return; }
+    if (!data.name)                { toast('Inserisci il nome','error'); return; }
+    if (!qty   || qty   <= 0)      { toast('Inserisci una quantità valida','error'); return; }
+    if (!price || price <= 0)      { toast('Inserisci un prezzo valido','error'); return; }
     try {
-      if (item) await api.updatePortfolioItem(data);
-      else      await api.addPortfolioItem(data);
+      await api.importPosition(data);
       closeModal();
-      toast(item?'Titolo aggiornato':'Titolo aggiunto');
+      toast('Posizione caricata');
       renderPortfolio();
     } catch(e) { toast(e.message,'error'); }
   });
+
+  // Calcola prezzo medio al cambio di qty/prezzo/commissioni
+  const calcAvg = () => {
+    const q = parseFloat(document.getElementById('ip_qty')?.value)   || 0;
+    const p = parseFloat(document.getElementById('ip_price')?.value) || 0;
+    const c = parseFloat(document.getElementById('ip_comm')?.value)  || 0;
+    const el = document.getElementById('ip_avg');
+    if (el) el.value = q && p ? ((q * p + c) / q).toFixed(5) : '';
+  };
+  setTimeout(() => {
+    ['ip_qty','ip_price','ip_comm'].forEach(id =>
+      document.getElementById(id)?.addEventListener('input', calcAvg));
+  }, 50);
 }
 
-window.editStock = async id => {
-  const items = await api.getPortfolio();
-  showStockModal(items.find(i=>i.id===id));
+async function showSellModal(portfolioId) {
+  const [items, accounts] = await Promise.all([api.getPortfolio(), api.getAccounts()]);
+  const pos = items.find(i => i.id === portfolioId);
+  if (!pos) return;
+  const regularAccounts = accounts.filter(a => a.type !== 'investment' && !a.is_closed);
+  const today = new Date().toISOString().split('T')[0];
+
+  const body = `
+    <div style="background:var(--bg3);border-radius:6px;padding:10px 14px;margin-bottom:16px;font-size:13px">
+      <strong>${pos.ticker}</strong> — ${pos.name}<br>
+      Quantità disponibile: <strong>${pos.quantity}</strong> &nbsp;|&nbsp; Prezzo medio: <strong>${fmt.currency(pos.avg_price)}</strong>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Accredita su *</label>
+        <select class="form-control" id="s_to_account">
+          <option value="">— Seleziona conto —</option>
+          ${regularAccounts.map(a=>`<option value="${a.id}">${a.icon} ${a.name}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Data *</label>
+        <input type="date" class="form-control" id="s_date" value="${today}">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Quantità *</label>
+        <input type="number" step="0.0001" min="0.0001" max="${pos.quantity}" class="form-control" id="s_qty" placeholder="Max ${pos.quantity}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Prezzo vendita (€) *</label>
+        <input type="number" step="0.01" min="0" class="form-control" id="s_price" value="${pos.current_price||pos.avg_price}">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Totale incasso</label>
+        <input type="text" class="form-control" id="s_total" readonly style="background:var(--bg3)">
+      </div>
+      <div class="form-group">
+        <label class="form-label">P&L stimato</label>
+        <input type="text" class="form-control" id="s_pnl" readonly style="background:var(--bg3)">
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Note</label>
+      <input class="form-control" id="s_notes" placeholder="Opzionale">
+    </div>`;
+
+  openModal('Vendita Titolo', body, async () => {
+    const data = {
+      portfolio_id: portfolioId,
+      to_account_id: parseInt(document.getElementById('s_to_account').value),
+      quantity:  parseFloat(document.getElementById('s_qty').value),
+      price:     parseFloat(document.getElementById('s_price').value),
+      date:      document.getElementById('s_date').value,
+      notes:     document.getElementById('s_notes').value.trim() || null,
+    };
+    if (!data.to_account_id)            { toast('Seleziona il conto di accredito','error'); return; }
+    if (!data.quantity || data.quantity <= 0) { toast('Inserisci una quantità valida','error'); return; }
+    if (data.quantity > pos.quantity)    { toast('Quantità superiore alla disponibile','error'); return; }
+    if (!data.price || data.price <= 0)  { toast('Inserisci un prezzo valido','error'); return; }
+    try {
+      await api.sellStock(data);
+      closeModal();
+      toast('Vendita registrata');
+      renderPortfolio();
+    } catch(e) { toast(e.message,'error'); }
+  });
+
+  const calcSell = () => {
+    const q = parseFloat(document.getElementById('s_qty')?.value)||0;
+    const p = parseFloat(document.getElementById('s_price')?.value)||0;
+    const total = document.getElementById('s_total');
+    const pnlEl = document.getElementById('s_pnl');
+    if (total) total.value = q && p ? fmt.currency(q*p) : '—';
+    if (pnlEl) {
+      const pnl = q && p ? (p - pos.avg_price) * q : null;
+      pnlEl.value = pnl != null ? fmt.currency(pnl) : '—';
+      pnlEl.style.color = pnl != null ? (pnl >= 0 ? 'var(--income)' : 'var(--expense)') : '';
+    }
+  };
+  setTimeout(() => {
+    document.getElementById('s_qty')?.addEventListener('input', calcSell);
+    document.getElementById('s_price')?.addEventListener('input', calcSell);
+    calcSell();
+  }, 50);
+}
+
+async function showPortfolioHistory(portfolioId) {
+  const [txs, items] = await Promise.all([
+    api.getPortfolioTransactions(portfolioId),
+    api.getPortfolio()
+  ]);
+  const pos = items.find(i => i.id === portfolioId);
+  const body = `
+    <div style="font-weight:600;margin-bottom:12px">${pos?.ticker} — ${pos?.name}</div>
+    <div class="table-wrap">
+      <table style="font-size:12px"><thead><tr>
+        <th>Data</th><th>Tipo</th><th>Quantità</th><th>Prezzo</th><th class="text-right">Totale</th>
+      </tr></thead><tbody>
+      ${txs.length ? txs.map(t=>{
+        const isBuy = t.type === 'buy';
+        const total = t.quantity * t.price;
+        return `<tr>
+          <td>${t.date}</td>
+          <td><span style="color:${isBuy?'var(--expense)':'var(--income)'};font-weight:600">${isBuy?'Acquisto':'Vendita'}</span></td>
+          <td>${t.quantity}</td>
+          <td>${fmt.currency(t.price)}</td>
+          <td class="text-right" style="color:${isBuy?'var(--expense)':'var(--income)'}">${isBuy?'-':'+'} ${fmt.currency(total)}</td>
+        </tr>`;
+      }).join('') : '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--txt3)">Nessuna operazione</td></tr>'}
+      </tbody></table>
+    </div>`;
+  openModal('Storico operazioni', body, null);
+}
+
+window._setPortfolioFilter = async (activeOnly) => {
+  _portfolioActiveOnly = activeOnly;
+  await api.setSetting('portfolio.active_only', activeOnly ? '1' : '0');
+  renderPortfolio();
+};
+window.showBuyModal         = showBuyModal;
+window.showSellModal        = showSellModal;
+window.showPortfolioHistory = showPortfolioHistory;
+window.updateStockPrice = async (id, val) => {
+  const normalized = String(val).trim().replace(',', '.');
+  const price = parseFloat(normalized);
+  if (isNaN(price) || price < 0) return;
+  try {
+    await api.updateStockPrice(id, price);
+    await renderPortfolio();
+  }
+  catch(e) { toast(e.message,'error'); }
 };
 window.deleteStock = async id => {
-  const ok = await confirm('Elimina titolo','Eliminare questo titolo dal portafoglio?');
+  const ok = await confirm('Elimina posizione', 'Eliminare questa posizione dal portafoglio? Le transazioni collegate resteranno.');
   if (!ok) return;
   await api.deletePortfolioItem(id);
-  toast('Titolo eliminato');
+  toast('Posizione eliminata');
   renderPortfolio();
 };
 
@@ -2057,9 +2382,9 @@ async function renderReports() {
       {label:'Entrate',data:incArr,backgroundColor:'rgba(63,185,80,.7)',borderRadius:4},
       {label:'Uscite', data:expArr,backgroundColor:'rgba(248,81,73,.7)', borderRadius:4}
     ]},
-    options:{responsive:true,plugins:{legend:{labels:{color:'#8b949e'}}},
-      scales:{x:{ticks:{color:'#8b949e'},grid:{color:'#21262d'}},
-              y:{ticks:{color:'#8b949e'},grid:{color:'#21262d'}}}}
+    options:{responsive:true,plugins:{legend:{labels:{color:chartColors().tick}}},
+      scales:{x:{ticks:{color:chartColors().tick},grid:{color:chartColors().grid}},
+              y:{ticks:{color:chartColors().tick},grid:{color:chartColors().grid}}}}
   });
 
   if (charts.rPie) charts.rPie.destroy();
@@ -2067,7 +2392,7 @@ async function renderReports() {
     charts.rPie = new Chart(document.getElementById('rPie'),{
       type:'doughnut', data:{labels:catData.map(c=>c.icon+' '+c.name),
         datasets:[{data:catData.map(c=>c.total),backgroundColor:catData.map(c=>c.color),borderWidth:0}]},
-      options:{responsive:true,plugins:{legend:{position:'right',labels:{color:'#8b949e',font:{size:11}}}}}
+      options:{responsive:true,plugins:{legend:{position:'right',labels:{color:chartColors().tick,font:{size:11}}}}}
     });
   }
 
@@ -2099,15 +2424,17 @@ async function renderReports() {
 async function renderSettings() {
   const s = await api.getSettings();
   const pg = document.getElementById('pg-settings');
-  pg.innerHTML = `
-    <div class="page-header">
-      <h1 class="page-title">Impostazioni</h1>
-    </div>
-    <div class="settings-wrap">
 
+  const tabs = [
+    { id: 'data',   label: '🗄️ Dati'       },
+    { id: 'prefs',  label: '🎨 Preferenze'  },
+    { id: 'info',   label: 'ℹ️ Informazioni' },
+  ];
+
+  const tabContent = {
+    data: `
       <div class="settings-section">
         <div class="settings-section-title">🗄️ Database</div>
-
         <div class="settings-row">
           <div class="settings-label">
             <strong>File database attivo</strong>
@@ -2117,35 +2444,175 @@ async function renderSettings() {
             <div class="settings-path-row">
               <input id="dbPathInput" class="form-input settings-path-input"
                      type="text" readonly value="${s['db.path'] ?? ''}">
-              <button class="btn btn-secondary" onclick="settingsChooseDb('open')">
-                📂 Apri esistente
-              </button>
-              <button class="btn btn-ghost" onclick="settingsChooseDb('save')">
-                ➕ Crea nuovo
-              </button>
+              <button class="btn btn-secondary" onclick="settingsChooseDb('open')">📂 Apri esistente</button>
+              <button class="btn btn-ghost" onclick="settingsChooseDb('save')">➕ Crea nuovo</button>
             </div>
-            <p class="settings-hint" id="dbHint">
-              Modifica applicata al prossimo avvio dell'app.
-            </p>
+            <p class="settings-hint" id="dbHint"></p>
           </div>
         </div>
       </div>
 
+      <div class="settings-section">
+        <div class="settings-section-title">💾 Backup automatico</div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <strong>Backup all'uscita</strong>
+            <span class="settings-hint">Crea un backup del database ad ogni chiusura dell'app</span>
+          </div>
+          <div class="settings-control">
+            <div class="theme-toggle-group">
+              <button class="btn theme-btn ${s['backup.enabled']==='1'?'theme-btn-active':''}"
+                      onclick="settingsSetBackup('enabled','1')">Attivo</button>
+              <button class="btn theme-btn ${s['backup.enabled']!=='1'?'theme-btn-active':''}"
+                      onclick="settingsSetBackup('enabled','0')">Disattivo</button>
+            </div>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <strong>Cartella backup</strong>
+            <span class="settings-hint">Dove salvare i file .db.bak</span>
+          </div>
+          <div class="settings-control">
+            <div class="settings-path-row">
+              <input id="backupDirInput" class="form-input settings-path-input"
+                     type="text" readonly value="${s['backup.dir'] ?? ''}">
+              <button class="btn btn-secondary" onclick="settingsChooseBackupDir()">📂 Scegli</button>
+            </div>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <strong>Backup da conservare</strong>
+            <span class="settings-hint">Numero massimo di backup (i più vecchi vengono eliminati)</span>
+          </div>
+          <div class="settings-control">
+            <input type="number" class="form-control" style="width:80px" min="1" max="999"
+                   value="${s['backup.max']||'10'}"
+                   onchange="settingsSetBackup('max', this.value)">
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <strong>Backup manuale</strong>
+            <span class="settings-hint">Esegui subito un backup</span>
+          </div>
+          <div class="settings-control">
+            <button class="btn btn-secondary" onclick="settingsDoBackup()">💾 Esegui backup ora</button>
+            <span class="settings-hint" id="backupHint" style="margin-left:10px"></span>
+          </div>
+        </div>
+      </div>`,
+
+    prefs: `
+      <div class="settings-section">
+        <div class="settings-section-title">🎨 Tema</div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <strong>Modalità colore</strong>
+            <span class="settings-hint">Scegli tra tema scuro e chiaro</span>
+          </div>
+          <div class="settings-control">
+            <div class="theme-toggle-group">
+              <button class="btn theme-btn ${(s['appearance.theme']||'dark')==='dark'?'theme-btn-active':''}"
+                      onclick="settingsSetTheme('dark')">🌙 Scuro</button>
+              <button class="btn theme-btn ${(s['appearance.theme']||'dark')==='light'?'theme-btn-active':''}"
+                      onclick="settingsSetTheme('light')">☀️ Chiaro</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <div class="settings-section-title">🏦 Conti</div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <strong>Visualizzazione conti</strong>
+            <span class="settings-hint">Filtra i conti mostrati nelle liste e nella dashboard</span>
+          </div>
+          <div class="settings-control">
+            <div class="theme-toggle-group">
+              <button class="btn theme-btn ${!_accFavoritesOnly?'theme-btn-active':''}"
+                      onclick="settingsSetAccFilter(false)">Tutti i conti</button>
+              <button class="btn theme-btn ${_accFavoritesOnly?'theme-btn-active':''}"
+                      onclick="settingsSetAccFilter(true)">Solo preferiti</button>
+            </div>
+          </div>
+        </div>
+      </div>`,
+
+    info: `
       <div class="settings-section">
         <div class="settings-section-title">ℹ️ Informazioni</div>
         <div class="settings-info-grid">
           <span class="settings-info-label">Versione app</span>
           <span class="settings-info-value">1.0.0</span>
           <span class="settings-info-label">Database</span>
-          <span class="settings-info-value">SQLite (JDBC)</span>
+          <span class="settings-info-value">SQLite 3.45 (JDBC)</span>
           <span class="settings-info-label">Browser engine</span>
           <span class="settings-info-value">Chromium (JCEF 135)</span>
           <span class="settings-info-label">Java</span>
           <span class="settings-info-value">JDK 25</span>
+          <span class="settings-info-label">Dati</span>
+          <span class="settings-info-value">${s['db.path'] || '—'}</span>
         </div>
-      </div>
+      </div>`,
+  };
 
+  pg.innerHTML = `
+    <div class="page-header">
+      <h1 class="page-title">Impostazioni</h1>
+    </div>
+    <div class="settings-tabs">
+      ${tabs.map(t=>`
+        <button class="settings-tab ${_settingsTab===t.id?'settings-tab-active':''}"
+                onclick="_setSettingsTab('${t.id}')">${t.label}</button>`).join('')}
+    </div>
+    <div class="settings-wrap">
+      ${tabContent[_settingsTab] || ''}
     </div>`;
+}
+
+window._setSettingsTab = tab => { _settingsTab = tab; renderSettings(); };
+
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme === 'light' ? 'light' : '';
+}
+
+async function settingsSetTheme(theme) {
+  applyTheme(theme);
+  await api.setSetting('appearance.theme', theme);
+  renderSettings();
+}
+
+async function settingsSetAccFilter(favOnly) {
+  _accFavoritesOnly = favOnly;
+  await api.setSetting('accounts.favorites_only', favOnly ? '1' : '0');
+  renderSettings();
+  updateSidebar();
+}
+
+async function settingsSetBackup(key, value) {
+  await api.setSetting('backup.' + key, value);
+  renderSettings();
+}
+
+async function settingsChooseBackupDir() {
+  const res = await api.chooseBackupDir();
+  if (res.cancelled) return;
+  await api.setSetting('backup.dir', res.path);
+  renderSettings();
+}
+
+async function settingsDoBackup() {
+  const hint = document.getElementById('backupHint');
+  if (hint) hint.textContent = '⏳ Backup in corso...';
+  try {
+    const res = await api.doBackup();
+    if (hint) hint.textContent = `✅ Salvato: ${res.path}`;
+  } catch(e) {
+    if (hint) hint.textContent = `❌ ${e.message}`;
+  }
 }
 
 async function settingsChooseDb(mode) {
@@ -2153,12 +2620,21 @@ async function settingsChooseDb(mode) {
   if (res.cancelled) return;
 
   document.getElementById('dbPathInput').value = res.path;
-  await api.setSetting('db.path', res.path);
-
   const hint = document.getElementById('dbHint');
-  hint.style.color = 'var(--income)';
-  hint.textContent = '✅ Percorso salvato. Riavvia l\'app per applicare la modifica.';
-  toast('Percorso database aggiornato. Riavvia per applicarlo.', 'info');
+  hint.style.color = 'var(--txt3)';
+  hint.textContent = '⏳ Cambio database in corso…';
+  try {
+    await api.reloadDb(res.path);
+    hint.style.color = 'var(--income)';
+    hint.textContent = '✅ Database cambiato con successo.';
+    toast('Database aggiornato.', 'success');
+    await updateSidebar();
+    await renderDashboard();
+  } catch (e) {
+    hint.style.color = 'var(--expense)';
+    hint.textContent = '❌ Errore: ' + (e.message || e);
+    toast('Errore cambio database: ' + (e.message || e), 'error');
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -2470,7 +2946,7 @@ window.deleteTagMgmt = async id => {
 ═══════════════════════════════════════════════════════════════════════════ */
 const FREQ_LABELS = {
   once:'Una volta', daily:'Giornaliera', weekly:'Settimanale',
-  biweekly:'Bisettimanale', monthly:'Mensile', quarterly:'Trimestrale', yearly:'Annuale'
+  biweekly:'Bisettimanale', monthly:'Mensile', monthly_last:'Mensile (ultimo giorno)', bimonthly:'Ogni 2 mesi', quarterly:'Trimestrale', semiannual:'Semestrale', yearly:'Annuale'
 };
 
 let schedTab = 'lista';
@@ -2518,12 +2994,14 @@ function computeSchedNext(startDate, _freq, endDate) {
   return d;
 }
 
+let _settingsTab = 'data';
+let _portfolioActiveOnly = true;
 let _schedSort   = { col: 'days', dir: 'asc' };
 let _schedFilter = { type: '', active: '1' };
 
 async function renderSchedLista() {
-  const [scheds, accounts, categories] = await Promise.all([
-    api.getScheduled(), api.getAccounts(), api.getCategories()
+  const [scheds, accounts, categories, tags] = await Promise.all([
+    api.getScheduled(), api.getAccounts(), api.getCategories(), api.getTags()
   ]);
 
   // Arricchisce ogni pianificata con prossima data e giorni rimanenti
@@ -2562,6 +3040,8 @@ async function renderSchedLista() {
         <table id="schedTable"><thead><tr>
           <th class="sched-th-sort" data-scol="active"  onclick="_schedSortBy('active')">Stato<span class="sort-ind"></span></th>
           <th class="sched-th-sort" data-scol="desc"    onclick="_schedSortBy('desc')">Descrizione<span class="sort-ind"></span></th>
+          <th class="sched-th-sort" data-scol="cat"     onclick="_schedSortBy('cat')">Categoria<span class="sort-ind"></span></th>
+          <th class="sched-th-sort" data-scol="tag" onclick="_schedSortBy('tag')">Tag<span class="sort-ind"></span></th>
           <th class="sched-th-sort" data-scol="freq"    onclick="_schedSortBy('freq')">Frequenza<span class="sort-ind"></span></th>
           <th class="sched-th-sort" data-scol="amount"  onclick="_schedSortBy('amount')">Importo<span class="sort-ind"></span></th>
           <th class="sched-th-sort" data-scol="next"    onclick="_schedSortBy('next')">Prossima scadenza<span class="sort-ind"></span></th>
@@ -2571,7 +3051,7 @@ async function renderSchedLista() {
       </div>
     </div>`;
 
-  document.getElementById('btnNewSched').onclick = () => showScheduledModal(null, accounts, categories);
+  document.getElementById('btnNewSched').onclick = () => showScheduledModal(null, accounts, categories, tags);
   document.getElementById('sfActive').addEventListener('change', e => { _schedFilter.active = e.target.value; _renderSchedRows(scheds); });
   document.getElementById('sfType').addEventListener('change',   e => { _schedFilter.type   = e.target.value; _renderSchedRows(scheds); });
 
@@ -2607,6 +3087,8 @@ function _renderSchedRows(scheds) {
     switch (_schedSort.col) {
       case 'active': va = a.is_active; vb = b.is_active; break;
       case 'desc':   va = (a.description||'').toLowerCase(); vb = (b.description||'').toLowerCase(); break;
+      case 'cat':    va = (a.parent_category_name?a.parent_category_name+':'+a.category_name:a.category_name||'').toLowerCase(); vb = (b.parent_category_name?b.parent_category_name+':'+b.category_name:b.category_name||'').toLowerCase(); break;
+      case 'tag':    va = (a.tags&&a.tags.length?a.tags.map(t=>t.name).sort().join(','):'').toLowerCase(); vb = (b.tags&&b.tags.length?b.tags.map(t=>t.name).sort().join(','):'').toLowerCase(); break;
       case 'freq':   va = a.frequency; vb = b.frequency; break;
       case 'amount': va = a.amount;    vb = b.amount;    break;
       case 'next':   va = a._next||'9'; vb = b._next||'9'; break;
@@ -2619,7 +3101,7 @@ function _renderSchedRows(scheds) {
   });
 
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:40px;color:var(--txt3)">Nessuna transazione pianificata.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:40px;color:var(--txt3)">Nessuna transazione pianificata.</td></tr>';
     return;
   }
 
@@ -2636,8 +3118,10 @@ function _renderSchedRows(scheds) {
       <td style="text-align:center"><span style="font-size:15px">${s.is_active ? '✅' : '⏸️'}</span></td>
       <td class="td-main">
         ${s.description||'-'}
-        <br><span class="text-small text-muted">${s.category_icon||''} ${s.category_name||''} · ${s.account_name||''}${s.to_account_name?' → '+s.to_account_name:''}</span>
+        <br><span class="text-small text-muted">${s.account_name||''}${s.to_account_name?' → '+s.to_account_name:''}</span>
       </td>
+      <td><span class="cat-chip">${s.category_icon||''} ${s.parent_category_name?s.parent_category_name+':'+s.category_name:s.category_name||'-'}</span></td>
+      <td class="td-tags">${(s.tags&&s.tags.length)?s.tags.map(t=>`<span class="tag-inline" style="--tc:${t.color}">${t.name}</span>`).join(''):''}  </td>
       <td><span class="sched-freq-badge">${FREQ_LABELS[s.frequency]||s.frequency}</span></td>
       <td class="text-right amount-${s.type}">${s.type==='expense'?'-':''}${fmt.currency(s.amount)}</td>
       <td>${s._next ? fmt.date(s._next) : '—'}</td>
@@ -2646,6 +3130,7 @@ function _renderSchedRows(scheds) {
         ${s.is_active && s._next ? `<button class="btn btn-xs btn-success" onclick="registerSched(${s.id})" title="Inserisci transazione">✔ Inserisci</button>
         <button class="btn btn-xs btn-ghost" onclick="skipSched(${s.id})" title="Salta questa occorrenza">⏭ Salta</button>` : ''}
         <button class="btn btn-ghost btn-icon" onclick="editSched(${s.id})" title="Modifica">✏️</button>
+        <button class="btn btn-ghost btn-icon" onclick="duplicateSched(${s.id})" title="Duplica">⧉</button>
         <button class="btn btn-ghost btn-icon" onclick="deleteSched(${s.id})" title="Elimina">🗑️</button>
       </td>
     </tr>`).join('');
@@ -2694,10 +3179,6 @@ async function renderSchedProjection() {
           <input type="number" class="form-control" id="projMonths" value="${_projMonths}" min="1" max="120" style="width:80px">
           <span class="settings-hint" style="white-space:nowrap">mesi</span>
         </span>
-        <label class="form-label" style="margin:0;white-space:nowrap">Conti:</label>
-        <select class="form-control" id="projAccounts" multiple style="min-width:160px;height:56px">
-          ${accounts.map(a=>`<option value="${a.id}" selected>${a.icon} ${a.name}</option>`).join('')}
-        </select>
       </div>
       <div class="proj-chart-wrap"><canvas id="projChart"></canvas></div>
       <div id="projTable" style="margin-top:16px;overflow-x:auto"></div>
@@ -2714,7 +3195,6 @@ async function renderSchedProjection() {
     api.setSetting('proj.months', String(_projMonths));
     loadProjectionChart(accounts);
   });
-  document.getElementById('projAccounts').addEventListener('change', () => loadProjectionChart(accounts));
   await loadProjectionChart(accounts);
 }
 
@@ -2723,8 +3203,7 @@ async function loadProjectionChart(accounts) {
   const customMths = document.getElementById('projMonths')?.value;
   const { from_date, to_date } = projRangeToFilter(range, customMths);
   if (!from_date || !to_date) return;
-  const selOpts = [...(document.getElementById('projAccounts')?.selectedOptions||[])];
-  const accIds  = selOpts.map(o=>o.value).join(',');
+  const accIds = accounts.map(a=>a.id).join(',');
 
   let data;
   try { data = await api.getProjection({from_date, to_date, account_ids:accIds}); }
@@ -2732,21 +3211,11 @@ async function loadProjectionChart(accounts) {
 
   const { series, accounts: accList } = data;
   const dates = [...new Set(series.map(p=>p.date))].sort();
-  const CHART_COLORS = ['#58a6ff','#3fb950','#f85149','#d29922','#a371f7','#f0883e','#00d4aa','#8b949e'];
 
-  const datasets = accList.map((a,i) => {
-    const aid = a.id;
-    const pts = dates.map(d => {
-      const found = series.find(p=>p.date===d && p.account_id===aid);
-      return found ? found.balance : null;
-    });
-    return {
-      label: a.name,
-      data: pts,
-      borderColor: CHART_COLORS[i % CHART_COLORS.length],
-      backgroundColor: CHART_COLORS[i % CHART_COLORS.length] + '22',
-      fill: false, tension: 0.3, pointRadius: 2, spanGaps: true
-    };
+  // Somma tutti i conti per ogni data
+  const totals = dates.map(d => {
+    const pts = series.filter(p => p.date === d);
+    return pts.length ? pts.reduce((s, p) => s + p.balance, 0) : null;
   });
 
   if (schedCharts.proj) schedCharts.proj.destroy();
@@ -2754,49 +3223,60 @@ async function loadProjectionChart(accounts) {
   if (!ctx) return;
   schedCharts.proj = new Chart(ctx, {
     type: 'line',
-    data: { labels: dates, datasets },
+    data: { labels: dates, datasets: [{
+      label: 'Saldo totale',
+      data: totals,
+      borderColor: '#58a6ff',
+      backgroundColor: '#58a6ff22',
+      fill: true, tension: 0.3, pointRadius: 2, spanGaps: true
+    }]},
     options: {
       responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { labels: { color:'#8b949e' } } },
+      plugins: { legend: { labels: { color:chartColors().tick } } },
       scales: {
-        x: { ticks:{ color:'#8b949e', maxTicksLimit:14 }, grid:{ color:'#21262d' } },
-        y: { ticks:{ color:'#8b949e', callback: v => fmt.currency(v) }, grid:{ color:'#21262d' } }
+        x: { ticks:{ color:chartColors().tick, maxTicksLimit:14 }, grid:{ color:chartColors().grid } },
+        y: { ticks:{ color:chartColors().tick, callback: v => fmt.currency(v) }, grid:{ color:chartColors().grid } }
       }
     }
   });
 
   // ── Tabella saldo mensile ──────────────────────────────────────────────────
-  // Per ogni mese nel range, prendi l'ultimo punto disponibile per ciascun conto
   const monthKeys = [...new Set(dates.map(d=>d.slice(0,7)))].sort();
   const tbl = document.getElementById('projTable');
   if (!tbl || !monthKeys.length) return;
 
-  const monthBalances = monthKeys.map(m => {
+  const thS = 'text-align:right;padding:5px 10px;border-bottom:1px solid var(--border);color:var(--txt2);font-weight:400';
+  const tdS = (neg, bold) => `text-align:right;padding:5px 10px;border-bottom:1px solid var(--border);${bold?'font-weight:600;':''}${neg?'color:var(--expense)':''}`;
+  const diffStr = (v) => v == null ? '—' : (v >= 0 ? '+' : '') + fmt.currency(v);
+
+  // Calcola totale per ogni mese
+  const monthTotals = monthKeys.map(m => {
     const datesOfMonth = dates.filter(d=>d.startsWith(m));
     const lastDate = datesOfMonth[datesOfMonth.length-1];
-    return { month: m, lastDate };
+    const pts = series.filter(p=>p.date===lastDate);
+    return pts.length ? pts.reduce((s,p)=>s+p.balance,0) : null;
   });
-
-  const thStyle   = 'text-align:right;padding:5px 8px;border-bottom:1px solid var(--border);color:var(--txt2)';
-  const tdStyle   = (neg,bold) => `text-align:right;padding:4px 8px;border-bottom:1px solid var(--border);${neg?'color:var(--expense)':''}${bold?';font-weight:700':''}`;
+  const firstTotal = monthTotals.find(t => t != null);
 
   tbl.innerHTML = `
-    <table style="width:100%;border-collapse:collapse;font-size:12px">
+    <table style="width:100%;border-collapse:collapse;font-size:13px">
       <thead><tr>
-        <th style="text-align:left;padding:5px 8px;border-bottom:1px solid var(--border);color:var(--txt2)">Mese</th>
-        ${accList.map(a=>`<th style="${thStyle}">${a.name}</th>`).join('')}
-        <th style="${thStyle};border-left:2px solid var(--border)">Totale</th>
+        <th style="text-align:left;padding:5px 10px;border-bottom:1px solid var(--border);color:var(--txt2)">Mese</th>
+        <th style="${thS}">Saldo totale</th>
+        <th style="${thS}">Δ mese prec.</th>
+        <th style="${thS}">Δ totale</th>
       </tr></thead>
-      <tbody>${monthBalances.map(({month,lastDate}) => {
-        let total = 0; let hasAny = false;
-        const cells = accList.map(a => {
-          const pt = series.find(p=>p.date===lastDate && p.account_id===a.id);
-          const bal = pt ? pt.balance : null;
-          if (bal != null) { total += bal; hasAny = true; }
-          return `<td style="${tdStyle(bal!=null&&bal<0,false)}">${bal!=null?fmt.currency(bal):'—'}</td>`;
-        }).join('');
-        const totCell = `<td style="${tdStyle(total<0,true)};border-left:2px solid var(--border)">${hasAny?fmt.currency(total):'—'}</td>`;
-        return `<tr><td style="padding:4px 8px;border-bottom:1px solid var(--border)">${month}</td>${cells}${totCell}</tr>`;
+      <tbody>${monthKeys.map((m, i) => {
+        const total = monthTotals[i];
+        const prev  = i > 0 ? monthTotals[i-1] : null;
+        const diffPrev  = (total != null && prev != null) ? total - prev : null;
+        const diffFirst = (total != null && firstTotal != null) ? total - firstTotal : null;
+        return `<tr>
+          <td style="padding:5px 10px;border-bottom:1px solid var(--border)">${m}</td>
+          <td style="${tdS(total!=null&&total<0, true)}">${total!=null?fmt.currency(total):'—'}</td>
+          <td style="${tdS(diffPrev!=null&&diffPrev<0, false)}">${diffStr(diffPrev)}</td>
+          <td style="${tdS(diffFirst!=null&&diffFirst<0, false)}">${diffStr(diffFirst)}</td>
+        </tr>`;
       }).join('')}</tbody>
     </table>`;
 }
@@ -2871,21 +3351,31 @@ async function loadCashflowChart() {
     },
     options: {
       responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { labels: { color:'#8b949e' } } },
+      plugins: { legend: { labels: { color:chartColors().tick } } },
       scales: {
-        x: { ticks:{ color:'#8b949e' }, grid:{ color:'#21262d' } },
-        y: { ticks:{ color:'#8b949e', callback: v => fmt.currency(v) }, grid:{ color:'#21262d' } }
+        x: { ticks:{ color:chartColors().tick }, grid:{ color:chartColors().grid } },
+        y: { ticks:{ color:chartColors().tick, callback: v => fmt.currency(v) }, grid:{ color:chartColors().grid } }
       }
     }
   });
 }
 
 window.editSched = async id => {
-  const [scheds, accounts, categories] = await Promise.all([
-    api.getScheduled(), api.getAccounts(), api.getCategories()
+  const [scheds, accounts, categories, tags] = await Promise.all([
+    api.getScheduled(), api.getAccounts(), api.getCategories(), api.getTags()
   ]);
   const s = scheds.find(x=>x.id===id);
-  if (s) showScheduledModal(s, accounts, categories);
+  if (s) showScheduledModal(s, accounts, categories, tags);
+};
+
+window.duplicateSched = async id => {
+  const [scheds, accounts, categories, tags] = await Promise.all([
+    api.getScheduled(), api.getAccounts(), api.getCategories(), api.getTags()
+  ]);
+  const s = scheds.find(x => x.id === id);
+  if (!s) return;
+  const copy = { ...s, id: null };
+  showScheduledModal(copy, accounts, categories, tags);
 };
 
 window.deleteSched = async id => {
@@ -2921,7 +3411,7 @@ window.registerSched = async id => {
     description:   s.description   || '',
     color:         s.color         || null,
     reconciled:    s.reconciled    ?? 1,
-    tag_ids: []
+    tag_ids: (s.tags || []).map(t => t.id)
   };
   showTxModal(prefilled, cats, accs, s.type, tags, async () => {
     await api.advanceScheduled(id, s._next);
@@ -2929,8 +3419,8 @@ window.registerSched = async id => {
   });
 };
 
-function showScheduledModal(sched, accounts, categories) {
-  const isEdit = !!sched;
+function showScheduledModal(sched, accounts, categories, tags = []) {
+  const isEdit = !!(sched?.id);
   const today  = new Date().toISOString().slice(0,10);
   const initType = sched?.type || 'expense';
 
@@ -2972,7 +3462,7 @@ function showScheduledModal(sched, accounts, categories) {
       <div class="form-group">
         <label class="form-label">Conto *</label>
         <select class="form-control" id="sc_account">
-          ${accounts.map(a=>`<option value="${a.id}" ${sched?.account_id==a.id?'selected':''}>${a.icon} ${a.name}</option>`).join('')}
+          ${accounts.filter(isAccountActive).map(a=>`<option value="${a.id}" ${sched?.account_id==a.id?'selected':''}>${a.icon} ${a.name}</option>`).join('')}
         </select>
       </div>
       <div class="form-group" id="sc_toAccGroup" style="${initType!=='transfer'?'display:none':''}">
@@ -3013,6 +3503,12 @@ function showScheduledModal(sched, accounts, categories) {
       </div>
     </div>
     <div class="form-group">
+      <label class="form-label">Tag</label>
+      <div class="tag-selector" id="sc_tagSelector">
+        ${tags.map(t=>`<span class="tag-chip" data-tag-id="${t.id}" style="--tc:${t.color}">${t.name}</span>`).join('')}
+      </div>
+    </div>
+    <div class="form-group">
       <label class="form-label">Stato alla registrazione</label>
       <div style="display:flex;align-items:center;gap:16px;padding-top:4px">
         <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
@@ -3042,6 +3538,8 @@ function showScheduledModal(sched, accounts, categories) {
     updateSchedCatSelect(null);
   };
 
+  const sc_selectedTagIds = new Set((sched?.tags || []).map(t => Number(t.id)));
+
   openModal(isEdit ? 'Modifica Transazione Pianificata' : 'Nuova Transazione Pianificata', body, async () => {
     const type = document.getElementById('sc_type').value;
     const data = {
@@ -3059,6 +3557,7 @@ function showScheduledModal(sched, accounts, categories) {
       color:      document.getElementById('sc_color_use')?.checked
                     ? document.getElementById('sc_color').value : null,
       reconciled: parseInt(document.querySelector('input[name="sc_reconciled"]:checked')?.value ?? '1'),
+      tag_ids:    [...sc_selectedTagIds],
     };
     if (!data.amount || !data.account_id || !data.start_date) {
       toast('Compila i campi obbligatori', 'error'); return;
@@ -3070,6 +3569,16 @@ function showScheduledModal(sched, accounts, categories) {
       toast(isEdit ? 'Transazione pianificata aggiornata' : 'Transazione pianificata aggiunta');
       renderSchedLista();
     } catch(e) { toast(e.message, 'error'); }
+  });
+
+  // wire tag chips (DOM già disponibile dopo openModal)
+  document.querySelectorAll('#sc_tagSelector [data-tag-id]').forEach(chip => {
+    const id = Number(chip.dataset.tagId);
+    if (sc_selectedTagIds.has(id)) chip.classList.add('selected');
+    chip.onclick = () => {
+      chip.classList.toggle('selected');
+      sc_selectedTagIds.has(id) ? sc_selectedTagIds.delete(id) : sc_selectedTagIds.add(id);
+    };
   });
 
   // populate category select after modal renders
@@ -3115,10 +3624,14 @@ async function init() {
   document.querySelectorAll('.rh').forEach(el => el.style.display = maximized ? 'none' : '');
   // Carica preferenze persistenti
   const s = await api.getSettings();
+  if (s['appearance.theme']) applyTheme(s['appearance.theme']);
+  if (s['accounts.favorites_only']) _accFavoritesOnly = s['accounts.favorites_only'] === '1';
   if (s['proj.range'])   _projRange  = s['proj.range'];
   if (s['proj.months'])  _projMonths = parseInt(s['proj.months']) || 6;
   if (s['cf.range'])     _cfRange    = s['cf.range'];
   if (s['cf.months'])    _cfMonths   = parseInt(s['cf.months'])   || 6;
+  if (s['tx.range'])              txFilters           = { range: s['tx.range'] };
+  if (s['portfolio.active_only']) _portfolioActiveOnly = s['portfolio.active_only'] !== '0';
   await updateSidebar();
   await renderDashboard();
   // Notifica scadute (non bloccante, dopo il render)

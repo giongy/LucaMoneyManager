@@ -14,12 +14,17 @@ public class MainWindow {
     private final JFrame frame;
     private final CefBrowser browser;
     private final CefApp cefApp;
+    private final Database db;
+    private final Settings settings;
 
     public MainWindow(CefApp cefApp, Database db, Settings settings, String htmlUrl) {
         this.cefApp = cefApp;
+        this.db = db;
+        this.settings = settings;
 
         // Finestra senza decorazioni (titlebar personalizzata in HTML)
         frame = new JFrame("LucaMoneyManager");
+        frame.setIconImages(IconFactory.getAppIcons());
         frame.setUndecorated(true);
         frame.setSize(1280, 820);
         frame.setMinimumSize(new Dimension(900, 600));
@@ -51,6 +56,15 @@ public class MainWindow {
         frame.addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosing(WindowEvent e) {
+                // Backup automatico all'uscita se abilitato
+                if ("1".equals(settings.get(Settings.BACKUP_ENABLED))) {
+                    String bDir = settings.get(Settings.BACKUP_DIR);
+                    int bMax;
+                    try { bMax = Integer.parseInt(settings.get(Settings.BACKUP_MAX, "10")); }
+                    catch (NumberFormatException ex) { bMax = 10; }
+                    try { db.backup(bDir, bMax); }
+                    catch (Exception ex) { System.err.println("Backup fallito: " + ex.getMessage()); }
+                }
                 CefApp.getInstance().dispose();
                 frame.dispose();
                 System.exit(0);

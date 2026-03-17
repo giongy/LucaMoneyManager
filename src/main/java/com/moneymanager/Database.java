@@ -3,26 +3,88 @@ package com.moneymanager;
 import com.google.gson.JsonObject;
 import org.sqlite.SQLiteConfig;
 
+import java.io.IOException;
+import java.nio.file.*;
 import java.sql.*;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
 
 public class Database {
 
-    private final Connection conn;
+    private Connection conn;
+    private String currentDbPath;
 
     public Database(String dbPath) throws SQLException {
+        currentDbPath = dbPath;
+        conn = openConnection(dbPath);
+        initSchema();
+        migrate();
+        seedDefaultData();
+    }
+
+    private static Connection openConnection(String dbPath) throws SQLException {
         SQLiteConfig config = new SQLiteConfig();
         config.setJournalMode(SQLiteConfig.JournalMode.WAL);
         config.enforceForeignKeys(true);
-        conn = DriverManager.getConnection("jdbc:sqlite:" + dbPath, config.toProperties());
+        return DriverManager.getConnection("jdbc:sqlite:" + dbPath, config.toProperties());
+    }
+
+    public void reconnect(String dbPath) throws SQLException {
+        conn.close();
+        currentDbPath = dbPath;
+        conn = openConnection(dbPath);
         initSchema();
         migrate();
         seedDefaultData();
     }
 
     public void close() throws SQLException { conn.close(); }
+
+    /**
+     * Esegue un backup del database corrente nella cartella specificata.
+     * Il file avrà il formato: nomedb_YYYY-MM-DD_HH-mm-ss.db.bak
+     * Mantiene al massimo maxBackups file, eliminando i più vecchi.
+     */
+    public String backup(String backupDir, int maxBackups) throws IOException {
+        if (backupDir == null || backupDir.isBlank())
+            throw new IOException("Cartella backup non configurata");
+
+        Path src = Path.of(currentDbPath);
+        if (!Files.exists(src))
+            throw new IOException("File database non trovato: " + currentDbPath);
+
+        Path dir = Path.of(backupDir);
+        Files.createDirectories(dir);
+
+        String baseName = src.getFileName().toString().replaceAll("\\.[^.]+$", "");
+        String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss"));
+        String backupName = baseName + "_" + timestamp + ".db.bak";
+        Path dest = dir.resolve(backupName);
+
+        // WAL checkpoint prima di copiare per avere un file consistente
+        try (Statement st = conn.createStatement()) {
+            st.execute("PRAGMA wal_checkpoint(TRUNCATE)");
+        } catch (SQLException ignored) {}
+
+        Files.copy(src, dest, StandardCopyOption.REPLACE_EXISTING);
+
+        // Pulizia vecchi backup (ordine cronologico, elimina i più vecchi)
+        if (maxBackups > 0) {
+            try (DirectoryStream<Path> ds = Files.newDirectoryStream(dir, baseName + "_*.db.bak")) {
+                List<Path> baks = new ArrayList<>();
+                ds.forEach(baks::add);
+                baks.sort(Comparator.comparing(Path::getFileName));
+                while (baks.size() > maxBackups) {
+                    Files.deleteIfExists(baks.remove(0));
+                }
+            }
+        }
+
+        return dest.toAbsolutePath().toString();
+    }
 
     // ─── Helpers JDBC ─────────────────────────────────────────────────────────
 
@@ -96,6 +158,8 @@ public class Database {
                 initial_balance REAL    DEFAULT 0,
                 color           TEXT    DEFAULT '#58a6ff',
                 icon            TEXT    DEFAULT '🏦',
+                is_favorite     INTEGER DEFAULT 0,
+                is_closed       INTEGER DEFAULT 0,
                 created_at      TEXT    DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE IF NOT EXISTS categories (
@@ -136,14 +200,24 @@ public class Database {
                 PRIMARY KEY (category_id, year)
             );
             CREATE TABLE IF NOT EXISTS portfolio (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_id    INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+                ticker        TEXT    NOT NULL,
+                name          TEXT    NOT NULL,
+                quantity      REAL    NOT NULL DEFAULT 0,
+                avg_price     REAL    NOT NULL DEFAULT 0,
+                current_price REAL    DEFAULT 0,
+                notes         TEXT,
+                created_at    TEXT    DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS portfolio_transactions (
                 id             INTEGER PRIMARY KEY AUTOINCREMENT,
-                ticker         TEXT    NOT NULL,
-                name           TEXT    NOT NULL,
+                portfolio_id   INTEGER NOT NULL REFERENCES portfolio(id) ON DELETE CASCADE,
+                type           TEXT    NOT NULL,
                 quantity       REAL    NOT NULL,
-                purchase_price REAL    NOT NULL,
-                current_price  REAL    DEFAULT 0,
-                purchase_date  TEXT    NOT NULL,
-                account_id     INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
+                price          REAL    NOT NULL,
+                date           TEXT    NOT NULL,
+                transaction_id INTEGER REFERENCES transactions(id) ON DELETE SET NULL,
                 notes          TEXT,
                 created_at     TEXT    DEFAULT CURRENT_TIMESTAMP
             );
@@ -232,6 +306,52 @@ public class Database {
             executePlain("ALTER TABLE scheduled_transactions ADD COLUMN reconciled INTEGER DEFAULT 1");
             executePlain("UPDATE scheduled_transactions SET reconciled=1 WHERE reconciled IS NULL");
         } catch (SQLException ignored) {}
+        // Tabella tag per transazioni pianificate
+        executePlain("""
+            CREATE TABLE IF NOT EXISTS scheduled_transaction_tags (
+                scheduled_id INTEGER NOT NULL REFERENCES scheduled_transactions(id) ON DELETE CASCADE,
+                tag_id       INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+                PRIMARY KEY (scheduled_id, tag_id)
+            )
+        """);
+        // Aggiunge is_favorite e is_closed agli account
+        try { executePlain("ALTER TABLE accounts ADD COLUMN is_favorite INTEGER DEFAULT 0"); } catch (SQLException ignored) {}
+        try { executePlain("ALTER TABLE accounts ADD COLUMN is_closed   INTEGER DEFAULT 0"); } catch (SQLException ignored) {}
+        // Portfolio redesign: drop old structure solo se non ancora migrato (assenza colonna avg_price)
+        boolean portfolioNeedsMigration = true;
+        try (var rs = conn.getMetaData().getColumns(null, null, "portfolio", "avg_price")) {
+            if (rs.next()) portfolioNeedsMigration = false;
+        } catch (SQLException ignored) {}
+        if (portfolioNeedsMigration) {
+            try { executePlain("DROP TABLE IF EXISTS portfolio_transactions"); } catch (SQLException ignored) {}
+            try { executePlain("DROP TABLE IF EXISTS portfolio"); } catch (SQLException ignored) {}
+        }
+        executePlain("""
+            CREATE TABLE IF NOT EXISTS portfolio (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_id    INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+                ticker        TEXT    NOT NULL,
+                name          TEXT    NOT NULL,
+                quantity      REAL    NOT NULL DEFAULT 0,
+                avg_price     REAL    NOT NULL DEFAULT 0,
+                current_price REAL    DEFAULT 0,
+                notes         TEXT,
+                created_at    TEXT    DEFAULT CURRENT_TIMESTAMP
+            )
+        """);
+        executePlain("""
+            CREATE TABLE IF NOT EXISTS portfolio_transactions (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                portfolio_id   INTEGER NOT NULL REFERENCES portfolio(id) ON DELETE CASCADE,
+                type           TEXT    NOT NULL,
+                quantity       REAL    NOT NULL,
+                price          REAL    NOT NULL,
+                date           TEXT    NOT NULL,
+                transaction_id INTEGER REFERENCES transactions(id) ON DELETE SET NULL,
+                notes          TEXT,
+                created_at     TEXT    DEFAULT CURRENT_TIMESTAMP
+            )
+        """);
     }
 
     private void seedDefaultData() throws SQLException {
@@ -279,32 +399,41 @@ public class Database {
     public List<Map<String, Object>> getAccounts() throws SQLException {
         return queryList("""
             SELECT a.*,
-                a.initial_balance + COALESCE(SUM(CASE
-                    WHEN t.type='income'   THEN  t.amount
-                    WHEN t.type='expense'  THEN -t.amount
-                    WHEN t.type='transfer' AND t.account_id    = a.id THEN -t.amount
-                    WHEN t.type='transfer' AND t.to_account_id = a.id THEN  t.amount
-                    ELSE 0 END), 0) AS balance
+                CASE WHEN a.type = 'investment' THEN
+                    COALESCE((SELECT SUM(p.quantity * COALESCE(NULLIF(p.current_price,0), p.avg_price))
+                              FROM portfolio p WHERE p.account_id = a.id), 0)
+                ELSE
+                    a.initial_balance + COALESCE(SUM(CASE
+                        WHEN t.type='income'   THEN  t.amount
+                        WHEN t.type='expense'  THEN -t.amount
+                        WHEN t.type='transfer' AND t.account_id    = a.id THEN -t.amount
+                        WHEN t.type='transfer' AND t.to_account_id = a.id THEN  t.amount
+                        ELSE 0 END), 0)
+                END AS balance
             FROM accounts a
-            LEFT JOIN transactions t ON t.account_id = a.id OR t.to_account_id = a.id
+            LEFT JOIN transactions t ON (t.account_id = a.id OR t.to_account_id = a.id) AND a.type != 'investment'
             GROUP BY a.id
             ORDER BY a.created_at
         """);
     }
 
     public Map<String, Object> addAccount(JsonObject p) throws SQLException {
-        long id = execute("INSERT INTO accounts(name,type,currency,initial_balance,color,icon) VALUES(?,?,?,?,?,?)",
+        long id = execute("INSERT INTO accounts(name,type,currency,initial_balance,color,icon,is_favorite,is_closed) VALUES(?,?,?,?,?,?,?,?)",
                 str(p,"name"), str(p,"type"), str(p,"currency") != null ? str(p,"currency") : "EUR",
                 dbl(p,"initial_balance") != null ? dbl(p,"initial_balance") : 0.0,
-                str(p,"color"), str(p,"icon"));
+                str(p,"color"), str(p,"icon"),
+                intVal(p,"is_favorite") != null ? intVal(p,"is_favorite") : 0, 0);
         return queryOne("SELECT * FROM accounts WHERE id=?", id);
     }
 
     public Map<String, Object> updateAccount(int id, JsonObject p) throws SQLException {
-        execute("UPDATE accounts SET name=?,type=?,currency=?,initial_balance=?,color=?,icon=? WHERE id=?",
+        execute("UPDATE accounts SET name=?,type=?,currency=?,initial_balance=?,color=?,icon=?,is_favorite=?,is_closed=? WHERE id=?",
                 str(p,"name"), str(p,"type"), str(p,"currency") != null ? str(p,"currency") : "EUR",
                 dbl(p,"initial_balance") != null ? dbl(p,"initial_balance") : 0.0,
-                str(p,"color"), str(p,"icon"), id);
+                str(p,"color"), str(p,"icon"),
+                intVal(p,"is_favorite") != null ? intVal(p,"is_favorite") : 0,
+                intVal(p,"is_closed") != null ? intVal(p,"is_closed") : 0,
+                id);
         return queryOne("SELECT * FROM accounts WHERE id=?", id);
     }
 
@@ -452,7 +581,7 @@ public class Database {
             sql.append(" AND t.description LIKE ?");
             params.add("%" + str(f,"search") + "%");
         }
-        sql.append(" GROUP BY t.id ORDER BY t.date DESC, t.id DESC");
+        sql.append(" GROUP BY t.id ORDER BY t.date ASC, t.id ASC");
         if (f.has("limit")) { sql.append(" LIMIT ?"); params.add(f.get("limit").getAsInt()); }
 
         List<Map<String, Object>> rows = parseTags(queryList(sql.toString(), params.toArray()));
@@ -756,16 +885,32 @@ public class Database {
     // ─── Transazioni Pianificate ──────────────────────────────────────────────
 
     public List<Map<String, Object>> getScheduled() throws SQLException {
-        return queryList("""
+        return parseTags(queryList("""
             SELECT s.*, c.name AS category_name, c.icon AS category_icon,
+                   p.name AS parent_category_name,
                    a.name AS account_name, a.icon AS account_icon,
-                   ta.name AS to_account_name
+                   ta.name AS to_account_name,
+                   GROUP_CONCAT(t.id || '\u00A7' || t.name || '\u00A7' || t.color, '||') AS tags_concat
             FROM scheduled_transactions s
             LEFT JOIN categories c ON s.category_id = c.id
+            LEFT JOIN categories p ON c.parent_id = p.id
             LEFT JOIN accounts   a ON s.account_id  = a.id
             LEFT JOIN accounts  ta ON s.to_account_id = ta.id
+            LEFT JOIN scheduled_transaction_tags stt ON stt.scheduled_id = s.id
+            LEFT JOIN tags t ON t.id = stt.tag_id
+            GROUP BY s.id
             ORDER BY s.start_date, s.id
-        """);
+        """));
+    }
+
+    private void saveSchedTags(long schedId, JsonObject p) throws SQLException {
+        execute("DELETE FROM scheduled_transaction_tags WHERE scheduled_id=?", schedId);
+        if (p.has("tag_ids") && p.get("tag_ids").isJsonArray()) {
+            for (var el : p.get("tag_ids").getAsJsonArray()) {
+                execute("INSERT OR IGNORE INTO scheduled_transaction_tags(scheduled_id,tag_id) VALUES(?,?)",
+                        schedId, el.getAsInt());
+            }
+        }
     }
 
     public Map<String, Object> addScheduled(JsonObject p) throws SQLException {
@@ -781,6 +926,7 @@ public class Database {
                 p.has("is_active") ? p.get("is_active").getAsInt() : 1,
                 str(p,"color"),
                 p.has("reconciled") && !p.get("reconciled").isJsonNull() ? p.get("reconciled").getAsInt() : 1);
+        saveSchedTags(id, p);
         return queryOne("SELECT * FROM scheduled_transactions WHERE id=?", id);
     }
 
@@ -798,6 +944,7 @@ public class Database {
                 str(p,"color"),
                 p.has("reconciled") && !p.get("reconciled").isJsonNull() ? p.get("reconciled").getAsInt() : 1,
                 id);
+        saveSchedTags(id, p);
         return queryOne("SELECT * FROM scheduled_transactions WHERE id=?", id);
     }
 
@@ -816,16 +963,33 @@ public class Database {
                 cur = start.plusMonths(months);
                 if (cur.isBefore(from)) cur = cur.plusMonths(1);
             }
+            case "monthly_last" -> {
+                long months = java.time.temporal.ChronoUnit.MONTHS.between(start, from);
+                cur = start.plusMonths(months).withDayOfMonth(start.plusMonths(months).lengthOfMonth());
+                if (cur.isBefore(from)) cur = cur.plusMonths(1).withDayOfMonth(cur.plusMonths(1).lengthOfMonth());
+            }
             case "yearly" -> {
                 long years = java.time.temporal.ChronoUnit.YEARS.between(start, from);
                 cur = start.plusYears(years);
                 if (cur.isBefore(from)) cur = cur.plusYears(1);
+            }
+            case "bimonthly" -> {
+                long months = java.time.temporal.ChronoUnit.MONTHS.between(start, from);
+                long b = months / 2;
+                cur = start.plusMonths(b * 2);
+                if (cur.isBefore(from)) cur = cur.plusMonths(2);
             }
             case "quarterly" -> {
                 long months = java.time.temporal.ChronoUnit.MONTHS.between(start, from);
                 long q = months / 3;
                 cur = start.plusMonths(q * 3);
                 if (cur.isBefore(from)) cur = cur.plusMonths(3);
+            }
+            case "semiannual" -> {
+                long months = java.time.temporal.ChronoUnit.MONTHS.between(start, from);
+                long s = months / 6;
+                cur = start.plusMonths(s * 6);
+                if (cur.isBefore(from)) cur = cur.plusMonths(6);
             }
             case "weekly" -> {
                 long days = java.time.temporal.ChronoUnit.DAYS.between(start, from);
@@ -850,9 +1014,12 @@ public class Database {
             case "daily"     -> d.plusDays(1);
             case "weekly"    -> d.plusWeeks(1);
             case "biweekly"  -> d.plusWeeks(2);
-            case "monthly"   -> d.plusMonths(1);
-            case "quarterly" -> d.plusMonths(3);
-            case "yearly"    -> d.plusYears(1);
+            case "monthly"      -> d.plusMonths(1);
+            case "monthly_last" -> { LocalDate n = d.plusMonths(1); yield n.withDayOfMonth(n.lengthOfMonth()); }
+            case "bimonthly"  -> d.plusMonths(2);
+            case "quarterly"  -> d.plusMonths(3);
+            case "semiannual" -> d.plusMonths(6);
+            case "yearly"     -> d.plusYears(1);
             default          -> null;
         };
     }
@@ -1108,30 +1275,152 @@ public class Database {
 
     public List<Map<String, Object>> getPortfolio() throws SQLException {
         return queryList("""
-            SELECT p.*, a.name AS account_name
+            SELECT p.*, a.name AS account_name, a.icon AS account_icon, a.color AS account_color
             FROM portfolio p
-            LEFT JOIN accounts a ON p.account_id = a.id
-            ORDER BY p.name
+            JOIN accounts a ON p.account_id = a.id
+            ORDER BY a.name, p.ticker
         """);
     }
 
-    public Map<String, Object> addPortfolioItem(JsonObject p) throws SQLException {
-        long id = execute("""
-            INSERT INTO portfolio(ticker,name,quantity,purchase_price,current_price,purchase_date,account_id,notes)
-            VALUES(?,?,?,?,?,?,?,?)
-        """, str(p,"ticker"), str(p,"name"), dbl(p,"quantity"), dbl(p,"purchase_price"),
-                dbl(p,"current_price") != null ? dbl(p,"current_price") : 0.0,
-                str(p,"purchase_date"), intVal(p,"account_id"), str(p,"notes"));
+    public List<Map<String, Object>> getPortfolioTransactions(int portfolioId) throws SQLException {
+        return queryList("""
+            SELECT pt.*, t.date AS tx_date, a_from.name AS from_account, a_to.name AS to_account
+            FROM portfolio_transactions pt
+            LEFT JOIN transactions t ON pt.transaction_id = t.id
+            LEFT JOIN accounts a_from ON t.account_id = a_from.id
+            LEFT JOIN accounts a_to ON t.to_account_id = a_to.id
+            WHERE pt.portfolio_id = ?
+            ORDER BY pt.date DESC, pt.id DESC
+        """, portfolioId);
+    }
+
+    public Map<String, Object> buyStock(JsonObject p) throws SQLException {
+        int investAccountId  = p.get("account_id").getAsInt();    // investment account
+        int fromAccountId    = p.get("from_account_id").getAsInt(); // regular account paying
+        String ticker        = p.get("ticker").getAsString().toUpperCase();
+        String name          = p.get("name").getAsString();
+        double qty           = p.get("quantity").getAsDouble();
+        double price         = p.get("price").getAsDouble();
+        String date          = p.get("date").getAsString();
+        String notes         = p.has("notes") && !p.get("notes").isJsonNull() ? p.get("notes").getAsString() : null;
+        double amount        = qty * price;
+
+        // Get transfer category
+        var cat = queryOne("SELECT id FROM categories WHERE type='transfer' LIMIT 1");
+        Integer catId = cat != null ? ((Number)cat.get("id")).intValue() : null;
+
+        // Create transfer transaction: from regular → investment account
+        long txId = execute("""
+            INSERT INTO transactions(date,amount,type,category_id,account_id,to_account_id,description,reconciled)
+            VALUES(?,?,?,?,?,?,?,0)
+        """, date, amount, "transfer", catId, fromAccountId, investAccountId,
+            "Acquisto " + ticker + " x" + qty);
+
+        // Find or create portfolio position
+        var existing = queryOne("SELECT * FROM portfolio WHERE account_id=? AND ticker=?",
+                investAccountId, ticker);
+        long portfolioId;
+        if (existing != null) {
+            double existQty = ((Number)existing.get("quantity")).doubleValue();
+            double existAvg = ((Number)existing.get("avg_price")).doubleValue();
+            double newAvg   = (existQty * existAvg + qty * price) / (existQty + qty);
+            portfolioId = ((Number)existing.get("id")).longValue();
+            execute("UPDATE portfolio SET quantity=?, avg_price=?, current_price=? WHERE id=?",
+                    existQty + qty, newAvg, price, portfolioId);
+        } else {
+            portfolioId = execute("""
+                INSERT INTO portfolio(account_id,ticker,name,quantity,avg_price,current_price,notes)
+                VALUES(?,?,?,?,?,?,?)
+            """, investAccountId, ticker, name, qty, price, price, notes);
+        }
+
+        // Record portfolio transaction
+        execute("""
+            INSERT INTO portfolio_transactions(portfolio_id,type,quantity,price,date,transaction_id,notes)
+            VALUES(?,?,?,?,?,?,?)
+        """, portfolioId, "buy", qty, price, date, txId, notes);
+
+        return queryOne("SELECT * FROM portfolio WHERE id=?", portfolioId);
+    }
+
+    public Map<String, Object> sellStock(JsonObject p) throws SQLException {
+        int portfolioId   = p.get("portfolio_id").getAsInt();
+        int toAccountId   = p.get("to_account_id").getAsInt(); // regular account receiving
+        double qty        = p.get("quantity").getAsDouble();
+        double price      = p.get("price").getAsDouble();
+        String date       = p.get("date").getAsString();
+        String notes      = p.has("notes") && !p.get("notes").isJsonNull() ? p.get("notes").getAsString() : null;
+
+        var position = queryOne("SELECT * FROM portfolio WHERE id=?", portfolioId);
+        if (position == null) throw new SQLException("Posizione non trovata");
+
+        double existQty       = ((Number)position.get("quantity")).doubleValue();
+        int investAccountId   = ((Number)position.get("account_id")).intValue();
+        String ticker         = (String)position.get("ticker");
+
+        if (qty > existQty + 0.00001)
+            throw new SQLException("Quantità venduta (" + qty + ") superiore alla disponibile (" + existQty + ")");
+
+        double amount = qty * price;
+
+        // Get transfer category
+        var cat = queryOne("SELECT id FROM categories WHERE type='transfer' LIMIT 1");
+        Integer catId = cat != null ? ((Number)cat.get("id")).intValue() : null;
+
+        // Create transfer transaction: investment → regular account
+        long txId = execute("""
+            INSERT INTO transactions(date,amount,type,category_id,account_id,to_account_id,description,reconciled)
+            VALUES(?,?,?,?,?,?,?,0)
+        """, date, amount, "transfer", catId, investAccountId, toAccountId,
+            "Vendita " + ticker + " x" + qty);
+
+        // Update portfolio position
+        double newQty = existQty - qty;
+        execute("UPDATE portfolio SET quantity=? WHERE id=?", newQty, portfolioId);
+
+        // Record portfolio transaction
+        execute("""
+            INSERT INTO portfolio_transactions(portfolio_id,type,quantity,price,date,transaction_id,notes)
+            VALUES(?,?,?,?,?,?,?)
+        """, portfolioId, "sell", qty, price, date, txId, notes);
+
+        return queryOne("SELECT * FROM portfolio WHERE id=?", portfolioId);
+    }
+
+    public Map<String, Object> updateStockPrice(int id, double price) throws SQLException {
+        execute("UPDATE portfolio SET current_price=? WHERE id=?", price, id);
         return queryOne("SELECT * FROM portfolio WHERE id=?", id);
     }
 
-    public Map<String, Object> updatePortfolioItem(int id, JsonObject p) throws SQLException {
-        execute("""
-            UPDATE portfolio SET ticker=?,name=?,quantity=?,purchase_price=?,current_price=?,
-                purchase_date=?,account_id=?,notes=? WHERE id=?
-        """, str(p,"ticker"), str(p,"name"), dbl(p,"quantity"), dbl(p,"purchase_price"),
-                dbl(p,"current_price") != null ? dbl(p,"current_price") : 0.0,
-                str(p,"purchase_date"), intVal(p,"account_id"), str(p,"notes"), id);
+    /** Carica una posizione esistente senza creare transazioni bancarie. */
+    public Map<String, Object> importPosition(JsonObject p) throws SQLException {
+        int accountId   = p.get("account_id").getAsInt();
+        String ticker   = p.get("ticker").getAsString().toUpperCase();
+        String name     = p.get("name").getAsString();
+        double qty      = p.get("quantity").getAsDouble();
+        double avgPrice = p.get("avg_price").getAsDouble();
+        double curPrice = p.has("current_price") && !p.get("current_price").isJsonNull()
+                ? p.get("current_price").getAsDouble() : avgPrice;
+        String notes    = p.has("notes") && !p.get("notes").isJsonNull() ? p.get("notes").getAsString() : null;
+
+        var existing = queryOne("SELECT * FROM portfolio WHERE account_id=? AND ticker=?", accountId, ticker);
+        long id;
+        double addedValue = qty * avgPrice;
+        if (existing != null) {
+            double existQty = ((Number)existing.get("quantity")).doubleValue();
+            double existAvg = ((Number)existing.get("avg_price")).doubleValue();
+            double newAvg   = (existQty * existAvg + qty * avgPrice) / (existQty + qty);
+            id = ((Number)existing.get("id")).longValue();
+            execute("UPDATE portfolio SET quantity=?, avg_price=?, current_price=? WHERE id=?",
+                    existQty + qty, newAvg, curPrice, id);
+        } else {
+            id = execute("""
+                INSERT INTO portfolio(account_id,ticker,name,quantity,avg_price,current_price,notes)
+                VALUES(?,?,?,?,?,?,?)
+            """, accountId, ticker, name, qty, avgPrice, curPrice, notes);
+        }
+        // Aggiorna initial_balance del conto investimento per riflettere il capitale già investito
+        execute("UPDATE accounts SET initial_balance = initial_balance + ? WHERE id = ?", addedValue, accountId);
         return queryOne("SELECT * FROM portfolio WHERE id=?", id);
     }
 
@@ -1151,11 +1440,18 @@ public class Database {
             FROM transactions WHERE strftime('%Y',date)=?
         """, yy);
         Map<String,Object> balance = queryOne("""
-            SELECT COALESCE(SUM(initial_balance),0) +
-                COALESCE((SELECT SUM(CASE WHEN type='income' THEN amount
-                                          WHEN type='expense' THEN -amount ELSE 0 END)
-                          FROM transactions),0) AS total
-            FROM accounts
+            SELECT COALESCE(SUM(CASE
+                WHEN a.type = 'investment' THEN
+                    COALESCE((SELECT SUM(p.quantity * COALESCE(NULLIF(p.current_price,0), p.avg_price))
+                              FROM portfolio p WHERE p.account_id = a.id), 0)
+                ELSE
+                    a.initial_balance + COALESCE((
+                        SELECT SUM(CASE WHEN t.type='income' THEN t.amount
+                                        WHEN t.type='expense' THEN -t.amount ELSE 0 END)
+                        FROM transactions t WHERE t.account_id = a.id OR t.to_account_id = a.id
+                    ), 0)
+                END), 0) AS total
+            FROM accounts a
         """);
         double inc  = yearly != null ? ((Number)yearly.get("income")).doubleValue()   : 0;
         double exp  = yearly != null ? ((Number)yearly.get("expenses")).doubleValue() : 0;

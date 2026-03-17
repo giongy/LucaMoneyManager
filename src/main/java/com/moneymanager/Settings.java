@@ -13,14 +13,16 @@ import java.util.*;
 public class Settings {
 
     // ─── Chiavi con valori di default ─────────────────────────────────────────
-    public static final String DB_PATH = "db.path";
-    // Aggiungi qui future impostazioni:
-    // public static final String UI_THEME    = "ui.theme";
-    // public static final String UI_CURRENCY = "ui.currency";
-    // public static final String UI_LANGUAGE = "ui.language";
+    public static final String DB_PATH       = "db.path";
+    public static final String BACKUP_ENABLED = "backup.enabled";
+    public static final String BACKUP_DIR     = "backup.dir";
+    public static final String BACKUP_MAX     = "backup.max";
 
     private static final Map<String, String> DEFAULTS = Map.of(
-        DB_PATH, ""   // viene impostato al primo avvio se vuoto
+        DB_PATH,        "",
+        BACKUP_ENABLED, "0",
+        BACKUP_DIR,     "",
+        BACKUP_MAX,     "10"
     );
 
     // ──────────────────────────────────────────────────────────────────────────

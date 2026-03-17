@@ -57,6 +57,20 @@
                 <configuration>
                     <mainClass>com.moneymanager.App</mainClass>
                 </configuration>
+                <executions>
+                    <execution>
+                        <id>generate-icon</id>
+                        <phase>prepare-package</phase>
+                        <goals><goal>java</goal></goals>
+                        <configuration>
+                            <mainClass>com.moneymanager.IconFactory</mainClass>
+                            <arguments>
+                                <argument>${project.build.directory}/icon.ico</argument>
+                            </arguments>
+                            <classpathScope>runtime</classpathScope>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
 
             <!-- Fat JAR con tutte le dipendenze incluse -->

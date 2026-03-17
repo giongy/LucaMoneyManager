@@ -22,7 +22,7 @@ import java.util.Map;
  */
 public class Bridge extends CefMessageRouterHandlerAdapter {
 
-    private final Database db;
+    private Database db;
     private final Settings settings;
     private final JFrame window;
     private final Gson gson = new GsonBuilder().serializeNulls().create();
@@ -51,9 +51,13 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                     ? req.get("params").getAsJsonObject()
                     : new JsonObject();
 
-            // chooseDbFile è asincrono: mostra dialog DOPO che onQuery ritorna.
+            // Dialog asincroni: mostrano UI DOPO che onQuery ritorna.
             if ("chooseDbFile".equals(method)) {
                 handleChooseDbFileAsync(params, callback);
+                return true;
+            }
+            if ("chooseBackupDir".equals(method)) {
+                handleChooseBackupDirAsync(callback);
                 return true;
             }
 
@@ -96,6 +100,32 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                     if ("save".equals(mode) && !path.matches(".*\\.(db|sqlite|sqlite3)$"))
                         path += ".db";
                     succeed(callback, Map.of("path", path, "cancelled", false));
+                } else {
+                    succeed(callback, Map.of("path", "", "cancelled", true));
+                }
+            } finally {
+                helper.dispose();
+            }
+        });
+    }
+
+    private void handleChooseBackupDirAsync(CefQueryCallback callback) {
+        SwingUtilities.invokeLater(() -> {
+            JFileChooser fc = new JFileChooser();
+            fc.setDialogTitle("Seleziona cartella backup");
+            fc.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+            String cur = settings.get(Settings.BACKUP_DIR);
+            if (cur != null && !cur.isBlank()) fc.setSelectedFile(new File(cur));
+
+            JFrame helper = new JFrame();
+            helper.setUndecorated(true);
+            helper.setAlwaysOnTop(true);
+            helper.setSize(0, 0);
+            helper.setLocationRelativeTo(window);
+            helper.setVisible(true);
+            try {
+                if (fc.showOpenDialog(helper) == JFileChooser.APPROVE_OPTION) {
+                    succeed(callback, Map.of("path", fc.getSelectedFile().getAbsolutePath(), "cancelled", false));
                 } else {
                     succeed(callback, Map.of("path", "", "cancelled", true));
                 }
@@ -216,10 +246,13 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                 p.has("account_ids") ? p.get("account_ids").getAsString() : "");
 
             // ─── Portafoglio ───────────────────────────────────────────────
-            case "getPortfolio"          -> db.getPortfolio();
-            case "addPortfolioItem"      -> db.addPortfolioItem(p);
-            case "updatePortfolioItem"   -> db.updatePortfolioItem(p.get("id").getAsInt(), p);
-            case "deletePortfolioItem"   -> db.deletePortfolioItem(p.get("id").getAsInt());
+            case "getPortfolio"             -> db.getPortfolio();
+            case "getPortfolioTransactions" -> db.getPortfolioTransactions(p.get("portfolio_id").getAsInt());
+            case "buyStock"                 -> db.buyStock(p);
+            case "sellStock"                -> db.sellStock(p);
+            case "updateStockPrice"         -> db.updateStockPrice(p.get("id").getAsInt(), p.get("price").getAsDouble());
+            case "importPosition"           -> db.importPosition(p);
+            case "deletePortfolioItem"      -> db.deletePortfolioItem(p.get("id").getAsInt());
 
             // ─── Tag ───────────────────────────────────────────────────────────────
             case "getTags"    -> db.getTags();
@@ -239,6 +272,20 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             case "setSetting" -> {
                 settings.set(p.get("key").getAsString(), p.get("value").getAsString());
                 yield Map.of("ok", true);
+            }
+
+            case "reloadDb" -> {
+                String path = p.get("path").getAsString();
+                settings.set(Settings.DB_PATH, path);
+                db.reconnect(path);
+                yield Map.of("ok", true);
+            }
+
+            case "doBackup" -> {
+                String bDir = settings.get(Settings.BACKUP_DIR);
+                int bMax = Integer.parseInt(settings.get(Settings.BACKUP_MAX, "10"));
+                String dest = db.backup(bDir, bMax);
+                yield Map.of("ok", true, "path", dest);
             }
 
             default -> throw new Exception("Metodo sconosciuto: " + method);

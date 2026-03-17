@@ -734,6 +734,15 @@ tr.tx-selected td { background:rgba(88,166,255,.07); }
   font-style: italic;
 }
 
+/* ── Budget: toggle Solo rossi ──────────────────────────────────────────── */
+.btn-active-red {
+  background: rgba(248,81,73,.15) !important;
+  color: var(--expense) !important;
+  border: 1px solid rgba(248,81,73,.4) !important;
+}
+.budget-only-red tr[data-row-over="0"] td { opacity: 0.12; pointer-events: none; }
+.budget-only-red tr[data-row-over="1"] .budget-cell[data-over="0"] { opacity: 0.15; }
+
 /* ── Budget: pulsante dettaglio categoria ───────────────────────────────── */
 .btn-budget-detail {
   background: none;

@@ -168,7 +168,7 @@ function callJava(method, params = {}) {
     window.cefQuery({
       request: _toB64(JSON.stringify({ method, params })),
       onSuccess: r => resolve(JSON.parse(_fromB64(r))),
-      onFailure: (code, msg) => reject(new Error(msg))
+      onFailure: (_code, msg) => reject(new Error(msg))
     });
   });
 }
@@ -1324,6 +1324,7 @@ async function renderBudgets() {
         <button id="budgNext">›</button>
       </div>
       <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost" id="btnBudgOnlyRed">Solo rossi</button>
         <button class="btn btn-ghost" id="btnBudgToggleAll">Comprimi tutto</button>
         <button class="btn btn-primary" id="btnGenBudget">Genera budget</button>
       </div>
@@ -1339,6 +1340,12 @@ async function renderBudgets() {
   document.getElementById('budgPrev').onclick = () => { budgetYear--; renderBudgets(); };
   document.getElementById('budgNext').onclick = () => { budgetYear++; renderBudgets(); };
   document.getElementById('btnGenBudget').onclick = () => showGenerateBudgetModal();
+  document.getElementById('btnBudgOnlyRed').onclick = () => {
+    _budgetOnlyRed = !_budgetOnlyRed;
+    const btn = document.getElementById('btnBudgOnlyRed');
+    btn.classList.toggle('btn-active-red', _budgetOnlyRed);
+    document.querySelector('.budget-year-wrap')?.classList.toggle('budget-only-red', _budgetOnlyRed);
+  };
   document.getElementById('btnBudgToggleAll').onclick = () => {
     const parentIds = new Set((_budgetData?.categories||[]).filter(c=>c.parent_id).map(c=>c.parent_id));
     const allCollapsed = [...parentIds].every(id => _budgetCollapsed.has(id));
@@ -1353,6 +1360,7 @@ async function renderBudgets() {
 
 let _budgetData = null;
 let _budgetCollapsed = new Set();
+let _budgetOnlyRed = false;
 
 async function loadBudgetTable() {
   _budgetData = await api.getBudgetYear(budgetYear);
@@ -1456,19 +1464,20 @@ function renderBudgetTable() {
       const over = isOver(budget, actual);
       const budgetStr = (budget > 0 || hasCfg) ? fmt.currency(budget) : '';
       if (isGroupHeader) {
-        return `<td class="budget-cell budget-cell-parent budget-cell-readonly">
+        return `<td class="budget-cell budget-cell-parent budget-cell-readonly" data-over="${over?1:0}">
           <span class="budget-cell-val">${budget>0?fmt.currency(budget):''}</span>
           ${actual>0?`<span class="budget-cell-actual ${over?'over':''}">${fmt.currency(actual)}</span>`:''}
         </td>`;
       }
       const isCalc = hasCfg && (budgetMap[cat.id]?.[m] === undefined);
       return `<td class="budget-cell${isCalc?' budget-cell-calc':''}"
-                  data-cat="${cat.id}" data-month="${m}"
+                  data-cat="${cat.id}" data-month="${m}" data-over="${over?1:0}"
                   onclick="_budgetCellEdit(this,${cat.id},${m})">
         <span class="budget-cell-val">${budgetStr}</span>
         ${actual>0?`<span class="budget-cell-actual ${over?'over':''}">${fmt.currency(actual)}</span>`:''}
       </td>`;
     }).join('');
+    const anyOver = Array.from({length:12}, (_,i) => isOver(bm[i+1]||0, am[i+1]||0)).some(Boolean);
 
     // Totale: se annuale usa master_amount, altrimenti somma mesi
     const displayTotal = (!isGroupHeader && cfg && cfg.mode === 'annuale' && cfg.master_amount > 0)
@@ -1484,7 +1493,7 @@ function renderBudgetTable() {
     const parentCollapsed = isChild && _budgetCollapsed.has(cat.parent_id);
     const rowStyle = parentCollapsed ? 'display:none' : '';
 
-    return `<tr class="${isGroupHeader?'budget-row-parent':''} ${isChild?'budget-row-child':''}" data-cat-id="${cat.id}" data-parent-id="${cat.parent_id||''}" style="${rowStyle}" ${isGroupHeader?`ondblclick="_budgetToggle(${cat.id})"`:''}">
+    return `<tr class="${isGroupHeader?'budget-row-parent':''} ${isChild?'budget-row-child':''}" data-cat-id="${cat.id}" data-parent-id="${cat.parent_id||''}" data-row-over="${anyOver?1:0}" style="${rowStyle}" ${isGroupHeader?`ondblclick="_budgetToggle(${cat.id})"`:''}">
       <td class="budget-cat-cell ${isChild?'budget-child-indent':''}">
         ${isGroupHeader ? `<button class="btn-budget-toggle" onclick="_budgetToggle(${cat.id})">${isCollapsed?'▶':'▼'}</button>` : ''}
         <span style="color:${cat.color}">${cat.icon}</span> ${cat.name}

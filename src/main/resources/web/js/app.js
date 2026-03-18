@@ -4646,7 +4646,7 @@ async function loadProjectionChart(accounts) {
   const customMths = document.getElementById('projMonths')?.value;
   const { from_date, to_date } = projRangeToFilter(range, customMths);
   if (!from_date || !to_date) return;
-  const accIds = accounts.map(a=>a.id).join(',');
+  const accIds = accounts.filter(a=>a.type!=='investment').map(a=>a.id).join(',');
 
   const isDaily = _projMode === 'daily';
   let data;

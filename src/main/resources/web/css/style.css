@@ -28,7 +28,7 @@
   --txt3:     #6e7681;
   --shadow:   0 8px 32px rgba(0,0,0,.5);
   --radius:   8px;
-  --sidebar:  210px;
+  --sidebar:  220px;
   --titlebar: 36px;
 }
 
@@ -80,7 +80,7 @@ input,select,textarea { font-family:inherit; }
 .logo-text  { font-size:13px; font-weight:700; color:var(--txt); letter-spacing:.3px; }
 
 .sidebar-nav { padding:6px 0; }
-.sidebar-nav:first-of-type { flex:1; }
+.sidebar-spacer { flex:1; }
 .sidebar-section-label {
   padding:8px 14px 2px;
   font-size:10px; font-weight:700; letter-spacing:.8px;
@@ -104,8 +104,9 @@ input,select,textarea { font-family:inherit; }
 .sidebar-account-item {
   display:flex; align-items:center; justify-content:space-between;
   padding:5px 8px; border-radius:6px; background:var(--bg3);
-  font-size:11px;
+  font-size:11px; transition:background .15s;
 }
+.sidebar-account-item:hover { background:var(--bg4,var(--border)); }
 .sidebar-account-item .acc-name { display:flex; align-items:center; gap:5px; color:var(--txt2); }
 .sidebar-account-item .acc-balance { font-weight:600; font-size:11px; }
 
@@ -239,9 +240,10 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 
 /* ─── Dashboard layout ───────────────────────────────────────────────────── */
 .dash-top-row    { display:flex; gap:16px; align-items:stretch; margin-bottom:16px; }
-.dash-accounts-card { flex:3; min-width:0; }
-.dash-barchart-card { flex:2; min-width:0; display:flex; flex-direction:column; }
-.dash-barchart-card canvas { flex:1; min-height:0; width:100% !important; }
+.dash-accounts-card { flex:1; min-width:0; }
+.dash-barchart-card    { flex:1; min-width:0; display:flex; flex-direction:column; align-self:stretch; }
+.dash-budgetchart-card { flex:1; min-width:0; display:flex; flex-direction:column; align-self:stretch; }
+.dash-chart-wrap { position:relative; flex:1; min-height:160px; margin-top:6px; }
 
 .dash-tables-row { display:flex; gap:16px; align-items:stretch; }
 .dash-recent-card   { flex:3; min-width:0; }
@@ -337,7 +339,11 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 .budget-actions-cell .btn { font-size:10px; padding:3px 5px; }
 
 /* ─── Portfolio ───────────────────────────────────────────────────────────── */
-.portfolio-summary { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; margin-bottom:16px; }
+.portfolio-summary { display:flex; flex-wrap:nowrap; gap:8px; margin-bottom:12px; }
+.portfolio-summary .stat-card  { flex:1; min-width:0; padding:7px 10px; }
+.portfolio-summary .stat-label { font-size:10px; margin-bottom:2px; }
+.portfolio-summary .stat-value { font-size:14px; margin-bottom:1px; }
+.portfolio-summary .stat-sub   { font-size:10px; }
 .pnl-positive { color:var(--income); }
 .pnl-negative { color:var(--expense); }
 

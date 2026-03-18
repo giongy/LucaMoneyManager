@@ -243,7 +243,8 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             case "advanceScheduled"  -> { db.advanceScheduled(p.get("id").getAsInt(), p.get("date").getAsString()); yield Map.of("ok", true); }
             case "getProjection"    -> db.getProjection(
                 p.get("from_date").getAsString(), p.get("to_date").getAsString(),
-                p.has("account_ids") ? p.get("account_ids").getAsString() : "");
+                p.has("account_ids") ? p.get("account_ids").getAsString() : "",
+                p.has("daily") && p.get("daily").getAsBoolean());
 
             // ─── Portafoglio ───────────────────────────────────────────────
             case "getPortfolio"             -> db.getPortfolio();
@@ -251,7 +252,9 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             case "buyStock"                 -> db.buyStock(p);
             case "sellStock"                -> db.sellStock(p);
             case "updateStockPrice"         -> db.updateStockPrice(p.get("id").getAsInt(), p.get("price").getAsDouble());
+            case "updatePortfolioItem"      -> db.updatePortfolioItem(p);
             case "importPosition"           -> db.importPosition(p);
+            case "registerCoupon"           -> db.registerCoupon(p);
             case "deletePortfolioItem"      -> db.deletePortfolioItem(p.get("id").getAsInt());
 
             // ─── Tag ───────────────────────────────────────────────────────────────

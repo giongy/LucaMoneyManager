@@ -43,9 +43,20 @@
       <a class="nav-item" data-page="portfolio">
         <span class="nav-icon">📈</span><span>Titoli</span>
       </a>
-      <a class="nav-item" data-page="reports">
-        <span class="nav-icon">📉</span><span>Report</span>
-      </a>
+      <div class="nav-group" id="navGroupReports">
+        <a class="nav-item" data-page="reports" id="navReports" onclick="toggleReportsGroup(event)">
+          <span class="nav-icon">📊</span>
+          <span style="flex:1">Resoconti</span>
+          <span class="nav-group-arrow" id="navReportsArrow">›</span>
+        </a>
+        <div class="nav-sub" id="navReportsSub" style="display:none">
+          <div id="sidebarReportsList"></div>
+          <a class="nav-sub-item nav-sub-new" onclick="navigate('reports')">
+            <span class="nav-icon" style="font-size:12px">＋</span>
+            <span>Nuovo report</span>
+          </a>
+        </div>
+      </div>
       <a class="nav-item" data-page="scheduled">
         <span class="nav-icon">🗓️</span><span>Pianificate</span>
       </a>
@@ -62,6 +73,9 @@
       </a>
       <a class="nav-item" data-page="tags">
         <span class="nav-icon">🔖</span><span>Tag</span>
+      </a>
+      <a class="nav-item" data-page="logviewer">
+        <span class="nav-icon">📋</span><span>Log</span>
       </a>
     </nav>
 
@@ -98,6 +112,7 @@
       <div id="pg-tags"        class="page"></div>
       <div id="pg-settings"    class="page"></div>
       <div id="pg-scheduled"   class="page"></div>
+      <div id="pg-logviewer"  class="page"></div>
     </div>
   </div>
 </div>

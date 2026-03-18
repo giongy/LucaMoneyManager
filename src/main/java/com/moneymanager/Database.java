@@ -16,13 +16,16 @@ public class Database {
 
     private Connection conn;
     private String currentDbPath;
+    private final DbLogger logger;
 
     public Database(String dbPath) throws SQLException {
         currentDbPath = dbPath;
+        logger = new DbLogger(dbPath);
         conn = openConnection(dbPath);
         initSchema();
         migrate();
         seedDefaultData();
+        logger.log("AVVIO", "db:" + dbPath);
     }
 
     private static Connection openConnection(String dbPath) throws SQLException {
@@ -35,10 +38,12 @@ public class Database {
     public void reconnect(String dbPath) throws SQLException {
         conn.close();
         currentDbPath = dbPath;
+        logger.setDbPath(dbPath);
         conn = openConnection(dbPath);
         initSchema();
         migrate();
         seedDefaultData();
+        logger.log("DB CAMBIATO", "db:" + dbPath);
     }
 
     public void close() throws SQLException { conn.close(); }
@@ -70,6 +75,7 @@ public class Database {
         } catch (SQLException ignored) {}
 
         Files.copy(src, dest, StandardCopyOption.REPLACE_EXISTING);
+        logger.log("BACKUP ESEGUITO", "dest:" + dest);
 
         // Pulizia vecchi backup (ordine cronologico, elimina i più vecchi)
         if (maxBackups > 0) {
@@ -367,6 +373,17 @@ public class Database {
                 created_at     TEXT    DEFAULT CURRENT_TIMESTAMP
             )
         """);
+        // Resoconti salvati
+        executePlain("""
+            CREATE TABLE IF NOT EXISTS reports (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                name         TEXT    NOT NULL,
+                filters_json TEXT    NOT NULL DEFAULT '{}',
+                groupby      TEXT    NOT NULL DEFAULT 'none',
+                chart_type   TEXT    NOT NULL DEFAULT 'none',
+                created_at   TEXT    DEFAULT CURRENT_TIMESTAMP
+            )
+        """);
     }
 
     private void seedDefaultData() throws SQLException {
@@ -440,6 +457,8 @@ public class Database {
                 dbl(p,"initial_balance") != null ? dbl(p,"initial_balance") : 0.0,
                 str(p,"color"), str(p,"icon"),
                 intVal(p,"is_favorite") != null ? intVal(p,"is_favorite") : 0, 0);
+        logger.log("CONTO AGGIUNTO", "id:" + id, "nome:" + str(p,"name"), "tipo:" + str(p,"type"),
+                   "saldo_iniziale:" + DbLogger.amt(dbl(p,"initial_balance")));
         return queryOne("SELECT * FROM accounts WHERE id=?", id);
     }
 
@@ -451,11 +470,15 @@ public class Database {
                 intVal(p,"is_favorite") != null ? intVal(p,"is_favorite") : 0,
                 intVal(p,"is_closed") != null ? intVal(p,"is_closed") : 0,
                 id);
+        logger.log("CONTO MODIFICATO", "id:" + id, "nome:" + str(p,"name"), "tipo:" + str(p,"type"),
+                   "chiuso:" + intVal(p,"is_closed"));
         return queryOne("SELECT * FROM accounts WHERE id=?", id);
     }
 
     public Map<String, Object> deleteAccount(int id) throws SQLException {
+        Map<String, Object> old = queryOne("SELECT name FROM accounts WHERE id=?", id);
         execute("DELETE FROM accounts WHERE id=?", id);
+        logger.log("CONTO ELIMINATO", "id:" + id, "nome:" + DbLogger.s(old != null ? old.get("name") : null));
         return Map.of("id", id, "deleted", true);
     }
 
@@ -492,11 +515,11 @@ public class Database {
         long id = execute(
             "INSERT INTO categories(name,type,icon,color,parent_id) VALUES(?,?,?,?,?)",
             str(p,"name"), type, str(p,"icon"), str(p,"color"), parentId);
+        logger.log("CATEGORIA AGGIUNTA", "id:" + id, "nome:" + str(p,"name"), "tipo:" + type);
         return queryOne("SELECT * FROM categories WHERE id=?", id);
     }
 
     public Map<String, Object> updateCategory(int id, JsonObject p) throws SQLException {
-        // Non si può modificare il tipo della categoria Trasferimento speciale
         Map<String, Object> existing = queryOne("SELECT * FROM categories WHERE id=?", id);
         if (existing != null && "transfer".equals(existing.get("type")))
             throw new SQLException("La categoria Trasferimento non può essere modificata");
@@ -509,6 +532,7 @@ public class Database {
         }
         execute("UPDATE categories SET name=?,type=?,icon=?,color=?,parent_id=? WHERE id=?",
                 str(p,"name"), type, str(p,"icon"), str(p,"color"), parentId, id);
+        logger.log("CATEGORIA MODIFICATA", "id:" + id, "nome:" + str(p,"name"), "tipo:" + type);
         return queryOne("SELECT * FROM categories WHERE id=?", id);
     }
 
@@ -516,6 +540,7 @@ public class Database {
         Map<String, Object> existing = queryOne("SELECT * FROM categories WHERE id=?", id);
         if (existing != null && "transfer".equals(existing.get("type")))
             throw new SQLException("La categoria Trasferimento non può essere eliminata");
+        logger.log("CATEGORIA ELIMINATA", "id:" + id, "nome:" + DbLogger.s(existing != null ? existing.get("name") : null));
         execute("DELETE FROM categories WHERE id=?", id);
         return Map.of("id", id, "deleted", true);
     }
@@ -540,11 +565,14 @@ public class Database {
 
     /** Sposta transazioni (e quelle dei figli) su toId, poi elimina la categoria. */
     public void reassignCategory(int fromId, int toId) throws SQLException {
+        Map<String, Object> from = queryOne("SELECT name FROM categories WHERE id=?", fromId);
+        Map<String, Object> to   = queryOne("SELECT name FROM categories WHERE id=?", toId);
         execute("UPDATE transactions SET category_id=? WHERE category_id=?", toId, fromId);
         for (var c : queryList("SELECT id FROM categories WHERE parent_id=?", fromId))
             execute("UPDATE transactions SET category_id=? WHERE category_id=?", toId, c.get("id"));
-        // Budget CASCADE eliminati con DELETE
         execute("DELETE FROM categories WHERE id=?", fromId);
+        logger.log("CATEGORIA RIASSEGNATA", "da:" + DbLogger.s(from != null ? from.get("name") : fromId),
+                   "a:" + DbLogger.s(to != null ? to.get("name") : toId));
     }
 
     // ─── Transazioni ──────────────────────────────────────────────────────────
@@ -553,12 +581,14 @@ public class Database {
         StringBuilder sql = new StringBuilder("""
             SELECT t.*,
                 c.name  AS category_name, c.icon AS category_icon, c.color AS category_color,
+                pc.name AS parent_category_name,
                 a.name  AS account_name,  a.color AS account_color,
                 ta.name AS to_account_name,
                 GROUP_CONCAT(CASE WHEN tg.id IS NOT NULL
                     THEN tg.id || '\u00A7' || tg.name || '\u00A7' || tg.color END, '||') AS tags_concat
             FROM transactions t
             LEFT JOIN categories c  ON t.category_id    = c.id
+            LEFT JOIN categories pc ON c.parent_id      = pc.id
             LEFT JOIN accounts   a  ON t.account_id     = a.id
             LEFT JOIN accounts   ta ON t.to_account_id  = ta.id
             LEFT JOIN transaction_tags tt ON tt.transaction_id = t.id
@@ -650,7 +680,16 @@ public class Database {
                 str(p,"description") != null ? str(p,"description") : "",
                 str(p,"color"), reconciled);
         saveTags(id, p);
-        return getTransactionById(id);
+        Map<String, Object> tx = getTransactionById(id);
+        logger.log("TRANSAZIONE AGGIUNTA",
+            "id:" + id,
+            "data:" + str(p,"date"),
+            "tipo:" + str(p,"type"),
+            "importo:" + DbLogger.amt(dbl(p,"amount")),
+            "conto:" + DbLogger.s(tx != null ? tx.get("account_name") : null),
+            "categoria:" + DbLogger.s(tx != null ? tx.get("category_name") : null),
+            "descrizione:" + DbLogger.s(str(p,"description")));
+        return tx;
     }
 
     public Map<String, Object> updateTransaction(int id, JsonObject p) throws SQLException {
@@ -665,11 +704,21 @@ public class Database {
                 str(p,"description") != null ? str(p,"description") : "",
                 str(p,"color"), reconciled, id);
         saveTags(id, p);
-        return getTransactionById(id);
+        Map<String, Object> tx = getTransactionById(id);
+        logger.log("TRANSAZIONE MODIFICATA",
+            "id:" + id,
+            "data:" + str(p,"date"),
+            "tipo:" + str(p,"type"),
+            "importo:" + DbLogger.amt(dbl(p,"amount")),
+            "conto:" + DbLogger.s(tx != null ? tx.get("account_name") : null),
+            "categoria:" + DbLogger.s(tx != null ? tx.get("category_name") : null),
+            "descrizione:" + DbLogger.s(str(p,"description")));
+        return tx;
     }
 
     public Map<String, Object> updateTransactionReconciled(int id, boolean reconciled) throws SQLException {
         execute("UPDATE transactions SET reconciled=? WHERE id=?", reconciled ? 1 : 0, id);
+        logger.log("CONCILIAZIONE", "id:" + id, "stato:" + (reconciled ? "conciliata" : "non conciliata"));
         return Map.of("ok", true);
     }
 
@@ -701,7 +750,17 @@ public class Database {
     }
 
     public Map<String, Object> deleteTransaction(int id) throws SQLException {
+        Map<String, Object> tx = queryOne(
+            "SELECT t.date, t.amount, t.type, t.description, a.name AS account_name " +
+            "FROM transactions t LEFT JOIN accounts a ON a.id=t.account_id WHERE t.id=?", id);
         execute("DELETE FROM transactions WHERE id=?", id);
+        logger.log("TRANSAZIONE ELIMINATA",
+            "id:" + id,
+            "data:" + DbLogger.s(tx != null ? tx.get("date") : null),
+            "tipo:" + DbLogger.s(tx != null ? tx.get("type") : null),
+            "importo:" + DbLogger.amt(tx != null ? tx.get("amount") : null),
+            "conto:" + DbLogger.s(tx != null ? tx.get("account_name") : null),
+            "descrizione:" + DbLogger.s(tx != null ? tx.get("description") : null));
         return Map.of("id", id, "deleted", true);
     }
 
@@ -714,16 +773,54 @@ public class Database {
     public Map<String, Object> addTag(JsonObject p) throws SQLException {
         long id = execute("INSERT INTO tags(name,color) VALUES(?,?)",
                 str(p,"name"), str(p,"color") != null ? str(p,"color") : "#58a6ff");
+        logger.log("TAG AGGIUNTO", "id:" + id, "nome:" + str(p,"name"));
         return queryOne("SELECT * FROM tags WHERE id=?", id);
     }
 
     public Map<String, Object> updateTag(int id, JsonObject p) throws SQLException {
         execute("UPDATE tags SET name=?,color=? WHERE id=?", str(p,"name"), str(p,"color"), id);
+        logger.log("TAG MODIFICATO", "id:" + id, "nome:" + str(p,"name"));
         return queryOne("SELECT * FROM tags WHERE id=?", id);
     }
 
     public Map<String, Object> deleteTag(int id) throws SQLException {
+        Map<String, Object> old = queryOne("SELECT name FROM tags WHERE id=?", id);
         execute("DELETE FROM tags WHERE id=?", id);
+        logger.log("TAG ELIMINATO", "id:" + id, "nome:" + DbLogger.s(old != null ? old.get("name") : null));
+        return Map.of("id", id, "deleted", true);
+    }
+
+    // ─── Resoconti ────────────────────────────────────────────────────────────
+
+    public List<Map<String, Object>> getReports() throws SQLException {
+        return queryList("SELECT * FROM reports ORDER BY name COLLATE NOCASE");
+    }
+
+    public Map<String, Object> saveReport(JsonObject p) throws SQLException {
+        Integer id         = intVal(p, "id");
+        String name        = str(p, "name");
+        String filtersJson = p.has("filters_json") ? p.get("filters_json").getAsString() : "{}";
+        String groupby     = str(p, "groupby")    != null ? str(p, "groupby")    : "none";
+        String chartType   = str(p, "chart_type") != null ? str(p, "chart_type") : "none";
+        long newId;
+        if (id != null) {
+            execute("UPDATE reports SET name=?, filters_json=?, groupby=?, chart_type=? WHERE id=?",
+                    name, filtersJson, groupby, chartType, id);
+            newId = id;
+            logger.log("REPORT MODIFICATO", "id:" + id, "nome:" + name);
+        } else {
+            newId = execute(
+                "INSERT INTO reports(name, filters_json, groupby, chart_type) VALUES(?,?,?,?)",
+                name, filtersJson, groupby, chartType);
+            logger.log("REPORT SALVATO", "id:" + newId, "nome:" + name);
+        }
+        return queryOne("SELECT * FROM reports WHERE id=?", newId);
+    }
+
+    public Map<String, Object> deleteReport(int id) throws SQLException {
+        Map<String, Object> old = queryOne("SELECT name FROM reports WHERE id=?", id);
+        execute("DELETE FROM reports WHERE id=?", id);
+        logger.log("REPORT ELIMINATO", "id:" + id, "nome:" + DbLogger.s(old != null ? old.get("name") : null));
         return Map.of("id", id, "deleted", true);
     }
 
@@ -741,11 +838,13 @@ public class Database {
         List<Map<String, Object>> r = parseTags(queryList("""
             SELECT t.*,
                 c.name AS category_name, c.icon AS category_icon, c.color AS category_color,
+                pc.name AS parent_category_name,
                 a.name AS account_name, a.color AS account_color, ta.name AS to_account_name,
                 GROUP_CONCAT(CASE WHEN tg.id IS NOT NULL
                     THEN tg.id || '\u00A7' || tg.name || '\u00A7' || tg.color END, '||') AS tags_concat
             FROM transactions t
             LEFT JOIN categories c  ON t.category_id   = c.id
+            LEFT JOIN categories pc ON c.parent_id     = pc.id
             LEFT JOIN accounts   a  ON t.account_id    = a.id
             LEFT JOIN accounts   ta ON t.to_account_id = ta.id
             LEFT JOIN transaction_tags tt ON tt.transaction_id = t.id
@@ -792,17 +891,29 @@ public class Database {
     }
 
     public Map<String, Object> setBudget(JsonObject p) throws SQLException {
+        int catId = p.get("category_id").getAsInt();
+        int month = p.get("month").getAsInt();
+        int year  = p.get("year").getAsInt();
         execute("""
             INSERT INTO budgets(category_id,amount,month,year) VALUES(?,?,?,?)
             ON CONFLICT(category_id,month,year) DO UPDATE SET amount=excluded.amount
-        """, p.get("category_id").getAsInt(), dbl(p,"amount"),
-                p.get("month").getAsInt(), p.get("year").getAsInt());
-        return queryOne("SELECT * FROM budgets WHERE category_id=? AND month=? AND year=?",
-                p.get("category_id").getAsInt(), p.get("month").getAsInt(), p.get("year").getAsInt());
+        """, catId, dbl(p,"amount"), month, year);
+        Map<String, Object> cat = queryOne("SELECT name FROM categories WHERE id=?", catId);
+        logger.log("BUDGET IMPOSTATO",
+            "categoria:" + DbLogger.s(cat != null ? cat.get("name") : catId),
+            "mese:" + month + "/" + year,
+            "importo:" + DbLogger.amt(dbl(p,"amount")));
+        return queryOne("SELECT * FROM budgets WHERE category_id=? AND month=? AND year=?", catId, month, year);
     }
 
     public Map<String, Object> deleteBudget(int id) throws SQLException {
+        Map<String, Object> old = queryOne(
+            "SELECT b.month, b.year, c.name AS cat_name FROM budgets b " +
+            "JOIN categories c ON c.id=b.category_id WHERE b.id=?", id);
         execute("DELETE FROM budgets WHERE id=?", id);
+        logger.log("BUDGET ELIMINATO", "id:" + id,
+            "categoria:" + DbLogger.s(old != null ? old.get("cat_name") : null),
+            "periodo:" + (old != null ? old.get("month") + "/" + old.get("year") : "-"));
         return Map.of("id", id, "deleted", true);
     }
 
@@ -867,6 +978,7 @@ public class Database {
                 }
             }
         }
+        logger.log("BUDGET GENERATO", "anno:" + year, "da_storico:" + prevYear);
     }
 
     /** Imposta la modalità (mensile/annuale) e l'importo master per una categoria in un anno. */
@@ -875,6 +987,9 @@ public class Database {
             INSERT INTO budget_config(category_id, year, mode, master_amount) VALUES(?,?,?,?)
             ON CONFLICT(category_id, year) DO UPDATE SET mode=excluded.mode, master_amount=excluded.master_amount
         """, categoryId, year, mode, masterAmount);
+        Map<String, Object> cat = queryOne("SELECT name FROM categories WHERE id=?", categoryId);
+        logger.log("BUDGET CONFIG", "categoria:" + DbLogger.s(cat != null ? cat.get("name") : categoryId),
+                   "anno:" + year, "modalita:" + mode, "importo:" + DbLogger.amt(masterAmount));
     }
 
     /** Imposta i 12 valori mensili per una categoria in un anno (0/null = rimuove). */
@@ -891,12 +1006,18 @@ public class Database {
                 """, categoryId, el.getAsDouble(), m, year);
             }
         }
+        Map<String, Object> cat = queryOne("SELECT name FROM categories WHERE id=?", categoryId);
+        logger.log("BUDGET BULK", "categoria:" + DbLogger.s(cat != null ? cat.get("name") : categoryId),
+                   "anno:" + year);
     }
 
     /** Rimuove il budget per una singola cella (categoria + mese + anno). */
     public void deleteBudgetMonth(int categoryId, int month, int year) throws SQLException {
         execute("DELETE FROM budgets WHERE category_id=? AND month=? AND year=?",
                 categoryId, month, year);
+        Map<String, Object> cat = queryOne("SELECT name FROM categories WHERE id=?", categoryId);
+        logger.log("BUDGET MESE ELIMINATO", "categoria:" + DbLogger.s(cat != null ? cat.get("name") : categoryId),
+                   "mese:" + month + "/" + year);
     }
 
     // ─── Transazioni Pianificate ──────────────────────────────────────────────
@@ -944,6 +1065,9 @@ public class Database {
                 str(p,"color"),
                 p.has("reconciled") && !p.get("reconciled").isJsonNull() ? p.get("reconciled").getAsInt() : 1);
         saveSchedTags(id, p);
+        logger.log("PIANIFICATA AGGIUNTA", "id:" + id, "descrizione:" + str(p,"description"),
+                   "tipo:" + str(p,"type"), "importo:" + DbLogger.amt(dbl(p,"amount")),
+                   "frequenza:" + str(p,"frequency"), "inizio:" + str(p,"start_date"));
         return queryOne("SELECT * FROM scheduled_transactions WHERE id=?", id);
     }
 
@@ -962,11 +1086,18 @@ public class Database {
                 p.has("reconciled") && !p.get("reconciled").isJsonNull() ? p.get("reconciled").getAsInt() : 1,
                 id);
         saveSchedTags(id, p);
+        logger.log("PIANIFICATA MODIFICATA", "id:" + id, "descrizione:" + str(p,"description"),
+                   "tipo:" + str(p,"type"), "importo:" + DbLogger.amt(dbl(p,"amount")),
+                   "frequenza:" + str(p,"frequency"), "attiva:" + p.get("is_active"));
         return queryOne("SELECT * FROM scheduled_transactions WHERE id=?", id);
     }
 
     public Map<String, Object> deleteScheduled(int id) throws SQLException {
+        Map<String, Object> old = queryOne("SELECT description, amount, type FROM scheduled_transactions WHERE id=?", id);
         execute("DELETE FROM scheduled_transactions WHERE id=?", id);
+        logger.log("PIANIFICATA ELIMINATA", "id:" + id,
+                   "descrizione:" + DbLogger.s(old != null ? old.get("description") : null),
+                   "importo:" + DbLogger.amt(old != null ? old.get("amount") : null));
         return Map.of("id", id, "deleted", true);
     }
 
@@ -1074,17 +1205,22 @@ public class Database {
      */
     public void advanceScheduled(int scheduledId, String registeredDate) throws SQLException {
         Map<String, Object> s = queryOne(
-                "SELECT frequency, start_date FROM scheduled_transactions WHERE id=?", scheduledId);
+                "SELECT frequency, start_date, description FROM scheduled_transactions WHERE id=?", scheduledId);
         if (s == null) return;
         String freq = (String) s.get("frequency");
         if ("once".equals(freq)) {
             execute("UPDATE scheduled_transactions SET is_active=0 WHERE id=?", scheduledId);
+            logger.log("PIANIFICATA COMPLETATA", "id:" + scheduledId,
+                       "descrizione:" + DbLogger.s(s.get("description")));
             return;
         }
         LocalDate registered = LocalDate.parse(registeredDate);
         LocalDate next = advanceDate(registered, freq);
         if (next == null) return;
         execute("UPDATE scheduled_transactions SET start_date=? WHERE id=?", next.toString(), scheduledId);
+        logger.log("PIANIFICATA AVANZATA", "id:" + scheduledId,
+                   "descrizione:" + DbLogger.s(s.get("description")),
+                   "registrata:" + registeredDate, "prossima:" + next);
     }
 
     /** Next N upcoming occurrences across all active scheduled transactions. */
@@ -1378,6 +1514,9 @@ public class Database {
         """, portfolioId, "buy", qty, price, date, txId,
              commissions > 0 ? String.format("comm. %.2f", commissions) : notes);
 
+        logger.log("TITOLO ACQUISTATO", "ticker:" + ticker, "nome:" + name,
+                   "quantita:" + qty, "prezzo:" + DbLogger.amt(price),
+                   "commissioni:" + DbLogger.amt(commissions), "data:" + date);
         return queryOne("SELECT * FROM portfolio WHERE id=?", portfolioId);
     }
 
@@ -1422,11 +1561,17 @@ public class Database {
             VALUES(?,?,?,?,?,?,?)
         """, portfolioId, "sell", qty, price, date, txId, notes);
 
+        logger.log("TITOLO VENDUTO", "ticker:" + ticker,
+                   "quantita:" + qty, "prezzo:" + DbLogger.amt(price),
+                   "controvalore:" + DbLogger.amt(qty * price), "data:" + date);
         return queryOne("SELECT * FROM portfolio WHERE id=?", portfolioId);
     }
 
     public Map<String, Object> updateStockPrice(int id, double price) throws SQLException {
+        Map<String, Object> old = queryOne("SELECT ticker FROM portfolio WHERE id=?", id);
         execute("UPDATE portfolio SET current_price=? WHERE id=?", price, id);
+        logger.log("PREZZO AGGIORNATO", "ticker:" + DbLogger.s(old != null ? old.get("ticker") : id),
+                   "prezzo:" + DbLogger.amt(price));
         return queryOne("SELECT * FROM portfolio WHERE id=?", id);
     }
 
@@ -1461,6 +1606,8 @@ public class Database {
             WHERE id=?
         """, name, accountId, quantity, avgPrice, curPrice,
              totalComm, assetType, maturityDate, couponRate, couponFreq, couponTax, notes, id);
+        logger.log("PORTAFOGLIO MODIFICATO", "id:" + id, "nome:" + name,
+                   "quantita:" + quantity, "prezzo_medio:" + DbLogger.amt(avgPrice));
         return queryOne("SELECT * FROM portfolio WHERE id=?", id);
     }
 
@@ -1505,8 +1652,9 @@ public class Database {
             """, accountId, ticker, name, qty, avgPrice, curPrice, notes,
                  assetType, faceValue, maturityDate, couponRate, couponFreq, couponTax, commissions);
         }
-        // Aggiorna initial_balance del conto investimento per riflettere il capitale già investito
         execute("UPDATE accounts SET initial_balance = initial_balance + ? WHERE id = ?", addedValue, accountId);
+        logger.log("POSIZIONE IMPORTATA", "ticker:" + ticker, "nome:" + name,
+                   "quantita:" + qty, "prezzo_medio:" + DbLogger.amt(avgPrice));
         return queryOne("SELECT * FROM portfolio WHERE id=?", id);
     }
 
@@ -1537,12 +1685,35 @@ public class Database {
             VALUES(?,?,?,?,?,?,?)
         """, portfolioId, "coupon", 0, amount, date, txId, notes);
 
+        logger.log("CEDOLA REGISTRATA", "ticker:" + ticker,
+                   "importo:" + DbLogger.amt(amount), "data:" + date,
+                   "note:" + DbLogger.s(notes));
         return Map.of("ok", true, "transaction_id", txId);
     }
 
     public Map<String, Object> deletePortfolioItem(int id) throws SQLException {
+        Map<String, Object> old = queryOne("SELECT ticker, name FROM portfolio WHERE id=?", id);
         execute("DELETE FROM portfolio WHERE id=?", id);
+        logger.log("TITOLO ELIMINATO", "id:" + id,
+                   "ticker:" + DbLogger.s(old != null ? old.get("ticker") : null),
+                   "nome:" + DbLogger.s(old != null ? old.get("name") : null));
         return Map.of("id", id, "deleted", true);
+    }
+
+    // ─── Log ──────────────────────────────────────────────────────────────────
+
+    /** Restituisce le ultime {@code lines} righe del file di log come lista di stringhe. */
+    public Map<String, Object> readLog(int lines) {
+        Path logFile = logger.getLogFile();
+        if (logFile == null || !Files.exists(logFile))
+            return Map.of("lines", List.of(), "path", "");
+        try {
+            List<String> all = Files.readAllLines(logFile, java.nio.charset.StandardCharsets.UTF_8);
+            int from = Math.max(0, all.size() - lines);
+            return Map.of("lines", all.subList(from, all.size()), "path", logFile.toString());
+        } catch (IOException e) {
+            return Map.of("lines", List.of(), "path", logFile.toString(), "error", e.getMessage());
+        }
     }
 
     // ─── Statistiche ──────────────────────────────────────────────────────────

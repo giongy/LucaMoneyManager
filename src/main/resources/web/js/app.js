@@ -256,6 +256,14 @@ const api = {
   getOverdue:      ()    => callJava('getOverdue'),
   advanceScheduled: (id, date) => callJava('advanceScheduled', {id, date}),
   getProjection:   data  => callJava('getProjection', data),
+
+  // Resoconti
+  getReports:   ()     => callJava('getReports'),
+  saveReport:   data   => callJava('saveReport',   data),
+  deleteReport: id     => callJava('deleteReport', {id}),
+
+  // Log
+  readLog: (lines) => callJava('readLog', {lines: lines || 1000}),
 };
 
 /* ─── Chart theme helpers ─────────────────────────────────────────────────── */
@@ -351,7 +359,7 @@ document.getElementById('btnClose').onclick = () => api.close();
 /* ─── Router ──────────────────────────────────────────────────────────────── */
 const PAGE_TITLES = {
   dashboard:'Dashboard', transactions:'Transazioni', accounts:'Conti',
-  budgets:'Budget', portfolio:'Portafoglio', reports:'Report', settings:'Impostazioni',
+  budgets:'Budget', portfolio:'Portafoglio', reports:'Resoconti', settings:'Impostazioni',
   scheduled:'Transazioni Pianificate'
 };
 let currentPage = 'dashboard';
@@ -384,6 +392,7 @@ function renderPage(page) {
     case 'tags':         renderTags();         break;
     case 'settings':     renderSettings();     break;
     case 'scheduled':    renderScheduled();    break;
+    case 'logviewer':    renderLogViewer();    break;
   }
 }
 
@@ -422,6 +431,39 @@ async function updateSidebar() {
     <div class="sidebar-account-item" style="${a.is_closed ? 'opacity:.55' : ''}cursor:pointer" onclick="navigateToAccountTx(${a.id})">
       <span>${a.icon}</span><span>${a.name}</span>
     </div>`).join('');
+  if (_reportsGroupOpen) renderSidebarReports();
+}
+
+function toggleReportsGroup(e) {
+  if (e) e.stopPropagation();
+  _reportsGroupOpen = !_reportsGroupOpen;
+  const sub   = document.getElementById('navReportsSub');
+  const arrow = document.getElementById('navReportsArrow');
+  if (sub)   sub.style.display  = _reportsGroupOpen ? '' : 'none';
+  if (arrow) arrow.classList.toggle('open', _reportsGroupOpen);
+  if (_reportsGroupOpen) renderSidebarReports();
+}
+
+async function renderSidebarReports() {
+  const el = document.getElementById('sidebarReportsList');
+  if (!el) return;
+  const reports = await api.getReports();
+  el.innerHTML = reports.map(r => `
+    <a class="nav-sub-item${_currentReportId === r.id ? ' active' : ''}"
+       onclick="openSavedReport(${r.id})" title="${r.name}">
+      <span style="font-size:11px">📋</span>
+      <span class="nav-sub-label">${r.name}</span>
+    </a>`).join('');
+}
+
+async function openSavedReport(id) {
+  _currentReportId = id;
+  if (currentPage === 'reports') {
+    // Re-render page and load config
+    await renderReports();
+  } else {
+    navigate('reports');
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -699,6 +741,14 @@ async function renderDashboard() {
 ═══════════════════════════════════════════════════════════════════════════ */
 let txFilters = { range: '30d' };
 
+// ─── Resoconti state ──────────────────────────────────────────────────────
+let _reportsGroupOpen = false;
+let _currentReportId  = null;
+let _reportFilters    = {};
+let _reportGroupby    = 'none';
+let _reportChartType  = 'none';
+let _reportChart      = null;
+
 function rangeToFilter(range, from, to) {
   const today = new Date();
   const fmt = d => d.toISOString().slice(0,10);
@@ -719,7 +769,7 @@ function rangeToFilter(range, from, to) {
     default:          return { date_from: fmt(sub(29)), date_to: fmt(today) };
   }
 }
-let txSort       = { col: 'date', dir: 'desc' };
+let txSort       = { col: 'date', dir: 'asc' };
 let txCache      = [];
 let _selectedTxId = null;
 
@@ -772,13 +822,13 @@ async function renderTransactions() {
     <div class="card">
       <div class="table-wrap">
         <table id="txTable"><thead><tr>
-          <th class="th-sort" data-col="date"        onclick="_txSortBy('date')">Data<span class="sort-ind">▼</span></th>
+          <th class="th-sort th-sort-active" data-col="date"        onclick="_txSortBy('date')">Data<span class="sort-ind">▲</span></th>
           <th class="th-reconciled" id="thReconciled" title="Stato conciliazione">Stato</th>
-          <th class="th-sort" data-col="description" onclick="_txSortBy('description')">Descrizione<span class="sort-ind"></span></th>
-          <th class="th-tags">Tag</th>
-          <th class="th-sort" data-col="type"        onclick="_txSortBy('type')">Tipo<span class="sort-ind"></span></th>
-          <th class="th-sort" data-col="category"    onclick="_txSortBy('category')">Categoria<span class="sort-ind"></span></th>
           <th class="th-sort" data-col="account"     onclick="_txSortBy('account')">Conto<span class="sort-ind"></span></th>
+          <th class="th-sort" data-col="type"        onclick="_txSortBy('type')">Tipo<span class="sort-ind"></span></th>
+          <th class="th-tags">Tag</th>
+          <th class="th-sort" data-col="category"    onclick="_txSortBy('category')">Categoria<span class="sort-ind"></span></th>
+          <th class="th-sort" data-col="description" onclick="_txSortBy('description')">Descrizione<span class="sort-ind"></span></th>
           <th class="th-sort text-right" data-col="amount" onclick="_txSortBy('amount')">Importo<span class="sort-ind"></span></th>
           <th class="text-right th-balance" id="thBalance" style="display:none">Saldo</th>
           <th></th>
@@ -904,18 +954,18 @@ function renderTxBodyAndHeaders() {
       : (showBalance ? '<td></td>' : '');
     const bgStyle = t.color ? `style="background:${t.color}18"` : '';
     return `
-    <tr data-tx-id="${t.id}" class="${t.color ? 'tx-colored' : ''}${isSel ? ' tx-selected' : ''}" ${bgStyle}>
+    <tr data-tx-id="${t.id}" class="${t.color ? 'tx-colored' : ''}${isSel ? ' tx-selected' : ''}${!isRec ? ' tx-unreconciled' : ''}" ${bgStyle}>
       <td>${fmt.date(t.date)}</td>
       <td class="td-reconciled">
         <button class="btn-reconcile ${isRec ? 'reconciled' : 'unreconciled'}" title="${isRec ? 'Conciliata [R] – clicca per annullare' : 'Da verificare [V] – clicca per conciliare'}" onclick="toggleReconciled(${t.id}, ${isRec ? 0 : 1})">
           ${isRec ? '✅' : '🔲'}
         </button>
       </td>
-      <td class="td-main">${t.description||''}</td>
-      <td class="td-tags">${(t.tags&&t.tags.length)?t.tags.map(tg=>`<span class="tag-inline" style="--tc:${tg.color}">${tg.name}</span>`).join(''):''}</td>
-      <td><span class="badge badge-${t.type}">${t.type==='income'?'Entrata':t.type==='expense'?'Uscita':'Trasferimento'}</span></td>
-      <td>${t.category_icon||''} ${t.category_name||'-'}</td>
       <td>${t.account_name||'-'}${t.to_account_name?` → ${t.to_account_name}`:''}</td>
+      <td><span class="badge badge-${t.type}">${t.type==='income'?'Entrata':t.type==='expense'?'Uscita':'Trasferimento'}</span></td>
+      <td class="td-tags">${(t.tags&&t.tags.length)?t.tags.map(tg=>`<span class="tag-inline" style="--tc:${tg.color}">${tg.name}</span>`).join(''):''}</td>
+      <td>${t.category_icon||''} ${t.parent_category_name ? t.parent_category_name + ' : ' + t.category_name : (t.category_name||'-')}</td>
+      <td class="td-main">${t.description||''}</td>
       <td class="text-right amount-${t.type}">${t.type==='expense'?'-':''}${fmt.currency(t.amount)}</td>
       ${balCell}
       <td>
@@ -1597,8 +1647,10 @@ function renderBudgetTable() {
     }).join('');
     const anyOver = Array.from({length:12}, (_,i) => isOver(bm[i+1]||0, am[i+1]||0)).some(Boolean);
 
-    // Totale: se annuale usa master_amount, altrimenti somma mesi
-    const displayTotal = (!isGroupHeader && cfg && cfg.mode === 'annuale' && cfg.master_amount > 0)
+    // Totale: se annuale e ci sono mesi liberi, usa almeno master_amount;
+    // se tutti i mesi sono impostati manualmente, usa solo la loro somma
+    const pinnedCount = isGroupHeader ? 0 : Object.keys(budgetMap[cat.id] || {}).length;
+    const displayTotal = (!isGroupHeader && cfg && cfg.mode === 'annuale' && cfg.master_amount > 0 && pinnedCount < 12)
       ? Math.max(cfg.master_amount, annualBudget) : annualBudget;
     const totalOver = isOver(displayTotal, annualActual);
     const actions = isGroupHeader
@@ -1632,12 +1684,14 @@ function renderBudgetTable() {
   const leafCats = categories.filter(c => !parentIds.has(c.id));
   const mReale = {}, mBudget = {};
   for (let m = 1; m <= 12; m++) {
-    mReale[m]  = leafCats.reduce((s,c) => s + (actualMap[c.id]?.[m]||0), 0);
-    mBudget[m] = leafCats.reduce((s,c) => s + (getEffective(c.id)[m]||0), 0);
+    // income categories contribute positively, expense negatively → net balance
+    mReale[m]  = leafCats.reduce((s,c) => s + (c.type === 'income' ? 1 : -1) * (actualMap[c.id]?.[m]||0), 0);
+    mBudget[m] = leafCats.reduce((s,c) => s + (c.type === 'income' ? 1 : -1) * (getEffective(c.id)[m]||0), 0);
   }
   const totReale  = Object.values(mReale).reduce((s,v)=>s+v,0);
   const totBudget = Object.values(mBudget).reduce((s,v)=>s+v,0);
-  const totDiff   = totBudget - totReale;
+  // diff = actual - budget: positive means surplus (doing better than planned) → green
+  const totDiff   = totReale - totBudget;
 
   const s = 'padding:5px 8px;white-space:nowrap;border-bottom:1px solid var(--border)';
   const numCell = (v, show, colorize, bold) => {
@@ -1671,7 +1725,7 @@ function renderBudgetTable() {
       <td style="${s};font-weight:600;color:var(--txt2)">Differenza</td>
       <td style="${s}"></td>
       ${Array.from({length:12},(_,i)=>{
-        const diff = mBudget[i+1] - mReale[i+1];
+        const diff = mReale[i+1] - mBudget[i+1];
         return numCell(diff, mBudget[i+1]!==0||mReale[i+1]!==0, true, false);
       }).join('')}
       ${numCell(totDiff, totBudget!==0||totReale!==0, true, true)}
@@ -1815,6 +1869,9 @@ window._budgetShowDetail = (catId, catName) => {
     return result;
   };
 
+  const catObj = categories.find(c => c.id === catId);
+  const isIncome = catObj ? catObj.type === 'income' : false;
+
   const isGroup = parentIds.has(catId);
   const bm = {}, am = {};
   if (isGroup) {
@@ -1834,8 +1891,13 @@ window._budgetShowDetail = (catId, catName) => {
     const m = i + 1;
     const b = bm[m], a = am[m], d = b - a;
     cumB += b; cumA += a;
-    const dc  = d    > 0 ? 'color:var(--income)' : d    < 0 ? 'color:var(--expense)' : '';
-    const dcc = cumB > cumA ? 'color:var(--income)' : cumB < cumA ? 'color:var(--expense)' : '';
+    // expense: d>0 (under-spent) = good = green; income: d>0 (under-earned) = bad = red
+    const dc  = isIncome
+      ? (d < 0 ? 'color:var(--income)' : d > 0 ? 'color:var(--expense)' : '')
+      : (d > 0 ? 'color:var(--income)' : d < 0 ? 'color:var(--expense)' : '');
+    const dcc = isIncome
+      ? (cumA > cumB ? 'color:var(--income)' : cumA < cumB ? 'color:var(--expense)' : '')
+      : (cumB > cumA ? 'color:var(--income)' : cumB < cumA ? 'color:var(--expense)' : '');
     return `<tr>
       <td class="td-main">${mn}</td>
       <td style="text-align:right">${a ? fmt.currency(a) : '—'}</td>
@@ -1850,7 +1912,9 @@ window._budgetShowDetail = (catId, catName) => {
   const totB = Object.values(bm).reduce((s,v)=>s+v,0);
   const totA = Object.values(am).reduce((s,v)=>s+v,0);
   const totD = totB - totA;
-  const totDc = totD > 0 ? 'color:var(--income)' : totD < 0 ? 'color:var(--expense)' : '';
+  const totDc = isIncome
+    ? (totD < 0 ? 'color:var(--income)' : totD > 0 ? 'color:var(--expense)' : '')
+    : (totD > 0 ? 'color:var(--income)' : totD < 0 ? 'color:var(--expense)' : '');
 
   const body = `
     <div style="position:relative;height:220px;margin-bottom:18px">
@@ -3046,89 +3110,431 @@ window.deleteStock = async id => {
 };
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   REPORT
+   RESOCONTI
 ═══════════════════════════════════════════════════════════════════════════ */
-let reportYear = new Date().getFullYear();
-
 async function renderReports() {
   const pg = document.getElementById('pg-reports');
-  pg.innerHTML = `
-    <div class="section-header">
-      <h2 class="section-title">Report Annuale</h2>
-      <div style="display:flex;align-items:center;gap:10px">
-        <button class="btn btn-ghost" id="rPrev">‹</button>
-        <span style="font-weight:700;font-size:18px" id="rYear">${reportYear}</span>
-        <button class="btn btn-ghost" id="rNext">›</button>
-      </div>
-    </div>
-    <div class="grid-2" style="margin-bottom:24px">
-      <div class="card"><div class="card-header"><span class="card-title">Entrate vs Uscite mensili</span></div>
-        <canvas id="rBar" height="220"></canvas></div>
-      <div class="card"><div class="card-header"><span class="card-title">Categorie di spesa</span></div>
-        <canvas id="rPie" height="220"></canvas></div>
-    </div>
-    <div class="card">
-      <div class="card-header"><span class="card-title">Riepilogo mensile</span></div>
-      <div class="table-wrap">
-        <table><thead><tr><th>Mese</th><th class="text-right">Entrate</th><th class="text-right">Uscite</th><th class="text-right">Saldo</th></tr></thead>
-        <tbody id="rSummary"></tbody></table>
-      </div>
-    </div>`;
-
-  document.getElementById('rPrev').onclick = () => { reportYear--; renderReports(); };
-  document.getElementById('rNext').onclick = () => { reportYear++; renderReports(); };
-
-  const now = new Date();
-  const month = now.getMonth()+1;
-  const [monthly, catData] = await Promise.all([
-    api.getMonthlyChartData(reportYear),
-    api.getCategoryChartData(month, reportYear, 'expense')
+  const [accounts, categories, tags, reports] = await Promise.all([
+    api.getAccounts(), api.getCategories(), api.getTags(), api.getReports(),
   ]);
 
-  const labels = Array.from({length:12},(_,i)=>new Date(0,i).toLocaleString('it-IT',{month:'short'}));
-  const incArr = Array(12).fill(0), expArr = Array(12).fill(0);
-  monthly.forEach(r=>{incArr[r.month-1]=r.income; expArr[r.month-1]=r.expenses;});
+  pg.innerHTML = `
+    <div class="section-header">
+      <h2 class="section-title">📊 Resoconti</h2>
+      <div style="display:flex;gap:8px;align-items:center">
+        <button class="btn btn-ghost" id="rBtnSave">💾 Salva</button>
+        <button class="btn btn-ghost" id="rBtnNew">＋ Nuovo</button>
+      </div>
+    </div>
 
-  if (charts.rBar) charts.rBar.destroy();
-  charts.rBar = new Chart(document.getElementById('rBar'),{
-    type:'bar', data:{labels, datasets:[
-      {label:'Entrate',data:incArr,backgroundColor:'rgba(63,185,80,.7)',borderRadius:4},
-      {label:'Uscite', data:expArr,backgroundColor:'rgba(248,81,73,.7)', borderRadius:4}
-    ]},
-    options:{responsive:true,plugins:{legend:{labels:{color:chartColors().tick}}},
-      scales:{x:{ticks:{color:chartColors().tick},grid:{color:chartColors().grid}},
-              y:{ticks:{color:chartColors().tick},grid:{color:chartColors().grid}}}}
+    <!-- Saved reports bar -->
+    ${reports.length ? `
+    <div class="card" style="margin-bottom:10px;padding:8px 12px">
+      <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+        <span style="font-size:12px;color:var(--txt3);margin-right:4px">Salvati:</span>
+        ${reports.map(r => `
+          <span class="report-chip${_currentReportId===r.id?' report-chip-active':''}"
+                onclick="openSavedReport(${r.id})">${r.name}</span>
+          <button class="btn btn-ghost btn-icon" style="font-size:10px;padding:1px 4px"
+                  onclick="deleteReportConfirm(${r.id},'${r.name.replace(/'/g,"\\'")}')">✕</button>
+        `).join('')}
+      </div>
+    </div>` : ''}
+
+    <!-- Filter panel -->
+    <div class="card" style="margin-bottom:12px">
+      <div class="card-header" style="padding-bottom:4px">
+        <span class="card-title">Filtri</span>
+        <button class="btn btn-ghost btn-icon" id="rBtnReset" title="Azzera">↺</button>
+      </div>
+      <div class="report-filter-row">
+        <select class="form-control" id="rDatePreset" onchange="reportApplyDatePreset(this.value)" style="width:170px">
+          <option value="">Periodo personalizzato</option>
+          <option value="thisMonth">Mese corrente</option>
+          <option value="lastMonth">Mese scorso</option>
+          <option value="thisYear">Anno corrente</option>
+          <option value="lastYear">Anno scorso</option>
+          <option value="last30">Ultimi 30 giorni</option>
+          <option value="last90">Ultimi 90 giorni</option>
+          <option value="all">Tutti i periodi</option>
+        </select>
+        <label style="font-size:12px;color:var(--txt2)">Dal</label>
+        <input type="date" class="form-control" id="rDateFrom" style="width:140px">
+        <label style="font-size:12px;color:var(--txt2)">Al</label>
+        <input type="date" class="form-control" id="rDateTo" style="width:140px">
+      </div>
+      <div class="report-filter-row">
+        <select class="form-control" id="rAccount">
+          <option value="">Tutti i conti</option>
+          ${accounts.filter(a=>!a.is_closed).map(a=>`<option value="${a.id}">${a.icon} ${a.name}</option>`).join('')}
+        </select>
+        <select class="form-control" id="rType">
+          <option value="">Tutti i tipi</option>
+          <option value="income">Entrate</option>
+          <option value="expense">Uscite</option>
+          <option value="transfer">Trasferimenti</option>
+        </select>
+        <select class="form-control" id="rReconciled">
+          <option value="">Tutte</option>
+          <option value="1">Solo conciliate</option>
+          <option value="0">Solo da verificare</option>
+        </select>
+      </div>
+      <div class="report-filter-row">
+        <select class="form-control" id="rCategory">
+          <option value="">Tutte le categorie</option>
+          ${categories.filter(c=>c.type!=='transfer').map(c=>
+            `<option value="${c.id}">${c.parent_id?'  └ ':''}${c.icon} ${c.name}</option>`).join('')}
+        </select>
+        <input type="text" class="form-control" id="rSearch" placeholder="🔍 Descrizione…" style="flex:1;min-width:140px">
+        <select class="form-control" id="rAmtOp" style="width:65px">
+          <option value="">—</option>
+          <option value="gt">＞</option>
+          <option value="lt">＜</option>
+          <option value="eq">=</option>
+        </select>
+        <input type="number" class="form-control" id="rAmtVal" placeholder="Importo" style="width:100px" min="0" step="0.01">
+      </div>
+      ${tags.length ? `
+      <div class="report-filter-row">
+        <span style="font-size:12px;color:var(--txt2);white-space:nowrap">Tag:</span>
+        <div style="display:flex;flex-wrap:wrap;gap:6px" id="rTagsSelector">
+          ${tags.map(t=>`<span class="tag-chip" style="--tc:${t.color}" data-tag-id="${t.id}" onclick="this.classList.toggle('selected')">${t.name}</span>`).join('')}
+        </div>
+      </div>` : ''}
+      <div class="report-filter-row" style="border-top:1px solid var(--border);padding-top:10px;margin-top:2px;flex-wrap:wrap;gap:12px">
+        <span style="font-size:12px;color:var(--txt2)">Raggruppa per:</span>
+        <select class="form-control" id="rGroupby" style="width:150px">
+          <option value="none">Nessuno (lista)</option>
+          <option value="month">Mese</option>
+          <option value="category">Categoria</option>
+          <option value="account">Conto</option>
+        </select>
+        <span style="font-size:12px;color:var(--txt2)">Grafico:</span>
+        <select class="form-control" id="rChartType" style="width:120px">
+          <option value="none">Nessuno</option>
+          <option value="bar">Barre</option>
+          <option value="line">Linea</option>
+          <option value="pie">Torta</option>
+        </select>
+        <button class="btn btn-primary" id="rBtnRun" style="margin-left:auto">▶ Esegui</button>
+      </div>
+    </div>
+
+    <div id="rResults"></div>`;
+
+  document.getElementById('rBtnRun').onclick   = () => runReport();
+  document.getElementById('rBtnReset').onclick = reportResetFilters;
+  document.getElementById('rBtnNew').onclick   = () => {
+    _currentReportId = null; _reportFilters = {};
+    reportResetFilters();
+    document.getElementById('rResults').innerHTML = '';
+    renderSidebarReports();
+  };
+  document.getElementById('rBtnSave').onclick  = saveReportDialog;
+
+  // Restore state if a report is selected
+  if (_currentReportId !== null) {
+    const r = reports.find(x => x.id === _currentReportId);
+    if (r) { _loadReportConfig(r); return; }
+  }
+  // Re-apply last filter state
+  _reportRestoreFormState();
+}
+
+function reportApplyDatePreset(preset) {
+  const t = new Date(), y = t.getFullYear(), m = t.getMonth();
+  const iso = d => d.toISOString().slice(0,10);
+  let from = '', to = '';
+  if      (preset==='thisMonth') { from=iso(new Date(y,m,1));   to=iso(new Date(y,m+1,0)); }
+  else if (preset==='lastMonth') { from=iso(new Date(y,m-1,1)); to=iso(new Date(y,m,0));   }
+  else if (preset==='thisYear')  { from=`${y}-01-01`;            to=`${y}-12-31`;           }
+  else if (preset==='lastYear')  { from=`${y-1}-01-01`;          to=`${y-1}-12-31`;         }
+  else if (preset==='last30')    { from=iso(new Date(t-30*864e5));to=iso(t);                }
+  else if (preset==='last90')    { from=iso(new Date(t-90*864e5));to=iso(t);                }
+  const df=document.getElementById('rDateFrom'), dt=document.getElementById('rDateTo');
+  if(df) df.value=from; if(dt) dt.value=to;
+}
+
+function reportResetFilters() {
+  ['rDateFrom','rDateTo','rSearch','rAmtVal'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
+  ['rDatePreset','rAccount','rType','rReconciled','rCategory','rAmtOp'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
+  const rg=document.getElementById('rGroupby'),rc=document.getElementById('rChartType');
+  if(rg)rg.value='none'; if(rc)rc.value='none';
+  document.querySelectorAll('#rTagsSelector .tag-chip.selected').forEach(el=>el.classList.remove('selected'));
+}
+
+function _reportRestoreFormState() {
+  const f = _reportFilters;
+  if (!f || !Object.keys(f).length) return;
+  const sv = (id,v) => { const e=document.getElementById(id); if(e&&v!=null&&v!=='')e.value=v; };
+  sv('rDateFrom', f.date_from); sv('rDateTo', f.date_to);
+  sv('rAccount',  f.account_id); sv('rType', f.type);
+  sv('rReconciled', f.reconciled!=null ? String(f.reconciled) : '');
+  sv('rCategory', f.category_id); sv('rSearch', f.search);
+  sv('rAmtOp', f.amount_op); sv('rAmtVal', f.amount_val);
+  sv('rGroupby', _reportGroupby); sv('rChartType', _reportChartType);
+  (f.tag_ids||[]).forEach(tid=>{
+    const c=document.querySelector(`[data-tag-id="${tid}"]`); if(c)c.classList.add('selected');
   });
+}
 
-  if (charts.rPie) charts.rPie.destroy();
-  if (catData.length) {
-    charts.rPie = new Chart(document.getElementById('rPie'),{
-      type:'doughnut', data:{labels:catData.map(c=>c.icon+' '+c.name),
-        datasets:[{data:catData.map(c=>c.total),backgroundColor:catData.map(c=>c.color),borderWidth:0}]},
-      options:{responsive:true,plugins:{legend:{position:'right',labels:{color:chartColors().tick,font:{size:11}}}}}
+function _loadReportConfig(r) {
+  _currentReportId = r.id;
+  _reportGroupby   = r.groupby   || 'none';
+  _reportChartType = r.chart_type || 'none';
+  try { _reportFilters = JSON.parse(r.filters_json || '{}'); } catch { _reportFilters = {}; }
+  _reportRestoreFormState();
+  runReport();
+}
+
+async function runReport() {
+  const dateFrom  = document.getElementById('rDateFrom')?.value  || '';
+  const dateTo    = document.getElementById('rDateTo')?.value    || '';
+  const accountId = document.getElementById('rAccount')?.value   || '';
+  const type      = document.getElementById('rType')?.value      || '';
+  const reconc    = document.getElementById('rReconciled')?.value;
+  const catId     = document.getElementById('rCategory')?.value  || '';
+  const search    = document.getElementById('rSearch')?.value    || '';
+  const amtOp     = document.getElementById('rAmtOp')?.value     || '';
+  const amtVal    = parseFloat(document.getElementById('rAmtVal')?.value);
+  const groupby   = document.getElementById('rGroupby')?.value   || 'none';
+  const chartType = document.getElementById('rChartType')?.value || 'none';
+  const tagIds    = [...document.querySelectorAll('#rTagsSelector .tag-chip.selected')]
+                      .map(el=>parseInt(el.dataset.tagId));
+
+  _reportGroupby   = groupby;
+  _reportChartType = chartType;
+
+  const filters = {};
+  if (dateFrom)  filters.date_from    = dateFrom;
+  if (dateTo)    filters.date_to      = dateTo;
+  if (accountId) filters.account_id   = parseInt(accountId);
+  if (type)      filters.type         = type;
+  if (catId)     filters.category_id  = parseInt(catId);
+  if (search)    filters.search       = search;
+
+  _reportFilters = { ...filters,
+    amount_op: amtOp || '', amount_val: isNaN(amtVal) ? null : amtVal,
+    tag_ids: tagIds, reconciled: reconc !== '' && reconc != null ? parseInt(reconc) : null,
+  };
+
+  const resultsEl = document.getElementById('rResults');
+  if (resultsEl) resultsEl.innerHTML = `<div style="text-align:center;padding:40px;color:var(--txt3)">⏳ Caricamento…</div>`;
+
+  let txs = await api.getTransactions(filters);
+
+  // Client-side post-filters
+  if (reconc !== '' && reconc != null) {
+    const rv = parseInt(reconc);
+    txs = txs.filter(t => (t.reconciled||0) === rv);
+  }
+  if (tagIds.length) {
+    txs = txs.filter(t => {
+      if (!t.tags || !t.tags.length) return false;
+      return tagIds.every(tid => t.tags.some(tag => Number(tag.id) === tid));
+    });
+  }
+  if (amtOp && !isNaN(amtVal)) {
+    txs = txs.filter(t => {
+      const a = Math.abs(t.amount);
+      if (amtOp==='gt') return a > amtVal;
+      if (amtOp==='lt') return a < amtVal;
+      if (amtOp==='eq') return Math.abs(a-amtVal) < 0.005;
+      return true;
     });
   }
 
-  // Riepilogo tabella
-  const monthNames = Array.from({length:12},(_,i)=>new Date(0,i).toLocaleString('it-IT',{month:'long'}));
-  const totInc = incArr.reduce((a,b)=>a+b,0), totExp = expArr.reduce((a,b)=>a+b,0);
-  document.getElementById('rSummary').innerHTML =
-    incArr.map((inc,i)=>inc||expArr[i]?`
-      <tr>
-        <td>${monthNames[i]}</td>
-        <td class="text-right amount-income">${fmt.currency(inc)}</td>
-        <td class="text-right amount-expense">${fmt.currency(expArr[i])}</td>
-        <td class="text-right" style="color:${inc-expArr[i]>=0?'var(--income)':'var(--expense)'};font-weight:600">
-          ${fmt.currency(inc-expArr[i])}</td>
-      </tr>`:''
-    ).join('') + `
-    <tr style="border-top:2px solid var(--border);font-weight:700">
-      <td>Totale Anno</td>
-      <td class="text-right amount-income">${fmt.currency(totInc)}</td>
-      <td class="text-right amount-expense">${fmt.currency(totExp)}</td>
-      <td class="text-right" style="color:${totInc-totExp>=0?'var(--income)':'var(--expense)'};font-weight:700">
-        ${fmt.currency(totInc-totExp)}</td>
-    </tr>`;
+  renderReportResults(txs, groupby, chartType);
+}
+
+function renderReportResults(txs, groupby, chartType) {
+  if (_reportChart) { _reportChart.destroy(); _reportChart = null; }
+  const el = document.getElementById('rResults');
+  if (!el) return;
+  if (!txs.length) {
+    el.innerHTML = `<div class="empty-state"><div class="empty-icon">🔍</div><p>Nessuna transazione trovata.</p></div>`;
+    return;
+  }
+
+  let tableHtml = '', chartData = null;
+  const cc = chartColors();
+
+  if (groupby === 'month') {
+    const byM = {};
+    txs.forEach(t => {
+      const k = t.date.slice(0,7);
+      if (!byM[k]) byM[k] = {income:0,expense:0,count:0};
+      byM[k].count++;
+      if (t.type==='income')  byM[k].income  += t.amount;
+      if (t.type==='expense') byM[k].expense += t.amount;
+    });
+    const months = Object.keys(byM).sort();
+    const totI = months.reduce((s,m)=>s+byM[m].income,0);
+    const totE = months.reduce((s,m)=>s+byM[m].expense,0);
+    tableHtml = `<table><thead><tr>
+      <th>Mese</th><th class="text-right">N.</th>
+      <th class="text-right">Entrate</th><th class="text-right">Uscite</th>
+      <th class="text-right">Netto</th></tr></thead><tbody>
+      ${months.map(m=>{const g=byM[m],net=g.income-g.expense;return`<tr>
+        <td>${_fmtMonth(m)}</td><td class="text-right">${g.count}</td>
+        <td class="text-right amount-income">${fmt.currency(g.income)}</td>
+        <td class="text-right amount-expense">${fmt.currency(g.expense)}</td>
+        <td class="text-right" style="font-weight:600;color:${net>=0?'var(--income)':'var(--expense)'}">
+          ${fmt.currency(net)}</td></tr>`;}).join('')}
+      <tr style="border-top:2px solid var(--border);font-weight:700">
+        <td>Totale</td><td class="text-right">${txs.length}</td>
+        <td class="text-right amount-income">${fmt.currency(totI)}</td>
+        <td class="text-right amount-expense">${fmt.currency(totE)}</td>
+        <td class="text-right" style="font-weight:700;color:${totI-totE>=0?'var(--income)':'var(--expense)'}">
+          ${fmt.currency(totI-totE)}</td>
+      </tr></tbody></table>`;
+    if (chartType==='bar'||chartType==='line') chartData={type:chartType,
+      labels:months.map(_fmtMonth),
+      datasets:[
+        {label:'Entrate',data:months.map(m=>byM[m].income),backgroundColor:'rgba(63,185,80,.6)',borderColor:'#3fb950',borderWidth:2,fill:false,borderRadius:4},
+        {label:'Uscite', data:months.map(m=>byM[m].expense),backgroundColor:'rgba(248,81,73,.6)',borderColor:'#f85149',borderWidth:2,fill:false,borderRadius:4},
+      ]};
+
+  } else if (groupby === 'category') {
+    const byC = {};
+    txs.forEach(t => {
+      const k = t.category_id || 0;
+      if (!byC[k]) byC[k]={name:t.category_name||'(nessuna)',icon:t.category_icon||'📁',color:t.category_color||'var(--txt3)',total:0,count:0};
+      byC[k].count++;
+      if (t.type==='income')  byC[k].total += t.amount;
+      if (t.type==='expense') byC[k].total -= t.amount;
+    });
+    const cats = Object.entries(byC).sort(([,a],[,b])=>Math.abs(b.total)-Math.abs(a.total));
+    tableHtml = `<table><thead><tr>
+      <th>Categoria</th><th class="text-right">N.</th><th class="text-right">Totale</th>
+      </tr></thead><tbody>
+      ${cats.map(([,g])=>`<tr>
+        <td><span style="color:${g.color}">${g.icon}</span> ${g.name}</td>
+        <td class="text-right">${g.count}</td>
+        <td class="text-right" style="font-weight:600;color:${g.total>=0?'var(--income)':'var(--expense)'}">
+          ${fmt.currency(Math.abs(g.total))}</td></tr>`).join('')}
+      </tbody></table>`;
+    if (chartType==='bar') chartData={type:'bar',
+      labels:cats.map(([,g])=>`${g.icon} ${g.name}`),
+      datasets:[{label:'Totale',data:cats.map(([,g])=>Math.abs(g.total)),
+        backgroundColor:cats.map(([,g])=>g.color+'99'),borderRadius:4}]};
+    else if (chartType==='pie') chartData={type:'doughnut',
+      labels:cats.map(([,g])=>`${g.icon} ${g.name}`),
+      datasets:[{data:cats.map(([,g])=>Math.abs(g.total)),
+        backgroundColor:cats.map(([,g])=>g.color),borderWidth:0}]};
+
+  } else if (groupby === 'account') {
+    const byA = {};
+    txs.forEach(t => {
+      const k = t.account_id;
+      if (!byA[k]) byA[k]={name:t.account_name||'—',color:t.account_color||'var(--accent)',income:0,expense:0,count:0};
+      byA[k].count++;
+      if (t.type==='income')  byA[k].income  += t.amount;
+      if (t.type==='expense') byA[k].expense += t.amount;
+    });
+    const accs = Object.entries(byA).sort(([,a],[,b])=>b.count-a.count);
+    tableHtml = `<table><thead><tr>
+      <th>Conto</th><th class="text-right">N.</th>
+      <th class="text-right">Entrate</th><th class="text-right">Uscite</th><th class="text-right">Netto</th>
+      </tr></thead><tbody>
+      ${accs.map(([,g])=>{const net=g.income-g.expense;return`<tr>
+        <td><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${g.color};margin-right:6px"></span>${g.name}</td>
+        <td class="text-right">${g.count}</td>
+        <td class="text-right amount-income">${fmt.currency(g.income)}</td>
+        <td class="text-right amount-expense">${fmt.currency(g.expense)}</td>
+        <td class="text-right" style="font-weight:600;color:${net>=0?'var(--income)':'var(--expense)'}">
+          ${fmt.currency(net)}</td></tr>`;}).join('')}
+      </tbody></table>`;
+
+  } else {
+    tableHtml = `<table><thead><tr>
+      <th>Data</th><th>Descrizione</th><th>Categoria</th><th>Conto</th>
+      <th class="text-right">Importo</th><th>Tipo</th></tr></thead><tbody>
+      ${txs.map(t=>`<tr>
+        <td>${fmt.date(t.date)}</td>
+        <td class="td-main">${t.description||'—'}</td>
+        <td>${t.category_icon||''} ${t.category_name||'—'}</td>
+        <td>${t.account_name||'—'}</td>
+        <td class="text-right amount-${t.type}">${t.type==='expense'?'-':''}${fmt.currency(t.amount)}</td>
+        <td><span class="badge badge-${t.type}">${t.type==='income'?'Entrata':t.type==='expense'?'Uscita':'Trasf.'}</span></td>
+        </tr>`).join('')}
+      </tbody></table>`;
+  }
+
+  el.innerHTML = `
+    ${chartData ? `<div class="card" style="margin-bottom:12px;padding:14px">
+      <div style="position:relative;min-height:200px;max-height:300px">
+        <canvas id="rChart"></canvas></div></div>` : ''}
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">${txs.length} transazion${txs.length===1?'e':'i'}</span>
+      </div>
+      <div class="table-wrap">${tableHtml}</div>
+    </div>`;
+
+  if (chartData) {
+    _reportChart = new Chart(document.getElementById('rChart'), {
+      type: chartData.type,
+      data: { labels: chartData.labels, datasets: chartData.datasets },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { labels: { color: cc.tick } } },
+        scales: (chartData.type!=='doughnut'&&chartData.type!=='pie') ? {
+          x: { ticks:{color:cc.tick}, grid:{color:cc.grid} },
+          y: { ticks:{color:cc.tick}, grid:{color:cc.grid} }
+        } : undefined
+      }
+    });
+  }
+}
+
+function _fmtMonth(yyyyMM) {
+  const [y,m] = yyyyMM.split('-');
+  return new Date(parseInt(y), parseInt(m)-1, 1)
+    .toLocaleString('it-IT', {month:'long', year:'numeric'});
+}
+
+async function saveReportDialog() {
+  const reports = await api.getReports();
+  const existing = _currentReportId ? reports.find(r=>r.id===_currentReportId) : null;
+  openModal(existing ? 'Aggiorna Report' : 'Salva Report', `
+    <div class="form-group">
+      <label class="form-label">Nome *</label>
+      <input id="rSaveName" class="form-input" value="${existing?.name||''}" placeholder="es. Spese famiglia 2026">
+    </div>`,
+    async () => {
+      const name = document.getElementById('rSaveName')?.value.trim();
+      if (!name) { toast('Inserisci un nome', 'error'); return false; }
+      const data = {
+        name,
+        filters_json: JSON.stringify(_reportFilters || {}),
+        groupby:      document.getElementById('rGroupby')?.value    || 'none',
+        chart_type:   document.getElementById('rChartType')?.value  || 'none',
+      };
+      if (_currentReportId) data.id = _currentReportId;
+      try {
+        const saved = await api.saveReport(data);
+        _currentReportId = saved.id;
+        closeModal();
+        toast(`Report "${name}" salvato`);
+        renderSidebarReports();
+        renderReports();
+      } catch(e) { toast(e.message,'error'); return false; }
+    }, existing ? 'Aggiorna' : 'Salva', 'btn-primary');
+  setTimeout(()=>{ const e=document.getElementById('rSaveName'); if(e){e.focus();e.select();} },60);
+}
+
+async function deleteReportConfirm(id, name) {
+  openModal('Elimina Report',
+    `<p style="margin:0">Eliminare il report <b>${name}</b>?</p>`,
+    async () => {
+      await api.deleteReport(id);
+      if (_currentReportId === id) _currentReportId = null;
+      closeModal(); toast('Report eliminato');
+      renderSidebarReports();
+      renderReports();
+    }, 'Elimina', 'btn-danger');
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -4458,6 +4864,125 @@ async function init() {
   // Notifica scadute (non bloccante, dopo il render)
   const overdue = await api.getOverdue();
   if (overdue.length) showOverdueNotice(overdue);
+}
+
+/* ─── Log Viewer ──────────────────────────────────────────────────────────── */
+async function renderLogViewer() {
+  const pg = document.getElementById('pg-logviewer');
+  pg.innerHTML = `
+    <div class="section-header">
+      <h2 class="section-title">Log operazioni</h2>
+      <div style="display:flex;gap:8px;align-items:center;margin-left:auto">
+        <input class="form-control" id="logSearch" placeholder="🔍 Filtra..." style="width:220px">
+        <button class="btn btn-ghost" id="btnLogRefresh" title="Aggiorna">↻ Aggiorna</button>
+      </div>
+    </div>
+    <div class="card" style="flex:1;display:flex;flex-direction:column;min-height:0">
+      <div id="logPath" style="font-size:11px;color:var(--txt3);padding:6px 12px;border-bottom:1px solid var(--border)"></div>
+      <div class="log-wrap" id="logWrap">
+        <div style="color:var(--txt3);padding:40px;text-align:center">Caricamento…</div>
+      </div>
+      <div style="display:flex;gap:8px;padding:8px 12px;border-top:1px solid var(--border)">
+        <input class="form-control" id="logSearchBottom" placeholder="🔍 Filtra..." style="flex:1">
+      </div>
+    </div>`;
+
+  const load = async () => {
+    const data = await api.readLog(2000);
+    document.getElementById('logPath').textContent = data.path || '';
+    _logLines = data.lines || [];
+    renderLogLines();
+  };
+
+  document.getElementById('btnLogRefresh').onclick = load;
+  let _logTimer;
+  const onLogSearch = (src, dst) => {
+    document.getElementById(dst).value = document.getElementById(src).value;
+    clearTimeout(_logTimer);
+    _logTimer = setTimeout(renderLogLines, 150);
+  };
+  document.getElementById('logSearch').addEventListener('input', () => onLogSearch('logSearch', 'logSearchBottom'));
+  document.getElementById('logSearchBottom').addEventListener('input', () => onLogSearch('logSearchBottom', 'logSearch'));
+
+  await load();
+}
+
+let _logLines = [];
+
+function renderLogLines() {
+  const wrap = document.getElementById('logWrap');
+  if (!wrap) return;
+  const q = (document.getElementById('logSearch')?.value || '').toLowerCase();
+  const filtered = q ? _logLines.filter(l => l.toLowerCase().includes(q)) : _logLines;
+  if (!filtered.length) {
+    wrap.innerHTML = '<div style="color:var(--txt3);padding:40px;text-align:center">Nessun log trovato</div>';
+    return;
+  }
+  const ACTION_COLORS = {
+    'TRANSAZIONE AGGIUNTA':   '#3fb950',
+    'TRANSAZIONE MODIFICATA': '#58a6ff',
+    'TRANSAZIONE ELIMINATA':  '#f85149',
+    'PIANIFICATA AGGIUNTA':   '#3fb950',
+    'PIANIFICATA MODIFICATA': '#58a6ff',
+    'PIANIFICATA ELIMINATA':  '#f85149',
+    'PIANIFICATA AVANZATA':   '#d2a8ff',
+    'PIANIFICATA COMPLETATA': '#8b949e',
+    'CONCILIAZIONE':          '#e3b341',
+    'CONTO AGGIUNTO':         '#3fb950',
+    'CONTO MODIFICATO':       '#58a6ff',
+    'CONTO ELIMINATO':        '#f85149',
+    'CATEGORIA AGGIUNTA':     '#3fb950',
+    'CATEGORIA MODIFICATA':   '#58a6ff',
+    'CATEGORIA ELIMINATA':    '#f85149',
+    'CATEGORIA RIASSEGNATA':  '#d2a8ff',
+    'BUDGET IMPOSTATO':       '#3fb950',
+    'BUDGET ELIMINATO':       '#f85149',
+    'BUDGET BULK':            '#58a6ff',
+    'BUDGET MESE ELIMINATO':  '#f85149',
+    'BUDGET GENERATO':        '#d2a8ff',
+    'BUDGET CONFIG':          '#58a6ff',
+    'TAG AGGIUNTO':           '#3fb950',
+    'TAG MODIFICATO':         '#58a6ff',
+    'TAG ELIMINATO':          '#f85149',
+    'TITOLO ACQUISTATO':      '#3fb950',
+    'TITOLO VENDUTO':         '#e3b341',
+    'TITOLO ELIMINATO':       '#f85149',
+    'PREZZO AGGIORNATO':      '#58a6ff',
+    'PORTAFOGLIO MODIFICATO': '#58a6ff',
+    'POSIZIONE IMPORTATA':    '#d2a8ff',
+    'CEDOLA REGISTRATA':      '#3fb950',
+    'BACKUP ESEGUITO':        '#8b949e',
+    'DB CAMBIATO':            '#e3b341',
+    'AVVIO':                  '#8b949e',
+  };
+  wrap.innerHTML = filtered.map(line => {
+    // parse: "YYYY-MM-DD  HH:mm:ss  AZIONE                               |  campo:val  |  ..."
+    const dateStr  = line.substring(0, 10);
+    const timeStr  = line.substring(12, 20);
+    const rest     = line.substring(22).trimStart();
+    // split on first "  |  " to get action vs fields
+    const sepIdx   = rest.indexOf('  |  ');
+    const action   = sepIdx >= 0 ? rest.substring(0, sepIdx).trim() : rest.trim();
+    const fields   = sepIdx >= 0 ? rest.substring(sepIdx + 5).split('  |  ') : [];
+    const color    = ACTION_COLORS[action] || 'var(--txt2)';
+    const fieldsHtml = fields.map(f => {
+      const ci = f.indexOf(':');
+      if (ci < 0) return `<span class="log-field">${f}</span>`;
+      const k = f.substring(0, ci);
+      const v = f.substring(ci + 1);
+      return `<span class="log-field"><span class="log-key">${k}</span><span class="log-val">${v}</span></span>`;
+    }).join('');
+    return `<div class="log-row">
+      <span class="log-date">${dateStr}</span>
+      <span class="log-time">${timeStr}</span>
+      <span class="log-action" style="color:${color}">${action}</span>
+      <span class="log-fields">${fieldsHtml}</span>
+    </div>`;
+  }).join('');
+  setTimeout(() => {
+    const wrap = document.getElementById('logWrap');
+    if (wrap) wrap.scrollTop = wrap.scrollHeight;
+  }, 50);
 }
 
 // Aspetta che il bridge JCEF sia pronto

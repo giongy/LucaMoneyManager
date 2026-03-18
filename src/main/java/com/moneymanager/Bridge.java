@@ -291,6 +291,15 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                 yield Map.of("ok", true, "path", dest);
             }
 
+            // ─── Resoconti ─────────────────────────────────────────────────────────
+            case "getReports"    -> db.getReports();
+            case "saveReport"    -> db.saveReport(p);
+            case "deleteReport"  -> db.deleteReport(p.get("id").getAsInt());
+
+            // ─── Log ───────────────────────────────────────────────────────────────
+            case "readLog" -> db.readLog(
+                p.has("lines") ? p.get("lines").getAsInt() : 500);
+
             default -> throw new Exception("Metodo sconosciuto: " + method);
         };
     }

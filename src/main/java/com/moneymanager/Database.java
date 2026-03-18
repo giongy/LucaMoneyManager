@@ -1,5 +1,6 @@
 package com.moneymanager;
 
+import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import org.sqlite.SQLiteConfig;
 
@@ -321,8 +322,10 @@ public class Database {
             )
         """);
         // Aggiunge is_favorite e is_closed agli account
-        try { executePlain("ALTER TABLE accounts ADD COLUMN is_favorite INTEGER DEFAULT 0"); } catch (SQLException ignored) {}
-        try { executePlain("ALTER TABLE accounts ADD COLUMN is_closed   INTEGER DEFAULT 0"); } catch (SQLException ignored) {}
+        try { executePlain("ALTER TABLE accounts ADD COLUMN is_favorite  INTEGER DEFAULT 0"); } catch (SQLException ignored) {}
+        try { executePlain("ALTER TABLE accounts ADD COLUMN is_closed    INTEGER DEFAULT 0"); } catch (SQLException ignored) {}
+        try { executePlain("ALTER TABLE accounts ADD COLUMN sort_order   INTEGER DEFAULT 0"); } catch (SQLException ignored) {}
+        try { executePlain("UPDATE accounts SET sort_order = (SELECT COUNT(*) FROM accounts a2 WHERE a2.id <= accounts.id) WHERE sort_order = 0"); } catch (SQLException ignored) {}
         // Portfolio redesign: drop old structure solo se non ancora migrato (assenza colonna avg_price)
         boolean portfolioNeedsMigration = true;
         try (var rs = conn.getMetaData().getColumns(null, null, "portfolio", "avg_price")) {
@@ -447,16 +450,18 @@ public class Database {
             FROM accounts a
             LEFT JOIN transactions t ON (t.account_id = a.id OR t.to_account_id = a.id) AND a.type != 'investment'
             GROUP BY a.id
-            ORDER BY a.created_at
+            ORDER BY a.sort_order, a.created_at
         """);
     }
 
     public Map<String, Object> addAccount(JsonObject p) throws SQLException {
-        long id = execute("INSERT INTO accounts(name,type,currency,initial_balance,color,icon,is_favorite,is_closed) VALUES(?,?,?,?,?,?,?,?)",
+        Map<String,Object> maxRow = queryOne("SELECT COALESCE(MAX(sort_order),0)+1 AS next_order FROM accounts");
+        int nextOrder = ((Number) maxRow.get("next_order")).intValue();
+        long id = execute("INSERT INTO accounts(name,type,currency,initial_balance,color,icon,is_favorite,is_closed,sort_order) VALUES(?,?,?,?,?,?,?,?,?)",
                 str(p,"name"), str(p,"type"), str(p,"currency") != null ? str(p,"currency") : "EUR",
                 dbl(p,"initial_balance") != null ? dbl(p,"initial_balance") : 0.0,
                 str(p,"color"), str(p,"icon"),
-                intVal(p,"is_favorite") != null ? intVal(p,"is_favorite") : 0, 0);
+                intVal(p,"is_favorite") != null ? intVal(p,"is_favorite") : 0, 0, nextOrder);
         logger.log("CONTO AGGIUNTO", "id:" + id, "nome:" + str(p,"name"), "tipo:" + str(p,"type"),
                    "saldo_iniziale:" + DbLogger.amt(dbl(p,"initial_balance")));
         return queryOne("SELECT * FROM accounts WHERE id=?", id);
@@ -473,6 +478,14 @@ public class Database {
         logger.log("CONTO MODIFICATO", "id:" + id, "nome:" + str(p,"name"), "tipo:" + str(p,"type"),
                    "chiuso:" + intVal(p,"is_closed"));
         return queryOne("SELECT * FROM accounts WHERE id=?", id);
+    }
+
+    public void updateAccountOrder(JsonArray items) throws SQLException {
+        for (var el : items) {
+            JsonObject obj = el.getAsJsonObject();
+            execute("UPDATE accounts SET sort_order=? WHERE id=?",
+                    obj.get("sort_order").getAsInt(), obj.get("id").getAsInt());
+        }
     }
 
     public Map<String, Object> deleteAccount(int id) throws SQLException {
@@ -1303,26 +1316,41 @@ public class Database {
         if (!filter.isEmpty()) accounts = accounts.stream()
             .filter(a -> filter.contains(((Number)a.get("id")).intValue())).collect(Collectors.toList());
 
-        // Real balance up to (from - 1 day)
+        // Starting balance per account:
+        // - daily:   call getAccounts() directly — same logic as dashboard (handles investment correctly)
+        // - monthly: transactions before fromDate
+        LocalDate schedFrom = forceDaily ? from.plusDays(1) : from;
         Map<Integer, Double> balance = new HashMap<>();
+        if (forceDaily) {
+            // Use getAccounts() which already handles investment/portfolio/credit correctly
+            for (var a : getAccounts()) {
+                int aid = ((Number) a.get("id")).intValue();
+                if (!filter.isEmpty() && !filter.contains(aid)) continue;
+                balance.put(aid, ((Number) a.get("balance")).doubleValue());
+            }
+        }
         for (var a : accounts) {
             int aid = ((Number) a.get("id")).intValue();
-            var r = queryOne("""
-                SELECT COALESCE(SUM(CASE WHEN type='income' THEN amount
-                                         WHEN type='expense' THEN -amount
-                                         WHEN type='transfer' AND account_id=? THEN -amount
-                                         WHEN type='transfer' AND to_account_id=? THEN amount
-                                         ELSE 0 END), 0) AS bal
-                FROM transactions WHERE date < ?
-            """, aid, aid, fromDate);
-            double initialBal = r != null ? ((Number) r.get("bal")).doubleValue() : 0.0;
-            var acc = queryOne("SELECT initial_balance FROM accounts WHERE id=?", aid);
-            double init = acc != null && acc.get("initial_balance") != null
-                ? ((Number) acc.get("initial_balance")).doubleValue() : 0.0;
-            balance.put(aid, init + initialBal);
+            if (forceDaily) {
+                balance.putIfAbsent(aid, 0.0); // already populated above
+            } else {
+                var r = queryOne(
+                    "SELECT COALESCE(SUM(CASE WHEN type='income' THEN amount" +
+                    "  WHEN type='expense' THEN -amount" +
+                    "  WHEN type='transfer' AND account_id=? THEN -amount" +
+                    "  WHEN type='transfer' AND to_account_id=? THEN amount" +
+                    "  ELSE 0 END), 0) AS bal FROM transactions" +
+                    "  WHERE (account_id=? OR to_account_id=?) AND date < ?",
+                    aid, aid, aid, aid, fromDate);
+                double initialBal = r != null ? ((Number) r.get("bal")).doubleValue() : 0.0;
+                var acc = queryOne("SELECT initial_balance FROM accounts WHERE id=?", aid);
+                double init = acc != null && acc.get("initial_balance") != null
+                    ? ((Number) acc.get("initial_balance")).doubleValue() : 0.0;
+                balance.put(aid, init + initialBal);
+            }
         }
 
-        // Expand scheduled transactions in [from, to] into allDeltas
+        // Expand scheduled transactions into allDeltas
         var scheds = getScheduled().stream()
             .filter(s -> Integer.valueOf(1).equals(s.get("is_active")))
             .toList();
@@ -1335,7 +1363,7 @@ public class Database {
             LocalDate start = LocalDate.parse((String) s.get("start_date"));
             LocalDate endDate = s.get("end_date") != null ? LocalDate.parse((String) s.get("end_date")) : to;
             if (endDate.isAfter(to)) endDate = to;
-            LocalDate cur = firstOccurrenceFrom(start, freq, from);
+            LocalDate cur = firstOccurrenceFrom(start, freq, schedFrom);
             if (cur == null) continue;
             double amount = ((Number) s.get("amount")).doubleValue();
             String type = (String) s.get("type");

@@ -181,10 +181,14 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                     (window.getExtendedState() & JFrame.MAXIMIZED_BOTH) != 0);
 
             // ─── Conti ─────────────────────────────────────────────────────
-            case "getAccounts"    -> db.getAccounts();
-            case "addAccount"     -> db.addAccount(p);
-            case "updateAccount"  -> db.updateAccount(p.get("id").getAsInt(), p);
-            case "deleteAccount"  -> db.deleteAccount(p.get("id").getAsInt());
+            case "getAccounts"      -> db.getAccounts();
+            case "addAccount"       -> db.addAccount(p);
+            case "updateAccount"    -> db.updateAccount(p.get("id").getAsInt(), p);
+            case "deleteAccount"    -> db.deleteAccount(p.get("id").getAsInt());
+            case "updateAccountOrder" -> {
+                db.updateAccountOrder(p.get("items").getAsJsonArray());
+                yield Map.of("ok", true);
+            }
 
             // ─── Categorie ─────────────────────────────────────────────────
             case "getCategories"     -> db.getCategories();

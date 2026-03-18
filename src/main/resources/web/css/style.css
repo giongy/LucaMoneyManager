@@ -135,6 +135,8 @@ input,select,textarea { font-family:inherit; }
 .page.active { display:block; }
 #pg-logviewer { display:none; flex-direction:column; overflow-y:hidden; }
 #pg-logviewer.active { display:flex; }
+#pg-scheduled { display:none; flex-direction:column; overflow:hidden; padding:0; }
+#pg-scheduled.active { display:flex; }
 
 /* ─── Scroll ─────────────────────────────────────────────────────────────── */
 ::-webkit-scrollbar { width:5px; }
@@ -217,6 +219,21 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 .form-control:focus { outline:none; border-color:var(--accent); }
 .form-row { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
 
+/* ─── Cat picker ──────────────────────────────────────────────────────────── */
+.cat-picker { position:relative; }
+.cat-picker-list {
+  position:absolute; left:0; right:0; top:calc(100% + 2px); z-index:9999;
+  background:var(--bg2); border:1px solid var(--border); border-radius:6px;
+  max-height:220px; overflow-y:auto; box-shadow:0 4px 16px rgba(0,0,0,.5);
+  display:none;
+}
+.cat-picker-item {
+  padding:7px 12px; cursor:pointer; font-size:13px; color:var(--txt);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.cat-picker-item:hover, .cat-picker-item.active { background:var(--bg4); }
+.cat-picker-empty { padding:10px 12px; color:var(--txt3); font-size:12px; }
+
 /* ─── Filtri ──────────────────────────────────────────────────────────────── */
 .filter-bar {
   display:flex; align-items:center; gap:8px; flex-wrap:wrap;
@@ -226,19 +243,28 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 .filter-bar .form-control { width:auto; }
 
 /* ─── Conto card ──────────────────────────────────────────────────────────── */
-.accounts-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:12px; }
+.accounts-grid { display:flex; flex-direction:column; gap:20px; }
+.accounts-section-label { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.6px; color:var(--txt3); margin-bottom:8px; padding-left:2px; }
+.accounts-section-grid  { display:flex; flex-direction:column; gap:6px; }
 .account-card {
   background:var(--bg2); border:1px solid var(--border); border-radius:var(--radius);
-  padding:14px; position:relative; overflow:hidden;
+  padding:8px 12px; position:relative; overflow:hidden; cursor:default;
+  display:flex; align-items:center; gap:10px;
+  border-left:3px solid var(--acc-color, var(--border));
+  transition:opacity .15s, box-shadow .15s;
 }
-.account-card::before {
-  content:''; position:absolute; top:0; left:0; right:0; height:3px;
-}
-.account-icon    { font-size:22px; margin-bottom:8px; }
-.account-name    { font-size:13px; font-weight:700; margin-bottom:2px; }
-.account-type    { font-size:11px; color:var(--txt3); text-transform:uppercase; letter-spacing:.5px; margin-bottom:8px; }
-.account-balance { font-size:20px; font-weight:700; color:var(--accent); }
-.account-actions { margin-top:8px; display:flex; gap:6px; }
+.account-card.dragging  { opacity:.4; }
+.account-card.drag-over { box-shadow:0 0 0 2px var(--accent); }
+.acc-drag-handle { font-size:14px; color:var(--txt3); cursor:grab; user-select:none; flex-shrink:0; }
+.acc-drag-handle:active { cursor:grabbing; }
+.account-icon    { font-size:18px; flex-shrink:0; }
+.acc-info        { flex:1; min-width:0; }
+.account-name    { font-size:13px; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.account-type    { display:none; }
+.account-balance { font-size:15px; font-weight:700; white-space:nowrap; flex-shrink:0; }
+.account-actions { display:flex; gap:4px; flex-shrink:0; }
+.account-actions .btn { padding:3px 7px; font-size:11px; }
+.acc-badge-fav, .acc-badge-closed { font-size:10px; color:var(--txt3); }
 
 /* ─── Dashboard layout ───────────────────────────────────────────────────── */
 .dash-top-row    { display:flex; gap:16px; align-items:stretch; margin-bottom:16px; }
@@ -307,9 +333,9 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 .budget-row-parent:hover td, .budget-row-child:hover td { background:var(--bg4); }
 
 .budget-cell {
-  padding:5px 4px; text-align:center; cursor:pointer;
+  padding:5px 4px; text-align:left; cursor:pointer;
   border-bottom:1px solid var(--border); border-left:1px solid var(--border);
-  min-width:72px; vertical-align:top; transition:background .1s;
+  min-width:80px; vertical-align:top; transition:background .1s;
 }
 .budget-cell:hover { background:var(--bg4) !important; }
 .budget-cell-parent { font-weight:600; }
@@ -317,8 +343,8 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 .budget-cell-readonly:hover { background:inherit !important; }
 .budget-group-hint { font-size:10px; color:var(--txt3); font-weight:400; }
 .budget-cell-val { display:block; font-size:12px; color:var(--txt); }
-.budget-cell-actual { display:block; font-size:10px; color:var(--income); margin-top:1px; }
-.budget-cell-actual.over { color:var(--expense); }
+.budget-cell-actual { display:block; font-size:10px; color:var(--txt2); margin-top:2px; }
+.budget-cell-diff   { display:block; font-size:10px; font-weight:600; text-align:right; margin-top:1px; }
 .budget-cell-input {
   width:64px; padding:3px 4px; font-size:12px; text-align:center;
   background:var(--bg); border:1px solid var(--accent); border-radius:4px;
@@ -372,6 +398,7 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
   box-shadow:var(--shadow); animation:slideUp .2s ease;
 }
 @keyframes slideUp { from { transform:translateY(16px); opacity:0; } to { transform:translateY(0); opacity:1; } }
+.modal-wide { width:640px; }
 .modal-header {
   display:flex; align-items:center; justify-content:space-between;
   padding:12px 16px; border-bottom:1px solid var(--border);
@@ -669,7 +696,7 @@ tr.tx-selected td { background:rgba(88,166,255,.07); }
 .btn-success { background:rgba(63,185,80,.15); color:var(--income); border-color:rgba(63,185,80,.3); }
 .btn-success:hover { background:rgba(63,185,80,.25); }
 
-.sched-toolbar { display:flex; align-items:center; gap:10px; margin-bottom:12px; }
+.sched-toolbar { display:flex; align-items:center; gap:10px; margin-bottom:12px; position:sticky; top:0; background:var(--bg); z-index:5; padding-top:12px; margin-top:-12px; }
 .sched-th-sort { cursor:pointer; user-select:none; white-space:nowrap; }
 .sched-th-sort:hover { color:var(--txt); }
 .sched-actions { white-space:nowrap; display:flex; gap:4px; align-items:center; }
@@ -746,6 +773,7 @@ tr.tx-selected td { background:rgba(88,166,255,.07); }
   letter-spacing: .04em;
   text-transform: uppercase;
   color: var(--txt2);
+  text-align: left;
 }
 .budget-summary-row td {
   font-size: 12px;
@@ -830,6 +858,15 @@ tr.tx-selected td { background:rgba(88,166,255,.07); }
 .nav-sub-new { color:var(--accent); border-top:1px solid var(--border); padding-top:6px; margin-top:2px; }
 .nav-sub-new:hover { background:rgba(88,166,255,.1); }
 
+/* ─── Reports layout ─────────────────────────────────────────────────────── */
+.report-amt-row { display:flex; gap:6px; }
+.report-amt-row select { width:70px; flex-shrink:0; }
+
+/* Modal report form grid */
+.report-modal-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.report-modal-grid .form-group { margin-bottom:0; }
+.report-modal-grid .form-label { font-size:11px; }
+
 /* ─── Report chips (saved reports bar) ───────────────────────────────────── */
 .report-chip {
   display:inline-flex; align-items:center;
@@ -844,8 +881,6 @@ tr.tx-selected td { background:rgba(88,166,255,.07); }
 .report-chip-active { background:var(--accent); color:#fff; border-color:var(--accent); }
 
 /* ─── Report page ─────────────────────────────────────────────────────────── */
-.report-filter-row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; padding:8px 14px; }
-.report-filter-row + .report-filter-row { border-top:1px solid var(--border); }
 .report-filter-sep { border-top:1px solid var(--border); margin:4px 0; }
 
 /* Tag chips (filter selector) */

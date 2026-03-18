@@ -185,10 +185,11 @@ const api = {
   isMaximized:    ()          => callJava('isMaximized'),
 
   // Conti
-  getAccounts:   ()     => callJava('getAccounts'),
-  addAccount:    data   => callJava('addAccount',   data),
-  updateAccount: data   => callJava('updateAccount', data),
-  deleteAccount: id     => callJava('deleteAccount', {id}),
+  getAccounts:        ()    => callJava('getAccounts'),
+  addAccount:         data  => callJava('addAccount',   data),
+  updateAccount:      data  => callJava('updateAccount', data),
+  deleteAccount:      id    => callJava('deleteAccount', {id}),
+  updateAccountOrder: items => callJava('updateAccountOrder', {items}),
 
   // Categorie
   getCategories:   ()   => callJava('getCategories'),
@@ -399,7 +400,7 @@ function renderPage(page) {
 /* ─── Modal ───────────────────────────────────────────────────────────────── */
 let modalConfirmCallback = null;
 
-function openModal(title, bodyHtml, onConfirm, confirmLabel='Salva', confirmClass='btn-primary') {
+function openModal(title, bodyHtml, onConfirm, confirmLabel='Salva', confirmClass='btn-primary', modalClass='') {
   document.getElementById('modalTitle').textContent   = title;
   document.getElementById('modalBody').innerHTML      = bodyHtml;
   document.getElementById('modalConfirm').textContent = confirmLabel;
@@ -408,14 +409,16 @@ function openModal(title, bodyHtml, onConfirm, confirmLabel='Salva', confirmClas
   const hasActions = onConfirm !== null;
   document.getElementById('modalCancel').style.display  = hasActions ? '' : 'none';
   document.getElementById('modalConfirm').style.display = hasActions ? '' : 'none';
+  const modalEl = document.getElementById('modal');
+  modalEl.className = modalClass ? `modal ${modalClass}` : 'modal';
   document.getElementById('modalOverlay').classList.add('open');
 }
 
 function closeModal() {
   document.getElementById('modalOverlay').classList.remove('open');
   modalConfirmCallback = null;
-  const modal = document.querySelector('.modal');
-  if (modal) modal.style.width = '';
+  const modal = document.getElementById('modal');
+  if (modal) { modal.style.width = ''; modal.className = 'modal'; }
   if (window._budgetDetailChart) { window._budgetDetailChart.destroy(); window._budgetDetailChart = null; }
 }
 
@@ -449,21 +452,33 @@ async function renderSidebarReports() {
   if (!el) return;
   const reports = await api.getReports();
   el.innerHTML = reports.map(r => `
-    <a class="nav-sub-item${_currentReportId === r.id ? ' active' : ''}"
-       onclick="openSavedReport(${r.id})" title="${r.name}">
-      <span style="font-size:11px">📋</span>
-      <span class="nav-sub-label">${r.name}</span>
-    </a>`).join('');
+    <div style="display:flex;align-items:center">
+      <a class="nav-sub-item${_currentReportId === r.id ? ' active' : ''}" style="flex:1;min-width:0"
+         onclick="openSavedReport(${r.id})" title="${r.name}">
+        <span style="font-size:11px">📋</span>
+        <span class="nav-sub-label">${r.name}</span>
+      </a>
+      <button class="btn btn-ghost btn-icon" style="padding:2px 5px;font-size:10px;flex-shrink:0;opacity:.6"
+              onmouseenter="this.style.opacity=1" onmouseleave="this.style.opacity=.6"
+              onclick="showReportModal(${r.id})" title="Modifica">✏️</button>
+      <button class="btn btn-ghost btn-icon" style="padding:2px 5px;font-size:10px;flex-shrink:0;opacity:.4"
+              onmouseenter="this.style.opacity=1" onmouseleave="this.style.opacity=.4"
+              onclick="deleteReportConfirm(${r.id},'${r.name.replace(/'/g,"\\'")}')">✕</button>
+    </div>`).join('');
 }
 
 async function openSavedReport(id) {
   _currentReportId = id;
-  if (currentPage === 'reports') {
-    // Re-render page and load config
-    await renderReports();
-  } else {
-    navigate('reports');
+  if (currentPage !== 'reports') {
+    navigate('reports'); // renderReports() will load and run the report
+    return;
   }
+  const reports = await api.getReports();
+  const r = reports.find(x => x.id === id);
+  if (!r) return;
+  _loadReportConfig(r);
+  _updateReportHeader(r);
+  renderSidebarReports();
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -618,21 +633,52 @@ async function renderDashboard() {
   {
     const prevMonthIdx = new Date().getMonth() - 1; // 0-indexed, -1 = nessun mese se siamo a gennaio
     const expCatIds = new Set(budgetYear.categories.filter(c => c.type === 'expense').map(c => c.id));
-    const budgetByMonth = Array(12).fill(0);
-    budgetYear.budgets.forEach(b => {
-      if (expCatIds.has(b.category_id)) budgetByMonth[b.month - 1] += b.amount;
-    });
-    const actualByMonth = Array(12).fill(0);
-    monthly.forEach(r => { actualByMonth[r.month - 1] = r.expenses; });
 
-    // Includi solo mesi 0..prevMonthIdx con almeno budget o reale > 0
+    // Replica getEffective della pagina budget per avere i valori distribuiti dal config
+    const _bMap = {};
+    budgetYear.budgets.forEach(b => { if (!_bMap[b.category_id]) _bMap[b.category_id] = {}; _bMap[b.category_id][b.month] = b.amount; });
+    const _cfgMap = {};
+    (budgetYear.configs || []).forEach(c => { _cfgMap[c.category_id] = c; });
+    const _getEff = catId => {
+      const cfg = _cfgMap[catId], stored = _bMap[catId] || {};
+      if (!cfg || !cfg.master_amount) return stored;
+      const locked = cfg.mode === 'annuale' ? cfg.master_amount : cfg.master_amount * 12;
+      const pinned = Object.keys(stored).map(Number);
+      const pinnedSum = pinned.reduce((s, m) => s + (stored[m] || 0), 0);
+      const free = 12 - pinned.length;
+      const freeVal = free > 0 ? Math.round((locked - pinnedSum) / free * 100) / 100 : 0;
+      const res = {...stored};
+      for (let m = 1; m <= 12; m++) { if (res[m] === undefined) res[m] = Math.max(0, freeVal); }
+      return res;
+    };
+
+    // Tutte le categorie foglia (income e expense) — stesso approccio della riga sommario pagina budget
+    const parentIds = new Set(budgetYear.categories.filter(c => c.parent_id).map(c => c.parent_id));
+    const leafCats = budgetYear.categories.filter(c => !parentIds.has(c.id));
+
+    // Net per mese: income contribuisce positivamente, expense negativamente
+    const budgetByMonth = Array(12).fill(0);
+    const actualByMonth = Array(12).fill(0);
+    leafCats.forEach(c => {
+      const sign = c.type === 'income' ? 1 : -1;
+      const eff = _getEff(c.id);
+      for (let m = 1; m <= 12; m++) budgetByMonth[m-1] += sign * (eff[m] || 0);
+    });
+    budgetYear.actuals.forEach(a => {
+      const cat = budgetYear.categories.find(c => c.id === a.category_id);
+      if (!cat) return;
+      const sign = cat.type === 'income' ? 1 : -1;
+      actualByMonth[a.month - 1] += sign * a.total;
+    });
+
+    // Includi solo mesi 0..prevMonthIdx con almeno budget o reale != 0
     const bLabels = [], bBudget = [], bActual = [], bDiff = [];
     for (let i = 0; i <= prevMonthIdx; i++) {
       if (budgetByMonth[i] === 0 && actualByMonth[i] === 0) continue;
       bLabels.push(months[i]);
       bBudget.push(budgetByMonth[i]);
       bActual.push(actualByMonth[i]);
-      bDiff.push(budgetByMonth[i] - actualByMonth[i]);
+      bDiff.push(actualByMonth[i] - budgetByMonth[i]); // positivo = meglio del previsto
     }
 
     if (charts.budget) charts.budget.destroy();
@@ -996,6 +1042,90 @@ window.toggleReconciled = async (id, newVal) => {
 
 // Restituisce solo <option> (no optgroup) per le categorie foglia del gruppo.
 // Macrocategorie senza figli = selezionabili; macrocategorie CON figli = escluse.
+function initCatPicker(inputId, hiddenId, listId) {
+  const input  = document.getElementById(inputId);
+  const hidden = document.getElementById(hiddenId);
+  const list   = document.getElementById(listId);
+  if (!input || !hidden || !list) return;
+
+  let items = [], activeIdx = -1;
+
+  const hide = () => { list.style.display = 'none'; activeIdx = -1; };
+
+  const renderList = filtered => {
+    activeIdx = -1;
+    if (!filtered.length) {
+      list.innerHTML = '<div class="cat-picker-empty">Nessuna categoria trovata</div>';
+    } else {
+      list.innerHTML = filtered.map(it =>
+        `<div class="cat-picker-item" data-id="${it.id}">${it.label}</div>`).join('');
+      list.querySelectorAll('.cat-picker-item').forEach(el => {
+        el.onmousedown = e => { e.preventDefault(); selectById(Number(el.dataset.id)); };
+      });
+    }
+    list.style.display = 'block';
+  };
+
+  const selectById = id => {
+    const item = items.find(i => i.id == id);
+    hidden.value = item ? item.id : '';
+    input.value  = item ? item.label : '';
+    hide();
+  };
+
+  // Called by updateCatSelect to reset items and pre-select
+  input._catPickerSetItems = (newItems, keepId) => {
+    items = newItems;
+    const sel = items.find(i => i.id == keepId);
+    hidden.value = sel ? sel.id : '';
+    input.value  = sel ? sel.label : '';
+    hide();
+  };
+
+  input.addEventListener('focus', () => {
+    input.select();
+    renderList(items);
+  });
+
+  input.addEventListener('input', () => {
+    hidden.value = '';
+    const q = input.value.toLowerCase();
+    renderList(q ? items.filter(i => i.label.toLowerCase().includes(q)) : items);
+  });
+
+  input.addEventListener('keydown', e => {
+    const els = [...list.querySelectorAll('.cat-picker-item')];
+    if (list.style.display === 'none') {
+      if (e.key === 'Enter') { e.preventDefault(); document.getElementById('modalConfirm')?.click(); }
+      return;
+    }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      activeIdx = Math.min(activeIdx + 1, els.length - 1);
+      els.forEach((el, i) => el.classList.toggle('active', i === activeIdx));
+      els[activeIdx]?.scrollIntoView({block:'nearest'});
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      activeIdx = Math.max(activeIdx - 1, 0);
+      els.forEach((el, i) => el.classList.toggle('active', i === activeIdx));
+      els[activeIdx]?.scrollIntoView({block:'nearest'});
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (activeIdx >= 0 && els[activeIdx]) {
+        selectById(Number(els[activeIdx].dataset.id));
+      } else if (els.length === 1) {
+        selectById(Number(els[0].dataset.id));
+      } else {
+        hide();
+      }
+    } else if (e.key === 'Escape') {
+      hide();
+    }
+  });
+
+  input.addEventListener('blur', () => setTimeout(hide, 150));
+}
+
 function buildCatOptions(cats, selectedId) {
   const parentIds = new Set(cats.filter(c => c.parent_id).map(c => c.parent_id));
   // foglie = sottocategorie (parent_id!=null) OPPURE macrocategorie senza figli
@@ -1035,7 +1165,11 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
       </div>
       <div class="form-group" id="catGroup">
         <label class="form-label">Categoria</label>
-        <select class="form-control" id="f_cat"></select>
+        <div class="cat-picker">
+          <input type="text" class="form-control" id="f_cat_input" placeholder="— Seleziona categoria —" autocomplete="off">
+          <input type="hidden" id="f_cat" value="">
+          <div class="cat-picker-list" id="catPickerList"></div>
+        </div>
       </div>
     </div>
     <div class="form-row">
@@ -1096,17 +1230,19 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
         </div>
       </div>`;
 
-  // Popola il select categoria in base al tipo selezionato
+  // Popola il picker categoria in base al tipo selezionato
   function updateCatSelect(keepSelected) {
-    const type = document.getElementById('f_type')?.value;
-    const sel  = document.getElementById('f_cat');
-    if (!sel) return;
-    if (type === 'transfer') {
-      sel.innerHTML = '<option value="">Nessuna categoria</option>';
-      return;
-    }
+    const type  = document.getElementById('f_type')?.value;
+    const input = document.getElementById('f_cat_input');
+    if (!input?._catPickerSetItems) return;
+    if (type === 'transfer') { input._catPickerSetItems([], null); return; }
     const cats = type === 'expense' ? expCats : incCats;
-    sel.innerHTML = `<option value="">— Seleziona —</option>${buildCatOptions(cats, keepSelected)}`;
+    const parentIds = new Set(cats.filter(c => c.parent_id).map(c => c.parent_id));
+    const items = cats.filter(c => c.parent_id || !parentIds.has(c.id)).map(c => ({
+      id: c.id,
+      label: c.parent_id ? `${c.parent_name} › ${c.icon} ${c.name}` : `${c.icon} ${c.name}`
+    }));
+    input._catPickerSetItems(items, keepSelected);
   }
 
   window.toggleCats = () => {
@@ -1209,24 +1345,8 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
     if (e.key === 'Enter') { e.preventDefault(); document.getElementById('modalConfirm')?.click(); }
   });
 
-  // Tipo-ahead + Enter sulla categoria
-  const catSel = document.getElementById('f_cat');
-  let _catSearch = '', _catTimer = null;
-  catSel.addEventListener('keydown', e => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      document.getElementById('modalConfirm')?.click();
-      return;
-    }
-    if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
-      e.preventDefault();
-      clearTimeout(_catTimer);
-      _catSearch += e.key.toLowerCase();
-      const match = [...catSel.options].find(o => o.text.toLowerCase().startsWith(_catSearch));
-      if (match) catSel.value = match.value;
-      _catTimer = setTimeout(() => { _catSearch = ''; }, 800);
-    }
-  });
+  initCatPicker('f_cat_input', 'f_cat', 'catPickerList');
+  updateCatSelect(tx?.category_id);
 }
 
 window.editTx = async id => {
@@ -1351,26 +1471,173 @@ async function renderAccounts() {
   loadAccountCards();
 }
 
+function _accountCardHtml(a) {
+  const badges = [a.is_favorite ? '⭐' : '', a.is_closed ? '🔒' : ''].filter(Boolean).join(' ');
+  return `<div class="account-card${a.is_closed ? ' account-card-closed' : ''}" data-id="${a.id}" data-type="${a.type}" draggable="true" style="--acc-color:${a.color}">
+    <span class="acc-drag-handle" title="Trascina per riordinare">⠿</span>
+    <div class="account-icon">${a.icon}</div>
+    <div class="acc-info">
+      <div class="account-name">${a.name}${badges ? ` <span style="font-size:11px;font-weight:400">${badges}</span>` : ''}</div>
+    </div>
+    <div class="account-balance" style="color:${a.is_closed ? 'var(--txt3)' : a.color}">${fmt.currency(a.balance)}</div>
+    <div class="account-actions">
+      ${a.type === 'credit' ? `<button class="btn btn-ghost btn-icon" onclick="closeCreditMonth(${a.id},\`${a.name.replace(/`/g,"'")}\`)">💳 Chiudi mese</button>` : ''}
+      <button class="btn btn-ghost btn-icon" onclick="editAccount(${a.id})">✏️</button>
+      <button class="btn btn-ghost btn-icon" onclick="deleteAccount(${a.id})">🗑️</button>
+    </div>
+  </div>`;
+}
+
 async function loadAccountCards() {
   const grid = document.getElementById('accountsGrid');
   if (!grid) return;
   const accounts = await api.getAccounts();
-  grid.innerHTML = accounts.length ? accounts.map(a => `
-    <div class="account-card${a.is_closed ? ' account-card-closed' : ''}" style="--acc-color:${a.color}">
-      <div style="position:absolute;top:0;left:0;right:0;height:3px;background:${a.color}"></div>
-      ${a.is_favorite ? '<div class="acc-badge-fav">⭐ Preferito</div>' : ''}
-      ${a.is_closed   ? '<div class="acc-badge-closed">🔒 Chiuso</div>' : ''}
-      <div class="account-icon">${a.icon}</div>
-      <div class="account-name">${a.name}</div>
-      <div class="account-type">${accTypeLabel(a.type)}</div>
-      <div class="account-balance" style="color:${a.is_closed ? 'var(--txt3)' : a.color}">${fmt.currency(a.balance)}</div>
-      <div class="account-actions">
-        <button class="btn btn-ghost btn-icon" onclick="editAccount(${a.id})">✏️ Modifica</button>
-        <button class="btn btn-ghost btn-icon" onclick="deleteAccount(${a.id})">🗑️</button>
+  if (!accounts.length) {
+    grid.innerHTML = '<div class="empty-state"><div class="empty-icon">🏦</div><p>Nessun conto. Creane uno!</p></div>';
+    return;
+  }
+
+  const TYPE_ORDER = ['checking','savings','cash','credit','investment'];
+  grid.innerHTML = TYPE_ORDER.filter(t => accounts.some(a => a.type === t)).map(t => `
+    <div class="accounts-section">
+      <div class="accounts-section-label">${accTypeLabel(t)}</div>
+      <div class="accounts-section-grid" data-type="${t}">
+        ${accounts.filter(a => a.type === t).map(_accountCardHtml).join('')}
       </div>
-    </div>`).join('') :
-    '<div class="empty-state"><div class="empty-icon">🏦</div><p>Nessun conto. Creane uno!</p></div>';
+    </div>`).join('');
+
+  // Drag & drop
+  let dragId = null;
+  grid.querySelectorAll('.account-card[draggable]').forEach(card => {
+    card.addEventListener('dragstart', e => {
+      dragId = Number(card.dataset.id);
+      setTimeout(() => card.classList.add('dragging'), 0);
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    card.addEventListener('dragend', () => {
+      card.classList.remove('dragging');
+      grid.querySelectorAll('.account-card').forEach(c => c.classList.remove('drag-over'));
+    });
+    card.addEventListener('dragover', e => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      grid.querySelectorAll('.account-card').forEach(c => c.classList.remove('drag-over'));
+      if (Number(card.dataset.id) !== dragId) card.classList.add('drag-over');
+    });
+    card.addEventListener('drop', e => {
+      e.preventDefault();
+      const targetId = Number(card.dataset.id);
+      if (!dragId || dragId === targetId) return;
+      const dragCard = grid.querySelector(`.account-card[data-id="${dragId}"]`);
+      if (!dragCard || dragCard.dataset.type !== card.dataset.type) {
+        toast('Riordinamento possibile solo tra conti dello stesso tipo', 'error'); return;
+      }
+      const container = card.parentElement;
+      const cards = [...container.querySelectorAll('.account-card')];
+      const fromIdx = cards.findIndex(c => Number(c.dataset.id) === dragId);
+      const toIdx   = cards.findIndex(c => Number(c.dataset.id) === targetId);
+      container.insertBefore(dragCard, fromIdx < toIdx ? card.nextSibling : card);
+
+      // Ricalcola sort_order globale su tutti i gruppi visibili
+      const items = [];
+      let order = 0;
+      grid.querySelectorAll('.accounts-section-grid').forEach(sec => {
+        sec.querySelectorAll('.account-card').forEach(c => {
+          items.push({ id: Number(c.dataset.id), sort_order: order++ });
+        });
+      });
+      api.updateAccountOrder(items).catch(err => toast(err.message, 'error'));
+    });
+  });
 }
+
+window.closeCreditMonth = async (cardId, cardName) => {
+  const accounts = await api.getAccounts();
+  const sources  = accounts.filter(a => a.type !== 'credit' && a.type !== 'investment' && !a.is_closed);
+
+  // Default: mese precedente
+  const now = new Date();
+  const defYear  = now.getDate() >= 10 ? now.getFullYear() : (now.getMonth() === 0 ? now.getFullYear()-1 : now.getFullYear());
+  const defMonth = now.getDate() >= 10 ? now.getMonth() + 1 : (now.getMonth() === 0 ? 12 : now.getMonth());
+  const defMonthStr = `${defYear}-${String(defMonth).padStart(2,'0')}`;
+
+  // Data di pagamento default: 10 del mese successivo
+  const payYear  = defMonth === 12 ? defYear + 1 : defYear;
+  const payMonth = defMonth === 12 ? 1 : defMonth + 1;
+  const defPayDate = `${payYear}-${String(payMonth).padStart(2,'0')}-10`;
+
+  const body = `
+    <div class="form-group">
+      <label class="form-label">Mese di riferimento</label>
+      <input type="month" class="form-control" id="cc_month" value="${defMonthStr}">
+    </div>
+    <div class="form-group" style="background:var(--bg3);border-radius:6px;padding:10px 14px;display:flex;justify-content:space-between;align-items:center">
+      <span style="font-size:12px;color:var(--txt2)">Spese nel mese</span>
+      <span id="cc_amount_display" style="font-size:16px;font-weight:700;color:var(--expense)">—</span>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Conto sorgente</label>
+      <select class="form-control" id="cc_source">
+        <option value="">— Seleziona —</option>
+        ${sources.map(a=>`<option value="${a.id}">${a.icon} ${a.name} (${fmt.currency(a.balance)})</option>`).join('')}
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Data trasferimento</label>
+      <input type="date" class="form-control" id="cc_date" value="${defPayDate}">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Importo (€)</label>
+      <input type="number" step="0.01" class="form-control" id="cc_amount" placeholder="Calcolato automaticamente">
+    </div>`;
+
+  const calcAmount = async () => {
+    const monthVal = document.getElementById('cc_month')?.value;
+    if (!monthVal) return;
+    const [y, m] = monthVal.split('-').map(Number);
+    const from = `${y}-${String(m).padStart(2,'0')}-01`;
+    const lastDay = new Date(y, m, 0).getDate();
+    const to   = `${y}-${String(m).padStart(2,'0')}-${lastDay}`;
+    const txs  = await api.getTransactions({ account_id: cardId, date_from: from, date_to: to, limit: 5000 });
+    const total = txs.filter(t => t.type !== 'transfer').reduce((s,t) => s + t.amount, 0);
+    const el = document.getElementById('cc_amount_display');
+    const inp = document.getElementById('cc_amount');
+    if (el)  el.textContent  = fmt.currency(total);
+    if (inp) inp.value = total.toFixed(2);
+    // Aggiorna data pagamento in base al mese scelto
+    const pm = m === 12 ? 1 : m + 1;
+    const py = m === 12 ? y + 1 : y;
+    const dateInp = document.getElementById('cc_date');
+    if (dateInp) dateInp.value = `${py}-${String(pm).padStart(2,'0')}-10`;
+  };
+
+  openModal(`💳 Chiudi mese — ${cardName}`, body, async () => {
+    const sourceId = parseInt(document.getElementById('cc_source').value);
+    const amount   = parseFloat(document.getElementById('cc_amount').value);
+    const date     = document.getElementById('cc_date').value;
+    if (!sourceId) { toast('Seleziona il conto sorgente', 'error'); return; }
+    if (!amount || amount <= 0) { toast('Importo non valido', 'error'); return; }
+    if (!date)    { toast('Inserisci la data', 'error'); return; }
+    const monthVal = document.getElementById('cc_month')?.value || defMonthStr;
+    await api.addTransaction({
+      date, amount, type: 'transfer',
+      account_id: sourceId, to_account_id: cardId,
+      description: `Pagamento carta ${cardName} — ${monthVal}`,
+      reconciled: 0
+    });
+    toast(`Trasferimento di ${fmt.currency(amount)} creato`);
+    loadAccountCards();
+    updateSidebar();
+  });
+
+  // Calcola subito al primo render
+  setTimeout(calcAmount, 50);
+
+  // Ricalcola quando cambia il mese
+  setTimeout(() => {
+    document.getElementById('cc_month')?.addEventListener('change', calcAmount);
+  }, 100);
+};
 
 function accTypeLabel(t) {
   return {checking:'Conto Corrente',savings:'Risparmio',cash:'Contanti',credit:'Carta di Credito',investment:'Investimento'}[t]||t;
@@ -1625,16 +1892,35 @@ function renderBudgetTable() {
         </td>`;
 
     const hasCfg = !isGroupHeader && cfg && cfg.master_amount > 0;
+    const now = new Date();
+    const curYear = now.getFullYear(), curMonth = now.getMonth() + 1;
+    const isPast = m => budgetYear < curYear || (budgetYear === curYear && m <= curMonth);
+
+    const cellBottom = (budget, actual, m) => {
+      const past = isPast(m);
+      const showActual = actual > 0 && past;
+      // diff: mostrata per tutti i mesi passati/correnti, anche senza transazioni
+      const showDiff = past && budget > 0;
+      // income: diff = actual - budget (negativo = sotto il previsto = rosso)
+      // expense: diff = budget - actual (negativo = sforato = rosso)
+      // 0 sempre verde
+      const diff = isIncome ? (actual - budget) : (budget - actual);
+      const diffColor = diff < 0 ? 'var(--expense)' : 'var(--income)';
+      const diffStr = (diff >= 0 ? '+' : '') + fmt.currency(diff);
+      if (!showActual && !showDiff) return '';
+      return `${showActual ? `<span class="budget-cell-actual">${fmt.currency(actual)}</span>` : ''}
+        ${showDiff ? `<span class="budget-cell-diff" style="color:${diffColor}">${diffStr}</span>` : ''}`;
+    };
     const cells = Array.from({length:12},(_,i)=>{
       const m = i+1;
       const budget = bm[m] || 0;
       const actual = am[m] || 0;
-      const over = isOver(budget, actual);
+      const over = isPast(m) && isOver(budget, actual);
       const budgetStr = (budget > 0 || hasCfg) ? fmt.currency(budget) : '';
       if (isGroupHeader) {
         return `<td class="budget-cell budget-cell-parent budget-cell-readonly" data-over="${over?1:0}">
           <span class="budget-cell-val">${budget>0?fmt.currency(budget):''}</span>
-          ${actual>0?`<span class="budget-cell-actual ${over?'over':''}">${fmt.currency(actual)}</span>`:''}
+          ${cellBottom(budget, actual, m)}
         </td>`;
       }
       const isCalc = hasCfg && (budgetMap[cat.id]?.[m] === undefined);
@@ -1642,10 +1928,10 @@ function renderBudgetTable() {
                   data-cat="${cat.id}" data-month="${m}" data-over="${over?1:0}"
                   onclick="_budgetCellEdit(this,${cat.id},${m})">
         <span class="budget-cell-val">${budgetStr}</span>
-        ${actual>0?`<span class="budget-cell-actual ${over?'over':''}">${fmt.currency(actual)}</span>`:''}
+        ${cellBottom(budget, actual, m)}
       </td>`;
     }).join('');
-    const anyOver = Array.from({length:12}, (_,i) => isOver(bm[i+1]||0, am[i+1]||0)).some(Boolean);
+    const anyOver = Array.from({length:12}, (_,i) => isPast(i+1) && isOver(bm[i+1]||0, am[i+1]||0)).some(Boolean);
 
     // Totale: se annuale e ci sono mesi liberi, usa almeno master_amount;
     // se tutti i mesi sono impostati manualmente, usa solo la loro somma
@@ -3114,210 +3400,54 @@ window.deleteStock = async id => {
 ═══════════════════════════════════════════════════════════════════════════ */
 async function renderReports() {
   const pg = document.getElementById('pg-reports');
-  const [accounts, categories, tags, reports] = await Promise.all([
-    api.getAccounts(), api.getCategories(), api.getTags(), api.getReports(),
-  ]);
-
   pg.innerHTML = `
-    <div class="section-header">
-      <h2 class="section-title">📊 Resoconti</h2>
-      <div style="display:flex;gap:8px;align-items:center">
-        <button class="btn btn-ghost" id="rBtnSave">💾 Salva</button>
-        <button class="btn btn-ghost" id="rBtnNew">＋ Nuovo</button>
+    <div class="page-header">
+      <h2 class="page-title">Resoconti</h2>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span id="rCurrentLabel" style="font-size:12px;color:var(--txt3)"></span>
+        <button class="btn btn-primary" onclick="showReportModal()">＋ Nuovo resoconto</button>
       </div>
     </div>
-
-    <!-- Saved reports bar -->
-    ${reports.length ? `
-    <div class="card" style="margin-bottom:10px;padding:8px 12px">
-      <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
-        <span style="font-size:12px;color:var(--txt3);margin-right:4px">Salvati:</span>
-        ${reports.map(r => `
-          <span class="report-chip${_currentReportId===r.id?' report-chip-active':''}"
-                onclick="openSavedReport(${r.id})">${r.name}</span>
-          <button class="btn btn-ghost btn-icon" style="font-size:10px;padding:1px 4px"
-                  onclick="deleteReportConfirm(${r.id},'${r.name.replace(/'/g,"\\'")}')">✕</button>
-        `).join('')}
-      </div>
-    </div>` : ''}
-
-    <!-- Filter panel -->
-    <div class="card" style="margin-bottom:12px">
-      <div class="card-header" style="padding-bottom:4px">
-        <span class="card-title">Filtri</span>
-        <button class="btn btn-ghost btn-icon" id="rBtnReset" title="Azzera">↺</button>
-      </div>
-      <div class="report-filter-row">
-        <select class="form-control" id="rDatePreset" onchange="reportApplyDatePreset(this.value)" style="width:170px">
-          <option value="">Periodo personalizzato</option>
-          <option value="thisMonth">Mese corrente</option>
-          <option value="lastMonth">Mese scorso</option>
-          <option value="thisYear">Anno corrente</option>
-          <option value="lastYear">Anno scorso</option>
-          <option value="last30">Ultimi 30 giorni</option>
-          <option value="last90">Ultimi 90 giorni</option>
-          <option value="all">Tutti i periodi</option>
-        </select>
-        <label style="font-size:12px;color:var(--txt2)">Dal</label>
-        <input type="date" class="form-control" id="rDateFrom" style="width:140px">
-        <label style="font-size:12px;color:var(--txt2)">Al</label>
-        <input type="date" class="form-control" id="rDateTo" style="width:140px">
-      </div>
-      <div class="report-filter-row">
-        <select class="form-control" id="rAccount">
-          <option value="">Tutti i conti</option>
-          ${accounts.filter(a=>!a.is_closed).map(a=>`<option value="${a.id}">${a.icon} ${a.name}</option>`).join('')}
-        </select>
-        <select class="form-control" id="rType">
-          <option value="">Tutti i tipi</option>
-          <option value="income">Entrate</option>
-          <option value="expense">Uscite</option>
-          <option value="transfer">Trasferimenti</option>
-        </select>
-        <select class="form-control" id="rReconciled">
-          <option value="">Tutte</option>
-          <option value="1">Solo conciliate</option>
-          <option value="0">Solo da verificare</option>
-        </select>
-      </div>
-      <div class="report-filter-row">
-        <select class="form-control" id="rCategory">
-          <option value="">Tutte le categorie</option>
-          ${categories.filter(c=>c.type!=='transfer').map(c=>
-            `<option value="${c.id}">${c.parent_id?'  └ ':''}${c.icon} ${c.name}</option>`).join('')}
-        </select>
-        <input type="text" class="form-control" id="rSearch" placeholder="🔍 Descrizione…" style="flex:1;min-width:140px">
-        <select class="form-control" id="rAmtOp" style="width:65px">
-          <option value="">—</option>
-          <option value="gt">＞</option>
-          <option value="lt">＜</option>
-          <option value="eq">=</option>
-        </select>
-        <input type="number" class="form-control" id="rAmtVal" placeholder="Importo" style="width:100px" min="0" step="0.01">
-      </div>
-      ${tags.length ? `
-      <div class="report-filter-row">
-        <span style="font-size:12px;color:var(--txt2);white-space:nowrap">Tag:</span>
-        <div style="display:flex;flex-wrap:wrap;gap:6px" id="rTagsSelector">
-          ${tags.map(t=>`<span class="tag-chip" style="--tc:${t.color}" data-tag-id="${t.id}" onclick="this.classList.toggle('selected')">${t.name}</span>`).join('')}
-        </div>
-      </div>` : ''}
-      <div class="report-filter-row" style="border-top:1px solid var(--border);padding-top:10px;margin-top:2px;flex-wrap:wrap;gap:12px">
-        <span style="font-size:12px;color:var(--txt2)">Raggruppa per:</span>
-        <select class="form-control" id="rGroupby" style="width:150px">
-          <option value="none">Nessuno (lista)</option>
-          <option value="month">Mese</option>
-          <option value="category">Categoria</option>
-          <option value="account">Conto</option>
-        </select>
-        <span style="font-size:12px;color:var(--txt2)">Grafico:</span>
-        <select class="form-control" id="rChartType" style="width:120px">
-          <option value="none">Nessuno</option>
-          <option value="bar">Barre</option>
-          <option value="line">Linea</option>
-          <option value="pie">Torta</option>
-        </select>
-        <button class="btn btn-primary" id="rBtnRun" style="margin-left:auto">▶ Esegui</button>
-      </div>
-    </div>
-
     <div id="rResults"></div>`;
 
-  document.getElementById('rBtnRun').onclick   = () => runReport();
-  document.getElementById('rBtnReset').onclick = reportResetFilters;
-  document.getElementById('rBtnNew').onclick   = () => {
-    _currentReportId = null; _reportFilters = {};
-    reportResetFilters();
-    document.getElementById('rResults').innerHTML = '';
-    renderSidebarReports();
-  };
-  document.getElementById('rBtnSave').onclick  = saveReportDialog;
-
-  // Restore state if a report is selected
   if (_currentReportId !== null) {
+    const reports = await api.getReports();
     const r = reports.find(x => x.id === _currentReportId);
-    if (r) { _loadReportConfig(r); return; }
+    if (r) { _loadReportConfig(r); _updateReportHeader(r); return; }
   }
-  // Re-apply last filter state
-  _reportRestoreFormState();
+  if (Object.keys(_reportFilters||{}).length || _reportGroupby !== 'none' || _reportChartType !== 'none') {
+    runReport();
+  }
 }
 
-function reportApplyDatePreset(preset) {
-  const t = new Date(), y = t.getFullYear(), m = t.getMonth();
-  const iso = d => d.toISOString().slice(0,10);
-  let from = '', to = '';
-  if      (preset==='thisMonth') { from=iso(new Date(y,m,1));   to=iso(new Date(y,m+1,0)); }
-  else if (preset==='lastMonth') { from=iso(new Date(y,m-1,1)); to=iso(new Date(y,m,0));   }
-  else if (preset==='thisYear')  { from=`${y}-01-01`;            to=`${y}-12-31`;           }
-  else if (preset==='lastYear')  { from=`${y-1}-01-01`;          to=`${y-1}-12-31`;         }
-  else if (preset==='last30')    { from=iso(new Date(t-30*864e5));to=iso(t);                }
-  else if (preset==='last90')    { from=iso(new Date(t-90*864e5));to=iso(t);                }
-  const df=document.getElementById('rDateFrom'), dt=document.getElementById('rDateTo');
-  if(df) df.value=from; if(dt) dt.value=to;
-}
-
-function reportResetFilters() {
-  ['rDateFrom','rDateTo','rSearch','rAmtVal'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
-  ['rDatePreset','rAccount','rType','rReconciled','rCategory','rAmtOp'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
-  const rg=document.getElementById('rGroupby'),rc=document.getElementById('rChartType');
-  if(rg)rg.value='none'; if(rc)rc.value='none';
-  document.querySelectorAll('#rTagsSelector .tag-chip.selected').forEach(el=>el.classList.remove('selected'));
-}
-
-function _reportRestoreFormState() {
-  const f = _reportFilters;
-  if (!f || !Object.keys(f).length) return;
-  const sv = (id,v) => { const e=document.getElementById(id); if(e&&v!=null&&v!=='')e.value=v; };
-  sv('rDateFrom', f.date_from); sv('rDateTo', f.date_to);
-  sv('rAccount',  f.account_id); sv('rType', f.type);
-  sv('rReconciled', f.reconciled!=null ? String(f.reconciled) : '');
-  sv('rCategory', f.category_id); sv('rSearch', f.search);
-  sv('rAmtOp', f.amount_op); sv('rAmtVal', f.amount_val);
-  sv('rGroupby', _reportGroupby); sv('rChartType', _reportChartType);
-  (f.tag_ids||[]).forEach(tid=>{
-    const c=document.querySelector(`[data-tag-id="${tid}"]`); if(c)c.classList.add('selected');
-  });
+function _updateReportHeader(r) {
+  const lbl = document.getElementById('rCurrentLabel');
+  if (!lbl) return;
+  lbl.innerHTML = r
+    ? `📋 ${r.name} <button class="btn btn-ghost btn-icon" style="font-size:11px;padding:1px 5px" onclick="showReportModal(${r.id})" title="Modifica">✏️</button>`
+    : '';
 }
 
 function _loadReportConfig(r) {
   _currentReportId = r.id;
-  _reportGroupby   = r.groupby   || 'none';
+  _reportGroupby   = r.groupby    || 'none';
   _reportChartType = r.chart_type || 'none';
   try { _reportFilters = JSON.parse(r.filters_json || '{}'); } catch { _reportFilters = {}; }
-  _reportRestoreFormState();
   runReport();
 }
 
 async function runReport() {
-  const dateFrom  = document.getElementById('rDateFrom')?.value  || '';
-  const dateTo    = document.getElementById('rDateTo')?.value    || '';
-  const accountId = document.getElementById('rAccount')?.value   || '';
-  const type      = document.getElementById('rType')?.value      || '';
-  const reconc    = document.getElementById('rReconciled')?.value;
-  const catId     = document.getElementById('rCategory')?.value  || '';
-  const search    = document.getElementById('rSearch')?.value    || '';
-  const amtOp     = document.getElementById('rAmtOp')?.value     || '';
-  const amtVal    = parseFloat(document.getElementById('rAmtVal')?.value);
-  const groupby   = document.getElementById('rGroupby')?.value   || 'none';
-  const chartType = document.getElementById('rChartType')?.value || 'none';
-  const tagIds    = [...document.querySelectorAll('#rTagsSelector .tag-chip.selected')]
-                      .map(el=>parseInt(el.dataset.tagId));
-
-  _reportGroupby   = groupby;
-  _reportChartType = chartType;
+  const f         = _reportFilters || {};
+  const groupby   = _reportGroupby   || 'none';
+  const chartType = _reportChartType || 'none';
 
   const filters = {};
-  if (dateFrom)  filters.date_from    = dateFrom;
-  if (dateTo)    filters.date_to      = dateTo;
-  if (accountId) filters.account_id   = parseInt(accountId);
-  if (type)      filters.type         = type;
-  if (catId)     filters.category_id  = parseInt(catId);
-  if (search)    filters.search       = search;
-
-  _reportFilters = { ...filters,
-    amount_op: amtOp || '', amount_val: isNaN(amtVal) ? null : amtVal,
-    tag_ids: tagIds, reconciled: reconc !== '' && reconc != null ? parseInt(reconc) : null,
-  };
+  if (f.date_from)   filters.date_from   = f.date_from;
+  if (f.date_to)     filters.date_to     = f.date_to;
+  if (f.account_id)  filters.account_id  = f.account_id;
+  if (f.type)        filters.type        = f.type;
+  if (f.category_id) filters.category_id = f.category_id;
+  if (f.search)      filters.search      = f.search;
 
   const resultsEl = document.getElementById('rResults');
   if (resultsEl) resultsEl.innerHTML = `<div style="text-align:center;padding:40px;color:var(--txt3)">⏳ Caricamento…</div>`;
@@ -3325,17 +3455,14 @@ async function runReport() {
   let txs = await api.getTransactions(filters);
 
   // Client-side post-filters
-  if (reconc !== '' && reconc != null) {
-    const rv = parseInt(reconc);
-    txs = txs.filter(t => (t.reconciled||0) === rv);
-  }
+  const reconc = f.reconciled;
+  if (reconc != null) txs = txs.filter(t => (t.reconciled||0) === reconc);
+  const tagIds = f.tag_ids || [];
   if (tagIds.length) {
-    txs = txs.filter(t => {
-      if (!t.tags || !t.tags.length) return false;
-      return tagIds.every(tid => t.tags.some(tag => Number(tag.id) === tid));
-    });
+    txs = txs.filter(t => t.tags?.length && tagIds.every(tid => t.tags.some(tag => Number(tag.id) === tid)));
   }
-  if (amtOp && !isNaN(amtVal)) {
+  const amtOp = f.amount_op, amtVal = f.amount_val;
+  if (amtOp && amtVal != null && !isNaN(amtVal)) {
     txs = txs.filter(t => {
       const a = Math.abs(t.amount);
       if (amtOp==='gt') return a > amtVal;
@@ -3346,6 +3473,214 @@ async function runReport() {
   }
 
   renderReportResults(txs, groupby, chartType);
+}
+
+async function showReportModal(reportId = null) {
+  const [accounts, categories, tags, reports] = await Promise.all([
+    api.getAccounts(), api.getCategories(), api.getTags(), api.getReports(),
+  ]);
+
+  const r = reportId != null ? reports.find(x => x.id === reportId) : null;
+  let f = {}, initGroupby = _reportGroupby || 'none', initChartType = _reportChartType || 'none', initName = '';
+
+  if (r) {
+    try { f = JSON.parse(r.filters_json || '{}'); } catch {}
+    initGroupby   = r.groupby    || 'none';
+    initChartType = r.chart_type || 'none';
+    initName      = r.name       || '';
+  } else if (reportId === null) {
+    f = _reportFilters || {};
+  }
+
+  const sel = (val, opt) => val == opt ? ' selected' : '';
+  const bodyHtml = `
+    <div class="form-group">
+      <label class="form-label">Nome del resoconto <span style="color:var(--txt3);font-weight:400">(facoltativo — compila per salvare)</span></label>
+      <input type="text" class="form-control" id="rmName" value="${initName.replace(/"/g,'&quot;')}" placeholder="es. Spese famiglia 2026" autocomplete="off">
+      ${r ? `<div style="font-size:11px;color:var(--txt3);margin-top:3px">Mantieni il nome per aggiornare, cambialo per salvarne una copia.</div>` : ''}
+    </div>
+    <hr style="border:none;border-top:1px solid var(--border);margin:8px 0 12px">
+    <div class="report-modal-grid">
+      <div class="form-group">
+        <label class="form-label">Periodo rapido</label>
+        <select class="form-control" id="rmDatePreset" onchange="rmApplyDatePreset(this.value)">
+          <option value="">Personalizzato</option>
+          <option value="thisMonth">Mese corrente</option>
+          <option value="lastMonth">Mese scorso</option>
+          <option value="thisYear">Anno corrente</option>
+          <option value="lastYear">Anno scorso</option>
+          <option value="last30">Ultimi 30 giorni</option>
+          <option value="last90">Ultimi 90 giorni</option>
+        </select>
+      </div>
+      <div></div>
+      <div class="form-group">
+        <label class="form-label">Dal</label>
+        <input type="date" class="form-control" id="rmDateFrom" value="${f.date_from||''}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Al</label>
+        <input type="date" class="form-control" id="rmDateTo" value="${f.date_to||''}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Conto</label>
+        <select class="form-control" id="rmAccount">
+          <option value="">Tutti i conti</option>
+          ${accounts.filter(a=>!a.is_closed).map(a=>`<option value="${a.id}"${sel(f.account_id,a.id)}>${a.icon} ${a.name}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Tipo</label>
+        <select class="form-control" id="rmType">
+          <option value="">Tutti</option>
+          <option value="income"${sel(f.type,'income')}>Entrate</option>
+          <option value="expense"${sel(f.type,'expense')}>Uscite</option>
+          <option value="transfer"${sel(f.type,'transfer')}>Trasferimenti</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Stato</label>
+        <select class="form-control" id="rmReconciled">
+          <option value="">Tutte</option>
+          <option value="1"${f.reconciled===1?' selected':''}>Solo conciliate</option>
+          <option value="0"${f.reconciled===0?' selected':''}>Solo da verificare</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Categoria</label>
+        <select class="form-control" id="rmCategory">
+          <option value="">Tutte</option>
+          ${categories.filter(c=>c.type!=='transfer').map(c=>
+            `<option value="${c.id}"${sel(f.category_id,c.id)}>${c.parent_id?'└ ':''}${c.icon} ${c.name}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Descrizione</label>
+        <input type="text" class="form-control" id="rmSearch" value="${(f.search||'').replace(/"/g,'&quot;')}" placeholder="Cerca…">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Importo</label>
+        <div class="report-amt-row">
+          <select class="form-control" id="rmAmtOp">
+            <option value="">—</option>
+            <option value="gt"${sel(f.amount_op,'gt')}>＞</option>
+            <option value="lt"${sel(f.amount_op,'lt')}>＜</option>
+            <option value="eq"${sel(f.amount_op,'eq')}>=</option>
+          </select>
+          <input type="number" class="form-control" id="rmAmtVal"
+                 value="${f.amount_val!=null?f.amount_val:''}" placeholder="Valore" min="0" step="0.01">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Raggruppa per</label>
+        <select class="form-control" id="rmGroupby">
+          <option value="none">Nessuno (lista)</option>
+          <option value="month"${sel(initGroupby,'month')}>Mese</option>
+          <option value="category"${sel(initGroupby,'category')}>Categoria</option>
+          <option value="account"${sel(initGroupby,'account')}>Conto</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Grafico</label>
+        <select class="form-control" id="rmChartType">
+          <option value="none">Nessuno</option>
+          <option value="bar"${sel(initChartType,'bar')}>Barre</option>
+          <option value="line"${sel(initChartType,'line')}>Linea</option>
+          <option value="pie"${sel(initChartType,'pie')}>Torta</option>
+        </select>
+      </div>
+    </div>
+    ${tags.length ? `
+    <div class="form-group" style="margin-top:6px">
+      <label class="form-label">Tag</label>
+      <div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:3px" id="rmTagsSelector">
+        ${tags.map(t=>`<span class="tag-chip${(f.tag_ids||[]).includes(t.id)?' selected':''}" style="--tc:${t.color}" data-tag-id="${t.id}" onclick="this.classList.toggle('selected')">${t.name}</span>`).join('')}
+      </div>
+    </div>` : ''}`;
+
+  openModal(
+    r ? `✏️ Modifica: ${r.name}` : '📊 Nuovo resoconto',
+    bodyHtml,
+    async () => {
+      const name      = document.getElementById('rmName')?.value.trim() || '';
+      const dateFrom  = document.getElementById('rmDateFrom')?.value  || '';
+      const dateTo    = document.getElementById('rmDateTo')?.value    || '';
+      const accountId = document.getElementById('rmAccount')?.value   || '';
+      const type      = document.getElementById('rmType')?.value      || '';
+      const reconc    = document.getElementById('rmReconciled')?.value;
+      const catId     = document.getElementById('rmCategory')?.value  || '';
+      const search    = document.getElementById('rmSearch')?.value    || '';
+      const amtOp     = document.getElementById('rmAmtOp')?.value     || '';
+      const amtVal    = parseFloat(document.getElementById('rmAmtVal')?.value);
+      const groupby   = document.getElementById('rmGroupby')?.value   || 'none';
+      const chartType = document.getElementById('rmChartType')?.value || 'none';
+      const tagIds    = [...document.querySelectorAll('#rmTagsSelector .tag-chip.selected')]
+                          .map(el => parseInt(el.dataset.tagId));
+
+      const filters = {};
+      if (dateFrom)  filters.date_from   = dateFrom;
+      if (dateTo)    filters.date_to     = dateTo;
+      if (accountId) filters.account_id  = parseInt(accountId);
+      if (type)      filters.type        = type;
+      if (catId)     filters.category_id = parseInt(catId);
+      if (search)    filters.search      = search;
+
+      _reportGroupby   = groupby;
+      _reportChartType = chartType;
+      _reportFilters   = { ...filters,
+        amount_op: amtOp || '', amount_val: isNaN(amtVal) ? null : amtVal,
+        tag_ids: tagIds, reconciled: reconc !== '' && reconc != null ? parseInt(reconc) : null,
+      };
+
+      if (name) {
+        const data = {
+          name,
+          filters_json: JSON.stringify(_reportFilters),
+          groupby, chart_type: chartType,
+        };
+        if (r && name === r.name) data.id = r.id;
+        try {
+          const saved = await api.saveReport(data);
+          _currentReportId = saved.id;
+          toast(`"${name}" ${data.id ? 'aggiornato' : 'salvato'}`);
+        } catch(e) { toast(e.message, 'error'); return false; }
+      } else {
+        _currentReportId = null;
+      }
+
+      closeModal();
+      renderSidebarReports();
+      if (currentPage !== 'reports') {
+        navigate('reports');
+      } else {
+        if (_currentReportId) {
+          const rpts = await api.getReports();
+          _updateReportHeader(rpts.find(x => x.id === _currentReportId) || null);
+        } else {
+          _updateReportHeader(null);
+        }
+        runReport();
+      }
+    },
+    'Esegui',
+    'btn-primary',
+    'modal-wide'
+  );
+  setTimeout(() => { const e = document.getElementById('rmName'); if (e) { e.focus(); e.select(); } }, 60);
+}
+
+function rmApplyDatePreset(preset) {
+  const t = new Date(), y = t.getFullYear(), m = t.getMonth();
+  const iso = d => d.toISOString().slice(0,10);
+  let from = '', to = '';
+  if      (preset==='thisMonth') { from=iso(new Date(y,m,1));    to=iso(new Date(y,m+1,0)); }
+  else if (preset==='lastMonth') { from=iso(new Date(y,m-1,1));  to=iso(new Date(y,m,0));   }
+  else if (preset==='thisYear')  { from=`${y}-01-01`;             to=`${y}-12-31`;           }
+  else if (preset==='lastYear')  { from=`${y-1}-01-01`;           to=`${y-1}-12-31`;         }
+  else if (preset==='last30')    { from=iso(new Date(t-30*864e5));to=iso(t);                 }
+  else if (preset==='last90')    { from=iso(new Date(t-90*864e5));to=iso(t);                 }
+  const df = document.getElementById('rmDateFrom'), dt = document.getElementById('rmDateTo');
+  if (df) df.value = from; if (dt) dt.value = to;
 }
 
 function renderReportResults(txs, groupby, chartType) {
@@ -3464,7 +3799,7 @@ function renderReportResults(txs, groupby, chartType) {
 
   el.innerHTML = `
     ${chartData ? `<div class="card" style="margin-bottom:12px;padding:14px">
-      <div style="position:relative;min-height:200px;max-height:300px">
+      <div style="position:relative;height:340px">
         <canvas id="rChart"></canvas></div></div>` : ''}
     <div class="card">
       <div class="card-header">
@@ -3495,45 +3830,15 @@ function _fmtMonth(yyyyMM) {
     .toLocaleString('it-IT', {month:'long', year:'numeric'});
 }
 
-async function saveReportDialog() {
-  const reports = await api.getReports();
-  const existing = _currentReportId ? reports.find(r=>r.id===_currentReportId) : null;
-  openModal(existing ? 'Aggiorna Report' : 'Salva Report', `
-    <div class="form-group">
-      <label class="form-label">Nome *</label>
-      <input id="rSaveName" class="form-input" value="${existing?.name||''}" placeholder="es. Spese famiglia 2026">
-    </div>`,
-    async () => {
-      const name = document.getElementById('rSaveName')?.value.trim();
-      if (!name) { toast('Inserisci un nome', 'error'); return false; }
-      const data = {
-        name,
-        filters_json: JSON.stringify(_reportFilters || {}),
-        groupby:      document.getElementById('rGroupby')?.value    || 'none',
-        chart_type:   document.getElementById('rChartType')?.value  || 'none',
-      };
-      if (_currentReportId) data.id = _currentReportId;
-      try {
-        const saved = await api.saveReport(data);
-        _currentReportId = saved.id;
-        closeModal();
-        toast(`Report "${name}" salvato`);
-        renderSidebarReports();
-        renderReports();
-      } catch(e) { toast(e.message,'error'); return false; }
-    }, existing ? 'Aggiorna' : 'Salva', 'btn-primary');
-  setTimeout(()=>{ const e=document.getElementById('rSaveName'); if(e){e.focus();e.select();} },60);
-}
 
 async function deleteReportConfirm(id, name) {
-  openModal('Elimina Report',
-    `<p style="margin:0">Eliminare il report <b>${name}</b>?</p>`,
+  openModal('Elimina resoconto',
+    `<p style="margin:0">Eliminare <b>${name}</b>?</p>`,
     async () => {
       await api.deleteReport(id);
-      if (_currentReportId === id) _currentReportId = null;
-      closeModal(); toast('Report eliminato');
+      if (_currentReportId === id) { _currentReportId = null; _updateReportHeader(null); }
+      closeModal(); toast('Resoconto eliminato');
       renderSidebarReports();
-      renderReports();
     }, 'Elimina', 'btn-danger');
 }
 
@@ -4074,15 +4379,17 @@ let schedCharts = {};
 async function renderScheduled() {
   const pg = document.getElementById('pg-scheduled');
   pg.innerHTML = `
-    <div class="section-header">
-      <h2 class="section-title">Transazioni Pianificate</h2>
+    <div style="flex-shrink:0;padding:16px 16px 0;background:var(--bg)">
+      <div class="section-header">
+        <h2 class="section-title">Transazioni Pianificate</h2>
+      </div>
+      <div class="scheduled-tabs">
+        <button class="sched-tab ${schedTab==='lista'?'active':''}"      onclick="setSchedTab('lista')">📋 Lista</button>
+        <button class="sched-tab ${schedTab==='projection'?'active':''}" onclick="setSchedTab('projection')">📈 Proiezione Saldo</button>
+        <button class="sched-tab ${schedTab==='cashflow'?'active':''}"   onclick="setSchedTab('cashflow')">💰 Flusso di Cassa</button>
+      </div>
     </div>
-    <div class="scheduled-tabs">
-      <button class="sched-tab ${schedTab==='lista'?'active':''}"      onclick="setSchedTab('lista')">📋 Lista</button>
-      <button class="sched-tab ${schedTab==='projection'?'active':''}" onclick="setSchedTab('projection')">📈 Proiezione Saldo</button>
-      <button class="sched-tab ${schedTab==='cashflow'?'active':''}"   onclick="setSchedTab('cashflow')">💰 Flusso di Cassa</button>
-    </div>
-    <div id="schedContent"></div>`;
+    <div id="schedContent" style="flex:1;overflow-y:auto;padding:0 16px 16px"></div>`;
 
   renderSchedTab();
 }
@@ -4675,7 +4982,11 @@ function showScheduledModal(sched, accounts, categories, tags = []) {
     <div class="form-row">
       <div class="form-group" id="sc_catGroup">
         <label class="form-label">Categoria</label>
-        <select class="form-control" id="sc_cat"></select>
+        <div class="cat-picker">
+          <input type="text" class="form-control" id="sc_cat_input" placeholder="— Seleziona categoria —" autocomplete="off">
+          <input type="hidden" id="sc_cat" value="">
+          <div class="cat-picker-list" id="sc_catPickerList"></div>
+        </div>
       </div>
       <div class="form-group">
         <label class="form-label">Frequenza</label>
@@ -4749,12 +5060,17 @@ function showScheduledModal(sched, accounts, categories, tags = []) {
     </div>`;
 
   function updateSchedCatSelect(keepSelected) {
-    const type = document.getElementById('sc_type')?.value;
-    const sel  = document.getElementById('sc_cat');
-    if (!sel) return;
-    if (type === 'transfer') { sel.innerHTML = '<option value="">Nessuna categoria</option>'; return; }
+    const type  = document.getElementById('sc_type')?.value;
+    const input = document.getElementById('sc_cat_input');
+    if (!input?._catPickerSetItems) return;
+    if (type === 'transfer') { input._catPickerSetItems([], null); return; }
     const cats = type === 'expense' ? expCats : incCats;
-    sel.innerHTML = `<option value="">— Seleziona —</option>${buildCatOptions(cats, keepSelected)}`;
+    const parentIds = new Set(cats.filter(c => c.parent_id).map(c => c.parent_id));
+    const items = cats.filter(c => c.parent_id || !parentIds.has(c.id)).map(c => ({
+      id: c.id,
+      label: c.parent_id ? `${c.parent_name} › ${c.icon} ${c.name}` : `${c.icon} ${c.name}`
+    }));
+    input._catPickerSetItems(items, keepSelected);
   }
 
   window.schedToggleCats = () => {
@@ -4807,8 +5123,8 @@ function showScheduledModal(sched, accounts, categories, tags = []) {
     };
   });
 
-  // populate category select after modal renders
-  setTimeout(() => updateSchedCatSelect(sched?.category_id), 30);
+  initCatPicker('sc_cat_input', 'sc_cat', 'sc_catPickerList');
+  updateSchedCatSelect(sched?.category_id);
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════

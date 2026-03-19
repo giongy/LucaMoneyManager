@@ -1,12 +1,15 @@
 package com.moneymanager;
 
-import me.friwi.jcefmaven.CefAppBuilder;
-import me.friwi.jcefmaven.MavenCefAppHandlerAdapter;
-import org.cef.CefApp;
-
-import javax.swing.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
+
+import javax.swing.JOptionPane;
+import javax.swing.SwingUtilities;
+
+import org.cef.CefApp;
+
+import me.friwi.jcefmaven.CefAppBuilder;
+import me.friwi.jcefmaven.MavenCefAppHandlerAdapter;
 
 public class App {
 
@@ -72,3 +75,4 @@ public class App {
         });
     }
 }
+ 

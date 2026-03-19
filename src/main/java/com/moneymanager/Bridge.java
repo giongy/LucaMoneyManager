@@ -295,6 +295,13 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                 yield Map.of("ok", true, "path", dest);
             }
 
+            // ─── Manutenzione DB ───────────────────────────────────────────────────
+            case "dbGetInfo"        -> db.dbGetInfo();
+            case "dbVacuum"         -> db.dbVacuum();
+            case "dbIntegrityCheck" -> db.dbIntegrityCheck();
+            case "dbReindex"        -> db.dbReindex();
+            case "dbWalCheckpoint"  -> db.dbWalCheckpoint();
+
             // ─── Resoconti ─────────────────────────────────────────────────────────
             case "getReports"    -> db.getReports();
             case "saveReport"    -> db.saveReport(p);

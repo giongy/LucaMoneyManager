@@ -120,7 +120,9 @@ public class Database {
         // JDBC esegue solo la prima istruzione: splittiamo per ";"
         for (String stmt : sql.split(";")) {
             String s = stmt.strip();
-            if (!s.isEmpty()) conn.createStatement().execute(s);
+            if (!s.isEmpty()) {
+                try (Statement st = conn.createStatement()) { st.execute(s); }
+            }
         }
     }
 
@@ -1829,5 +1831,85 @@ public class Database {
             WHERE strftime('%Y',t.date)=? AND t.type=?
             GROUP BY t.category_id ORDER BY total DESC
         """, String.valueOf(year), type);
+    }
+
+    // ─── Manutenzione DB ────────────────────────────────────────────────────────
+
+    /** Esegue un'operazione che richiede accesso esclusivo al file DB.
+     *  Chiude la connessione principale, apre una connessione plain (senza WAL),
+     *  esegue l'operazione, poi riapre la connessione WAL normale. */
+    @FunctionalInterface
+    private interface DbOp { void run(Connection c) throws SQLException; }
+
+    private void withExclusiveAccess(DbOp op) throws SQLException {
+        conn.close();
+        try (Connection plain = DriverManager.getConnection("jdbc:sqlite:" + currentDbPath)) {
+            op.run(plain);
+        } finally {
+            conn = openConnection(currentDbPath);
+        }
+    }
+
+    public Map<String, Object> dbGetInfo() throws SQLException, IOException {
+        long fileSize = Files.exists(Path.of(currentDbPath)) ? Files.size(Path.of(currentDbPath)) : 0;
+        Path walPath  = Path.of(currentDbPath + "-wal");
+        long walSize  = Files.exists(walPath) ? Files.size(walPath) : 0;
+        var pageCount = queryOne("PRAGMA page_count");
+        var pageSize  = queryOne("PRAGMA page_size");
+        var freePages = queryOne("PRAGMA freelist_count");
+        long pc = ((Number) pageCount.get("page_count")).longValue();
+        long ps = ((Number) pageSize.get("page_size")).longValue();
+        long fp = ((Number) freePages.get("freelist_count")).longValue();
+        var txCount   = queryOne("SELECT COUNT(*) AS n FROM transactions");
+        var accCount  = queryOne("SELECT COUNT(*) AS n FROM accounts");
+        int txN  = txCount  != null ? ((Number) txCount.get("n")).intValue()  : 0;
+        int accN = accCount != null ? ((Number) accCount.get("n")).intValue() : 0;
+        return Map.of(
+            "file_size",  fileSize,
+            "wal_size",   walSize,
+            "page_count", pc,
+            "page_size",  ps,
+            "free_pages", fp,
+            "free_bytes", fp * ps,
+            "tx_count",   txN,
+            "acc_count",  accN
+        );
+    }
+
+    public Map<String, Object> dbVacuum() throws SQLException, IOException {
+        long sizeBefore = Files.exists(Path.of(currentDbPath)) ? Files.size(Path.of(currentDbPath)) : 0;
+        withExclusiveAccess(c -> {
+            try (Statement st = c.createStatement()) { st.execute("VACUUM"); }
+        });
+        long sizeAfter = Files.exists(Path.of(currentDbPath)) ? Files.size(Path.of(currentDbPath)) : 0;
+        logger.log("MANUTENZIONE", String.format("VACUUM: %d → %d bytes (liberati: %d)", sizeBefore, sizeAfter, sizeBefore - sizeAfter));
+        return Map.of("ok", true, "size_before", sizeBefore, "size_after", sizeAfter, "saved", sizeBefore - sizeAfter);
+    }
+
+    public Map<String, Object> dbIntegrityCheck() throws SQLException {
+        var rows = queryList("PRAGMA integrity_check");
+        boolean ok = rows.size() == 1 && "ok".equals(String.valueOf(rows.get(0).get("integrity_check")));
+        List<String> messages = rows.stream().map(r -> String.valueOf(r.get("integrity_check"))).toList();
+        logger.log("MANUTENZIONE", "integrity_check: " + (ok ? "OK" : String.join("; ", messages)));
+        return Map.of("ok", ok, "messages", messages);
+    }
+
+    public Map<String, Object> dbReindex() throws SQLException {
+        withExclusiveAccess(c -> {
+            try (Statement st = c.createStatement()) { st.execute("REINDEX"); }
+            try (Statement st = c.createStatement()) { st.execute("PRAGMA optimize"); }
+        });
+        logger.log("MANUTENZIONE", "REINDEX + PRAGMA optimize");
+        return Map.of("ok", true);
+    }
+
+    public Map<String, Object> dbWalCheckpoint() throws SQLException, IOException {
+        withExclusiveAccess(c -> {
+            try (Statement st = c.createStatement()) { st.execute("PRAGMA wal_checkpoint(TRUNCATE)"); }
+        });
+        Path walPath = Path.of(currentDbPath + "-wal");
+        long walSize = Files.exists(walPath) ? Files.size(walPath) : 0;
+        logger.log("MANUTENZIONE", "WAL checkpoint(TRUNCATE): wal_size=" + walSize);
+        return Map.of("ok", true, "wal_size", walSize);
     }
 }

@@ -133,6 +133,7 @@ input,select,textarea { font-family:inherit; }
 .page-container { flex:1; overflow:hidden; position:relative; }
 .page { position:absolute; inset:0; overflow-y:auto; padding:16px; display:none; }
 .page.active { display:block; }
+#pg-transactions.active { display:flex; flex-direction:column; overflow:hidden; padding:0; }
 #pg-logviewer { display:none; flex-direction:column; overflow-y:hidden; }
 #pg-logviewer.active { display:flex; }
 #pg-scheduled { display:none; flex-direction:column; overflow:hidden; padding:0; }
@@ -245,9 +246,13 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 .filter-bar .form-control { width:auto; }
 
 /* ─── Conto card ──────────────────────────────────────────────────────────── */
-.accounts-grid { display:flex; flex-direction:column; gap:20px; }
-.accounts-section-label { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.6px; color:var(--txt3); margin-bottom:8px; padding-left:2px; }
+.accounts-grid { display:flex; flex-direction:column; gap:20px; max-width:680px; }
+.accounts-section-label { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.6px; color:var(--txt3); margin-bottom:8px; padding-left:2px; display:flex; align-items:center; gap:6px; }
 .accounts-section-grid  { display:flex; flex-direction:column; gap:6px; }
+.accounts-section.sec-dragging  { opacity:.4; }
+.accounts-section.sec-drag-over { outline:2px dashed var(--accent); outline-offset:4px; border-radius:var(--radius); }
+.sec-drag-handle { font-size:14px; color:var(--txt3); cursor:grab; user-select:none; flex-shrink:0; }
+.sec-drag-handle:active { cursor:grabbing; }
 .account-card {
   background:var(--bg2); border:1px solid var(--border); border-radius:var(--radius);
   padding:8px 12px; position:relative; overflow:hidden; cursor:default;
@@ -286,9 +291,10 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 /* ─── Dashboard conti ────────────────────────────────────────────────────── */
 .acc-list-table { width:100%; border-collapse:collapse; }
 .acc-group-row td {
-  padding:6px 14px 2px; font-size:10px; text-transform:uppercase;
-  letter-spacing:.6px; color:var(--txt3); font-weight:600;
+  padding:5px 14px; font-size:11px; font-weight:600;
+  color:var(--txt2); background:var(--bg3);
   border-top:1px solid var(--border);
+  border-bottom:1px solid var(--border);
 }
 .acc-group-row:first-child td { border-top:none; }
 .acc-list-row { cursor:pointer; transition:background .12s; }
@@ -314,9 +320,10 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 .acc-name { font-size:13px; font-weight:500; vertical-align:middle; }
 .acc-bal { font-size:13px; font-weight:700; }
 .acc-total-row td {
-  padding:7px 14px; font-size:13px; font-weight:700;
-  border-top:2px solid var(--border);
+  padding:5px 14px; font-size:13px; font-weight:600;
+  border-top:1px solid var(--border);
 }
+.acc-total-row:first-child td { border-top:2px solid var(--border); }
 .acc-total-row td:last-child { text-align:right; }
 .account-card-closed { opacity: 0.6; }
 .acc-badge-fav   { position:absolute; top:10px; right:10px; font-size:11px; color:var(--warn); }
@@ -354,6 +361,7 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
   min-width:80px; vertical-align:top; transition:background .1s;
 }
 .budget-cell:hover { background:var(--bg4) !important; }
+.budget-cur-month { box-shadow:inset 2px 0 0 rgba(255,255,255,.6), inset -2px 0 0 rgba(255,255,255,.6); }
 .budget-cell-parent { font-weight:600; }
 .budget-cell-readonly { cursor:default; pointer-events:none; opacity:0.85; }
 .budget-cell-readonly:hover { background:inherit !important; }
@@ -409,7 +417,7 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 .modal-overlay.open { display:flex; }
 .modal {
   background:var(--bg2); border:1px solid var(--border);
-  border-radius:var(--radius); width:460px; max-width:95vw;
+  border-radius:var(--radius); width:560px; max-width:95vw;
   max-height:88vh; display:flex; flex-direction:column;
   box-shadow:var(--shadow); animation:slideUp .2s ease;
 }
@@ -570,6 +578,14 @@ tr.tx-selected td { background:rgba(88,166,255,.07); }
 .settings-info-label:last-of-type,
 .settings-info-value:last-of-type { border-bottom:none; }
 
+/* ─── Manutenzione DB ───────────────────────────────────────────────────── */
+.maint-info-grid { display:grid; grid-template-columns:220px 1fr; gap:0; padding:6px 0; }
+.maint-info-label { padding:7px 16px; color:var(--txt2); font-size:12px; border-bottom:1px solid var(--border); }
+.maint-info-value { padding:7px 16px; color:var(--txt); font-size:12px; border-bottom:1px solid var(--border); font-family:monospace; }
+.maint-info-label:last-of-type, .maint-info-value:last-of-type { border-bottom:none; }
+.maint-op-control { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+.maint-result { font-size:12px; font-family:monospace; }
+
 /* ─── Bottoni aggiungi transazione ──────────────────────────────────────── */
 .tx-add-group { display:flex; gap:6px; padding:10px 12px; }
 .btn-add-income   { background:rgba(63,185,80,.15);  color:var(--income);  border:1px solid rgba(63,185,80,.35);  }
@@ -708,8 +724,7 @@ tr.tx-selected td { background:rgba(88,166,255,.07); }
 .btn-success { background:rgba(63,185,80,.15); color:var(--income); border-color:rgba(63,185,80,.3); }
 .btn-success:hover { background:rgba(63,185,80,.25); }
 
-.sched-toolbar { display:flex; align-items:center; gap:10px; margin-bottom:12px; position:sticky; top:0; background:var(--bg); z-index:5; padding-top:12px; margin-top:-12px; }
-.sched-th-sort { cursor:pointer; user-select:none; white-space:nowrap; }
+.sched-toolbar { display:flex; align-items:center; gap:10px; margin-bottom:12px; position:sticky; top:0; background:var(--bg); z-index:5; padding-top:12px; margin-top:-12px; }.sched-th-sort { cursor:pointer; user-select:none; white-space:nowrap; }
 .sched-th-sort:hover { color:var(--txt); }
 .sched-actions { white-space:nowrap; display:flex; gap:4px; align-items:center; }
 

@@ -384,7 +384,10 @@ function navigate(page) {
 }
 
 document.querySelectorAll('.nav-item').forEach(el => {
-  el.addEventListener('click', () => navigate(el.dataset.page));
+  el.addEventListener('click', () => {
+    if (el.dataset.page === 'transactions') txFilters = { range: txFilters.range || '30d' };
+    navigate(el.dataset.page);
+  });
 });
 
 function renderPage(page) {
@@ -491,17 +494,18 @@ async function openSavedReport(id) {
    DASHBOARD
 ═══════════════════════════════════════════════════════════════════════════ */
 
-const _DASH_ACC_TYPE_ORDER  = ['checking','savings','cash','credit','investment'];
+let   _accTypeOrder         = ['checking','savings','cash','credit','investment'];
 const _DASH_ACC_TYPE_LABELS = {checking:'Conti Correnti',savings:'Risparmio',cash:'Contanti',credit:'Carte di Credito',investment:'Investimenti'};
 
 function _renderDashAccountsWidget(accounts) {
   const el = document.getElementById('dashAccounts');
   if (!el) return;
   const visibleAccounts = accounts.filter(isAccountVisible);
-  const totalBalance = visibleAccounts.reduce((s,a) => s + (a.balance||0), 0);
+  const investBalance = visibleAccounts.filter(a => a.type === 'investment').reduce((s,a) => s + (a.balance||0), 0);
+  const contiBalance  = visibleAccounts.filter(a => a.type !== 'investment').reduce((s,a) => s + (a.balance||0), 0);
   const visGrouped = {};
   visibleAccounts.forEach(a => { (visGrouped[a.type] = visGrouped[a.type] || []).push(a); });
-  const visOrderedTypes = [...new Set([..._DASH_ACC_TYPE_ORDER.filter(t => visGrouped[t]), ...Object.keys(visGrouped)])];
+  const visOrderedTypes = [...new Set([..._accTypeOrder.filter(t => visGrouped[t]), ...Object.keys(visGrouped)])];
   if (!visOrderedTypes.length) {
     el.innerHTML = `<p class="text-muted" style="padding:20px;text-align:center">Nessun conto. <a onclick="navigate('accounts')" style="color:var(--accent);cursor:pointer">Aggiungi un conto →</a></p>`;
     return;
@@ -521,21 +525,29 @@ function _renderDashAccountsWidget(accounts) {
               <td class="acc-bal ${a.balance<0?'neg':''}" style="color:${a.balance<0?'var(--expense)':(a.color||'var(--accent)')}">
                 ${fmt.currency(a.balance)}
               </td>
-              <td class="acc-quick-btns" onclick="event.stopPropagation()">
-                <button class="acc-quick-btn acc-quick-exp" title="Aggiungi uscita"  onclick="_dashQuickTx(${a.id},'expense')">−</button>
-                <button class="acc-quick-btn acc-quick-inc" title="Aggiungi entrata" onclick="_dashQuickTx(${a.id},'income')">+</button>
-                <button class="acc-quick-btn acc-quick-tra" title="Trasferimento"    onclick="_dashQuickTx(${a.id},'transfer')">⇄</button>
+              <td onclick="event.stopPropagation()">
+                <div class="acc-quick-btns">
+                  <button class="acc-quick-btn acc-quick-exp" title="Aggiungi uscita"  onclick="_dashQuickTx(${a.id},'expense')">−</button>
+                  <button class="acc-quick-btn acc-quick-inc" title="Aggiungi entrata" onclick="_dashQuickTx(${a.id},'income')">+</button>
+                  <button class="acc-quick-btn acc-quick-tra" title="Trasferimento"    onclick="_dashQuickTx(${a.id},'transfer')">⇄</button>
+                </div>
               </td>
             </tr>`).join('')}
         </tbody>`).join('')}
       <tbody>
         <tr class="acc-total-row">
-          <td>Totale</td>
-          <td class="acc-bal ${totalBalance<0?'neg':''}" style="color:${totalBalance<0?'var(--expense)':'var(--income)'}">
-            ${fmt.currency(totalBalance)}
+          <td>Conti</td>
+          <td class="acc-bal ${contiBalance<0?'neg':''}" style="color:${contiBalance<0?'var(--expense)':'var(--income)'}">
+            ${fmt.currency(contiBalance)}
           </td>
           <td></td>
         </tr>
+        ${investBalance !== 0 ? `
+        <tr class="acc-total-row">
+          <td style="color:var(--txt2)">Investimenti</td>
+          <td class="acc-bal" style="color:var(--accent2)">${fmt.currency(investBalance)}</td>
+          <td></td>
+        </tr>` : ''}
       </tbody>
     </table>`;
 }
@@ -650,7 +662,12 @@ async function renderDashboard() {
         {label:'Entrate', data:incArr, backgroundColor:'rgba(63,185,80,.7)', borderRadius:4},
         {label:'Uscite',  data:expArr, backgroundColor:'rgba(248,81,73,.7)',  borderRadius:4}
       ]},
-    options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{labels:{color:chartColors().tick}}},
+    options:{ responsive:true, maintainAspectRatio:false,
+      interaction:{ mode:'index', intersect:false },
+      plugins:{
+        legend:{labels:{color:chartColors().tick}},
+        tooltip:{ callbacks:{ label: ctx => ` ${ctx.dataset.label}: ${fmt.currency(ctx.parsed.y)}` } }
+      },
       scales:{x:{ticks:{color:chartColors().tick},grid:{color:chartColors().grid}},
               y:{ticks:{color:chartColors().tick},grid:{color:chartColors().grid}}}}
   });
@@ -712,18 +729,32 @@ async function renderDashboard() {
     const budgetCtx = document.getElementById('budgetChart');
     if (budgetCtx && bLabels.length) {
       charts.budget = new Chart(budgetCtx, {
-        type: 'line',
+        type: 'bar',
         data: {
           labels: bLabels,
           datasets: [
-            { label: 'Budget',     data: bBudget, borderColor: '#58a6ff', backgroundColor: 'transparent', tension: 0.3, pointRadius: 3 },
-            { label: 'Reale',      data: bActual, borderColor: '#f85149', backgroundColor: 'transparent', tension: 0.3, pointRadius: 3 },
-            { label: 'Differenza', data: bDiff,   borderColor: '#3fb950', backgroundColor: 'rgba(63,185,80,.1)', fill: true, tension: 0.3, pointRadius: 3, borderDash: [4,3] }
+            { type: 'line', label: 'Budget', data: bBudget, borderColor: '#58a6ff', backgroundColor: 'transparent', tension: 0.3, pointRadius: 3, order: 1 },
+            { type: 'line', label: 'Reale',  data: bActual, borderColor: '#f85149', backgroundColor: 'transparent', tension: 0.3, pointRadius: 3, order: 1 },
+            {
+              type: 'bar', label: 'Differenza', data: bDiff,
+              backgroundColor: bDiff.map(v => v >= 0 ? 'rgba(63,185,80,.45)' : 'rgba(248,81,73,.45)'),
+              borderColor:     bDiff.map(v => v >= 0 ? 'rgba(63,185,80,.8)'  : 'rgba(248,81,73,.8)'),
+              borderWidth: 1, borderRadius: 3, order: 2
+            }
           ]
         },
         options: {
           responsive: true, maintainAspectRatio: false,
-          plugins: { legend: { labels: { color: chartColors().tick, font: { size: 11 } } } },
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { labels: { color: chartColors().tick, font: { size: 11 } } },
+            tooltip: {
+              callbacks: {
+                label: ctx => ` ${ctx.dataset.label}: ${fmt.currency(ctx.parsed.y)}`,
+                labelFont: ctx => ctx.datasetIndex === 2 ? { weight: 'bold', size: 13 } : { size: 12 }
+              }
+            }
+          },
           scales: {
             x: { ticks: { color: chartColors().tick }, grid: { color: chartColors().grid } },
             y: { ticks: { color: chartColors().tick, callback: v => fmt.currency(v) }, grid: { color: chartColors().grid } }
@@ -858,59 +889,61 @@ async function renderTransactions() {
   const [categories, accounts, tags] = await Promise.all([api.getCategories(), api.getAccounts(), api.getTags()]);
 
   pg.innerHTML = `
-    <div class="section-header">
-      <h2 class="section-title">Transazioni</h2>
-      <div id="txHeaderSummary" class="tx-header-summary"></div>
-    </div>
-    <div class="filter-bar">
-      <select class="form-control" id="txRange">
-        ${[
-          {v:'7d',        l:'Ultimi 7 giorni'},
-          {v:'14d',       l:'Ultime 2 settimane'},
-          {v:'30d',       l:'Ultimi 30 giorni'},
-          {v:'3m',        l:'Ultimi 3 mesi'},
-          {v:'6m',        l:'Ultimi 6 mesi'},
-          {v:'ytd',       l:'Da inizio anno'},
-          {v:'last_year', l:'Anno scorso'},
-          {v:'all',       l:'Tutto'},
-          {v:'custom',    l:'Personalizza…'},
-        ].map(o=>`<option value="${o.v}" ${(txFilters.range||'30d')===o.v?'selected':''}>${o.l}</option>`).join('')}
-      </select>
-      <input type="date" class="form-control" id="txFrom" value="${txFilters.date_from||''}"
-             style="display:${txFilters.range==='custom'?'':'none'}">
-      <input type="date" class="form-control" id="txTo"   value="${txFilters.date_to||''}"
-             style="display:${txFilters.range==='custom'?'':'none'}">
-      <select class="form-control" id="txType">
-        <option value="">Tutti i tipi</option>
-        <option value="income"   ${txFilters.type==='income'?'selected':''}>Entrate</option>
-        <option value="expense"  ${txFilters.type==='expense'?'selected':''}>Uscite</option>
-        <option value="transfer" ${txFilters.type==='transfer'?'selected':''}>Trasferimenti</option>
-      </select>
-      <select class="form-control" id="txAccount">
-        <option value="">Tutti i conti</option>
-        ${accounts.filter(isAccountVisible).map(a=>`<option value="${a.id}" ${String(a.id)===String(txFilters.account_id)?'selected':''}>${a.icon} ${a.name}</option>`).join('')}
-      </select>
-      <input class="form-control" id="txSearch" value="${txFilters.search||''}" placeholder="🔍 Cerca..." style="min-width:160px">
-    </div>
-    <div class="card">
-      <div class="table-wrap">
-        <table id="txTable"><thead><tr>
-          <th class="th-sort th-sort-active" data-col="date"        onclick="_txSortBy('date')">Data<span class="sort-ind">▲</span></th>
-          <th class="th-reconciled" id="thReconciled" title="Stato conciliazione">Stato</th>
-          <th class="th-sort" data-col="account"     onclick="_txSortBy('account')">Conto<span class="sort-ind"></span></th>
-          <th class="th-sort" data-col="type"        onclick="_txSortBy('type')">Tipo<span class="sort-ind"></span></th>
-          <th class="th-tags">Tag</th>
-          <th class="th-sort" data-col="category"    onclick="_txSortBy('category')">Categoria<span class="sort-ind"></span></th>
-          <th class="th-sort" data-col="description" onclick="_txSortBy('description')">Descrizione<span class="sort-ind"></span></th>
-          <th class="th-sort text-right" data-col="amount" onclick="_txSortBy('amount')">Importo<span class="sort-ind"></span></th>
-          <th class="text-right th-balance" id="thBalance" style="display:none">Saldo</th>
-          <th></th>
-        </tr></thead><tbody id="txBody"></tbody></table>
+    <div style="flex-shrink:0;padding:16px 16px 0;background:var(--bg)">
+      <div class="section-header">
+        <h2 class="section-title">Transazioni</h2>
+        <div id="txHeaderSummary" class="tx-header-summary"></div>
       </div>
-      <div class="tx-add-group">
-        <button class="btn btn-add-income"   id="btnAddIncome">📥 Entrata</button>
-        <button class="btn btn-add-expense"  id="btnAddExpense">📤 Uscita</button>
-        <button class="btn btn-add-transfer" id="btnAddTransfer">🔁 Trasferimento</button>
+      <div class="filter-bar" style="margin-bottom:12px">
+        <select class="form-control" id="txRange">
+          ${[
+            {v:'7d',        l:'Ultimi 7 giorni'},
+            {v:'14d',       l:'Ultime 2 settimane'},
+            {v:'30d',       l:'Ultimi 30 giorni'},
+            {v:'3m',        l:'Ultimi 3 mesi'},
+            {v:'6m',        l:'Ultimi 6 mesi'},
+            {v:'ytd',       l:'Da inizio anno'},
+            {v:'last_year', l:'Anno scorso'},
+            {v:'all',       l:'Tutto'},
+            {v:'custom',    l:'Personalizza…'},
+          ].map(o=>`<option value="${o.v}" ${(txFilters.range||'30d')===o.v?'selected':''}>${o.l}</option>`).join('')}
+        </select>
+        <input type="date" class="form-control" id="txFrom" value="${txFilters.date_from||''}"
+               style="display:${txFilters.range==='custom'?'':'none'}">
+        <input type="date" class="form-control" id="txTo"   value="${txFilters.date_to||''}"
+               style="display:${txFilters.range==='custom'?'':'none'}">
+        <select class="form-control" id="txType">
+          <option value="">Tutti i tipi</option>
+          <option value="income"   ${txFilters.type==='income'?'selected':''}>Entrate</option>
+          <option value="expense"  ${txFilters.type==='expense'?'selected':''}>Uscite</option>
+          <option value="transfer" ${txFilters.type==='transfer'?'selected':''}>Trasferimenti</option>
+        </select>
+        <select class="form-control" id="txAccount">
+          <option value="">Tutti i conti</option>
+          ${accounts.filter(isAccountVisible).map(a=>`<option value="${a.id}" ${String(a.id)===String(txFilters.account_id)?'selected':''}>${a.icon} ${a.name}</option>`).join('')}
+        </select>
+        <input class="form-control" id="txSearch" value="${txFilters.search||''}" placeholder="🔍 Cerca..." style="min-width:160px">
+      </div>
+    </div>
+    <div id="txScrollWrap" style="flex:1;overflow:auto;padding:0 16px 16px">
+      <div class="card">
+        <table id="txTable"><thead><tr>
+            <th class="th-sort th-sort-active" data-col="date"        onclick="_txSortBy('date')">Data<span class="sort-ind">▲</span></th>
+            <th class="th-reconciled" id="thReconciled" title="Stato conciliazione">Stato</th>
+            <th class="th-sort" data-col="account"     onclick="_txSortBy('account')">Conto<span class="sort-ind"></span></th>
+            <th class="th-sort" data-col="type"        onclick="_txSortBy('type')">Tipo<span class="sort-ind"></span></th>
+            <th class="th-tags">Tag</th>
+            <th class="th-sort" data-col="category"    onclick="_txSortBy('category')">Categoria<span class="sort-ind"></span></th>
+            <th class="th-sort" data-col="description" onclick="_txSortBy('description')">Descrizione<span class="sort-ind"></span></th>
+            <th class="th-sort text-right" data-col="amount" onclick="_txSortBy('amount')">Importo<span class="sort-ind"></span></th>
+            <th class="text-right th-balance" id="thBalance" style="display:none">Saldo</th>
+            <th></th>
+          </tr></thead><tbody id="txBody"></tbody></table>
+        <div class="tx-add-group">
+          <button class="btn btn-add-income"   id="btnAddIncome">📥 Entrata</button>
+          <button class="btn btn-add-expense"  id="btnAddExpense">📤 Uscita</button>
+          <button class="btn btn-add-transfer" id="btnAddTransfer">🔁 Trasferimento</button>
+        </div>
       </div>
     </div>`;
 
@@ -949,7 +982,17 @@ async function renderTransactions() {
   document.getElementById('btnAddExpense').onclick  = () => showTxModal(null, categories, accounts, 'expense',  tags);
   document.getElementById('btnAddTransfer').onclick = () => showTxModal(null, categories, accounts, 'transfer', tags);
 
-  loadTxRows(categories, accounts);
+  await loadTxRows(categories, accounts);
+  // Thead sticky a top:0 dentro txScrollWrap (che è il container scroll)
+  document.querySelectorAll('#txTable thead th').forEach(th => {
+    th.style.position = 'sticky';
+    th.style.top = '0';
+    th.style.zIndex = '5';
+    th.style.background = 'var(--bg2)';
+  });
+  // Scroll to bottom (le tx sono ordinate per data asc, le più recenti sono in fondo)
+  const scrollWrap = document.getElementById('txScrollWrap');
+  if (scrollWrap) requestAnimationFrame(() => { scrollWrap.scrollTop = scrollWrap.scrollHeight; });
 }
 
 function _renderTxHeaderSummary(summary, accounts) {
@@ -1524,10 +1567,14 @@ async function loadAccountCards() {
     return;
   }
 
-  const TYPE_ORDER = ['checking','savings','cash','credit','investment'];
-  grid.innerHTML = TYPE_ORDER.filter(t => accounts.some(a => a.type === t)).map(t => `
-    <div class="accounts-section">
-      <div class="accounts-section-label">${accTypeLabel(t)}</div>
+  const orderedTypes = [...new Set([..._accTypeOrder.filter(t => accounts.some(a => a.type === t)),
+    ...accounts.map(a => a.type).filter(t => !_accTypeOrder.includes(t))])];
+  grid.innerHTML = orderedTypes.map(t => `
+    <div class="accounts-section" data-sec-type="${t}">
+      <div class="accounts-section-label">
+        <span class="sec-drag-handle" title="Trascina per riordinare">⠿</span>
+        ${accTypeLabel(t)}
+      </div>
       <div class="accounts-section-grid" data-type="${t}">
         ${accounts.filter(a => a.type === t).map(_accountCardHtml).join('')}
       </div>
@@ -1546,6 +1593,7 @@ async function loadAccountCards() {
       grid.querySelectorAll('.account-card').forEach(c => c.classList.remove('drag-over'));
     });
     card.addEventListener('dragover', e => {
+      if (!dragId) return;
       e.preventDefault();
       e.dataTransfer.dropEffect = 'move';
       grid.querySelectorAll('.account-card').forEach(c => c.classList.remove('drag-over'));
@@ -1574,6 +1622,46 @@ async function loadAccountCards() {
         });
       });
       api.updateAccountOrder(items).catch(err => toast(err.message, 'error'));
+    });
+  });
+
+  // ── Drag sezioni ────────────────────────────────────────────────────────────
+  let dragSecType = null;
+  grid.querySelectorAll('.accounts-section').forEach(sec => {
+    const handle = sec.querySelector('.sec-drag-handle');
+    handle.addEventListener('mousedown', () => sec.setAttribute('draggable', 'true'));
+    sec.addEventListener('dragstart', e => {
+      if (!sec.getAttribute('draggable')) { e.preventDefault(); return; }
+      dragSecType = sec.dataset.secType;
+      e.dataTransfer.effectAllowed = 'move';
+      setTimeout(() => sec.classList.add('sec-dragging'), 0);
+    });
+    sec.addEventListener('dragend', () => {
+      sec.removeAttribute('draggable');
+      sec.classList.remove('sec-dragging');
+      grid.querySelectorAll('.accounts-section').forEach(s => s.classList.remove('sec-drag-over'));
+      dragSecType = null;
+    });
+    sec.addEventListener('dragover', e => {
+      if (!dragSecType) return;
+      e.preventDefault();
+      grid.querySelectorAll('.accounts-section').forEach(s => s.classList.remove('sec-drag-over'));
+      if (sec.dataset.secType !== dragSecType) sec.classList.add('sec-drag-over');
+    });
+    sec.addEventListener('drop', e => {
+      if (!dragSecType) return;
+      e.preventDefault();
+      const fromType = dragSecType;
+      const toType = sec.dataset.secType;
+      if (fromType === toType) return;
+      const fromSec = grid.querySelector(`.accounts-section[data-sec-type="${fromType}"]`);
+      const secs = [...grid.querySelectorAll('.accounts-section')];
+      const fromIdx = secs.indexOf(fromSec);
+      const toIdx   = secs.indexOf(sec);
+      grid.insertBefore(fromSec, fromIdx < toIdx ? sec.nextSibling : sec);
+      _accTypeOrder = [...grid.querySelectorAll('.accounts-section')].map(s => s.dataset.secType);
+      api.setSetting('accounts.type_order', JSON.stringify(_accTypeOrder));
+      grid.querySelectorAll('.accounts-section').forEach(s => s.classList.remove('sec-drag-over'));
     });
   });
 }
@@ -1882,6 +1970,10 @@ function renderBudgetTable() {
   const configMap = {};  // catId -> {mode, master_amount}
   (configs || []).forEach(c => { configMap[c.category_id] = c; });
 
+  const now = new Date();
+  const curYear = now.getFullYear(), curMonth = now.getMonth() + 1;
+  const isCurMonthCol = m => budgetYear === curYear && m === curMonth;
+
   // Categorie che hanno figli → solo riepilogo, non editabili
   const parentIds = new Set(categories.filter(c => c.parent_id).map(c => c.parent_id));
   const childrenOf = {};
@@ -1947,8 +2039,6 @@ function renderBudgetTable() {
         </td>`;
 
     const hasCfg = !isGroupHeader && cfg && cfg.master_amount > 0;
-    const now = new Date();
-    const curYear = now.getFullYear(), curMonth = now.getMonth() + 1;
     const isPast = m => budgetYear < curYear || (budgetYear === curYear && m <= curMonth);
 
     const cellBottom = (budget, actual, m) => {
@@ -1972,14 +2062,15 @@ function renderBudgetTable() {
       const actual = am[m] || 0;
       const over = isPast(m) && isOver(budget, actual);
       const budgetStr = (budget > 0 || hasCfg) ? fmt.currency(budget) : '';
+      const curCls = isCurMonthCol(m) ? ' budget-cur-month' : '';
       if (isGroupHeader) {
-        return `<td class="budget-cell budget-cell-parent budget-cell-readonly" data-over="${over?1:0}">
+        return `<td class="budget-cell budget-cell-parent budget-cell-readonly${curCls}" data-over="${over?1:0}">
           <span class="budget-cell-val">${budget>0?fmt.currency(budget):''}</span>
           ${cellBottom(budget, actual, m)}
         </td>`;
       }
       const isCalc = hasCfg && (budgetMap[cat.id]?.[m] === undefined);
-      return `<td class="budget-cell${isCalc?' budget-cell-calc':''}"
+      return `<td class="budget-cell${isCalc?' budget-cell-calc':''}${curCls}"
                   data-cat="${cat.id}" data-month="${m}" data-over="${over?1:0}"
                   onclick="_budgetCellEdit(this,${cat.id},${m})">
         <span class="budget-cell-val">${budgetStr}</span>
@@ -2035,30 +2126,31 @@ function renderBudgetTable() {
   const totDiff   = totReale - totBudget;
 
   const s = 'padding:5px 8px;white-space:nowrap;border-bottom:1px solid var(--border)';
-  const numCell = (v, show, colorize, bold) => {
+  const numCell = (v, show, colorize, bold, month=0) => {
     const col = colorize ? (v>0?'color:var(--income)':v<0?'color:var(--expense)':'') : '';
-    return `<td style="${s};text-align:right;${bold?'font-weight:700;':''}${col}">${show?fmt.currency(v):''}</td>`;
+    const curCls = isCurMonthCol(month) ? ' budget-cur-month' : '';
+    return `<td class="${curCls.trim()}" style="${s};text-align:right;${bold?'font-weight:700;':''}${col}">${show?fmt.currency(v):''}</td>`;
   };
 
   document.getElementById('budgetThead').innerHTML = `
     <tr class="budget-thead-months">
       <th style="${s};min-width:160px">Categoria</th>
       <th style="${s};min-width:110px">Gestione</th>
-      ${MONTHS_SHORT.map(m=>`<th style="${s};text-align:right">${m}</th>`).join('')}
+      ${MONTHS_SHORT.map((m,i)=>`<th class="${isCurMonthCol(i+1)?'budget-cur-month':''}" style="${s};text-align:right">${m}</th>`).join('')}
       <th style="${s};text-align:right">Totale</th>
       <th style="${s}"></th>
     </tr>
     <tr class="budget-summary-row budget-row-reale">
       <td style="${s};font-weight:600;color:var(--txt2)">Reale</td>
       <td style="${s}"></td>
-      ${Array.from({length:12},(_,i)=>numCell(mReale[i+1], mReale[i+1]!==0, false, false)).join('')}
+      ${Array.from({length:12},(_,i)=>numCell(mReale[i+1], mReale[i+1]!==0, false, false, i+1)).join('')}
       ${numCell(totReale, totReale!==0, false, true)}
       <td style="${s}"></td>
     </tr>
     <tr class="budget-summary-row budget-row-budget">
       <td style="${s};font-weight:600;color:var(--txt2)">Budget</td>
       <td style="${s}"></td>
-      ${Array.from({length:12},(_,i)=>numCell(mBudget[i+1], mBudget[i+1]!==0, false, false)).join('')}
+      ${Array.from({length:12},(_,i)=>numCell(mBudget[i+1], mBudget[i+1]!==0, false, false, i+1)).join('')}
       ${numCell(totBudget, totBudget!==0, false, true)}
       <td style="${s}"></td>
     </tr>
@@ -2067,7 +2159,7 @@ function renderBudgetTable() {
       <td style="${s}"></td>
       ${Array.from({length:12},(_,i)=>{
         const diff = mReale[i+1] - mBudget[i+1];
-        return numCell(diff, mBudget[i+1]!==0||mReale[i+1]!==0, true, false);
+        return numCell(diff, mBudget[i+1]!==0||mReale[i+1]!==0, true, false, i+1);
       }).join('')}
       ${numCell(totDiff, totBudget!==0||totReale!==0, true, true)}
       <td style="${s}"></td>
@@ -2203,7 +2295,6 @@ function renderBudgetAndamento() {
           borderColor: 'rgba(88,166,255,.7)',
           borderWidth: 1,
           borderRadius: 3,
-          yAxisID: 'yBar',
           order: 2
         },
         {
@@ -2216,7 +2307,6 @@ function renderBudgetAndamento() {
             v === null ? 'transparent' : v >= budgetMese[i] ? 'rgba(63,185,80,.8)' : 'rgba(248,81,73,.8)'),
           borderWidth: 1,
           borderRadius: 3,
-          yAxisID: 'yBar',
           order: 2
         },
         {
@@ -2226,7 +2316,6 @@ function renderBudgetAndamento() {
           borderColor: '#58a6ff',
           backgroundColor: 'transparent',
           tension: 0.3, pointRadius: 3, pointHoverRadius: 5,
-          yAxisID: 'yLine',
           order: 1
         },
         {
@@ -2237,26 +2326,31 @@ function renderBudgetAndamento() {
           backgroundColor: 'transparent',
           tension: 0.3, pointRadius: 3, pointHoverRadius: 5,
           spanGaps: false,
-          yAxisID: 'yLine',
+          order: 1
+        },
+        {
+          type: 'line',
+          label: 'Δ cumulativo',
+          data: deltaProg,
+          borderColor: '#b388ff',
+          backgroundColor: 'transparent',
+          tension: 0.3, pointRadius: 3, pointHoverRadius: 5,
+          borderDash: [5, 3],
+          spanGaps: false,
           order: 1
         }
       ]
     },
     options: {
       responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
       plugins: {
         legend: { labels: { color: chartColors().tick } },
         tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmt.currency(ctx.parsed.y)}` } }
       },
       scales: {
         x: { ticks: { color: chartColors().tick }, grid: { color: chartColors().grid } },
-        yBar: {
-          position: 'right',
-          ticks: { color: chartColors().tick, callback: v => fmt.currency(v) },
-          grid: { drawOnChartArea: false }
-        },
-        yLine: {
-          position: 'left',
+        y: {
           ticks: { color: chartColors().tick, callback: v => fmt.currency(v) },
           grid: { color: chartColors().grid }
         }
@@ -4238,9 +4332,10 @@ async function renderSettings() {
   const pg = document.getElementById('pg-settings');
 
   const tabs = [
-    { id: 'data',   label: '🗄️ Dati'       },
-    { id: 'prefs',  label: '🎨 Preferenze'  },
-    { id: 'info',   label: 'ℹ️ Informazioni' },
+    { id: 'data',        label: '🗄️ Dati'         },
+    { id: 'prefs',       label: '🎨 Preferenze'    },
+    { id: 'maintenance', label: '🔧 Manutenzione'  },
+    { id: 'info',        label: 'ℹ️ Informazioni'  },
   ];
 
   const tabContent = {
@@ -4353,6 +4448,68 @@ async function renderSettings() {
         </div>
       </div>`,
 
+    maintenance: `
+      <div class="settings-section">
+        <div class="settings-section-title">📊 Stato database</div>
+        <div id="dbInfoPanel" class="maint-info-grid">
+          <span class="settings-hint">Caricamento...</span>
+        </div>
+        <div class="settings-row" style="margin-top:10px">
+          <div class="settings-label"></div>
+          <div class="settings-control">
+            <button class="btn btn-secondary" onclick="maintLoadInfo()">🔄 Aggiorna</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <div class="settings-section-title">🔧 Operazioni</div>
+
+        <div class="settings-row">
+          <div class="settings-label">
+            <strong>Compatta database</strong>
+            <span class="settings-hint">VACUUM: ricostruisce il file eliminando spazio inutilizzato. Può richiedere qualche secondo.</span>
+          </div>
+          <div class="settings-control maint-op-control">
+            <button class="btn btn-secondary" id="btnVacuum" onclick="maintVacuum()">🗜️ Compatta</button>
+            <span class="settings-hint maint-result" id="vacuumResult"></span>
+          </div>
+        </div>
+
+        <div class="settings-row">
+          <div class="settings-label">
+            <strong>Verifica integrità</strong>
+            <span class="settings-hint">Controlla che il file non sia corrotto (PRAGMA integrity_check).</span>
+          </div>
+          <div class="settings-control maint-op-control">
+            <button class="btn btn-secondary" id="btnIntegrity" onclick="maintIntegrity()">🔍 Verifica</button>
+            <span class="settings-hint maint-result" id="integrityResult"></span>
+          </div>
+        </div>
+
+        <div class="settings-row">
+          <div class="settings-label">
+            <strong>Ricostruisci indici</strong>
+            <span class="settings-hint">REINDEX + ottimizza le statistiche del query planner. Utile dopo import massivi di dati.</span>
+          </div>
+          <div class="settings-control maint-op-control">
+            <button class="btn btn-secondary" id="btnReindex" onclick="maintReindex()">⚡ Ricostruisci</button>
+            <span class="settings-hint maint-result" id="reindexResult"></span>
+          </div>
+        </div>
+
+        <div class="settings-row">
+          <div class="settings-label">
+            <strong>Flush WAL</strong>
+            <span class="settings-hint">Incorpora il file di log (WAL) nel database principale, riducendo le dimensioni su disco.</span>
+          </div>
+          <div class="settings-control maint-op-control">
+            <button class="btn btn-secondary" id="btnWal" onclick="maintWal()">💾 Flush WAL</button>
+            <span class="settings-hint maint-result" id="walResult"></span>
+          </div>
+        </div>
+      </div>`,
+
     info: `
       <div class="settings-section">
         <div class="settings-section-title">ℹ️ Informazioni</div>
@@ -4383,9 +4540,123 @@ async function renderSettings() {
     <div class="settings-wrap">
       ${tabContent[_settingsTab] || ''}
     </div>`;
+  if (_settingsTab === 'maintenance') setTimeout(maintLoadInfo, 50);
 }
 
-window._setSettingsTab = tab => { _settingsTab = tab; renderSettings(); };
+window._setSettingsTab = tab => {
+  _settingsTab = tab;
+  renderSettings();
+};
+
+// ─── Manutenzione DB ──────────────────────────────────────────────────────────
+
+function fmtBytes(b) {
+  if (b == null) return '—';
+  b = Number(b);
+  if (b < 1024)       return b + ' B';
+  if (b < 1024*1024)  return (b/1024).toFixed(1) + ' KB';
+  return (b/1024/1024).toFixed(2) + ' MB';
+}
+
+async function maintLoadInfo() {
+  const panel = document.getElementById('dbInfoPanel');
+  if (!panel) return;
+  panel.innerHTML = '<span class="settings-hint">Caricamento...</span>';
+  try {
+    const info = await callJava('dbGetInfo');
+    const fragPct = info.page_count > 0 ? ((info.free_pages / info.page_count) * 100).toFixed(1) : 0;
+    panel.innerHTML = `
+      <span class="maint-info-label">Dimensione file</span>
+      <span class="maint-info-value">${fmtBytes(info.file_size)}</span>
+      <span class="maint-info-label">WAL in attesa</span>
+      <span class="maint-info-value">${fmtBytes(info.wal_size)}</span>
+      <span class="maint-info-label">Pagine totali / libere</span>
+      <span class="maint-info-value">${info.page_count} / ${info.free_pages} (${fragPct}% frammentazione)</span>
+      <span class="maint-info-label">Dimensione pagina</span>
+      <span class="maint-info-value">${fmtBytes(info.page_size)}</span>
+      <span class="maint-info-label">Transazioni</span>
+      <span class="maint-info-value">${info.tx_count}</span>
+      <span class="maint-info-label">Conti</span>
+      <span class="maint-info-value">${info.acc_count}</span>`;
+  } catch(e) {
+    panel.innerHTML = `<span class="settings-hint" style="color:var(--expense)">Errore: ${e}</span>`;
+  }
+}
+
+async function maintVacuum() {
+  const btn = document.getElementById('btnVacuum');
+  const res = document.getElementById('vacuumResult');
+  btn.disabled = true; btn.textContent = '⏳ In corso...';
+  res.textContent = '';
+  try {
+    const r = await callJava('dbVacuum');
+    const saved = Number(r.saved);
+    res.style.color = saved > 0 ? 'var(--income)' : '';
+    res.textContent = `${fmtBytes(r.size_before)} → ${fmtBytes(r.size_after)}` +
+      (saved > 0 ? ` (liberati ${fmtBytes(saved)})` : ' (nessuno spazio da recuperare)');
+    maintLoadInfo();
+  } catch(e) {
+    res.style.color = 'var(--expense)';
+    res.textContent = 'Errore: ' + e;
+  }
+  btn.disabled = false; btn.textContent = '🗜️ Compatta';
+}
+
+async function maintIntegrity() {
+  const btn = document.getElementById('btnIntegrity');
+  const res = document.getElementById('integrityResult');
+  btn.disabled = true; btn.textContent = '⏳ Verifica...';
+  res.textContent = '';
+  try {
+    const r = await callJava('dbIntegrityCheck');
+    if (r.ok) {
+      res.style.color = 'var(--income)';
+      res.textContent = '✓ Database integro';
+    } else {
+      res.style.color = 'var(--expense)';
+      res.textContent = '✗ Errori: ' + r.messages.join(' | ');
+    }
+  } catch(e) {
+    res.style.color = 'var(--expense)';
+    res.textContent = 'Errore: ' + e;
+  }
+  btn.disabled = false; btn.textContent = '🔍 Verifica';
+}
+
+async function maintReindex() {
+  const btn = document.getElementById('btnReindex');
+  const res = document.getElementById('reindexResult');
+  btn.disabled = true; btn.textContent = '⏳ In corso...';
+  res.textContent = '';
+  try {
+    await callJava('dbReindex');
+    res.style.color = 'var(--income)';
+    res.textContent = '✓ Indici ricostruiti';
+  } catch(e) {
+    res.style.color = 'var(--expense)';
+    res.textContent = 'Errore: ' + e;
+  }
+  btn.disabled = false; btn.textContent = '⚡ Ricostruisci';
+}
+
+async function maintWal() {
+  const btn = document.getElementById('btnWal');
+  const res = document.getElementById('walResult');
+  btn.disabled = true; btn.textContent = '⏳ In corso...';
+  res.textContent = '';
+  try {
+    const r = await callJava('dbWalCheckpoint');
+    res.style.color = 'var(--income)';
+    res.textContent = Number(r.wal_size) === 0
+      ? '✓ WAL già incorporato (0 B)'
+      : `✓ WAL incorporato (era ${fmtBytes(r.wal_size)})`;
+    maintLoadInfo();
+  } catch(e) {
+    res.style.color = 'var(--expense)';
+    res.textContent = 'Errore: ' + e;
+  }
+  btn.disabled = false; btn.textContent = '💾 Flush WAL';
+}
 
 function applyTheme(theme) {
   document.documentElement.dataset.theme = theme === 'light' ? 'light' : '';
@@ -5581,6 +5852,7 @@ async function init() {
   const s = await api.getSettings();
   if (s['appearance.theme']) applyTheme(s['appearance.theme']);
   if (s['accounts.favorites_only']) _accFavoritesOnly = s['accounts.favorites_only'] === '1';
+  if (s['accounts.type_order']) { try { _accTypeOrder = JSON.parse(s['accounts.type_order']); } catch(e) {} }
   if (s['proj.range'])   _projRange  = s['proj.range'];
   if (s['proj.months'])  _projMonths = parseInt(s['proj.months']) || 6;
   if (s['proj.mode'])    _projMode   = s['proj.mode'];

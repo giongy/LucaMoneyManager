@@ -1925,7 +1925,7 @@ async function renderBudgets() {
   document.getElementById('btnBudgOnlyRed').onclick = () => {
     _budgetOnlyRed = !_budgetOnlyRed;
     document.getElementById('btnBudgOnlyRed').classList.toggle('btn-active-red', _budgetOnlyRed);
-    document.querySelector('.budget-year-wrap')?.classList.toggle('budget-only-red', _budgetOnlyRed);
+    document.getElementById('budgGridWrap')?.classList.toggle('budget-only-red', _budgetOnlyRed);
   };
   document.getElementById('btnBudgToggleAll').onclick = () => {
     const parentIds = new Set((_budgetData?.categories||[]).filter(c=>c.parent_id).map(c=>c.parent_id));

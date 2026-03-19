@@ -1089,7 +1089,7 @@ function renderTxBodyAndHeaders() {
     const balCell = showBalance && t.balance != null
       ? `<td class="text-right tx-balance ${t.balance >= 0 ? 'positive' : 'negative'}">${fmt.currency(t.balance)}</td>`
       : (showBalance ? '<td></td>' : '');
-    const bgStyle = t.color ? `style="background:${t.color}18"` : '';
+    const bgStyle = t.color ? `style="background:${t.color}40"` : '';
     return `
     <tr data-tx-id="${t.id}" class="${t.color ? 'tx-colored' : ''}${isSel ? ' tx-selected' : ''}${!isRec ? ' tx-unreconciled' : ''}" ${bgStyle}>
       <td>${fmt.date(t.date)}</td>
@@ -5555,7 +5555,7 @@ function _renderSchedRows(scheds) {
   };
 
   tbody.innerHTML = rows.map(s => `
-    <tr oncontextmenu="_showSchedCtx(${s.id},event)" style="${s.color?`background:${s.color}18;`:''}cursor:context-menu">
+    <tr oncontextmenu="_showSchedCtx(${s.id},event)" style="${s.color?`background:${s.color}40;`:''}cursor:context-menu">
       <td style="text-align:center"><span style="font-size:15px">${s.is_active ? '✅' : '⏸️'}</span></td>
       <td>${s.account_name||''}${s.to_account_name?' → '+s.to_account_name:''}</td>
       <td class="td-tags">${(s.tags&&s.tags.length)?s.tags.map(t=>`<span class="tag-inline" style="--tc:${t.color}">${t.name}</span>`).join(''):''}</td>

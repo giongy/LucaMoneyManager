@@ -184,12 +184,18 @@ const api = {
   setWindowBounds:(x,y,w,h)   => callJava('setWindowBounds', {x,y,w,h}),
   isMaximized:    ()          => callJava('isMaximized'),
 
-  // Conti
-  getAccounts:        ()    => callJava('getAccounts'),
-  addAccount:         data  => callJava('addAccount',   data),
-  updateAccount:      data  => callJava('updateAccount', data),
-  deleteAccount:      id    => callJava('deleteAccount', {id}),
-  updateAccountOrder: items => callJava('updateAccountOrder', {items}),
+  // Conti (cache in-session: invalidata ad ogni modifica)
+  _accountsCache: null,
+  getAccounts:    async function() {
+    if (this._accountsCache) return this._accountsCache;
+    this._accountsCache = await callJava('getAccounts');
+    return this._accountsCache;
+  },
+  _invalidateAccounts() { this._accountsCache = null; },
+  addAccount:         async data  => { api._invalidateAccounts(); return callJava('addAccount',   data); },
+  updateAccount:      async data  => { api._invalidateAccounts(); return callJava('updateAccount', data); },
+  deleteAccount:      async id    => { api._invalidateAccounts(); return callJava('deleteAccount', {id}); },
+  updateAccountOrder: async items => { api._invalidateAccounts(); return callJava('updateAccountOrder', {items}); },
 
   // Categorie
   getCategories:   ()   => callJava('getCategories'),
@@ -664,8 +670,9 @@ async function renderDashboard() {
       const eff = _getEff(c.id);
       for (let m = 1; m <= 12; m++) budgetByMonth[m-1] += sign * (eff[m] || 0);
     });
+    const _catById = new Map(budgetYear.categories.map(c => [c.id, c]));
     budgetYear.actuals.forEach(a => {
-      const cat = budgetYear.categories.find(c => c.id === a.category_id);
+      const cat = _catById.get(a.category_id);
       if (!cat) return;
       const sign = cat.type === 'income' ? 1 : -1;
       actualByMonth[a.month - 1] += sign * a.total;

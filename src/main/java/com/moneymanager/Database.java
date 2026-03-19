@@ -387,6 +387,27 @@ public class Database {
                 created_at   TEXT    DEFAULT CURRENT_TIMESTAMP
             )
         """);
+
+        // ─── Indici per performance (idempotenti) ─────────────────────────────
+        // transactions: colonne filtrate/join più frequenti
+        executePlain("CREATE INDEX IF NOT EXISTS idx_tx_date        ON transactions(date)");
+        executePlain("CREATE INDEX IF NOT EXISTS idx_tx_account      ON transactions(account_id)");
+        executePlain("CREATE INDEX IF NOT EXISTS idx_tx_to_account   ON transactions(to_account_id)");
+        executePlain("CREATE INDEX IF NOT EXISTS idx_tx_category     ON transactions(category_id)");
+        executePlain("CREATE INDEX IF NOT EXISTS idx_tx_account_date ON transactions(account_id, date)");
+        // categories
+        executePlain("CREATE INDEX IF NOT EXISTS idx_cat_parent      ON categories(parent_id)");
+        // budgets: getBudgetYear filtra per year
+        executePlain("CREATE INDEX IF NOT EXISTS idx_budgets_year    ON budgets(year)");
+        // scheduled_transactions: getScheduled filtra per is_active
+        executePlain("CREATE INDEX IF NOT EXISTS idx_sched_active    ON scheduled_transactions(is_active)");
+        // transaction_tags: lookup inverso per tag
+        executePlain("CREATE INDEX IF NOT EXISTS idx_tx_tags_tag     ON transaction_tags(tag_id)");
+        // portfolio
+        executePlain("CREATE INDEX IF NOT EXISTS idx_portfolio_acc   ON portfolio(account_id)");
+
+        // Aggiorna le statistiche query-planner (come ANALYZE ma incrementale)
+        executePlain("PRAGMA optimize");
     }
 
     private void seedDefaultData() throws SQLException {
@@ -560,20 +581,16 @@ public class Database {
 
     /** Conta transazioni, budget e figli associati a questa categoria (e ai suoi figli). */
     public Map<String, Object> getCategoryUsage(int id) throws SQLException {
-        var tx = queryOne("SELECT COUNT(*) AS n FROM transactions WHERE category_id=?", id);
-        var bg = queryOne("SELECT COUNT(*) AS n FROM budgets WHERE category_id=?", id);
-        var ch = queryOne("SELECT COUNT(*) AS n FROM categories WHERE parent_id=?", id);
-        long txCount  = tx != null ? ((Number) tx.get("n")).longValue() : 0;
-        long bgCount  = bg != null ? ((Number) bg.get("n")).longValue() : 0;
-        long chCount  = ch != null ? ((Number) ch.get("n")).longValue() : 0;
-        // Transazioni nei figli
-        long chTx = 0;
-        for (var c : queryList("SELECT id FROM categories WHERE parent_id=?", id)) {
-            var r = queryOne("SELECT COUNT(*) AS n FROM transactions WHERE category_id=?", c.get("id"));
-            if (r != null) chTx += ((Number) r.get("n")).longValue();
-        }
-        return Map.of("tx_count", txCount, "budget_count", bgCount,
-                      "child_count", chCount, "child_tx_count", chTx);
+        var tx    = queryOne("SELECT COUNT(*) AS n FROM transactions WHERE category_id=?", id);
+        var bg    = queryOne("SELECT COUNT(*) AS n FROM budgets WHERE category_id=?", id);
+        var ch    = queryOne("SELECT COUNT(*) AS n FROM categories WHERE parent_id=?", id);
+        var chTxR = queryOne("SELECT COUNT(*) AS n FROM transactions WHERE category_id IN (SELECT id FROM categories WHERE parent_id=?)", id);
+        return Map.of(
+            "tx_count",       tx    != null ? ((Number) tx.get("n")).longValue()    : 0,
+            "budget_count",   bg    != null ? ((Number) bg.get("n")).longValue()    : 0,
+            "child_count",    ch    != null ? ((Number) ch.get("n")).longValue()    : 0,
+            "child_tx_count", chTxR != null ? ((Number) chTxR.get("n")).longValue() : 0
+        );
     }
 
     /** Sposta transazioni (e quelle dei figli) su toId, poi elimina la categoria. */
@@ -581,8 +598,7 @@ public class Database {
         Map<String, Object> from = queryOne("SELECT name FROM categories WHERE id=?", fromId);
         Map<String, Object> to   = queryOne("SELECT name FROM categories WHERE id=?", toId);
         execute("UPDATE transactions SET category_id=? WHERE category_id=?", toId, fromId);
-        for (var c : queryList("SELECT id FROM categories WHERE parent_id=?", fromId))
-            execute("UPDATE transactions SET category_id=? WHERE category_id=?", toId, c.get("id"));
+        execute("UPDATE transactions SET category_id=? WHERE category_id IN (SELECT id FROM categories WHERE parent_id=?)", toId, fromId);
         execute("DELETE FROM categories WHERE id=?", fromId);
         logger.log("CATEGORIA RIASSEGNATA", "da:" + DbLogger.s(from != null ? from.get("name") : fromId),
                    "a:" + DbLogger.s(to != null ? to.get("name") : toId));

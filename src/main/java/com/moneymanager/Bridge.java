@@ -25,12 +25,14 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
     private Database db;
     private final Settings settings;
     private final JFrame window;
+    private final java.nio.file.Path dataDir;
     private final Gson gson = new GsonBuilder().serializeNulls().create();
 
-    public Bridge(Database db, Settings settings, JFrame window) {
+    public Bridge(Database db, Settings settings, JFrame window, java.nio.file.Path dataDir) {
         this.db = db;
         this.settings = settings;
         this.window = window;
+        this.dataDir = dataDir;
     }
 
     /** Risponde con JSON encodato in base64 — evita corruzione emoji in JCEF. */
@@ -274,10 +276,43 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                     p.get("year").getAsInt(), p.get("type").getAsString());
 
             // ─── Impostazioni ──────────────────────────────────────────────
-            case "getSettings" -> settings.getAll();
+            case "getSettings" -> {
+                java.util.Map<String, String> all = new java.util.LinkedHashMap<>(settings.getAll());
+                all.put("_settings_path", settings.getPath().toAbsolutePath().toString());
+                try {
+                    org.cef.CefApp.CefVersion v = org.cef.CefApp.getInstance().getVersion();
+                    all.put("_chromium", v.CHROME_VERSION_MAJOR + "." + v.CHROME_VERSION_MINOR
+                            + "." + v.CHROME_VERSION_BUILD + "." + v.CHROME_VERSION_PATCH);
+                } catch (Exception ignored) {}
+                yield all;
+            }
 
             case "setSetting" -> {
                 settings.set(p.get("key").getAsString(), p.get("value").getAsString());
+                yield Map.of("ok", true);
+            }
+
+            case "openSettingsFile" -> {
+                java.awt.Desktop.getDesktop().open(settings.getPath().toFile());
+                yield Map.of("ok", true);
+            }
+
+            case "resetJcef" -> {
+                java.nio.file.Path jcefDir = dataDir.resolve("jcef");
+                if (java.nio.file.Files.exists(jcefDir)) {
+                    // Su Windows i DLL JCEF sono lockati finché il processo è vivo.
+                    // Lanciamo uno script batch che aspetta l'uscita del processo
+                    // e poi cancella la cartella con rmdir /s /q.
+                    java.nio.file.Path script = dataDir.resolve("_reset_jcef.bat");
+                    String bat = "@echo off\r\n"
+                            + "ping 127.0.0.1 -n 4 > nul\r\n"
+                            + "rmdir /s /q \"" + jcefDir.toAbsolutePath() + "\"\r\n"
+                            + "del \"%~f0\"\r\n";
+                    java.nio.file.Files.writeString(script, bat);
+                    new ProcessBuilder("cmd", "/c", "start", "/min", "", script.toAbsolutePath().toString())
+                            .start();
+                }
+                SwingUtilities.invokeLater(() -> System.exit(0));
                 yield Map.of("ok", true);
             }
 

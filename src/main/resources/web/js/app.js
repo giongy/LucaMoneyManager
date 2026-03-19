@@ -248,9 +248,11 @@ const api = {
   // Impostazioni
   getSettings:   ()           => callJava('getSettings'),
   setSetting:    (key, value) => callJava('setSetting', {key, value}),
-  chooseDbFile:    (mode)     => callJava('chooseDbFile', {mode}),
-  reloadDb:        (path)     => callJava('reloadDb', {path}),
-  chooseBackupDir: ()         => callJava('chooseBackupDir', {}),
+  chooseDbFile:      (mode)   => callJava('chooseDbFile', {mode}),
+  reloadDb:          (path)  => callJava('reloadDb', {path}),
+  chooseBackupDir:   ()      => callJava('chooseBackupDir', {}),
+  openSettingsFile:  ()      => callJava('openSettingsFile', {}),
+  resetJcef:         ()      => callJava('resetJcef', {}),
   doBackup:        ()         => callJava('doBackup', {}),
 
   // Pianificate
@@ -766,14 +768,31 @@ async function renderDashboard() {
     }
   }
 
-  // Pie chart
+  // Pie chart — top 10 + "Altro"
   if (charts.pie) charts.pie.destroy();
   if (catData.length) {
+    const sorted = [...catData].sort((a,b) => b.total - a.total);
+    const top    = sorted.slice(0, 10);
+    const rest   = sorted.slice(10);
+    if (rest.length) {
+      const altroTotal = rest.reduce((s,c) => s + c.total, 0);
+      top.push({ name:'Altro', icon:'…', total: altroTotal, color:'#666' });
+    }
     charts.pie = new Chart(document.getElementById('pieChart'), {
       type:'doughnut',
-      data:{ labels:catData.map(c=>c.icon+' '+c.name),
-             datasets:[{data:catData.map(c=>c.total), backgroundColor:catData.map(c=>c.color), borderWidth:0}]},
-      options:{ responsive:true, plugins:{legend:{position:'right',labels:{color:chartColors().tick,font:{size:11}}}}}
+      data:{ labels: top.map(c => c.icon+' '+c.name),
+             datasets:[{ data: top.map(c=>c.total), backgroundColor: top.map(c=>c.color), borderWidth:0 }]},
+      options:{
+        responsive:true,
+        plugins:{
+          legend:{ position:'right', labels:{ color:chartColors().tick, font:{size:11}, boxWidth:12, padding:6 }},
+          tooltip:{ callbacks:{ label: ctx => {
+            const tot = ctx.dataset.data.reduce((a,b)=>a+b,0);
+            const pct = tot ? (ctx.parsed/tot*100).toFixed(1) : 0;
+            return ` ${fmt.currency(ctx.parsed)} (${pct}%)`;
+          }}}
+        }
+      }
     });
   }
 
@@ -878,7 +897,7 @@ let txCache      = [];
 let _selectedTxId = null;
 
 function navigateToAccountTx(accountId) {
-  txFilters = { range: '30d', account_id: String(accountId) };
+  txFilters = { range: txFilters.range || '30d', account_id: String(accountId) };
   if (currentPage === 'transactions') renderTransactions();
   else navigate('transactions');
 }
@@ -982,6 +1001,8 @@ async function renderTransactions() {
   document.getElementById('btnAddExpense').onclick  = () => showTxModal(null, categories, accounts, 'expense',  tags);
   document.getElementById('btnAddTransfer').onclick = () => showTxModal(null, categories, accounts, 'transfer', tags);
 
+  // Ensure date range is resolved into date_from/date_to before loading rows
+  txFilters = { ...txFilters, ...rangeToFilter(txFilters.range || '30d', txFilters.date_from, txFilters.date_to) };
   await loadTxRows(categories, accounts);
   // Thead sticky a top:0 dentro txScrollWrap (che è il container scroll)
   document.querySelectorAll('#txTable thead th').forEach(th => {
@@ -1882,19 +1903,19 @@ async function renderBudgets() {
         <button class="sched-tab ${_budgetTab==='grid'?'active':''}"        data-btab="grid"        onclick="_setBudgetTab('grid')">📊 Budget</button>
         <button class="sched-tab ${_budgetTab==='andamento'?'active':''}"   data-btab="andamento"   onclick="_setBudgetTab('andamento')">📈 Andamento</button>
         <button class="sched-tab ${_budgetTab==='scostamenti'?'active':''}" data-btab="scostamenti" onclick="_setBudgetTab('scostamenti')">📉 Scostamenti</button>
+        <button class="sched-tab ${_budgetTab==='pianificate'?'active':''}" data-btab="pianificate" onclick="_setBudgetTab('pianificate')">🔗 Verifica Pianificate</button>
       </div>
     </div>
-    <div id="budgetContent" style="flex:1;overflow-y:auto;padding:0 16px 16px">
-      <div id="budgGridWrap" style="display:${_budgetTab==='grid'?'':'none'}">
-        <div class="budget-year-wrap">
-          <table class="budget-table" id="budgetTable">
-            <thead id="budgetThead"></thead>
-            <tbody id="budgetBody"></tbody>
-          </table>
-        </div>
+    <div id="budgetContent" style="flex:1;overflow:hidden;padding:0 16px 16px;display:flex;flex-direction:column">
+      <div id="budgGridWrap" style="display:${_budgetTab==='grid'?'block':'none'};flex:1;overflow:auto;margin-top:14px">
+        <table class="budget-table" id="budgetTable">
+          <thead id="budgetThead"></thead>
+          <tbody id="budgetBody"></tbody>
+        </table>
       </div>
-      <div id="budgAndamentoWrap"  style="display:${_budgetTab==='andamento'  ?'':'none'}"></div>
-      <div id="budgScostWrap"      style="display:${_budgetTab==='scostamenti'?'':'none'}"></div>
+      <div id="budgAndamentoWrap"  style="display:${_budgetTab==='andamento'  ?'block':'none'};overflow-y:auto;flex:1"></div>
+      <div id="budgScostWrap"      style="display:${_budgetTab==='scostamenti'?'block':'none'};overflow-y:auto;flex:1"></div>
+      <div id="budgPianWrap"       style="display:${_budgetTab==='pianificate' ?'block':'none'};overflow-y:auto;flex:1"></div>
     </div>`;
 
   document.getElementById('budgYearLabel').textContent = budgetYear;
@@ -1923,12 +1944,14 @@ window._setBudgetTab = tab => {
   document.querySelectorAll('#pg-budgets [data-btab]').forEach(b => {
     b.classList.toggle('active', b.dataset.btab === tab);
   });
-  document.getElementById('budgGridWrap').style.display      = tab === 'grid'        ? '' : 'none';
-  document.getElementById('budgAndamentoWrap').style.display = tab === 'andamento'   ? '' : 'none';
-  document.getElementById('budgScostWrap').style.display     = tab === 'scostamenti' ? '' : 'none';
+  document.getElementById('budgGridWrap').style.display      = tab === 'grid'        ? 'block' : 'none';
+  document.getElementById('budgAndamentoWrap').style.display = tab === 'andamento'   ? 'block' : 'none';
+  document.getElementById('budgScostWrap').style.display     = tab === 'scostamenti' ? 'block' : 'none';
+  document.getElementById('budgPianWrap').style.display      = tab === 'pianificate' ? 'block' : 'none';
   document.getElementById('budgGridActions').style.display   = tab === 'grid'        ? 'flex' : 'none';
   if (tab === 'andamento'   && _budgetData) renderBudgetAndamento();
   if (tab === 'scostamenti' && _budgetData) renderBudgetScostamenti();
+  if (tab === 'pianificate') renderBudgetVsPianificate();
 };
 
 let _accFavoritesOnly = false;
@@ -4508,6 +4531,16 @@ async function renderSettings() {
             <span class="settings-hint maint-result" id="walResult"></span>
           </div>
         </div>
+
+        <div class="settings-row">
+          <div class="settings-label">
+            <strong>Reinstalla Chromium</strong>
+            <span class="settings-hint">Elimina la cartella JCEF e chiude l'app. Al riavvio Chromium verrà riscaricato (~200MB).</span>
+          </div>
+          <div class="settings-control maint-op-control">
+            <button class="btn btn-danger" onclick="if(confirm('Eliminare Chromium e chiudere l\\'app?')) api.resetJcef()">🗑️ Reset Chromium</button>
+          </div>
+        </div>
       </div>`,
 
     info: `
@@ -4519,11 +4552,17 @@ async function renderSettings() {
           <span class="settings-info-label">Database</span>
           <span class="settings-info-value">SQLite 3.45 (JDBC)</span>
           <span class="settings-info-label">Browser engine</span>
-          <span class="settings-info-value">Chromium (JCEF 135)</span>
+          <span class="settings-info-value">Chromium ${s['_chromium'] ? s['_chromium'] : '(JCEF)'}</span>
           <span class="settings-info-label">Java</span>
           <span class="settings-info-value">JDK 25</span>
-          <span class="settings-info-label">Dati</span>
+          <span class="settings-info-label">Database</span>
           <span class="settings-info-value">${s['db.path'] || '—'}</span>
+          <span class="settings-info-label">Impostazioni</span>
+          <span class="settings-info-value" style="display:flex;align-items:center;gap:8px">
+            <span style="word-break:break-all">${s['_settings_path'] || '—'}</span>
+            <button class="btn btn-ghost" style="white-space:nowrap;padding:2px 8px;font-size:11px"
+                    onclick="api.openSettingsFile()">Apri ↗</button>
+          </span>
         </div>
       </div>`,
   };
@@ -5022,6 +5061,320 @@ window.deleteTagMgmt = async id => {
     toast('Tag eliminato');
     renderTags();
   } catch(e) { toast(e.message, 'error'); }
+};
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   BUDGET VS PIANIFICATE
+═══════════════════════════════════════════════════════════════════════════ */
+function _nextSchedDate(dateStr, freq) {
+  const d = new Date(dateStr + 'T00:00:00');
+  switch(freq) {
+    case 'daily':        d.setDate(d.getDate() + 1); break;
+    case 'weekly':       d.setDate(d.getDate() + 7); break;
+    case 'biweekly':     d.setDate(d.getDate() + 14); break;
+    case 'monthly':      d.setMonth(d.getMonth() + 1); break;
+    case 'monthly_last': d.setDate(1); d.setMonth(d.getMonth() + 2); d.setDate(0); break;
+    case 'bimonthly':    d.setMonth(d.getMonth() + 2); break;
+    case 'quarterly':    d.setMonth(d.getMonth() + 3); break;
+    case 'semiannual':   d.setMonth(d.getMonth() + 6); break;
+    case 'yearly':       d.setFullYear(d.getFullYear() + 1); break;
+    default: return null;
+  }
+  return d.toLocaleDateString('en-CA');
+}
+
+function _prevSchedDate(dateStr, freq) {
+  const d = new Date(dateStr + 'T00:00:00');
+  switch(freq) {
+    case 'daily':        d.setDate(d.getDate() - 1); break;
+    case 'weekly':       d.setDate(d.getDate() - 7); break;
+    case 'biweekly':     d.setDate(d.getDate() - 14); break;
+    case 'monthly':      d.setMonth(d.getMonth() - 1); break;
+    case 'monthly_last': d.setDate(0); break; // ultimo giorno del mese precedente
+    case 'bimonthly':    d.setMonth(d.getMonth() - 2); break;
+    case 'quarterly':    d.setMonth(d.getMonth() - 3); break;
+    case 'semiannual':   d.setMonth(d.getMonth() - 6); break;
+    case 'yearly':       d.setFullYear(d.getFullYear() - 1); break;
+    default: return null;
+  }
+  return d.toLocaleDateString('en-CA');
+}
+
+function _countSchedYearOcc(freq, startDate, endDate, year) {
+  const yStart = `${year}-01-01`;
+  const yEnd   = `${year}-12-31`;
+  if (!startDate) return 0;
+  if (endDate && endDate < yStart) return 0;
+  const effEnd = (endDate && endDate < yEnd) ? endDate : yEnd;
+
+  // 'once': nessuna proiezione, conta solo se la data è nell'anno
+  if (freq === 'once') return (startDate >= yStart && startDate <= effEnd) ? 1 : 0;
+
+  // Per le ricorrenze, start_date è la PROSSIMA occorrenza futura (aggiornata dopo
+  // ogni registrazione, può essere in un anno successivo).
+  // Proiettiamo a ritroso per trovare la prima occorrenza nell'anno target.
+  let cur = startDate;
+  for (let i = 0; i < 400; i++) {
+    const prev = _prevSchedDate(cur, freq);
+    if (!prev || prev < yStart) break;
+    cur = prev;
+  }
+  // Se anche dopo la proiezione siamo oltre l'anno, nessuna occorrenza
+  if (cur > yEnd) return 0;
+
+  let count = 0;
+  for (let i = 0; i < 400 && cur <= effEnd; i++) {
+    if (cur >= yStart) count++;
+    const next = _nextSchedDate(cur, freq);
+    if (!next || next === cur) break;
+    cur = next;
+  }
+  return count;
+}
+
+async function renderBudgetVsPianificate() {
+  const wrap = document.getElementById('budgPianWrap');
+  wrap.innerHTML = '<div style="padding:24px;color:var(--text2)">Analisi in corso…</div>';
+
+  const [budgetData, scheds, accs] = await Promise.all([
+    api.getBudgetYear(budgetYear),
+    api.getScheduled(),
+    api.getAccounts()
+  ]);
+
+  const catMap = Object.fromEntries(budgetData.categories.map(c => [c.id, c]));
+
+  // Mappa mesi espliciti per categoria: { cat_id: { month: amount } }
+  const monthByCat = {};
+  for (const b of budgetData.budgets) {
+    if (!monthByCat[b.category_id]) monthByCat[b.category_id] = {};
+    monthByCat[b.category_id][b.month] = b.amount;
+  }
+
+  // Budget annuale per categoria — stessa logica di getEffective() usata in renderBudgetTable:
+  // lockedTotal = master_amount (annuale) o master_amount×12 (mensile)
+  // mesi pinned = valore esplicito in budgets; mesi liberi = (lockedTotal - pinnedSum) / freeCount
+  // se pinnedSum > lockedTotal: mesi liberi = 0, totale = pinnedSum
+  const configMap = Object.fromEntries((budgetData.configs || []).map(c => [c.category_id, c]));
+
+  const _getAnnual = catId => {
+    const cfg = configMap[catId];
+    const stored = monthByCat[catId] || {};
+    const pinnedMonths = Object.keys(stored).map(Number);
+    const pinnedSum = pinnedMonths.reduce((s, m) => s + stored[m], 0);
+    if (!cfg || !cfg.master_amount) return pinnedSum;
+    const lockedTotal = cfg.mode === 'annuale' ? cfg.master_amount : cfg.master_amount * 12;
+    const freeCount = 12 - pinnedMonths.length;
+    if (freeCount === 0) return pinnedSum;
+    const freeVal = Math.max(0, (lockedTotal - pinnedSum) / freeCount);
+    return pinnedSum + freeCount * freeVal;
+  };
+
+  const budgByCat = {};
+  // Categorie con config
+  for (const cfg of (budgetData.configs || [])) {
+    if (cfg.master_amount > 0) budgByCat[cfg.category_id] = _getAnnual(cfg.category_id);
+  }
+  // Categorie senza config: solo mesi espliciti
+  for (const catIdStr of Object.keys(monthByCat)) {
+    if (budgByCat[catIdStr] === undefined) budgByCat[catIdStr] = _getAnnual(parseInt(catIdStr));
+  }
+
+  // Pianificate annuali per categoria (solo attive, no trasferimenti)
+  const schedByCat = {};
+  for (const s of scheds) {
+    if (!s.is_active || s.type === 'transfer' || !s.category_id) continue;
+    const occ = _countSchedYearOcc(s.frequency, s.start_date, s.end_date, budgetYear);
+    schedByCat[s.category_id] = (schedByCat[s.category_id] || 0) + occ * s.amount;
+  }
+
+  // Righe di confronto (solo categorie con budget > 0)
+  const rows = [];
+  for (const [catIdStr, budgAnnual] of Object.entries(budgByCat)) {
+    if (budgAnnual <= 0) continue;
+    const catId = parseInt(catIdStr);
+    const cat = catMap[catId];
+    if (!cat) continue;
+    const scheduled = schedByCat[catId] || 0;
+    const diff = budgAnnual - scheduled;
+    rows.push({ catId, cat, budgAnnual, scheduled, diff });
+  }
+  const sortRows = arr => {
+    const disc = arr.filter(r => Math.abs(r.diff) > 0.01);
+    const ok   = arr.filter(r => Math.abs(r.diff) <= 0.01);
+    disc.sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff));
+    ok.sort((a, b) => {
+      const pa = a.cat.parent_id ? (catMap[a.cat.parent_id]?.name||'') : a.cat.name;
+      const pb = b.cat.parent_id ? (catMap[b.cat.parent_id]?.name||'') : b.cat.name;
+      return pa.localeCompare(pb) || a.cat.name.localeCompare(b.cat.name);
+    });
+    return [...disc, ...ok];
+  };
+
+  const expenseRows = sortRows(rows.filter(r => r.cat.type === 'expense'));
+  const incomeRows  = sortRows(rows.filter(r => r.cat.type === 'income'));
+  const discCount   = rows.filter(r => Math.abs(r.diff) > 0.01).length;
+
+  // Salva accounts per il modal
+  wrap._budgAccounts = accs;
+
+  // Lookup globale per il modal (evita problemi di escape nelle stringhe inline)
+  window._budgSyncData = {};
+
+  const renderRow = r => {
+    const parent = r.cat.parent_id ? catMap[r.cat.parent_id] : null;
+    const catLabel = parent ? `${parent.name} : ${r.cat.name}` : r.cat.name;
+    window._budgSyncData[r.catId] = { catLabel, catType: r.cat.type, diff: r.diff };
+    const ok = Math.abs(r.diff) <= 0.01;
+    const isDeficit = r.diff > 0;
+    const diffCls = ok ? '' : (isDeficit ? 'amount-expense' : 'amount-income');
+    const diffTxt = ok
+      ? `<span style="color:var(--green)">✓</span>`
+      : `${isDeficit?'-':'+'}${fmt.currency(Math.abs(r.diff))}`;
+    const action = ok
+      ? ''
+      : isDeficit
+        ? `<button class="btn btn-sm btn-primary" onclick="showBudgetIntegraModal(${r.catId})">Integra</button>`
+        : `<span style="color:var(--text2);font-size:.8rem">Eccesso</span>`;
+    return `<tr class="${ok ? 'sync-row-ok' : ''}">
+      <td>${r.cat.icon||''} ${catLabel}</td>
+      <td class="num">${fmt.currency(r.budgAnnual)}</td>
+      <td class="num">${fmt.currency(r.scheduled)}</td>
+      <td class="num ${diffCls}">${diffTxt}</td>
+      <td style="text-align:right">${action}</td>
+    </tr>`;
+  };
+
+  const renderSection = (label, sRows) => {
+    if (!sRows.length) return '';
+    const tBudg  = sRows.reduce((s, r) => s + r.budgAnnual, 0);
+    const tSched = sRows.reduce((s, r) => s + r.scheduled, 0);
+    const tDiff  = tBudg - tSched;
+    const tOk    = Math.abs(tDiff) <= 0.01;
+    return `
+      <tr class="sync-section-header"><td colspan="5">${label}</td></tr>
+      ${sRows.map(renderRow).join('')}
+      <tr class="sync-subtotal">
+        <td>Totale ${label}</td>
+        <td class="num">${fmt.currency(tBudg)}</td>
+        <td class="num">${fmt.currency(tSched)}</td>
+        <td class="num ${tOk?'':(tDiff>0?'amount-expense':'amount-income')}">
+          ${tOk ? '✓' : (tDiff>0?'-':'+') + fmt.currency(Math.abs(tDiff))}
+        </td>
+        <td></td>
+      </tr>`;
+  };
+
+  wrap.innerHTML = `
+    <div class="card" style="margin-top:16px">
+      <div class="section-header" style="margin-bottom:12px">
+        <span>Budget ${budgetYear} vs Pianificate</span>
+        <span style="font-size:.85rem;color:var(--text2)">${discCount} incongruenz${discCount===1?'a':'e'} su ${rows.length} categorie</span>
+      </div>
+      <div class="table-wrap">
+      <table class="budget-sync-table">
+        <thead><tr>
+          <th>Categoria</th>
+          <th class="num">Budget annuale</th>
+          <th class="num">Pianificate</th>
+          <th class="num">Differenza</th>
+          <th></th>
+        </tr></thead>
+        <tbody>
+          ${renderSection('Uscite', expenseRows)}
+          ${renderSection('Entrate', incomeRows)}
+        </tbody>
+      </table>
+      </div>
+    </div>`;
+}
+
+window.showBudgetIntegraModal = async function(catId) {
+  const { catLabel, catType, diff } = window._budgSyncData[catId] || {};
+  const wrap = document.getElementById('budgPianWrap');
+  const accs = (wrap._budgAccounts || []).filter(a => a.type !== 'investment');
+
+  const tags = await api.getTags();
+  let tag = tags.find(t => t.name === 'Da Budget');
+  if (!tag) tag = await api.addTag({ name: 'Da Budget', color: '#8b5cf6' });
+
+  const startDef  = `${budgetYear}-01-01`;
+  const yearEnd   = `${budgetYear}-12-31`;
+  const monthlyAmt = (Math.abs(diff) / 12).toFixed(2);
+  const txType = catType === 'expense' ? 'Uscita' : 'Entrata';
+
+  const body = `
+    <div class="form-row">
+      <div class="form-group">
+        <label>Mancante annuale</label>
+        <input class="form-control" value="${fmt.currency(Math.abs(diff))}" disabled>
+      </div>
+      <div class="form-group">
+        <label>Tipo</label>
+        <input class="form-control" value="${catType === 'expense' ? 'Uscita' : 'Entrata'}" disabled>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Frequenza *</label>
+        <select class="form-control" id="bi_freq">
+          ${Object.entries({once:'Una volta',monthly:'Mensile',quarterly:'Trimestrale',semiannual:'Semestrale',yearly:'Annuale'}).map(([v,l])=>`<option value="${v}" ${v==='monthly'?'selected':''}>${l}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Importo per occorrenza *</label>
+        <input type="number" class="form-control" id="bi_amount" value="${monthlyAmt}" min="0.01" step="0.01">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Data inizio *</label>
+        <input type="date" class="form-control" id="bi_start" value="${startDef}">
+      </div>
+      <div class="form-group">
+        <label>Data fine</label>
+        <input type="date" class="form-control" id="bi_end" value="${yearEnd}">
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Conto *</label>
+      <select class="form-control" id="bi_acc">
+        <option value="">— Seleziona conto —</option>
+        ${accs.map(a=>`<option value="${a.id}">${a.icon||''} ${a.name}</option>`).join('')}
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Descrizione</label>
+      <input type="text" class="form-control" id="bi_desc" value="Integrazione budget ${catLabel}">
+    </div>
+    <p style="font-size:.8rem;color:var(--text2);margin-top:8px">
+      Tag <span style="background:#8b5cf6;color:#fff;padding:2px 8px;border-radius:10px;font-size:.8rem">Da Budget</span> applicato automaticamente.
+    </p>`;
+
+  openModal(`Integra pianificata — ${catLabel}`, body, async () => {
+    const amount = parseFloat(document.getElementById('bi_amount').value);
+    const acc    = parseInt(document.getElementById('bi_acc').value);
+    const start  = document.getElementById('bi_start').value;
+    const end    = document.getElementById('bi_end').value;
+    const freq   = document.getElementById('bi_freq').value;
+    const desc   = document.getElementById('bi_desc').value;
+    if (!amount || !acc || !start) { toast('Compila i campi obbligatori', 'error'); return; }
+    await api.addScheduled({
+      description: desc,
+      amount,
+      type: catType === 'expense' ? 'expense' : 'income',
+      category_id: catId,
+      account_id: acc,
+      frequency: freq,
+      start_date: start,
+      end_date: end || null,
+      is_active: 1,
+      reconciled: 1,
+      tag_ids: [tag.id]
+    });
+    toast('Pianificata creata con tag "Da Budget"');
+    renderBudgetVsPianificate();
+  }, 'Crea Pianificata');
 };
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -5858,7 +6211,7 @@ async function init() {
   if (s['proj.mode'])    _projMode   = s['proj.mode'];
   if (s['cf.range'])     _cfRange    = s['cf.range'];
   if (s['cf.months'])    _cfMonths   = parseInt(s['cf.months'])   || 6;
-  if (s['tx.range'])              txFilters           = { range: s['tx.range'] };
+  if (s['tx.range'])              txFilters           = { range: s['tx.range'], ...rangeToFilter(s['tx.range']) };
   if (s['portfolio.active_only']) _portfolioActiveOnly = s['portfolio.active_only'] !== '0';
   await updateSidebar();
   await renderDashboard();

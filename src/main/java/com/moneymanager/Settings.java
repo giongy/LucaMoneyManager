@@ -51,6 +51,9 @@ public class Settings {
         save();
     }
 
+    /** Percorso assoluto del file usato. */
+    public Path getPath() { return settingsFile; }
+
     /** Restituisce tutte le impostazioni come Map (per invio a JS). */
     public Map<String, String> getAll() {
         Map<String, String> all = new LinkedHashMap<>();

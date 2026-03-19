@@ -17,7 +17,7 @@ public class MainWindow {
     private final Database db;
     private final Settings settings;
 
-    public MainWindow(CefApp cefApp, Database db, Settings settings, String htmlUrl) {
+    public MainWindow(CefApp cefApp, Database db, Settings settings, String htmlUrl, java.nio.file.Path dataDir) {
         this.cefApp = cefApp;
         this.db = db;
         this.settings = settings;
@@ -41,7 +41,7 @@ public class MainWindow {
         routerConfig.jsCancelFunction = "cefQueryCancel";
         var router = org.cef.browser.CefMessageRouter.create(routerConfig);
 
-        Bridge bridge = new Bridge(db, settings, frame);
+        Bridge bridge = new Bridge(db, settings, frame, dataDir);
         router.addHandler(bridge, true);
         client.addMessageRouter(router);
 

@@ -19,8 +19,18 @@ public class App {
                 "AppData", "Roaming", "LucaMoneyManager");
         Files.createDirectories(dataDir);
 
-        // Impostazioni (settings.properties) — nella cartella di lavoro (root progetto o cartella del JAR)
-        Settings settings = new Settings(Path.of(System.getProperty("user.dir")).resolve("settings.properties"));
+        // Impostazioni (settings.properties) — nella stessa cartella del JAR (o user.dir in IDE)
+        Path settingsDir;
+        try {
+            java.net.URL loc = App.class.getProtectionDomain().getCodeSource().getLocation();
+            Path p = Path.of(loc.toURI());
+            // Se stiamo girando da un JAR usa la sua cartella, altrimenti (IDE) usa user.dir
+            settingsDir = p.toString().endsWith(".jar") ? p.getParent()
+                                                        : Path.of(System.getProperty("user.dir"));
+        } catch (Exception e) {
+            settingsDir = Path.of(System.getProperty("user.dir"));
+        }
+        Settings settings = new Settings(settingsDir.resolve("settings.properties"));
 
         // Percorso DB: dal file impostazioni, altrimenti default
         String dbPath = settings.get(Settings.DB_PATH);
@@ -64,7 +74,7 @@ public class App {
         // Crea e mostra la finestra principale
         SwingUtilities.invokeAndWait(() -> {
             try {
-                MainWindow window = new MainWindow(cefApp, db, settings, htmlUrl);
+                MainWindow window = new MainWindow(cefApp, db, settings, htmlUrl, dataDir);
                 window.show();
             } catch (Exception e) {
                 e.printStackTrace();

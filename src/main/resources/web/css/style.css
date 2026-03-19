@@ -333,7 +333,7 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 .acc-check-label input[type=checkbox] { width:16px; height:16px; cursor:pointer; accent-color:var(--accent); }
 
 /* ─── Budget ──────────────────────────────────────────────────────────────── */
-.budget-year-wrap { overflow-x:auto; margin-top:14px; }
+.budget-year-wrap { overflow:auto; margin-top:14px; flex:1; }
 .budget-table { width:100%; border-collapse:separate; border-spacing:0; min-width:900px; }
 .budget-table th {
   padding:7px 6px; font-size:10px; font-weight:700; text-transform:uppercase;
@@ -806,30 +806,30 @@ tr.tx-selected td { background:rgba(88,166,255,.07); }
   font-size: 12px;
   border-bottom: 1px solid var(--border);
 }
-.budget-row-reale td { background: #161b22; }
+.budget-row-reale td { background: var(--bg2); }
 .budget-row-reale td:first-child {
-  border-left: 3px solid #8b949e;
-  color: #8b949e;
+  border-left: 3px solid var(--txt3);
+  color: var(--txt3);
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: .05em;
 }
-.budget-row-budget td { background: #0d1f2d; }
+.budget-row-budget td { background: var(--bg2); }
 .budget-row-budget td:first-child {
-  border-left: 3px solid #58a6ff;
-  color: #58a6ff;
+  border-left: 3px solid var(--accent);
+  color: var(--accent);
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: .05em;
 }
 .budget-row-diff td {
-  background: #0d1a13;
-  border-bottom: 8px solid var(--bg1);
-  box-shadow: 0 6px 12px rgba(0,0,0,0.6);
+  background: var(--bg2);
+  border-bottom: 8px solid var(--bg);
+  box-shadow: 0 6px 12px rgba(0,0,0,0.15);
 }
 .budget-row-diff td:first-child {
-  border-left: 3px solid #3fb950;
-  color: #3fb950;
+  border-left: 3px solid var(--accent2);
+  color: var(--accent2);
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: .05em;
@@ -955,3 +955,23 @@ tr.tx-selected td { background:rgba(88,166,255,.07); }
 .log-key { color: var(--txt3); }
 .log-key::after { content: ':'; margin-right: 2px; }
 .log-val { color: var(--txt1); }
+
+/* ── Budget vs Pianificate ─────────────────────────────────────────────── */
+.budget-sync-table { width:100%; border-collapse:collapse; font-size:.9rem; }
+.budget-sync-table th { padding:8px 12px; text-align:left; color:var(--text2); font-weight:600; border-bottom:2px solid var(--border); white-space:nowrap; }
+.budget-sync-table td { padding:8px 12px; border-bottom:1px solid var(--border); vertical-align:middle; }
+.budget-sync-table tfoot td { border-top:2px solid var(--border); border-bottom:none; padding-top:10px; }
+.budget-sync-table tbody tr:hover { background:var(--bg3); }
+.budget-sync-table .num { text-align:right; font-variant-numeric:tabular-nums; }
+.sync-row-ok td { color: var(--text2); }
+.sync-row-ok:hover td { color: var(--text1); }
+.sync-section-header td { background:var(--bg3); color:var(--text2); font-weight:700; font-size:.8rem; text-transform:uppercase; letter-spacing:.05em; padding:6px 12px; }
+.sync-subtotal td { background:var(--bg3); font-weight:600; border-top:2px solid var(--border); border-bottom:2px solid var(--border); }
+
+/* ── Tabella transazioni compatta ──────────────────────────────────────── */
+#txTable th  { padding:3px 8px; font-size:11px; }
+#txTable td  { padding:2px 8px; font-size:12px; }
+#txTable .badge { padding:1px 6px; font-size:10px; }
+#txTable .btn-reconcile { font-size:12px; padding:1px 3px; }
+#txTable .btn-icon  { padding:2px 5px; font-size:11px; }
+#txTable .tag-inline { font-size:10px; padding:1px 5px; }

@@ -72,7 +72,7 @@ echo [2/2] Creazione app autonoma con jpackage...
 if exist "%DIST%\app" rmdir /s /q "%DIST%\app"
 mkdir "%DIST%\app"
 
-"%JAVA_HOME%\bin\jpackage" --type app-image --input "%ROOT%target" --main-jar moneymanager-1.0.0.jar --name LucaMoneyManager --app-version 1.0.0 --dest "%DIST%\app" --icon "%ROOT%target\icon.ico" --java-options "-Dfile.encoding=UTF-8"
+"%JAVA_HOME%\bin\jpackage" --type app-image --input "%ROOT%target" --main-jar moneymanager-1.0.0.jar --name LucaMoneyManager --app-version 1.0.0 --dest "%DIST%\app" --icon "%ROOT%target\icon.ico" --java-options "-Dfile.encoding=UTF-8" --add-modules java.base,java.desktop,java.logging,java.management,java.naming,java.net.http,java.security.jgss,java.sql,jdk.crypto.ec,jdk.crypto.cryptoki,jdk.security.auth
 
 if errorlevel 1 ( echo [ERRORE] jpackage fallito. & pause & exit /b 1 )
 

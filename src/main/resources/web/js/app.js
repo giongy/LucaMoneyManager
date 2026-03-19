@@ -490,6 +490,64 @@ async function openSavedReport(id) {
 /* ═══════════════════════════════════════════════════════════════════════════
    DASHBOARD
 ═══════════════════════════════════════════════════════════════════════════ */
+
+const _DASH_ACC_TYPE_ORDER  = ['checking','savings','cash','credit','investment'];
+const _DASH_ACC_TYPE_LABELS = {checking:'Conti Correnti',savings:'Risparmio',cash:'Contanti',credit:'Carte di Credito',investment:'Investimenti'};
+
+function _renderDashAccountsWidget(accounts) {
+  const el = document.getElementById('dashAccounts');
+  if (!el) return;
+  const visibleAccounts = accounts.filter(isAccountVisible);
+  const totalBalance = visibleAccounts.reduce((s,a) => s + (a.balance||0), 0);
+  const visGrouped = {};
+  visibleAccounts.forEach(a => { (visGrouped[a.type] = visGrouped[a.type] || []).push(a); });
+  const visOrderedTypes = [...new Set([..._DASH_ACC_TYPE_ORDER.filter(t => visGrouped[t]), ...Object.keys(visGrouped)])];
+  if (!visOrderedTypes.length) {
+    el.innerHTML = `<p class="text-muted" style="padding:20px;text-align:center">Nessun conto. <a onclick="navigate('accounts')" style="color:var(--accent);cursor:pointer">Aggiungi un conto →</a></p>`;
+    return;
+  }
+  el.innerHTML = `
+    <table class="acc-list-table">
+      ${visOrderedTypes.map(t => `
+        <tbody>
+          <tr class="acc-group-row"><td colspan="3">${_DASH_ACC_TYPE_LABELS[t] || t}</td></tr>
+          ${visGrouped[t].map(a => `
+            <tr class="acc-list-row" onclick="navigateToAccountTx(${a.id})">
+              <td>
+                <span class="acc-dot" style="background:${a.color||'var(--accent)'}"></span>
+                <span class="acc-icon">${a.icon||''}</span>
+                <span class="acc-name">${a.name}</span>
+              </td>
+              <td class="acc-bal ${a.balance<0?'neg':''}" style="color:${a.balance<0?'var(--expense)':(a.color||'var(--accent)')}">
+                ${fmt.currency(a.balance)}
+              </td>
+              <td class="acc-quick-btns" onclick="event.stopPropagation()">
+                <button class="acc-quick-btn acc-quick-exp" title="Aggiungi uscita"  onclick="_dashQuickTx(${a.id},'expense')">−</button>
+                <button class="acc-quick-btn acc-quick-inc" title="Aggiungi entrata" onclick="_dashQuickTx(${a.id},'income')">+</button>
+                <button class="acc-quick-btn acc-quick-tra" title="Trasferimento"    onclick="_dashQuickTx(${a.id},'transfer')">⇄</button>
+              </td>
+            </tr>`).join('')}
+        </tbody>`).join('')}
+      <tbody>
+        <tr class="acc-total-row">
+          <td>Totale</td>
+          <td class="acc-bal ${totalBalance<0?'neg':''}" style="color:${totalBalance<0?'var(--expense)':'var(--income)'}">
+            ${fmt.currency(totalBalance)}
+          </td>
+          <td></td>
+        </tr>
+      </tbody>
+    </table>`;
+}
+
+window._dashQuickTx = async (accountId, type) => {
+  const [cats, accs, tags] = await Promise.all([api.getCategories(), api.getAccounts(), api.getTags()]);
+  showTxModal({account_id: accountId, type}, cats, accs, type, tags, async () => {
+    api._invalidateAccounts();
+    _renderDashAccountsWidget(await api.getAccounts());
+  });
+};
+
 async function renderDashboard() {
   const dashYear = new Date().getFullYear();
   const pg = document.getElementById('pg-dashboard');
@@ -577,45 +635,7 @@ async function renderDashboard() {
       <div class="stat-sub">${stats.transaction_count} transazioni</div>
     </div>`;
 
-  // Accounts grouped by type
-  const ACC_TYPE_ORDER  = ['checking','savings','cash','credit','investment'];
-  const ACC_TYPE_LABELS = {checking:'Conti Correnti',savings:'Risparmio',cash:'Contanti',credit:'Carte di Credito',investment:'Investimenti'};
-  const grouped = {};
-  accounts.forEach(a => { (grouped[a.type] = grouped[a.type] || []).push(a); });
-  const orderedTypes = [...new Set([...ACC_TYPE_ORDER.filter(t => grouped[t]), ...Object.keys(grouped)])];
-
-  const visibleAccounts = accounts.filter(isAccountVisible);
-  const totalBalance = visibleAccounts.reduce((s,a) => s + (a.balance||0), 0);
-  const visGrouped = {};
-  visibleAccounts.forEach(a => { (visGrouped[a.type] = visGrouped[a.type] || []).push(a); });
-  const visOrderedTypes = [...new Set([...ACC_TYPE_ORDER.filter(t => visGrouped[t]), ...Object.keys(visGrouped)])];
-  document.getElementById('dashAccounts').innerHTML = visOrderedTypes.length ? `
-    <table class="acc-list-table">
-      ${visOrderedTypes.map(t => `
-        <tbody>
-          <tr class="acc-group-row"><td colspan="2">${ACC_TYPE_LABELS[t] || t}</td></tr>
-          ${visGrouped[t].map(a => `
-            <tr class="acc-list-row" onclick="navigateToAccountTx(${a.id})">
-              <td>
-                <span class="acc-dot" style="background:${a.color||'var(--accent)'}"></span>
-                <span class="acc-icon">${a.icon||''}</span>
-                <span class="acc-name">${a.name}</span>
-              </td>
-              <td class="acc-bal ${a.balance<0?'neg':''}" style="color:${a.balance<0?'var(--expense)':(a.color||'var(--accent)')}">
-                ${fmt.currency(a.balance)}
-              </td>
-            </tr>`).join('')}
-        </tbody>`).join('')}
-      <tbody>
-        <tr class="acc-total-row">
-          <td>Totale</td>
-          <td class="acc-bal ${totalBalance<0?'neg':''}" style="color:${totalBalance<0?'var(--expense)':'var(--income)'}">
-            ${fmt.currency(totalBalance)}
-          </td>
-        </tr>
-      </tbody>
-    </table>` :
-    `<p class="text-muted" style="padding:20px;text-align:center">Nessun conto. <a onclick="navigate('accounts')" style="color:var(--accent);cursor:pointer">Aggiungi un conto →</a></p>`;
+  _renderDashAccountsWidget(accounts);
 
   // Bar chart
   const months = Array.from({length:12},(_,i)=>new Date(0,i).toLocaleString('it-IT',{month:'short'}));

@@ -294,7 +294,21 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 .acc-list-row { cursor:pointer; transition:background .12s; }
 .acc-list-row:hover { background:var(--bg3); }
 .acc-list-row td { padding:6px 14px; vertical-align:middle; }
-.acc-list-row td:last-child { text-align:right; white-space:nowrap; }
+.acc-list-row td:nth-child(2) { text-align:right; white-space:nowrap; }
+.acc-list-row td:last-child { text-align:right; white-space:nowrap; padding:0 8px; }
+/* Quick-add buttons nel widget conti dashboard */
+.acc-quick-btns { display:flex; gap:3px; justify-content:flex-end; opacity:0; transition:opacity .15s; }
+.acc-list-row:hover .acc-quick-btns { opacity:1; }
+.acc-quick-btn {
+  width:20px; height:20px; border-radius:50%; border:none; cursor:pointer;
+  font-size:13px; font-weight:700; line-height:1; padding:0;
+  display:flex; align-items:center; justify-content:center;
+  transition:transform .1s, opacity .1s;
+}
+.acc-quick-btn:hover { transform:scale(1.2); }
+.acc-quick-exp { background:rgba(248,81,73,.85); color:#fff; }
+.acc-quick-inc { background:rgba(63,185,80,.85); color:#fff; }
+.acc-quick-tra { background:rgba(88,166,255,.85); color:#fff; font-size:11px; }
 .acc-dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; vertical-align:middle; }
 .acc-icon { font-size:14px; margin-right:5px; vertical-align:middle; }
 .acc-name { font-size:13px; font-weight:500; vertical-align:middle; }

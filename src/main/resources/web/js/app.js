@@ -738,29 +738,32 @@ async function renderDashboard() {
     const budgetCtx = document.getElementById('budgetChart');
     if (budgetCtx && bLabels.length) {
       charts.budget = new Chart(budgetCtx, {
-        type: 'bar',
+        type: 'line',
         data: {
           labels: bLabels,
-          datasets: [
-            { type: 'line', label: 'Budget', data: bBudget, borderColor: '#58a6ff', backgroundColor: 'transparent', tension: 0.3, pointRadius: 3, order: 1 },
-            { type: 'line', label: 'Reale',  data: bActual, borderColor: '#f85149', backgroundColor: 'transparent', tension: 0.3, pointRadius: 3, order: 1 },
-            {
-              type: 'bar', label: 'Differenza', data: bDiff,
-              backgroundColor: bDiff.map(v => v >= 0 ? 'rgba(63,185,80,.45)' : 'rgba(248,81,73,.45)'),
-              borderColor:     bDiff.map(v => v >= 0 ? 'rgba(63,185,80,.8)'  : 'rgba(248,81,73,.8)'),
-              borderWidth: 1, borderRadius: 3, order: 2
-            }
-          ]
+          datasets: [{
+            label: 'Differenza',
+            data: bDiff,
+            fill: { target: 'origin', above: 'rgba(63,185,80,0.25)', below: 'rgba(248,81,73,0.25)' },
+            segment: {
+              borderColor: ctx => ctx.p1.parsed.y < 0 ? 'rgba(248,81,73,0.8)' : 'rgba(63,185,80,0.8)'
+            },
+            tension: 0.3, pointRadius: 3,
+            pointBackgroundColor: ctx => bDiff[ctx.dataIndex] >= 0 ? 'rgba(63,185,80,0.9)' : 'rgba(248,81,73,0.9)'
+          }]
         },
         options: {
           responsive: true, maintainAspectRatio: false,
           interaction: { mode: 'index', intersect: false },
           plugins: {
-            legend: { labels: { color: chartColors().tick, font: { size: 11 } } },
+            legend: { display: false },
             tooltip: {
               callbacks: {
-                label: ctx => ` ${ctx.dataset.label}: ${fmt.currency(ctx.parsed.y)}`,
-                labelFont: ctx => ctx.datasetIndex === 2 ? { weight: 'bold', size: 13 } : { size: 12 }
+                label: ctx => ` Differenza: ${fmt.currency(ctx.parsed.y)}`,
+                labelColor: ctx => {
+                  const c = ctx.parsed.y >= 0 ? 'rgba(63,185,80,0.9)' : 'rgba(248,81,73,0.9)';
+                  return { borderColor: c, backgroundColor: c };
+                }
               }
             }
           },

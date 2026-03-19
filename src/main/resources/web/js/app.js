@@ -228,6 +228,7 @@ const api = {
   deleteBudgetMonth: data      => callJava('deleteBudgetMonth', data),
   setBudgetConfig: data       => callJava('setBudgetConfig', data),
   generateBudget: data      => callJava('generateBudget', data),
+  getBudgetYears: ()        => callJava('getBudgetYears', {}),
 
   // Portafoglio
   getPortfolio:             ()      => callJava('getPortfolio', {}),
@@ -2677,68 +2678,76 @@ window._budgetShowDetail = (catId, catName) => {
     for (let m = 1; m <= 12; m++) { bm[m] = eff[m]||0; am[m] = act[m]||0; }
   }
 
+  // d = Reale − Budget (segno convenzionale: negativo = sotto budget per uscite = buono)
+  // Colore: uscite → d<0 verde; entrate → d>0 verde
+  const diffColor = (d) => {
+    if (!d) return '';
+    return isIncome
+      ? (d > 0 ? 'color:var(--income)' : 'color:var(--expense)')
+      : (d < 0 ? 'color:var(--income)' : 'color:var(--expense)');
+  };
+
   let cumB = 0, cumA = 0;
   const tableRows = MONTHS_SHORT.map((mn, i) => {
     const m = i + 1;
-    const b = bm[m], a = am[m], d = b - a;
+    const b = bm[m], a = am[m], d = a - b;  // Reale − Budget
     cumB += b; cumA += a;
-    // expense: d>0 (under-spent) = good = green; income: d>0 (under-earned) = bad = red
-    const dc  = isIncome
-      ? (d < 0 ? 'color:var(--income)' : d > 0 ? 'color:var(--expense)' : '')
-      : (d > 0 ? 'color:var(--income)' : d < 0 ? 'color:var(--expense)' : '');
-    const dcc = isIncome
-      ? (cumA > cumB ? 'color:var(--income)' : cumA < cumB ? 'color:var(--expense)' : '')
-      : (cumB > cumA ? 'color:var(--income)' : cumB < cumA ? 'color:var(--expense)' : '');
+    const cumD = cumA - cumB;
     return `<tr>
       <td class="td-main">${mn}</td>
       <td style="text-align:right">${a ? fmt.currency(a) : '—'}</td>
       <td style="text-align:right">${b ? fmt.currency(b) : '—'}</td>
-      <td style="text-align:right;${dc}">${(b||a) ? fmt.currency(d) : '—'}</td>
+      <td style="text-align:right;${(b||a) ? diffColor(d) : ''}">${(b||a) ? fmt.currency(d) : '—'}</td>
       <td style="text-align:right;color:var(--txt3)">${cumA ? fmt.currency(cumA) : '—'}</td>
       <td style="text-align:right;color:var(--txt3)">${cumB ? fmt.currency(cumB) : '—'}</td>
-      <td style="text-align:right;${dcc}">${(cumB||cumA) ? fmt.currency(cumB - cumA) : '—'}</td>
+      <td style="text-align:right;${(cumB||cumA) ? diffColor(cumD) : ''}">${(cumB||cumA) ? fmt.currency(cumD) : '—'}</td>
     </tr>`;
   }).join('');
 
   const totB = Object.values(bm).reduce((s,v)=>s+v,0);
   const totA = Object.values(am).reduce((s,v)=>s+v,0);
-  const totD = totB - totA;
-  const totDc = isIncome
-    ? (totD < 0 ? 'color:var(--income)' : totD > 0 ? 'color:var(--expense)' : '')
-    : (totD > 0 ? 'color:var(--income)' : totD < 0 ? 'color:var(--expense)' : '');
+  const totD = totA - totB;  // Reale − Budget
+  const totDc = (totB||totA) ? diffColor(totD) : '';
 
   const body = `
-    <div style="position:relative;height:220px;margin-bottom:18px">
-      <canvas id="budgetDetailChart"></canvas>
-    </div>
-    <div class="table-wrap">
-      <table>
-        <thead>
-          <tr>
-            <th rowspan="2">Mese</th>
-            <th colspan="3" style="text-align:center;border-bottom:1px solid var(--border)">Mensile</th>
-            <th colspan="3" style="text-align:center;border-bottom:1px solid var(--border)">Cumulativo</th>
-          </tr>
-          <tr>
-            <th style="text-align:right">Reale</th>
-            <th style="text-align:right">Budget</th>
-            <th style="text-align:right">Diff.</th>
-            <th style="text-align:right">Reale</th>
-            <th style="text-align:right">Budget</th>
-            <th style="text-align:right">Diff.</th>
-          </tr>
-        </thead>
-        <tbody>${tableRows}</tbody>
-        <tfoot><tr style="font-weight:700;border-top:2px solid var(--border)">
-          <td class="td-main">Totale</td>
-          <td style="text-align:right">${totA ? fmt.currency(totA) : '—'}</td>
-          <td style="text-align:right">${totB ? fmt.currency(totB) : '—'}</td>
-          <td style="text-align:right;${totDc}">${(totB||totA) ? fmt.currency(totD) : '—'}</td>
-          <td style="text-align:right;color:var(--txt3)">${totA ? fmt.currency(totA) : '—'}</td>
-          <td style="text-align:right;color:var(--txt3)">${totB ? fmt.currency(totB) : '—'}</td>
-          <td style="text-align:right;${totDc}">${(totB||totA) ? fmt.currency(totD) : '—'}</td>
-        </tr></tfoot>
-      </table>
+    <div style="display:flex;gap:20px;align-items:flex-start">
+      <div class="table-wrap" style="flex:0 0 auto">
+        <table>
+          <thead>
+            <tr>
+              <th rowspan="2">Mese</th>
+              <th colspan="3" style="text-align:center;border-bottom:1px solid var(--border)">Mensile</th>
+              <th colspan="3" style="text-align:center;border-bottom:1px solid var(--border)">Cumulativo</th>
+            </tr>
+            <tr>
+              <th style="text-align:right">Reale</th>
+              <th style="text-align:right">Budget</th>
+              <th style="text-align:right">Diff.</th>
+              <th style="text-align:right">Reale</th>
+              <th style="text-align:right">Budget</th>
+              <th style="text-align:right">Diff.</th>
+            </tr>
+          </thead>
+          <tbody>${tableRows}</tbody>
+          <tfoot><tr style="font-weight:700;border-top:2px solid var(--border)">
+            <td class="td-main">Totale</td>
+            <td style="text-align:right">${totA ? fmt.currency(totA) : '—'}</td>
+            <td style="text-align:right">${totB ? fmt.currency(totB) : '—'}</td>
+            <td style="text-align:right;${totDc}">${(totB||totA) ? fmt.currency(totD) : '—'}</td>
+            <td style="text-align:right;color:var(--txt3)">${totA ? fmt.currency(totA) : '—'}</td>
+            <td style="text-align:right;color:var(--txt3)">${totB ? fmt.currency(totB) : '—'}</td>
+            <td style="text-align:right;${totDc}">${(totB||totA) ? fmt.currency(totD) : '—'}</td>
+          </tr></tfoot>
+        </table>
+      </div>
+      <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:6px">
+        <div style="position:relative;height:360px">
+          <canvas id="budgetDetailChart"></canvas>
+        </div>
+        <div style="font-size:10px;color:var(--txt3);text-align:center">
+          Scroll per zoom · Trascina per spostare · Doppio click per reset
+        </div>
+      </div>
     </div>`;
 
   openModal(`📊 ${catName} — ${budgetYear}`, body, null);
@@ -2746,32 +2755,48 @@ window._budgetShowDetail = (catId, catName) => {
   // Widen modal and draw chart after modal renders
   setTimeout(() => {
     const modal = document.querySelector('.modal');
-    if (modal) modal.style.width = '660px';
+    if (modal) modal.style.width = '1200px';
     const canvas = document.getElementById('budgetDetailChart');
     if (!canvas) return;
     if (window._budgetDetailChart) { window._budgetDetailChart.destroy(); window._budgetDetailChart = null; }
+    const _now = new Date();
+    const _maxM = budgetYear < _now.getFullYear() ? 12
+                : budgetYear === _now.getFullYear() ? _now.getMonth() + 1
+                : 12;
+    const chartLabels = MONTHS_SHORT.slice(0, _maxM);
     window._budgetDetailChart = new Chart(canvas, {
       type: 'line',
       data: {
-        labels: MONTHS_SHORT,
+        labels: chartLabels,
         datasets: [
           {
             label: 'Budget (cumulativo)',
-            data: MONTHS_SHORT.map((_,i) => { let s=0; for(let m=1;m<=i+1;m++) s+=bm[m]||0; return s; }),
+            data: chartLabels.map((_,i) => { let s=0; for(let m=1;m<=i+1;m++) s+=bm[m]||0; return s; }),
             borderColor: '#58a6ff',
             backgroundColor: 'rgba(88,166,255,0.08)',
             borderWidth: 2,
-            pointRadius: 3,
+            pointRadius: 2,
             tension: 0.3,
             fill: false,
           },
           {
             label: 'Reale (cumulativo)',
-            data: MONTHS_SHORT.map((_,i) => { let s=0; for(let m=1;m<=i+1;m++) s+=am[m]||0; return s; }),
+            data: chartLabels.map((_,i) => { let s=0; for(let m=1;m<=i+1;m++) s+=am[m]||0; return s; }),
             borderColor: '#3fb950',
             backgroundColor: 'rgba(63,185,80,0.08)',
             borderWidth: 2,
-            pointRadius: 3,
+            pointRadius: 2,
+            tension: 0.3,
+            fill: false,
+          },
+          {
+            label: 'Differenza cumulativa',
+            data: chartLabels.map((_,i) => { let a=0,b=0; for(let m=1;m<=i+1;m++){a+=am[m]||0;b+=bm[m]||0;} return a-b; }),
+            borderColor: '#a78bfa',
+            backgroundColor: 'rgba(167,139,250,0.08)',
+            borderWidth: 2,
+            borderDash: [4,3],
+            pointRadius: 2,
             tension: 0.3,
             fill: false,
           },
@@ -2779,13 +2804,79 @@ window._budgetShowDetail = (catId, catName) => {
       },
       options: {
         responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { labels: { color: '#8b949e', font: { size: 11 } } } },
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { labels: { color: '#8b949e', font: { size: 11 } } },
+          tooltip: {
+            callbacks: {
+              label: ctx => ` ${ctx.dataset.label}: ${fmt.currency(ctx.parsed.y)}`
+            }
+          }
+        },
         scales: {
           x: { ticks: { color: '#8b949e', font: { size: 10 } }, grid: { color: '#21262d' } },
           y: { ticks: { color: '#8b949e', font: { size: 10 }, callback: v => fmt.currency(v) }, grid: { color: '#21262d' } },
         }
       }
     });
+
+    // Zoom con scroll, pan con drag, reset con doppio click
+    const chart = window._budgetDetailChart;
+    const N = chartLabels.length - 1;
+    const getRange = () => {
+      const s = chart.scales.x;
+      const mn = s.min != null ? MONTHS_SHORT.indexOf(s.min) : 0;
+      const mx = s.max != null ? MONTHS_SHORT.indexOf(s.max) : N;
+      return { mn: mn < 0 ? 0 : mn, mx: mx < 0 ? N : mx };
+    };
+    const setRange = (mn, mx) => {
+      mn = Math.max(0, Math.round(mn));
+      mx = Math.min(N, Math.round(mx));
+      if (mx <= mn) mx = mn + 1;
+      chart.options.scales.x.min = chartLabels[mn];
+      chart.options.scales.x.max = chartLabels[mx];
+      chart.update('none');
+    };
+
+    canvas.addEventListener('wheel', e => {
+      e.preventDefault();
+      const { mn, mx } = getRange();
+      const range = mx - mn;
+      const rect = canvas.getBoundingClientRect();
+      const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left - chart.scales.x.left) / (chart.scales.x.right - chart.scales.x.left)));
+      const pivot = mn + ratio * range;
+      const factor = e.deltaY > 0 ? 1.25 : 0.8;
+      const newRange = Math.max(1, Math.min(N + 1, range * factor));
+      setRange(pivot - ratio * newRange, pivot + (1 - ratio) * newRange);
+    }, { passive: false });
+
+    canvas.addEventListener('dblclick', () => {
+      chart.options.scales.x.min = undefined;
+      chart.options.scales.x.max = undefined;
+      chart.update('none');
+    });
+
+    let _drag = null;
+    canvas.addEventListener('mousedown', e => {
+      const r = getRange();
+      _drag = { startX: e.clientX, mn: r.mn, mx: r.mx };
+      canvas.style.cursor = 'grabbing';
+    });
+    canvas.addEventListener('mousemove', e => {
+      if (!_drag) return;
+      const pixW = chart.scales.x.right - chart.scales.x.left;
+      const range = _drag.mx - _drag.mn;
+      const shift = -(_drag.startX - e.clientX) / pixW * range;
+      let mn = _drag.mn - shift, mx = _drag.mx - shift;
+      if (mn < 0) { mx -= mn; mn = 0; }
+      if (mx > N) { mn -= mx - N; mx = N; }
+      chart.options.scales.x.min = chartLabels[Math.max(0, Math.round(mn))];
+      chart.options.scales.x.max = chartLabels[Math.min(N, Math.round(mx))];
+      chart.update('none');
+    });
+    const endDrag = () => { _drag = null; canvas.style.cursor = 'default'; };
+    canvas.addEventListener('mouseup', endDrag);
+    canvas.addEventListener('mouseleave', endDrag);
   }, 50);
 };
 
@@ -2795,14 +2886,22 @@ window._budgetClearRow = async catId => {
   await loadBudgetTable();
 };
 
-function showGenerateBudgetModal() {
+async function showGenerateBudgetModal() {
   const prevYear = budgetYear - 1;
+  const allYears = (await api.getBudgetYears()).filter(y => y !== budgetYear);
+  const yearOpts = allYears.map(y => `<option value="${y}">${y}</option>`).join('');
+
   openModal(`Genera budget ${budgetYear}`,
     `<div class="form-group">
        <label class="form-label">Basare i valori su:</label>
        <label style="display:flex;align-items:center;gap:8px;margin:8px 0;cursor:pointer">
          <input type="radio" name="bg_source" value="history" checked>
          Storico ${prevYear} — copia le entrate/uscite effettive per categoria
+       </label>
+       <label style="display:flex;align-items:center;gap:8px;margin:8px 0;cursor:pointer">
+         <input type="radio" name="bg_source" value="copy">
+         Copia da budget anno
+         <select id="bg_copy_year" style="margin-left:4px">${yearOpts}</select>
        </label>
        <label style="display:flex;align-items:center;gap:8px;margin:8px 0;cursor:pointer">
          <input type="radio" name="bg_source" value="zero">
@@ -2814,21 +2913,30 @@ function showGenerateBudgetModal() {
        </div>
      </div>`,
     async () => {
-      const fromHistory = document.querySelector('input[name="bg_source"]:checked').value === 'history';
-      await api.generateBudget({year: budgetYear, from_history: fromHistory});
+      const source = document.querySelector('input[name="bg_source"]:checked').value;
+      const data = { year: budgetYear, source };
+      if (source === 'copy') data.source_year = parseInt(document.getElementById('bg_copy_year').value);
+      await api.generateBudget(data);
       closeModal();
       await loadBudgetTable();
-      toast(fromHistory
-        ? `Budget ${budgetYear} generato dallo storico ${prevYear}`
-        : `Budget ${budgetYear} pronto — inserisci i valori nelle celle`, 'success');
+      const msg = source === 'history' ? `Budget ${budgetYear} generato dallo storico ${prevYear}`
+                : source === 'copy'    ? `Budget ${budgetYear} copiato da ${data.source_year}`
+                :                       `Budget ${budgetYear} pronto — inserisci i valori nelle celle`;
+      toast(msg, 'success');
     });
   setTimeout(() => {
+    const hints = {
+      history: `I valori mensili di ogni categoria vengono copiati dallo storico ${prevYear}. Potrai modificare ogni cella in seguito.`,
+      copy:    'Vengono copiati i valori mensili e la configurazione (M/A) dal budget dell\'anno selezionato.',
+      zero:    'Tutte le celle partiranno vuote. Usa i pulsanti M/A per impostare gli importi o clicca una cella.',
+    };
     document.querySelectorAll('input[name="bg_source"]').forEach(r => {
-      r.onchange = () => {
-        document.getElementById('bg_hint').textContent = r.value === 'history'
-          ? `I valori mensili di ogni categoria vengono copiati dallo storico ${prevYear}. Potrai modificare ogni cella in seguito.`
-          : 'Tutte le celle partiranno vuote. Usa i pulsanti M/A per impostare gli importi o clicca una cella.';
-      };
+      r.onchange = () => { document.getElementById('bg_hint').textContent = hints[r.value] || ''; };
+    });
+    // click su select → seleziona la radio "copy"
+    document.getElementById('bg_copy_year')?.addEventListener('focus', () => {
+      const r = document.querySelector('input[name="bg_source"][value="copy"]');
+      if (r) { r.checked = true; document.getElementById('bg_hint').textContent = hints.copy; }
     });
   }, 50);
 }

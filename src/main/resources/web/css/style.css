@@ -281,8 +281,8 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 .dash-chart-wrap { position:relative; flex:1; min-height:160px; margin-top:6px; }
 
 .dash-tables-row { display:flex; gap:16px; align-items:stretch; }
-.dash-recent-card   { flex:3; min-width:0; }
-.dash-upcoming-card { flex:2; min-width:0; }
+.dash-recent-card   { flex:1; min-width:0; }
+.dash-upcoming-card { flex:1; min-width:0; }
 
 .dash-bottom-charts { display:flex; gap:16px; margin-top:16px; }
 .dash-chart-sm { flex:1; min-width:0; }

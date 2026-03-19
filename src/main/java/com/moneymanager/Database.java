@@ -1012,6 +1012,36 @@ public class Database {
         logger.log("BUDGET GENERATO", "anno:" + year, "da_storico:" + prevYear);
     }
 
+    /** Copia il budget (budgets + budget_config) da sourceYear a year. */
+    public void copyBudgetFromYear(int year, int sourceYear) throws SQLException {
+        // Copia i valori mensili
+        execute("""
+            INSERT INTO budgets(category_id, amount, month, year)
+            SELECT category_id, amount, month, ?
+            FROM budgets WHERE year=?
+            ON CONFLICT(category_id, month, year) DO UPDATE SET amount=excluded.amount
+        """, year, sourceYear);
+        // Copia la configurazione (mode, master_amount)
+        execute("""
+            INSERT INTO budget_config(category_id, year, mode, master_amount)
+            SELECT category_id, ?, mode, master_amount
+            FROM budget_config WHERE year=?
+            ON CONFLICT(category_id, year) DO UPDATE SET mode=excluded.mode, master_amount=excluded.master_amount
+        """, year, sourceYear);
+        logger.log("BUDGET COPIATO", "anno:" + year, "da_anno:" + sourceYear);
+    }
+
+    /** Restituisce gli anni per cui esiste almeno una riga in budgets o budget_config. */
+    public List<Integer> getBudgetYears() throws SQLException {
+        List<Map<String, Object>> rows = queryList("""
+            SELECT DISTINCT year FROM budgets
+            UNION
+            SELECT DISTINCT year FROM budget_config
+            ORDER BY year DESC
+        """);
+        return rows.stream().map(r -> ((Number) r.get("year")).intValue()).toList();
+    }
+
     /** Imposta la modalità (mensile/annuale) e l'importo master per una categoria in un anno. */
     public void setBudgetConfig(int categoryId, int year, String mode, double masterAmount) throws SQLException {
         execute("""

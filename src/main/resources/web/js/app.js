@@ -267,6 +267,10 @@ const api = {
   advanceScheduled: (id, date) => callJava('advanceScheduled', {id, date}),
   getProjection:   data  => callJava('getProjection', data),
 
+  // Analytics
+  getCategoryMonthTable: (months) => callJava('getCategoryMonthTable', { months }),
+  getMonthlyBalance:     (months) => callJava('getMonthlyBalance',     { months }),
+
   // Resoconti
   getReports:   ()     => callJava('getReports'),
   saveReport:   data   => callJava('saveReport',   data),
@@ -369,7 +373,7 @@ document.getElementById('btnClose').onclick = () => api.close();
 /* ─── Router ──────────────────────────────────────────────────────────────── */
 const PAGE_TITLES = {
   dashboard:'Dashboard', transactions:'Transazioni', accounts:'Conti',
-  budgets:'Budget', portfolio:'Portafoglio', reports:'Resoconti', settings:'Impostazioni',
+  budgets:'Budget', portfolio:'Portafoglio', analytics:'Reports', reports:'Filtri', settings:'Impostazioni',
   scheduled:'Transazioni Pianificate'
 };
 let currentPage = 'dashboard';
@@ -389,6 +393,7 @@ function navigate(page) {
 document.querySelectorAll('.nav-item').forEach(el => {
   el.addEventListener('click', () => {
     if (el.dataset.page === 'transactions') txFilters = { range: txFilters.range || '30d' };
+    if (el.dataset.page === 'budgets') _budgetTab = 'grid';
     navigate(el.dataset.page);
   });
 });
@@ -400,6 +405,7 @@ function renderPage(page) {
     case 'accounts':     renderAccounts();     break;
     case 'budgets':      renderBudgets();      break;
     case 'portfolio':    renderPortfolio();    break;
+    case 'analytics':    renderAnalytics();    break;
     case 'reports':      renderReports();      break;
     case 'categories':   renderCategories();   break;
     case 'tags':         renderTags();         break;
@@ -579,7 +585,7 @@ async function renderDashboard() {
         <div class="card-header"><span class="card-title">Entrate vs Uscite ${dashYear}</span></div>
         <div class="dash-chart-wrap"><canvas id="barChart"></canvas></div>
       </div>
-      <div class="card dash-budgetchart-card">
+      <div class="card dash-budgetchart-card" style="cursor:pointer" onclick="_budgetTab='andamento';navigate('budgets')">
         <div class="card-header"><span class="card-title">Budget vs Reale ${dashYear}</span></div>
         <div class="dash-chart-wrap"><canvas id="budgetChart"></canvas></div>
       </div>
@@ -4011,6 +4017,211 @@ window.deleteStock = async id => {
 /* ═══════════════════════════════════════════════════════════════════════════
    RESOCONTI
 ═══════════════════════════════════════════════════════════════════════════ */
+/* ─── Analytics ──────────────────────────────────────────────────────────── */
+
+let _analyticsMonths = 12;
+
+async function renderAnalytics() {
+  const pg = document.getElementById('pg-analytics');
+  pg.innerHTML = `
+    <div style="padding:16px 24px 0;display:flex;flex-direction:column;height:100%;overflow:hidden;box-sizing:border-box">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-shrink:0">
+        <div style="display:flex;gap:6px">
+          <button class="sched-tab active" data-atab="catmonth" onclick="_setAnalyticsTab('catmonth',this)">Categorie / Mese</button>
+          <button class="sched-tab" data-atab="balance" onclick="_setAnalyticsTab('balance',this)">Bilancio Mensile</button>
+        </div>
+        <div style="margin-left:auto;display:flex;gap:10px;align-items:center">
+          <label style="font-size:13px;color:var(--text2)">Periodo:</label>
+          <input type="range" id="analyticsPeriod" min="2" max="24" value="${_analyticsMonths}"
+            style="width:120px;accent-color:var(--accent)">
+          <span id="analyticsPeriodLabel" style="font-size:13px;min-width:60px">${_analyticsMonths} mesi</span>
+        </div>
+      </div>
+      <div id="analyticsContent" style="flex:1;overflow:auto;padding-bottom:16px"></div>
+    </div>`;
+  const slider = document.getElementById('analyticsPeriod');
+  slider.oninput = () => {
+    _analyticsMonths = parseInt(slider.value);
+    document.getElementById('analyticsPeriodLabel').textContent = _analyticsMonths + ' mesi';
+  };
+  slider.onchange = () => {
+    _analyticsMonths = parseInt(slider.value);
+    api.setSetting('analytics.months', String(_analyticsMonths));
+    renderAnalyticsCatMonth();
+  };
+  renderAnalyticsCatMonth();
+}
+
+let _analyticsTab = 'catmonth';
+window._setAnalyticsTab = (tab, btn) => {
+  _analyticsTab = tab;
+  document.querySelectorAll('[data-atab]').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  if (tab === 'catmonth') renderAnalyticsCatMonth();
+  if (tab === 'balance')  renderAnalyticsBalance();
+};
+
+async function renderAnalyticsCatMonth() {
+  const el = document.getElementById('analyticsContent');
+  if (!el) return;
+  el.innerHTML = '<p style="padding:20px;color:var(--text2)">Caricamento…</p>';
+
+  const months = _analyticsMonths;
+
+  const rows = await api.getCategoryMonthTable(months);
+
+  // Build month columns (oldest → newest)
+  const now = new Date();
+  const monthCols = [];
+  for (let i = months - 1; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    monthCols.push({
+      ym:    `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`,
+      label: d.toLocaleDateString('it-IT', { month: 'short', year: '2-digit' })
+    });
+  }
+
+  // Group rows by category
+  const catMap = {};
+  for (const r of rows) {
+    if (!catMap[r.id]) catMap[r.id] = { id: r.id, name: r.name, type: r.type, color: r.color, icon: r.icon, m: {} };
+    catMap[r.id].m[r.ym] = r.total;
+  }
+
+  const catTotal = c => monthCols.reduce((s, m) => s + (c.m[m.ym] || 0), 0);
+
+  const expenses = Object.values(catMap).filter(c => c.type === 'expense').sort((a, b) => catTotal(b) - catTotal(a));
+  const incomes  = Object.values(catMap).filter(c => c.type === 'income' ).sort((a, b) => catTotal(b) - catTotal(a));
+
+  const renderSection = (cats, label) => {
+    if (!cats.length) return '';
+    let html = `<tr class="analytics-section-header"><td colspan="${monthCols.length + 3}">${label}</td></tr>`;
+    for (const c of cats) {
+      const total = catTotal(c);
+      const avg = total / monthCols.length;
+      html += `<tr>
+        <td class="analytics-cat-name"><span style="color:${c.color}">${c.icon}</span> ${c.name}</td>
+        ${monthCols.map(m => `<td class="text-right">${c.m[m.ym] ? fmt.currency(c.m[m.ym]) : '<span style="color:var(--text3)">—</span>'}</td>`).join('')}
+        <td class="text-right analytics-total">${fmt.currency(total)}</td>
+        <td class="text-right analytics-avg">${fmt.currency(avg)}</td>
+      </tr>`;
+    }
+    const colTotals = monthCols.map(m => cats.reduce((s, c) => s + (c.m[m.ym] || 0), 0));
+    const grand = colTotals.reduce((a, b) => a + b, 0);
+    html += `<tr class="analytics-subtotal">
+      <td>Totale ${label}</td>
+      ${colTotals.map(t => `<td class="text-right">${fmt.currency(t)}</td>`).join('')}
+      <td class="text-right">${fmt.currency(grand)}</td>
+      <td class="text-right">${fmt.currency(monthCols.length ? grand / monthCols.length : 0)}</td>
+    </tr>`;
+    return html;
+  };
+
+  el.innerHTML = `
+    <table class="analytics-table">
+      <thead><tr>
+        <th>Categoria</th>
+        ${monthCols.map(m => `<th class="text-right">${m.label}</th>`).join('')}
+        <th class="text-right">Totale</th>
+        <th class="text-right">Media/mese</th>
+      </tr></thead>
+      <tbody>
+        ${renderSection(expenses, 'Uscite')}
+        ${renderSection(incomes,  'Entrate')}
+      </tbody>
+    </table>`;
+}
+
+let _analyticsBalanceChart = null;
+
+async function renderAnalyticsBalance() {
+  const el = document.getElementById('analyticsContent');
+  if (!el) return;
+  el.innerHTML = '<p style="padding:20px;color:var(--text2)">Caricamento…</p>';
+
+  const rows = await api.getMonthlyBalance(_analyticsMonths);
+
+  // Build full month grid
+  const now = new Date();
+  const monthCols = [];
+  for (let i = _analyticsMonths - 1; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const ym = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    monthCols.push({ ym, label: d.toLocaleDateString('it-IT', { month: 'short', year: '2-digit' }) });
+  }
+
+  const byYm = {};
+  for (const r of rows) byYm[r.ym] = r;
+
+  const incomes  = monthCols.map(m => byYm[m.ym]?.income  || 0);
+  const expenses = monthCols.map(m => byYm[m.ym]?.expense || 0);
+  const balances = monthCols.map((_, i) => incomes[i] - expenses[i]);
+  let cumul = 0;
+  const cumuls = balances.map(b => (cumul += b));
+  const labels  = monthCols.map(m => m.label);
+
+  const cc = chartColors();
+
+  el.innerHTML = `
+    <div style="height:260px;margin-bottom:20px"><canvas id="balanceChart"></canvas></div>
+    <table class="analytics-table">
+      <thead><tr>
+        <th>Mese</th><th class="text-right">Entrate</th><th class="text-right">Uscite</th>
+        <th class="text-right">Saldo</th><th class="text-right">Cumulativo</th>
+      </tr></thead>
+      <tbody>
+        ${monthCols.map((m, i) => {
+          const bal = balances[i], cum = cumuls[i];
+          const balCol = bal >= 0 ? 'var(--green)' : 'var(--red)';
+          const cumCol = cum >= 0 ? 'var(--green)' : 'var(--red)';
+          return `<tr>
+            <td>${m.label}</td>
+            <td class="text-right" style="color:var(--green)">${incomes[i]  ? fmt.currency(incomes[i])  : '—'}</td>
+            <td class="text-right" style="color:var(--red)">${expenses[i]  ? fmt.currency(expenses[i]) : '—'}</td>
+            <td class="text-right" style="color:${balCol};font-weight:600">${fmt.currency(bal)}</td>
+            <td class="text-right" style="color:${cumCol}">${fmt.currency(cum)}</td>
+          </tr>`;
+        }).join('')}
+        <tr class="analytics-subtotal">
+          <td>Totale</td>
+          <td class="text-right">${fmt.currency(incomes.reduce((a,b)=>a+b,0))}</td>
+          <td class="text-right">${fmt.currency(expenses.reduce((a,b)=>a+b,0))}</td>
+          <td class="text-right" style="font-weight:700">${fmt.currency(balances.reduce((a,b)=>a+b,0))}</td>
+          <td></td>
+        </tr>
+      </tbody>
+    </table>`;
+
+  if (_analyticsBalanceChart) { _analyticsBalanceChart.destroy(); _analyticsBalanceChart = null; }
+  _analyticsBalanceChart = new Chart(document.getElementById('balanceChart'), {
+    data: {
+      labels,
+      datasets: [
+        { type:'bar',  label:'Entrate', data:incomes,  backgroundColor:'rgba(63,185,80,.7)',  order:2 },
+        { type:'bar',  label:'Uscite',  data:expenses, backgroundColor:'rgba(248,81,73,.7)',   order:2 },
+        { type:'line', label:'Saldo',   data:balances,
+          borderColor:'#58a6ff', backgroundColor:'transparent',
+          pointRadius:3, tension:.3, borderWidth:2, order:1 },
+        { type:'line', label:'Cumulativo', data:cumuls,
+          borderColor:'#bc8cff', backgroundColor:'transparent',
+          pointRadius:3, tension:.3, borderWidth:2, borderDash:[4,3], order:1 },
+      ]
+    },
+    options: {
+      responsive:true, maintainAspectRatio:false,
+      interaction:{ mode:'index', intersect:false },
+      plugins:{
+        tooltip:{ callbacks:{ label: ctx => ` ${ctx.dataset.label}: ${fmt.currency(ctx.parsed.y)}` } },
+        legend:{ labels:{ color:cc.tick, boxWidth:12 } }
+      },
+      scales:{
+        x:{ ticks:{color:cc.tick}, grid:{color:cc.grid} },
+        y:{ ticks:{color:cc.tick, callback:v=>fmt.currency(v)}, grid:{color:cc.grid} }
+      }
+    }
+  });
+}
+
 async function renderReports() {
   const pg = document.getElementById('pg-reports');
   pg.innerHTML = `
@@ -4924,6 +5135,7 @@ async function renderCategories() {
   }
 
   pg.innerHTML = `
+    <div style="max-width:700px">
     <div class="page-header">
       <h1 class="page-title">🏷️ Categorie</h1>
       <div class="page-actions">
@@ -4953,7 +5165,8 @@ async function renderCategories() {
           <span class="settings-hint" style="margin-left:8px">Categoria di sistema, non modificabile</span>
         </div>
       </div>
-    </div>` : ''}`;
+    </div>` : ''}
+    </div>`;
 }
 
 function addMainCategory(type) {
@@ -6319,6 +6532,7 @@ async function init() {
   if (s['proj.mode'])    _projMode   = s['proj.mode'];
   if (s['cf.range'])     _cfRange    = s['cf.range'];
   if (s['cf.months'])    _cfMonths   = parseInt(s['cf.months'])   || 6;
+  if (s['analytics.months'])      _analyticsMonths    = parseInt(s['analytics.months']) || 12;
   if (s['tx.range'])              txFilters           = { range: s['tx.range'], ...rangeToFilter(s['tx.range']) };
   if (s['portfolio.active_only']) _portfolioActiveOnly = s['portfolio.active_only'] !== '0';
   await updateSidebar();

@@ -344,6 +344,12 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             case "dbReindex"        -> db.dbReindex();
             case "dbWalCheckpoint"  -> db.dbWalCheckpoint();
 
+            // ─── Analytics ─────────────────────────────────────────────────────────
+            case "getCategoryMonthTable" -> db.getCategoryMonthTable(
+                p.has("months") ? p.get("months").getAsInt() : 12);
+            case "getMonthlyBalance"     -> db.getMonthlyBalance(
+                p.has("months") ? p.get("months").getAsInt() : 12);
+
             // ─── Resoconti ─────────────────────────────────────────────────────────
             case "getReports"    -> db.getReports();
             case "saveReport"    -> db.saveReport(p);

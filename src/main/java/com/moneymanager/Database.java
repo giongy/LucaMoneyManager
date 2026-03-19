@@ -1942,4 +1942,43 @@ public class Database {
         logger.log("MANUTENZIONE", "WAL checkpoint(TRUNCATE): wal_size=" + walSize);
         return Map.of("ok", true, "wal_size", walSize);
     }
+
+    // ─── Analytics ────────────────────────────────────────────────────────────
+
+    public List<Map<String, Object>> getMonthlyBalance(int months) throws SQLException {
+        java.time.LocalDate start = java.time.LocalDate.now()
+                .withDayOfMonth(1).minusMonths(months - 1);
+        String sql = """
+            SELECT strftime('%Y-%m', date) AS ym,
+                   SUM(CASE WHEN type='income'  THEN ABS(amount) ELSE 0 END) AS income,
+                   SUM(CASE WHEN type='expense' THEN ABS(amount) ELSE 0 END) AS expense
+            FROM transactions
+            WHERE date >= ? AND type IN ('income','expense')
+            GROUP BY ym
+            ORDER BY ym
+            """;
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, start.toString());
+            return toList(ps.executeQuery());
+        }
+    }
+
+    public List<Map<String, Object>> getCategoryMonthTable(int months) throws SQLException {
+        java.time.LocalDate start = java.time.LocalDate.now()
+                .withDayOfMonth(1).minusMonths(months - 1);
+        String sql = """
+            SELECT c.id, c.name, c.type, c.color, c.icon,
+                   strftime('%Y-%m', t.date) AS ym,
+                   SUM(ABS(t.amount))        AS total
+            FROM transactions t
+            JOIN categories c ON t.category_id = c.id
+            WHERE t.date >= ? AND t.type IN ('expense','income')
+            GROUP BY c.id, ym
+            ORDER BY c.type, c.name, ym
+            """;
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, start.toString());
+            return toList(ps.executeQuery());
+        }
+    }
 }

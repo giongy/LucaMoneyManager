@@ -868,7 +868,7 @@ tr.tx-selected td { background:rgba(88,166,255,.07); }
 
 /* ─── Sidebar nav groups (Resoconti collapsible) ─────────────────────────── */
 .nav-group { display:flex; flex-direction:column; }
-.nav-group-arrow { font-size:12px; color:var(--txt3); transition:transform .2s; margin-left:auto; }
+.nav-group-arrow { font-size:14px; color:var(--txt2); transition:transform .2s; margin-left:auto; line-height:1; }
 .nav-group-arrow.open { transform:rotate(90deg); }
 .nav-sub { display:flex; flex-direction:column; background:var(--bg2); }
 .nav-sub-item {
@@ -884,6 +884,17 @@ tr.tx-selected td { background:rgba(88,166,255,.07); }
 .nav-sub-label { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; min-width:0; }
 .nav-sub-new { color:var(--accent); border-top:1px solid var(--border); padding-top:6px; margin-top:2px; }
 .nav-sub-new:hover { background:rgba(88,166,255,.1); }
+
+/* ─── Analytics table ────────────────────────────────────────────────────── */
+.analytics-table { width:100%; border-collapse:collapse; font-size:12px; white-space:nowrap; }
+.analytics-table thead th { position:sticky; top:0; background:var(--bg2); padding:5px 10px; font-size:11px; font-weight:600; color:var(--txt2); border-bottom:1px solid var(--border); z-index:2; }
+.analytics-table td { padding:4px 10px; border-bottom:1px solid var(--border2); }
+.analytics-table tbody tr:hover td { background:var(--bg3); }
+.analytics-cat-name { font-size:12px; min-width:160px; }
+.analytics-total { font-weight:600; }
+.analytics-avg  { color:var(--txt2); }
+.analytics-section-header td { background:var(--bg3); color:var(--txt2); font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; padding:5px 10px; }
+.analytics-subtotal td { font-weight:700; background:var(--bg2); border-top:2px solid var(--border); }
 
 /* ─── Reports layout ─────────────────────────────────────────────────────── */
 .report-amt-row { display:flex; gap:6px; }

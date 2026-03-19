@@ -1387,35 +1387,54 @@ public class Database {
         }
 
         // Build time series
-        long days = java.time.temporal.ChronoUnit.DAYS.between(from, to);
-        int step = forceDaily ? 1 : (days <= 60 ? 1 : days <= 180 ? 7 : 30);
         List<Map<String, Object>> series = new ArrayList<>();
         Map<Integer, Double> running = new HashMap<>(balance);
-
         List<String> deltaKeys = new ArrayList<>(allDeltas.keySet());
         int di = 0;
-        LocalDate c = from;
-        while (!c.isAfter(to)) {
-            String cs = c.toString();
-            // Apply all deltas on or before this date
-            while (di < deltaKeys.size() && deltaKeys.get(di).compareTo(cs) <= 0) {
-                for (var e : allDeltas.get(deltaKeys.get(di)).entrySet())
-                    running.merge(e.getKey(), e.getValue(), Double::sum);
-                di++;
-            }
-            long dayIndex = java.time.temporal.ChronoUnit.DAYS.between(from, c);
-            if (dayIndex % step == 0 || c.equals(to)) {
+
+        if (forceDaily) {
+            // Giornaliero: un punto per ogni giorno
+            LocalDate c = from;
+            while (!c.isAfter(to)) {
+                String cs = c.toString();
+                while (di < deltaKeys.size() && deltaKeys.get(di).compareTo(cs) <= 0) {
+                    for (var e : allDeltas.get(deltaKeys.get(di)).entrySet())
+                        running.merge(e.getKey(), e.getValue(), Double::sum);
+                    di++;
+                }
                 for (var a : accounts) {
                     int aid = ((Number) a.get("id")).intValue();
                     Map<String, Object> pt = new HashMap<>();
-                    pt.put("date", cs);
-                    pt.put("account_id", aid);
+                    pt.put("date", cs); pt.put("account_id", aid);
                     pt.put("account_name", a.get("name"));
                     pt.put("balance", running.getOrDefault(aid, 0.0));
                     series.add(pt);
                 }
+                c = c.plusDays(1);
             }
-            c = c.plusDays(1);
+        } else {
+            // Mensile: un punto per mese = ultimo giorno del mese (o to se precedente).
+            // Garantisce che monthly_last (fine mese) sia sempre incluso nel mese corretto.
+            LocalDate c = from;
+            while (!c.isAfter(to)) {
+                LocalDate eom = c.withDayOfMonth(c.lengthOfMonth());
+                if (eom.isAfter(to)) eom = to;
+                String es = eom.toString();
+                while (di < deltaKeys.size() && deltaKeys.get(di).compareTo(es) <= 0) {
+                    for (var e : allDeltas.get(deltaKeys.get(di)).entrySet())
+                        running.merge(e.getKey(), e.getValue(), Double::sum);
+                    di++;
+                }
+                for (var a : accounts) {
+                    int aid = ((Number) a.get("id")).intValue();
+                    Map<String, Object> pt = new HashMap<>();
+                    pt.put("date", es); pt.put("account_id", aid);
+                    pt.put("account_name", a.get("name"));
+                    pt.put("balance", running.getOrDefault(aid, 0.0));
+                    series.add(pt);
+                }
+                c = eom.plusDays(1); // primo giorno del mese successivo
+            }
         }
 
         // Monthly cash flow

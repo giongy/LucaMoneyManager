@@ -1741,33 +1741,45 @@ window.deleteAccount = async id => {
 /* ═══════════════════════════════════════════════════════════════════════════
    BUDGET
 ═══════════════════════════════════════════════════════════════════════════ */
-let budgetYear = new Date().getFullYear();
-
-/* ═══════════════════════════════════════════════════════════════════════════
-   BUDGET
-═══════════════════════════════════════════════════════════════════════════ */
 const MONTHS_SHORT = ['Gen','Feb','Mar','Apr','Mag','Giu','Lug','Ago','Set','Ott','Nov','Dic'];
+let budgetYear = new Date().getFullYear();
+let _budgetTab = 'grid';
+let _budgetAndamentoChart = null;
 
 async function renderBudgets() {
+  if (_budgetAndamentoChart) { _budgetAndamentoChart.destroy(); _budgetAndamentoChart = null; }
   const pg = document.getElementById('pg-budgets');
   pg.innerHTML = `
-    <div class="section-header">
-      <div class="month-nav" style="margin-bottom:0">
-        <button id="budgPrev">‹</button>
-        <span id="budgYearLabel"></span>
-        <button id="budgNext">›</button>
+    <div style="flex-shrink:0;padding:16px 16px 0;background:var(--bg)">
+      <div class="section-header">
+        <div class="month-nav" style="margin-bottom:0">
+          <button id="budgPrev">‹</button>
+          <span id="budgYearLabel"></span>
+          <button id="budgNext">›</button>
+        </div>
+        <div id="budgGridActions" style="display:${_budgetTab==='grid'?'flex':'none'};gap:8px">
+          <button class="btn btn-ghost" id="btnBudgOnlyRed">Solo rossi</button>
+          <button class="btn btn-ghost" id="btnBudgToggleAll">Comprimi tutto</button>
+          <button class="btn btn-primary" id="btnGenBudget">Genera budget</button>
+        </div>
       </div>
-      <div style="display:flex;gap:8px">
-        <button class="btn btn-ghost" id="btnBudgOnlyRed">Solo rossi</button>
-        <button class="btn btn-ghost" id="btnBudgToggleAll">Comprimi tutto</button>
-        <button class="btn btn-primary" id="btnGenBudget">Genera budget</button>
+      <div class="scheduled-tabs" style="margin-top:8px">
+        <button class="sched-tab ${_budgetTab==='grid'?'active':''}"        data-btab="grid"        onclick="_setBudgetTab('grid')">📊 Budget</button>
+        <button class="sched-tab ${_budgetTab==='andamento'?'active':''}"   data-btab="andamento"   onclick="_setBudgetTab('andamento')">📈 Andamento</button>
+        <button class="sched-tab ${_budgetTab==='scostamenti'?'active':''}" data-btab="scostamenti" onclick="_setBudgetTab('scostamenti')">📉 Scostamenti</button>
       </div>
     </div>
-    <div class="budget-year-wrap">
-      <table class="budget-table" id="budgetTable">
-        <thead id="budgetThead"></thead>
-        <tbody id="budgetBody"></tbody>
-      </table>
+    <div id="budgetContent" style="flex:1;overflow-y:auto;padding:0 16px 16px">
+      <div id="budgGridWrap" style="display:${_budgetTab==='grid'?'':'none'}">
+        <div class="budget-year-wrap">
+          <table class="budget-table" id="budgetTable">
+            <thead id="budgetThead"></thead>
+            <tbody id="budgetBody"></tbody>
+          </table>
+        </div>
+      </div>
+      <div id="budgAndamentoWrap"  style="display:${_budgetTab==='andamento'  ?'':'none'}"></div>
+      <div id="budgScostWrap"      style="display:${_budgetTab==='scostamenti'?'':'none'}"></div>
     </div>`;
 
   document.getElementById('budgYearLabel').textContent = budgetYear;
@@ -1776,8 +1788,7 @@ async function renderBudgets() {
   document.getElementById('btnGenBudget').onclick = () => showGenerateBudgetModal();
   document.getElementById('btnBudgOnlyRed').onclick = () => {
     _budgetOnlyRed = !_budgetOnlyRed;
-    const btn = document.getElementById('btnBudgOnlyRed');
-    btn.classList.toggle('btn-active-red', _budgetOnlyRed);
+    document.getElementById('btnBudgOnlyRed').classList.toggle('btn-active-red', _budgetOnlyRed);
     document.querySelector('.budget-year-wrap')?.classList.toggle('budget-only-red', _budgetOnlyRed);
   };
   document.getElementById('btnBudgToggleAll').onclick = () => {
@@ -1792,14 +1803,31 @@ async function renderBudgets() {
   await loadBudgetTable();
 }
 
+window._setBudgetTab = tab => {
+  _budgetTab = tab;
+  document.querySelectorAll('#pg-budgets [data-btab]').forEach(b => {
+    b.classList.toggle('active', b.dataset.btab === tab);
+  });
+  document.getElementById('budgGridWrap').style.display      = tab === 'grid'        ? '' : 'none';
+  document.getElementById('budgAndamentoWrap').style.display = tab === 'andamento'   ? '' : 'none';
+  document.getElementById('budgScostWrap').style.display     = tab === 'scostamenti' ? '' : 'none';
+  document.getElementById('budgGridActions').style.display   = tab === 'grid'        ? 'flex' : 'none';
+  if (tab === 'andamento'   && _budgetData) renderBudgetAndamento();
+  if (tab === 'scostamenti' && _budgetData) renderBudgetScostamenti();
+};
+
 let _accFavoritesOnly = false;
 let _budgetData = null;
 let _budgetCollapsed = new Set();
 let _budgetOnlyRed = false;
+let _budgetScostTab  = 'uscite';
+let _budgetScostSort = 'pct';
 
 async function loadBudgetTable() {
   _budgetData = await api.getBudgetYear(budgetYear);
   renderBudgetTable();
+  if (_budgetTab === 'andamento')   renderBudgetAndamento();
+  if (_budgetTab === 'scostamenti') renderBudgetScostamenti();
 }
 
 function renderBudgetTable() {
@@ -2034,6 +2062,339 @@ function renderBudgetTable() {
       top += tr.getBoundingClientRect().height;
     });
   }, 0);
+}
+
+/* ─── Budget Andamento ───────────────────────────────────────────────────── */
+function renderBudgetAndamento() {
+  const el = document.getElementById('budgAndamentoWrap');
+  if (!el || !_budgetData) return;
+
+  const { budgets, actuals, categories, configs } = _budgetData;
+
+  // Rebuild lookup maps (identici a renderBudgetTable)
+  const budgetMap = {};
+  budgets.forEach(b => { if (!budgetMap[b.category_id]) budgetMap[b.category_id]={}; budgetMap[b.category_id][b.month]=b.amount; });
+  const actualMap = {};
+  actuals.forEach(a => { if (!actualMap[a.category_id]) actualMap[a.category_id]={}; actualMap[a.category_id][a.month]=a.total; });
+  const configMap = {};
+  (configs||[]).forEach(c => { configMap[c.category_id]=c; });
+
+  const parentIds = new Set(categories.filter(c=>c.parent_id).map(c=>c.parent_id));
+  const leafCats  = categories.filter(c => !parentIds.has(c.id));
+
+  const getEffective = catId => {
+    const cfg = configMap[catId];
+    const stored = budgetMap[catId] || {};
+    if (!cfg || !cfg.master_amount) return stored;
+    const lockedTotal = cfg.mode === 'annuale' ? cfg.master_amount : cfg.master_amount * 12;
+    const pinnedMonths = Object.keys(stored).map(Number);
+    const pinnedSum = pinnedMonths.reduce((s,m) => s+(stored[m]||0), 0);
+    const freeCount = 12 - pinnedMonths.length;
+    const freeVal = freeCount > 0 ? Math.round((lockedTotal-pinnedSum)/freeCount*100)/100 : 0;
+    const result = {...stored};
+    for (let m=1; m<=12; m++) if (result[m]===undefined) result[m]=Math.max(0,freeVal);
+    return result;
+  };
+
+  const now = new Date();
+  const curYear = now.getFullYear(), curMonth = now.getMonth()+1;
+  const isPast = m => budgetYear < curYear || (budgetYear === curYear && m <= curMonth);
+  const sign = c => c.type === 'income' ? 1 : -1;
+
+  // Mensile
+  const budgetMese = Array.from({length:12}, (_,i) =>
+    leafCats.reduce((s,c) => s + sign(c)*(getEffective(c.id)[i+1]||0), 0));
+  const realeMese  = Array.from({length:12}, (_,i) =>
+    isPast(i+1) ? leafCats.reduce((s,c) => s + sign(c)*(actualMap[c.id]?.[i+1]||0), 0) : null);
+
+  // Progressivo
+  const budgetProg = [], realeProg = [];
+  let bCum=0, aCum=0;
+  for (let i=0; i<12; i++) {
+    bCum += budgetMese[i];
+    budgetProg.push(bCum);
+    if (realeMese[i] !== null) { aCum += realeMese[i]; realeProg.push(aCum); }
+    else realeProg.push(null);
+  }
+
+  const deltaMese = realeMese.map((r,i) => r !== null ? r - budgetMese[i] : null);
+  const deltaProg = realeProg.map((r,i) => r !== null ? r - budgetProg[i] : null);
+
+  // ── Render ────────────────────────────────────────────────────────────────
+  el.innerHTML = `
+    <div class="card" style="margin-top:16px;margin-bottom:16px">
+      <div class="proj-chart-wrap"><canvas id="budgAndChart"></canvas></div>
+    </div>
+    <div class="card" style="overflow-x:auto">
+      <table id="budgAndTable" style="width:100%;border-collapse:collapse">
+        <thead><tr>
+          <th style="text-align:left;padding:7px 12px;border-bottom:2px solid var(--border);color:var(--txt2);font-weight:600">Mese</th>
+          <th style="text-align:right;padding:7px 12px;border-bottom:2px solid var(--border);color:var(--txt2);font-weight:600">Budget mese</th>
+          <th style="text-align:right;padding:7px 12px;border-bottom:2px solid var(--border);color:var(--txt2);font-weight:600">Budget prog.</th>
+          <th style="text-align:right;padding:7px 12px;border-bottom:2px solid var(--border);color:var(--txt2);font-weight:600">Reale mese</th>
+          <th style="text-align:right;padding:7px 12px;border-bottom:2px solid var(--border);color:var(--txt2);font-weight:600">Reale prog.</th>
+          <th style="text-align:right;padding:7px 12px;border-bottom:2px solid var(--border);color:var(--txt2);font-weight:600">Δ mese</th>
+          <th style="text-align:right;padding:7px 12px;border-bottom:2px solid var(--border);color:var(--txt2);font-weight:600">Δ prog.</th>
+        </tr></thead>
+        <tbody>${MONTHS_SHORT.map((mName, i) => {
+          const bm = budgetMese[i], bp = budgetProg[i];
+          const rm = realeMese[i], rp = realeProg[i];
+          const dm = deltaMese[i], dp = deltaProg[i];
+          const past = isPast(i+1);
+          const fmtD = v => v == null ? '—' : (v >= 0 ? '+' : '') + fmt.currency(v);
+          const colD  = v => v == null ? '' : v >= 0 ? 'color:var(--income)' : 'color:var(--expense)';
+          const td  = (v, bold) => `<td style="text-align:right;padding:7px 12px;border-bottom:1px solid var(--border);${bold?'font-weight:600':''}">${v!=null?fmt.currency(v):'—'}</td>`;
+          const tdd = (v) => `<td style="text-align:right;padding:7px 12px;border-bottom:1px solid var(--border);${colD(v)}">${fmtD(v)}</td>`;
+          const rowBg = past && dm !== null ? (dm > 0 ? 'background:rgba(63,185,80,.04)' : dm < 0 ? 'background:rgba(248,81,73,.04)' : '') : '';
+          return `<tr style="${rowBg}">
+            <td style="padding:7px 12px;border-bottom:1px solid var(--border);font-weight:500">${mName} ${budgetYear}</td>
+            ${td(bm, false)}
+            ${td(bp, false)}
+            ${past ? td(rm, false) : '<td style="text-align:right;padding:7px 12px;border-bottom:1px solid var(--border);color:var(--txt3)">—</td>'}
+            ${past ? td(rp, false) : '<td style="text-align:right;padding:7px 12px;border-bottom:1px solid var(--border);color:var(--txt3)">—</td>'}
+            ${past ? tdd(dm) : '<td style="padding:7px 12px;border-bottom:1px solid var(--border)"></td>'}
+            ${past ? tdd(dp) : '<td style="padding:7px 12px;border-bottom:1px solid var(--border)"></td>'}
+          </tr>`;
+        }).join('')}</tbody>
+      </table>
+    </div>`;
+
+  // ── Grafico ───────────────────────────────────────────────────────────────
+  if (_budgetAndamentoChart) { _budgetAndamentoChart.destroy(); _budgetAndamentoChart = null; }
+  const ctx = document.getElementById('budgAndChart');
+  if (!ctx) return;
+  _budgetAndamentoChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: MONTHS_SHORT,
+      datasets: [
+        {
+          type: 'bar',
+          label: 'Budget mese',
+          data: budgetMese,
+          backgroundColor: 'rgba(88,166,255,.35)',
+          borderColor: 'rgba(88,166,255,.7)',
+          borderWidth: 1,
+          borderRadius: 3,
+          yAxisID: 'yBar',
+          order: 2
+        },
+        {
+          type: 'bar',
+          label: 'Reale mese',
+          data: realeMese,
+          backgroundColor: realeMese.map((v,i) =>
+            v === null ? 'transparent' : v >= budgetMese[i] ? 'rgba(63,185,80,.45)' : 'rgba(248,81,73,.45)'),
+          borderColor: realeMese.map((v,i) =>
+            v === null ? 'transparent' : v >= budgetMese[i] ? 'rgba(63,185,80,.8)' : 'rgba(248,81,73,.8)'),
+          borderWidth: 1,
+          borderRadius: 3,
+          yAxisID: 'yBar',
+          order: 2
+        },
+        {
+          type: 'line',
+          label: 'Budget prog.',
+          data: budgetProg,
+          borderColor: '#58a6ff',
+          backgroundColor: 'transparent',
+          tension: 0.3, pointRadius: 3, pointHoverRadius: 5,
+          yAxisID: 'yLine',
+          order: 1
+        },
+        {
+          type: 'line',
+          label: 'Reale prog.',
+          data: realeProg,
+          borderColor: '#3fb950',
+          backgroundColor: 'transparent',
+          tension: 0.3, pointRadius: 3, pointHoverRadius: 5,
+          spanGaps: false,
+          yAxisID: 'yLine',
+          order: 1
+        }
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { labels: { color: chartColors().tick } },
+        tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmt.currency(ctx.parsed.y)}` } }
+      },
+      scales: {
+        x: { ticks: { color: chartColors().tick }, grid: { color: chartColors().grid } },
+        yBar: {
+          position: 'right',
+          ticks: { color: chartColors().tick, callback: v => fmt.currency(v) },
+          grid: { drawOnChartArea: false }
+        },
+        yLine: {
+          position: 'left',
+          ticks: { color: chartColors().tick, callback: v => fmt.currency(v) },
+          grid: { color: chartColors().grid }
+        }
+      }
+    }
+  });
+}
+
+/* ─── Budget Scostamenti YTD ─────────────────────────────────────────────── */
+function renderBudgetScostamenti() {
+  const el = document.getElementById('budgScostWrap');
+  if (!el || !_budgetData) return;
+
+  const { budgets, actuals, categories, configs } = _budgetData;
+
+  // Lookup maps (stessa logica di renderBudgetTable)
+  const budgetMap = {}, actualMap = {}, configMap = {}, catById = {};
+  budgets.forEach(b => { if (!budgetMap[b.category_id]) budgetMap[b.category_id]={}; budgetMap[b.category_id][b.month]=b.amount; });
+  actuals.forEach(a => { if (!actualMap[a.category_id]) actualMap[a.category_id]={}; actualMap[a.category_id][a.month]=a.total; });
+  (configs||[]).forEach(c => { configMap[c.category_id]=c; });
+  categories.forEach(c => { catById[c.id]=c; });
+
+  const parentIds = new Set(categories.filter(c=>c.parent_id).map(c=>c.parent_id));
+  const leafCats  = categories.filter(c => !parentIds.has(c.id));
+
+  const getEffective = catId => {
+    const cfg = configMap[catId], stored = budgetMap[catId]||{};
+    if (!cfg || !cfg.master_amount) return stored;
+    const lockedTotal = cfg.mode==='annuale' ? cfg.master_amount : cfg.master_amount*12;
+    const pinnedMonths = Object.keys(stored).map(Number);
+    const pinnedSum = pinnedMonths.reduce((s,m)=>s+(stored[m]||0),0);
+    const freeCount = 12-pinnedMonths.length;
+    const freeVal = freeCount>0 ? Math.round((lockedTotal-pinnedSum)/freeCount*100)/100 : 0;
+    const result = {...stored};
+    for (let m=1;m<=12;m++) if (result[m]===undefined) result[m]=Math.max(0,freeVal);
+    return result;
+  };
+
+  const now = new Date();
+  const curYear = now.getFullYear(), curMonth = now.getMonth()+1;
+  const ytdMonths = budgetYear < curYear ? 12 : (budgetYear===curYear ? curMonth : 0);
+  const MONTHS_IT = ['Gennaio','Febbraio','Marzo','Aprile','Maggio','Giugno',
+                     'Luglio','Agosto','Settembre','Ottobre','Novembre','Dicembre'];
+  const untilName = ytdMonths>0 ? MONTHS_IT[ytdMonths-1] : '—';
+
+  // Calcola YTD per ogni categoria foglia
+  const allRows = leafCats.map(cat => {
+    const eff = getEffective(cat.id), am = actualMap[cat.id]||{};
+    let bYTD=0, rYTD=0;
+    for (let m=1; m<=ytdMonths; m++) { bYTD+=eff[m]||0; rYTD+=am[m]||0; }
+    const parent = cat.parent_id ? catById[cat.parent_id] : null;
+    const isExp  = cat.type==='expense';
+    // Valori con segno per display (expense = negativi)
+    const bDisplay = isExp ? -bYTD : bYTD;
+    const rDisplay = isExp ? -rYTD : rYTD;
+    const diff = rDisplay - bDisplay;
+    // % scostamento: per expense positivo = sforato (rosso), negativo = risparmiato (verde)
+    //               per income  positivo = guadagnato di più (verde), negativo = meno (rosso)
+    const pct = bYTD!==0 ? (rYTD-bYTD)/bYTD*100 : (rYTD!==0 ? (isExp?100:-100) : 0);
+    // isGood: expense → pct<=0 (risparmiato), income → pct>=0 (guadagnato di più)
+    const isGood = isExp ? pct<=0 : pct>=0;
+    return { cat, parent, bDisplay, rDisplay, diff, pct, isGood, bYTD, rYTD };
+  }).filter(r => r.bYTD>0 || r.rYTD>0);
+
+  const expRows = allRows.filter(r=>r.cat.type==='expense');
+  const incRows = allRows.filter(r=>r.cat.type==='income');
+
+  const sortFn = rows => [...rows].sort((a,b) => {
+    switch (_budgetScostSort) {
+      case 'pct':    return b.pct - a.pct;          // worst first (expense: più sforato; income: più guadagnato)
+      case 'diff':   return a.diff - b.diff;         // più negativo (expense: sforato) / meno positivo (income)
+      case 'budget': return Math.abs(b.bYTD)-Math.abs(a.bYTD); // budget più alto prima
+      case 'cat':    return a.cat.name.localeCompare(b.cat.name);
+      default:       return b.pct - a.pct;
+    }
+  });
+
+  const activeRows = sortFn(_budgetScostTab==='uscite' ? expRows : incRows);
+
+  // Totali
+  const totB = activeRows.reduce((s,r)=>s+r.bDisplay,0);
+  const totR = activeRows.reduce((s,r)=>s+r.rDisplay,0);
+  const totD = totR - totB;
+  const totCol = totD>=0 ? 'var(--income)' : 'var(--expense)';
+
+  // Scala barre
+  const maxPct = Math.max(1, ...activeRows.map(r=>Math.abs(r.pct)));
+  const fmtPct = p => (p>=0?'+':'')+p.toFixed(1)+'%';
+
+  const thS = 'padding:7px 10px;border-bottom:2px solid var(--border);color:var(--txt2);font-weight:600;white-space:nowrap';
+  const tdS = 'padding:5px 10px;border-bottom:1px solid var(--border);white-space:nowrap';
+
+  el.innerHTML = `
+    <div style="padding:14px 0 6px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+      <div>
+        <h3 style="margin:0 0 6px;font-size:15px">Scostamenti YTD fino a <b>${untilName} ${budgetYear}</b></h3>
+        <div style="font-size:13px;color:var(--txt2)">
+          Budget YTD <b>${fmt.currency(totB)}</b> &nbsp;|&nbsp; Reale YTD <b>${fmt.currency(totR)}</b> &nbsp;|&nbsp;
+          <span style="color:${totCol}"><b>Diff ${totD>=0?'+':''}${fmt.currency(totD)}</b></span>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px">
+        <div style="display:flex;gap:0;border:1px solid var(--border);border-radius:6px;overflow:hidden">
+          <button class="btn btn-xs ${_budgetScostTab==='uscite'?'btn-primary':'btn-ghost'}" style="border-radius:0"
+            onclick="_budgetScostTab='uscite';renderBudgetScostamenti()">🔴 Uscite</button>
+          <button class="btn btn-xs ${_budgetScostTab==='entrate'?'btn-primary':'btn-ghost'}" style="border-radius:0;border-left:1px solid var(--border)"
+            onclick="_budgetScostTab='entrate';renderBudgetScostamenti()">🟢 Entrate</button>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <span style="font-size:12px;color:var(--txt2)">Ordina per:</span>
+          <select class="form-control" style="font-size:12px;padding:3px 8px;width:auto"
+            onchange="_budgetScostSort=this.value;renderBudgetScostamenti()">
+            <option value="pct"    ${_budgetScostSort==='pct'   ?'selected':''}>%</option>
+            <option value="diff"   ${_budgetScostSort==='diff'  ?'selected':''}>Diff</option>
+            <option value="budget" ${_budgetScostSort==='budget'?'selected':''}>Budget</option>
+            <option value="cat"    ${_budgetScostSort==='cat'   ?'selected':''}>Categoria</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead><tr>
+          <th style="${thS};text-align:right;width:32px">#</th>
+          <th style="${thS};text-align:left">Macro-cat</th>
+          <th style="${thS};text-align:left">Categoria</th>
+          <th style="${thS};text-align:right">Budget YTD</th>
+          <th style="${thS};text-align:right">Reale YTD</th>
+          <th style="${thS};text-align:right">Diff</th>
+          <th style="${thS};text-align:right">%</th>
+          <th style="${thS};text-align:left;min-width:220px">Scostamento</th>
+        </tr></thead>
+        <tbody>${activeRows.map((r,i) => {
+          const hasActual = r.rYTD > 0;
+          const color = r.isGood ? 'var(--income)' : 'var(--expense)';
+          const barBg  = r.isGood ? 'rgba(63,185,80,.65)' : 'rgba(248,81,73,.65)';
+          const rowBg  = !r.isGood && Math.abs(r.pct)>3 ? 'background:rgba(248,81,73,.05)' :
+                          r.isGood && Math.abs(r.pct)>3 ? 'background:rgba(63,185,80,.04)' : '';
+          const barW   = Math.min(100, Math.abs(r.pct)/maxPct*100).toFixed(1);
+          const diffStr = hasActual ? (r.diff>=0?'+':'')+fmt.currency(r.diff) : '—';
+          const pctStr  = hasActual ? fmtPct(r.pct) : '—';
+          const pctCol  = hasActual ? color : 'var(--txt3)';
+          const macroEl = r.parent
+            ? `<span style="color:${r.parent.color}">${r.parent.icon}</span> <span style="color:var(--txt2)">${r.parent.name}</span>`
+            : `<span style="color:var(--txt3)">—</span>`;
+          return `<tr style="${rowBg}">
+            <td style="${tdS};text-align:right;color:var(--txt3)">${i+1}</td>
+            <td style="${tdS};font-size:12px">${macroEl}</td>
+            <td style="${tdS}"><span style="color:${r.cat.color}">${r.cat.icon}</span> ${r.cat.name}</td>
+            <td style="${tdS};text-align:right;font-variant-numeric:tabular-nums">${fmt.currency(r.bDisplay)}</td>
+            <td style="${tdS};text-align:right;font-variant-numeric:tabular-nums">${hasActual?fmt.currency(r.rDisplay):'—'}</td>
+            <td style="${tdS};text-align:right;font-variant-numeric:tabular-nums;color:${pctCol}">${diffStr}</td>
+            <td style="${tdS};text-align:right;font-weight:600;color:${pctCol}">${pctStr}</td>
+            <td style="${tdS}">
+              <div style="display:flex;align-items:center;gap:8px">
+                <div style="flex:1;height:14px;background:var(--bg3);border-radius:3px;overflow:hidden;position:relative">
+                  ${hasActual?`<div style="position:absolute;right:0;top:0;height:100%;width:${barW}%;background:${barBg};border-radius:3px"></div>`:''}
+                </div>
+                <span style="font-size:11px;color:${pctCol};min-width:52px;text-align:right;font-weight:600">${pctStr}</span>
+              </div>
+            </td>
+          </tr>`;
+        }).join('')}</tbody>
+      </table>
+    </div>`;
 }
 
 window._budgetCellEdit = (td, catId, month) => {
@@ -4466,12 +4827,13 @@ async function renderSchedLista() {
       <div class="table-wrap">
         <table id="schedTable"><thead><tr>
           <th class="sched-th-sort" data-scol="active"  onclick="_schedSortBy('active')">Stato<span class="sort-ind"></span></th>
-          <th class="sched-th-sort" data-scol="desc"    onclick="_schedSortBy('desc')">Descrizione<span class="sort-ind"></span></th>
-          <th class="sched-th-sort" data-scol="cat"     onclick="_schedSortBy('cat')">Categoria<span class="sort-ind"></span></th>
-          <th class="sched-th-sort" data-scol="tag" onclick="_schedSortBy('tag')">Tag<span class="sort-ind"></span></th>
+          <th class="sched-th-sort" data-scol="account" onclick="_schedSortBy('account')">Conto<span class="sort-ind"></span></th>
+          <th class="sched-th-sort" data-scol="tag"     onclick="_schedSortBy('tag')">Tag<span class="sort-ind"></span></th>
           <th class="sched-th-sort" data-scol="freq"    onclick="_schedSortBy('freq')">Frequenza<span class="sort-ind"></span></th>
+          <th class="sched-th-sort" data-scol="cat"     onclick="_schedSortBy('cat')">Categoria<span class="sort-ind"></span></th>
+          <th class="sched-th-sort" data-scol="desc"    onclick="_schedSortBy('desc')">Descrizione<span class="sort-ind"></span></th>
           <th class="sched-th-sort" data-scol="amount"  onclick="_schedSortBy('amount')">Importo<span class="sort-ind"></span></th>
-          <th class="sched-th-sort" data-scol="next"    onclick="_schedSortBy('next')">Prossima scadenza<span class="sort-ind"></span></th>
+          <th class="sched-th-sort" data-scol="next"    onclick="_schedSortBy('next')">Prossima<span class="sort-ind"></span></th>
           <th class="sched-th-sort th-sort-active" data-scol="days" onclick="_schedSortBy('days')">Giorni<span class="sort-ind">▲</span></th>
           <th></th>
         </tr></thead><tbody id="schedBody"></tbody></table>
@@ -4512,13 +4874,14 @@ function _renderSchedRows(scheds) {
   rows = [...rows].sort((a, b) => {
     let va, vb;
     switch (_schedSort.col) {
-      case 'active': va = a.is_active; vb = b.is_active; break;
-      case 'desc':   va = (a.description||'').toLowerCase(); vb = (b.description||'').toLowerCase(); break;
-      case 'cat':    va = (a.parent_category_name?a.parent_category_name+':'+a.category_name:a.category_name||'').toLowerCase(); vb = (b.parent_category_name?b.parent_category_name+':'+b.category_name:b.category_name||'').toLowerCase(); break;
-      case 'tag':    va = (a.tags&&a.tags.length?a.tags.map(t=>t.name).sort().join(','):'').toLowerCase(); vb = (b.tags&&b.tags.length?b.tags.map(t=>t.name).sort().join(','):'').toLowerCase(); break;
-      case 'freq':   va = a.frequency; vb = b.frequency; break;
-      case 'amount': va = a.amount;    vb = b.amount;    break;
-      case 'next':   va = a._next||'9'; vb = b._next||'9'; break;
+      case 'active':  va = a.is_active; vb = b.is_active; break;
+      case 'account': va = (a.account_name||'').toLowerCase(); vb = (b.account_name||'').toLowerCase(); break;
+      case 'desc':    va = (a.description||'').toLowerCase(); vb = (b.description||'').toLowerCase(); break;
+      case 'cat':     va = (a.parent_category_name?a.parent_category_name+':'+a.category_name:a.category_name||'').toLowerCase(); vb = (b.parent_category_name?b.parent_category_name+':'+b.category_name:b.category_name||'').toLowerCase(); break;
+      case 'tag':     va = (a.tags&&a.tags.length?a.tags.map(t=>t.name).sort().join(','):'').toLowerCase(); vb = (b.tags&&b.tags.length?b.tags.map(t=>t.name).sort().join(','):'').toLowerCase(); break;
+      case 'freq':    va = a.frequency; vb = b.frequency; break;
+      case 'amount':  va = a.amount;    vb = b.amount;    break;
+      case 'next':    va = a._next||'9'; vb = b._next||'9'; break;
       case 'days':
       default:
         va = a._days ?? 99999; vb = b._days ?? 99999;
@@ -4528,7 +4891,7 @@ function _renderSchedRows(scheds) {
   });
 
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:40px;color:var(--txt3)">Nessuna transazione pianificata.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:40px;color:var(--txt3)">Nessuna transazione pianificata.</td></tr>';
     return;
   }
 
@@ -4541,15 +4904,13 @@ function _renderSchedRows(scheds) {
   };
 
   tbody.innerHTML = rows.map(s => `
-    <tr ${s.color ? `style="background:${s.color}18"` : ''} oncontextmenu="_showSchedCtx(${s.id},event)" style="${s.color?`background:${s.color}18;`:''}cursor:context-menu">
+    <tr oncontextmenu="_showSchedCtx(${s.id},event)" style="${s.color?`background:${s.color}18;`:''}cursor:context-menu">
       <td style="text-align:center"><span style="font-size:15px">${s.is_active ? '✅' : '⏸️'}</span></td>
-      <td class="td-main">
-        ${s.description||'-'}
-        <br><span class="text-small text-muted">${s.account_name||''}${s.to_account_name?' → '+s.to_account_name:''}</span>
-      </td>
-      <td><span class="cat-chip">${s.category_icon||''} ${s.parent_category_name?s.parent_category_name+':'+s.category_name:s.category_name||'-'}</span></td>
-      <td class="td-tags">${(s.tags&&s.tags.length)?s.tags.map(t=>`<span class="tag-inline" style="--tc:${t.color}">${t.name}</span>`).join(''):''}  </td>
+      <td>${s.account_name||''}${s.to_account_name?' → '+s.to_account_name:''}</td>
+      <td class="td-tags">${(s.tags&&s.tags.length)?s.tags.map(t=>`<span class="tag-inline" style="--tc:${t.color}">${t.name}</span>`).join(''):''}</td>
       <td><span class="sched-freq-badge">${FREQ_LABELS[s.frequency]||s.frequency}</span></td>
+      <td><span class="cat-chip">${s.category_icon||''} ${s.parent_category_name?s.parent_category_name+' › '+s.category_name:s.category_name||'—'}</span></td>
+      <td class="td-main">${s.description||'—'}</td>
       <td class="text-right amount-${s.type}">${s.type==='expense'?'-':''}${fmt.currency(s.amount)}</td>
       <td>${s._next ? fmt.date(s._next) : '—'}</td>
       <td>${daysLabel(s)}</td>
@@ -4573,11 +4934,33 @@ let _projRange = '6m';
 let _projMonths = 6;
 let _projMode = 'monthly'; // 'monthly' | 'daily'
 
-function projRangeToFilter(range, customMonths) {
+function projRangeToFilter(range, customMonths, useMonthBoundaries = false) {
   const today = new Date();
   const fmt = d => d.toISOString().slice(0,10);
-  const add = months => { const d=new Date(today); d.setMonth(d.getMonth()+months); return d; };
   const y = today.getFullYear();
+
+  if (useMonthBoundaries) {
+    // Mensile: dal 1° del mese corrente alla fine del mese d'arrivo (N mesi pieni)
+    const som  = new Date(today.getFullYear(), today.getMonth(), 1); // 1° mese corrente
+    const addM = (d, n) => new Date(d.getFullYear(), d.getMonth() + n, 1);
+    const eom  = d  => new Date(d.getFullYear(), d.getMonth() + 1, 0); // ultimo giorno mese
+    let n;
+    switch(range) {
+      case '3m':       n = 3;  break;
+      case '6m':       n = 6;  break;
+      case '1y':       n = 12; break;
+      case '2y':       n = 24; break;
+      case 'ytd':      return { from_date: `${y}-01-01`, to_date: `${y}-12-31` };
+      case 'nxt_year': return { from_date: `${y+1}-01-01`, to_date: `${y+1}-12-31` };
+      case 'custom':   n = parseInt(customMonths)||6; break;
+      default:         n = 6;
+    }
+    // N mesi pieni: mese corrente = mese 1, mese corrente+(N-1) = mese N
+    return { from_date: fmt(som), to_date: fmt(eom(addM(som, n - 1))) };
+  }
+
+  // Daily / cashflow: parte da oggi
+  const add = months => { const d=new Date(today); d.setMonth(d.getMonth()+months); return d; };
   switch(range) {
     case '3m':       return { from_date: fmt(today), to_date: fmt(add(3)) };
     case '6m':       return { from_date: fmt(today), to_date: fmt(add(6)) };
@@ -4644,11 +5027,10 @@ async function renderSchedProjection() {
 async function loadProjectionChart(accounts) {
   const range      = document.getElementById('projRange')?.value || '6m';
   const customMths = document.getElementById('projMonths')?.value;
-  const { from_date, to_date } = projRangeToFilter(range, customMths);
+  const isDaily = _projMode === 'daily';
+  const { from_date, to_date } = projRangeToFilter(range, customMths, !isDaily);
   if (!from_date || !to_date) return;
   const accIds = accounts.filter(a=>a.type!=='investment').map(a=>a.id).join(',');
-
-  const isDaily = _projMode === 'daily';
   let data;
   try { data = await api.getProjection({from_date, to_date, account_ids:accIds, daily:isDaily}); }
   catch(e) { toast(e.message,'error'); return; }
@@ -5159,6 +5541,10 @@ function showOverdueNotice(list) {
     if (!e.target.closest('button')) navigate('scheduled');
   });
 }
+
+/* ─── Chart.js global font (allineato al body Segoe UI) ──────────────────── */
+Chart.defaults.font.family = "'Segoe UI', system-ui, sans-serif";
+Chart.defaults.font.size   = 13;
 
 async function init() {
   // Nascondo gli handle se si parte massimizzato

@@ -396,6 +396,26 @@ public class Database {
                 created_at   TEXT    DEFAULT CURRENT_TIMESTAMP
             )
         """);
+        // Previsioni
+        executePlain("""
+            CREATE TABLE IF NOT EXISTS forecasts (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at        TEXT    DEFAULT CURRENT_TIMESTAMP,
+                forecast_date     TEXT    NOT NULL,
+                projected_balance REAL    NOT NULL,
+                notes             TEXT
+            )
+        """);
+        executePlain("""
+            CREATE TABLE IF NOT EXISTS forecast_categories (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                forecast_id      INTEGER NOT NULL REFERENCES forecasts(id) ON DELETE CASCADE,
+                category_id      INTEGER,
+                category_name    TEXT    NOT NULL,
+                category_type    TEXT    NOT NULL,
+                projected_amount REAL    NOT NULL DEFAULT 0
+            )
+        """);
 
         // ─── Indici per performance (idempotenti) ─────────────────────────────
         // transactions: colonne filtrate/join più frequenti
@@ -1968,6 +1988,126 @@ public class Database {
             ps.setString(1, start.toString());
             return toList(ps.executeQuery());
         }
+    }
+
+    // ─── Previsioni ──────────────────────────────────────────────────────────
+
+    /** Somma le transazioni pianificate per categoria nel periodo fromDate..toDate */
+    public List<Map<String, Object>> getProjectionByCategory(String fromDate, String toDate) throws SQLException {
+        LocalDate from = LocalDate.parse(fromDate);
+        LocalDate to   = LocalDate.parse(toDate);
+        var scheds = getScheduled().stream()
+                .filter(s -> Integer.valueOf(1).equals(s.get("is_active")))
+                .toList();
+        Map<Integer, double[]> catAmounts = new LinkedHashMap<>();
+        Map<Integer, String[]> catMeta    = new HashMap<>();
+        for (var s : scheds) {
+            String type = (String) s.get("type");
+            if ("transfer".equals(type)) continue;
+            Object catIdObj = s.get("category_id");
+            int    catKey   = catIdObj != null ? ((Number) catIdObj).intValue() : -1;
+            String catName  = s.get("category_name") != null ? (String) s.get("category_name") : "Senza categoria";
+            String freq     = (String) s.get("frequency");
+            LocalDate start = LocalDate.parse((String) s.get("start_date"));
+            LocalDate end   = s.get("end_date") != null ? LocalDate.parse((String) s.get("end_date")) : to;
+            if (end.isAfter(to)) end = to;
+            LocalDate cur   = firstOccurrenceFrom(start, freq, from);
+            if (cur == null) continue;
+            double amount = ((Number) s.get("amount")).doubleValue();
+            while (!cur.isAfter(end)) {
+                catAmounts.computeIfAbsent(catKey, k -> new double[]{0})[0] += amount;
+                catMeta.put(catKey, new String[]{catName, type});
+                if ("once".equals(freq)) break;
+                cur = advanceDate(cur, freq);
+                if (cur == null) break;
+            }
+        }
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (var e : catAmounts.entrySet()) {
+            Map<String, Object> row = new HashMap<>();
+            row.put("category_id",      e.getKey() < 0 ? null : e.getKey());
+            row.put("category_name",    catMeta.get(e.getKey())[0]);
+            row.put("type",             catMeta.get(e.getKey())[1]);
+            row.put("projected_amount", e.getValue()[0]);
+            result.add(row);
+        }
+        result.sort((a, b) -> ((String) a.get("category_name")).compareToIgnoreCase((String) b.get("category_name")));
+        return result;
+    }
+
+    public int saveForecast(String forecastDate, double projectedBalance, JsonArray categories) throws SQLException {
+        execute("INSERT INTO forecasts (forecast_date, projected_balance) VALUES (?,?)",
+                forecastDate, projectedBalance);
+        var r  = queryOne("SELECT last_insert_rowid() AS id");
+        int id = ((Number) r.get("id")).intValue();
+        for (var el : categories) {
+            var cat = el.getAsJsonObject();
+            execute("INSERT INTO forecast_categories (forecast_id, category_id, category_name, category_type, projected_amount) VALUES (?,?,?,?,?)",
+                    id,
+                    cat.has("category_id") && !cat.get("category_id").isJsonNull() ? cat.get("category_id").getAsInt() : null,
+                    cat.get("category_name").getAsString(),
+                    cat.get("type").getAsString(),
+                    cat.get("projected_amount").getAsDouble());
+        }
+        logger.log("PREVISIONE SALVATA", "data:" + forecastDate, "saldo:" + DbLogger.amt(projectedBalance));
+        return id;
+    }
+
+    public List<Map<String, Object>> getForecasts() throws SQLException {
+        String today = LocalDate.now().toString();
+        var list = queryList(
+                "SELECT f.*, (SELECT COUNT(*) FROM forecast_categories WHERE forecast_id=f.id) AS cat_count " +
+                "FROM forecasts f ORDER BY f.forecast_date DESC");
+        for (var f : list)
+            f.put("is_ready", ((String) f.get("forecast_date")).compareTo(today) <= 0 ? 1 : 0);
+        return list;
+    }
+
+    public void deleteForecast(int id) throws SQLException {
+        execute("DELETE FROM forecasts WHERE id=?", id);
+        logger.log("PREVISIONE ELIMINATA", "id:" + id);
+    }
+
+    public Map<String, Object> getForecastDetail(int id) throws SQLException {
+        var forecast = queryOne("SELECT * FROM forecasts WHERE id=?", id);
+        if (forecast == null) throw new SQLException("Previsione non trovata");
+        String createdAt    = ((String) forecast.get("created_at")).substring(0, 10);
+        String forecastDate = (String) forecast.get("forecast_date");
+        var cats = queryList("SELECT * FROM forecast_categories WHERE forecast_id=? ORDER BY category_name", id);
+        for (var cat : cats) {
+            Object catId  = cat.get("category_id");
+            String txType = (String) cat.get("category_type");
+            double actual = 0;
+            if (catId != null) {
+                var row = queryOne(
+                        "SELECT COALESCE(SUM(amount),0) AS tot FROM transactions " +
+                        "WHERE category_id=? AND date>=? AND date<=? AND type=?",
+                        ((Number) catId).intValue(), createdAt, forecastDate, txType);
+                if (row != null) actual = ((Number) row.get("tot")).doubleValue();
+            }
+            cat.put("actual_amount", actual);
+            double proj = ((Number) cat.get("projected_amount")).doubleValue();
+            // diff > 0 = sei stato bravo: spese < previsto (uscite) o incassi > previsto (entrate)
+            cat.put("diff", "income".equals(txType) ? actual - proj : proj - actual);
+        }
+        // Saldo reale alla forecast_date
+        var accList = queryList(
+                "SELECT a.initial_balance, " +
+                "COALESCE((SELECT SUM(CASE WHEN t.type='income' THEN t.amount " +
+                "  WHEN t.type='expense' THEN -t.amount " +
+                "  WHEN t.type='transfer' AND t.account_id=a.id THEN -t.amount ELSE 0 END) " +
+                "  FROM transactions t WHERE t.account_id=a.id AND t.date<=?),0) " +
+                "+ COALESCE((SELECT SUM(t.amount) FROM transactions t " +
+                "  WHERE t.to_account_id=a.id AND t.type='transfer' AND t.date<=?),0) AS tx_sum " +
+                "FROM accounts a WHERE a.type!='investment'",
+                forecastDate, forecastDate);
+        double actualBalance = accList.stream()
+                .mapToDouble(a -> ((Number) a.get("initial_balance")).doubleValue()
+                                + ((Number) a.get("tx_sum")).doubleValue())
+                .sum();
+        forecast.put("categories",     cats);
+        forecast.put("actual_balance", actualBalance);
+        return forecast;
     }
 
     public List<Map<String, Object>> getCategoryMonthTable(int months) throws SQLException {

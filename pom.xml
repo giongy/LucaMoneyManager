@@ -6,7 +6,7 @@
 
     <groupId>com.moneymanager</groupId>
     <artifactId>moneymanager</artifactId>
-    <version>1.1.1</version>
+    <version>1.2.3</version>
     <packaging>jar</packaging>
     <name>LucaMoneyManager</name>
 

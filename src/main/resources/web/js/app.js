@@ -266,7 +266,12 @@ const api = {
   getUpcomingAll:  (n)   => callJava('getUpcomingAll', {limit: n||15}),
   getOverdue:      ()    => callJava('getOverdue'),
   advanceScheduled: (id, date) => callJava('advanceScheduled', {id, date}),
-  getProjection:   data  => callJava('getProjection', data),
+  getProjection:          data  => callJava('getProjection', data),
+  getProjectionByCategory:data  => callJava('getProjectionByCategory', data),
+  saveForecast:           data  => callJava('saveForecast', data),
+  getForecasts:           ()    => callJava('getForecasts'),
+  deleteForecast:         data  => callJava('deleteForecast', data),
+  getForecastDetail:      data  => callJava('getForecastDetail', data),
 
   // Analytics
   getCategoryMonthTable: (months) => callJava('getCategoryMonthTable', { months }),
@@ -374,7 +379,7 @@ document.getElementById('btnClose').onclick = () => api.close();
 /* ─── Router ──────────────────────────────────────────────────────────────── */
 const PAGE_TITLES = {
   dashboard:'Dashboard', transactions:'Transazioni', accounts:'Conti',
-  budgets:'Budget', portfolio:'Portafoglio', analytics:'Reports', reports:'Filtri', settings:'Impostazioni',
+  budgets:'Budget', portfolio:'Portafoglio', analytics:'Reports', reports:'Filtri', forecasts:'Previsioni', settings:'Impostazioni',
   scheduled:'Transazioni Pianificate'
 };
 let currentPage = 'dashboard';
@@ -412,6 +417,7 @@ function renderPage(page) {
     case 'tags':         renderTags();         break;
     case 'settings':     renderSettings();     break;
     case 'scheduled':    renderScheduled();    break;
+    case 'forecasts':    renderForecasts();    break;
     case 'logviewer':    renderLogViewer();    break;
   }
 }
@@ -5956,6 +5962,9 @@ async function renderSchedProjection() {
       </div>
       <div class="proj-chart-wrap"><canvas id="projChart"></canvas></div>
       <div id="projTable" style="margin-top:16px;overflow-x:auto"></div>
+      <div style="margin-top:12px;text-align:right">
+        <button class="btn btn-ghost" id="btnSalvaPrevisione" style="gap:6px">🔮 Salva previsione</button>
+      </div>
     </div>`;
 
   document.getElementById('projRange').addEventListener('change', () => {
@@ -5984,6 +5993,58 @@ async function renderSchedProjection() {
     loadProjectionChart(accounts);
   });
   await loadProjectionChart(accounts);
+
+  document.getElementById('btnSalvaPrevisione').addEventListener('click', async () => {
+    const range      = document.getElementById('projRange')?.value || '6m';
+    const customMths = document.getElementById('projMonths')?.value;
+    const isDaily    = _projMode === 'daily';
+    const { from_date, to_date } = projRangeToFilter(range, customMths, !isDaily);
+    if (!from_date || !to_date) { toast('Nessun periodo selezionato','error'); return; }
+
+    // Saldo proiettato = ultimo valore del grafico
+    const accIds = accounts.filter(a=>a.type!=='investment').map(a=>a.id).join(',');
+    let proj; try { proj = await api.getProjection({from_date, to_date, account_ids:accIds, daily:isDaily}); }
+    catch(e) { toast(e.message,'error'); return; }
+    const dates  = [...new Set(proj.series.map(p=>p.date))].sort();
+    const lastDate = dates[dates.length-1] || to_date;
+    const lastBal  = dates.length
+      ? proj.series.filter(p=>p.date===lastDate).reduce((s,p)=>s+p.balance,0)
+      : 0;
+
+    // Categorie pianificate nel periodo
+    let cats; try { cats = await api.getProjectionByCategory({from_date, to_date}); }
+    catch(e) { toast(e.message,'error'); return; }
+
+    openModal('Salva previsione', `
+      <div style="display:flex;flex-direction:column;gap:10px">
+        <div>
+          <label class="form-label">Data previsione</label>
+          <input type="date" class="form-control" id="fcDate" value="${to_date}">
+          <div class="settings-hint" style="margin-top:4px">Il giorno fino al quale proiettiamo</div>
+        </div>
+        <div>
+          <label class="form-label">Saldo proiettato</label>
+          <div style="font-size:15px;font-weight:600;color:var(--accent)">${fmt.currency(lastBal)}</div>
+        </div>
+        <div>
+          <label class="form-label">Categorie pianificate (${cats.length})</label>
+          <div style="max-height:160px;overflow-y:auto;font-size:12px;border:1px solid var(--border);border-radius:6px;padding:6px">
+            ${cats.length ? cats.map(c=>`<div style="display:flex;justify-content:space-between;padding:2px 4px">
+              <span style="color:${c.type==='income'?'var(--income)':'var(--expense)'}">${c.category_name}</span>
+              <span>${fmt.currency(c.projected_amount)}</span>
+            </div>`).join('') : '<span style="color:var(--txt3)">Nessuna transazione pianificata</span>'}
+          </div>
+        </div>
+      </div>
+    `, async () => {
+      const forecastDate = document.getElementById('fcDate').value;
+      if (!forecastDate) { toast('Seleziona una data','error'); return; }
+      try {
+        await api.saveForecast({ forecast_date: forecastDate, projected_balance: lastBal, categories: cats });
+        toast('Previsione salvata');
+      } catch(e) { toast(e.message,'error'); }
+    }, 'Salva');
+  });
 }
 
 async function loadProjectionChart(accounts) {
@@ -6474,6 +6535,34 @@ function showScheduledModal(sched, accounts, categories, tags = []) {
 /* ═══════════════════════════════════════════════════════════════════════════
    INIT
 ═══════════════════════════════════════════════════════════════════════════ */
+function showForecastReadyNotice(list) {
+  const el = document.createElement('div');
+  el.className = 'overdue-notice';
+  el.innerHTML = `
+    <div class="overdue-notice-head">
+      <span>🔮 ${list.length} previsione${list.length===1?' pronta':' pronte'} da analizzare</span>
+      <button onclick="this.closest('.overdue-notice').remove()">✕</button>
+    </div>
+    <div class="overdue-notice-body">
+      ${list.slice(0,4).map(f=>`<div class="overdue-row">
+        <span>${fmt.date(f.forecast_date)}</span>
+        <span class="td-main">Saldo previsto: ${fmt.currency(f.projected_balance)}</span>
+      </div>`).join('')}
+      ${list.length>4?`<div class="overdue-more">+ altre ${list.length-4}…</div>`:''}
+    </div>
+    <div class="overdue-notice-bar"><div class="overdue-notice-progress"></div></div>`;
+  document.getElementById('noticeStack').appendChild(el);
+  requestAnimationFrame(() => {
+    el.querySelector('.overdue-notice-progress').style.transition = 'width 8s linear';
+    el.querySelector('.overdue-notice-progress').style.width = '0%';
+  });
+  setTimeout(() => el.classList.add('fade-out'), 7800);
+  setTimeout(() => el.remove(), 8500);
+  el.querySelector('.overdue-notice-head').addEventListener('click', e => {
+    if (!e.target.closest('button')) navigate('forecasts');
+  });
+}
+
 function showOverdueNotice(list) {
   const el = document.createElement('div');
   el.className = 'overdue-notice';
@@ -6491,7 +6580,7 @@ function showOverdueNotice(list) {
       ${list.length>4?`<div class="overdue-more">+ altri ${list.length-4}…</div>`:''}
     </div>
     <div class="overdue-notice-bar"><div class="overdue-notice-progress"></div></div>`;
-  document.body.appendChild(el);
+  document.getElementById('noticeStack').appendChild(el);
   // progress bar animation then auto-remove
   requestAnimationFrame(() => {
     el.querySelector('.overdue-notice-progress').style.transition = 'width 8s linear';
@@ -6530,6 +6619,12 @@ async function init() {
   // Notifica scadute (non bloccante, dopo il render)
   const overdue = await api.getOverdue();
   if (overdue.length) showOverdueNotice(overdue);
+  // Notifica previsioni pronte
+  try {
+    const forecasts = await api.getForecasts();
+    const ready = forecasts.filter(f => f.is_ready === 1);
+    if (ready.length) showForecastReadyNotice(ready);
+  } catch(e) {}
 }
 
 /* ─── Log Viewer ──────────────────────────────────────────────────────────── */
@@ -6649,6 +6744,126 @@ function renderLogLines() {
     const wrap = document.getElementById('logWrap');
     if (wrap) wrap.scrollTop = wrap.scrollHeight;
   }, 50);
+}
+
+/* ─── Previsioni ──────────────────────────────────────────────────────────── */
+
+let _forecastDetailId = null;
+
+async function renderForecasts() {
+  const pg = document.getElementById('pg-forecasts');
+  let list; try { list = await api.getForecasts(); } catch(e) { pg.innerHTML=`<p class="text-muted">${e.message}</p>`; return; }
+
+  if (_forecastDetailId != null) {
+    await renderForecastDetail(pg, _forecastDetailId);
+    return;
+  }
+
+  const tdS = 'padding:8px 12px;border-bottom:1px solid var(--border)';
+  const thS = `${tdS};color:var(--txt2);font-weight:500;font-size:12px;text-transform:uppercase;letter-spacing:.4px`;
+
+  pg.innerHTML = `
+    <div class="page-header"><h2 class="page-title">Previsioni</h2></div>
+    <div class="card" style="overflow:hidden">
+      ${!list.length ? `<div style="padding:32px;text-align:center;color:var(--txt3)">
+          Nessuna previsione salvata.<br>
+          <span style="font-size:13px">Vai in <strong>Pianificate → Proiezione Saldo</strong> e clicca "Salva previsione".</span>
+        </div>` :
+      `<table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead><tr>
+          <th style="${thS}">Data previsione</th>
+          <th style="${thS};text-align:right">Saldo previsto</th>
+          <th style="${thS};text-align:center">Categorie</th>
+          <th style="${thS}">Salvata il</th>
+          <th style="${thS};text-align:center">Stato</th>
+          <th style="${thS}"></th>
+        </tr></thead>
+        <tbody>
+          ${list.map(f => {
+            const ready   = f.is_ready === 1;
+            const rowStyle = ready ? 'cursor:pointer' : 'opacity:.75';
+            const statusBadge = ready
+              ? `<span style="background:rgba(63,185,80,.15);color:#3fb950;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">Pronta</span>`
+              : `<span style="background:rgba(88,166,255,.12);color:#58a6ff;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">In attesa</span>`;
+            return `<tr style="${rowStyle}" ${ready ? `onclick="_forecastDetailId=${f.id};renderForecasts()"` : ''}>
+              <td style="${tdS};font-weight:600">${fmt.date(f.forecast_date)}</td>
+              <td style="${tdS};text-align:right;font-variant-numeric:tabular-nums">${fmt.currency(f.projected_balance)}</td>
+              <td style="${tdS};text-align:center">${f.cat_count}</td>
+              <td style="${tdS};color:var(--txt2)">${fmt.date(f.created_at.substring(0,10))}</td>
+              <td style="${tdS};text-align:center">${statusBadge}</td>
+              <td style="${tdS};text-align:right">
+                <button class="btn btn-xs btn-danger" onclick="event.stopPropagation();_deleteForecast(${f.id})">Elimina</button>
+              </td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>`}
+    </div>`;
+}
+
+async function renderForecastDetail(pg, id) {
+  let d; try { d = await api.getForecastDetail({id}); } catch(e) { toast(e.message,'error'); return; }
+  const cats = d.categories || [];
+  const balDiff = d.actual_balance - d.projected_balance;
+  const tdS = 'padding:7px 12px;border-bottom:1px solid var(--border);font-size:13px';
+  const thS = `${tdS};color:var(--txt2);font-weight:500;font-size:12px`;
+  const diffColor = v => v > 0 ? 'var(--income)' : v < 0 ? 'var(--expense)' : 'var(--txt2)';
+  const diffStr  = v => (v > 0 ? '+' : '') + fmt.currency(v);
+
+  pg.innerHTML = `
+    <div class="page-header" style="display:flex;align-items:center;gap:12px">
+      <button class="btn btn-ghost btn-sm" onclick="_forecastDetailId=null;renderForecasts()">← Lista</button>
+      <h2 class="page-title">Previsione al ${fmt.date(d.forecast_date)}</h2>
+    </div>
+
+    <!-- Saldo -->
+    <div class="card" style="margin-bottom:16px;padding:16px 20px">
+      <div style="font-size:12px;color:var(--txt2);margin-bottom:8px;text-transform:uppercase;letter-spacing:.4px">Saldo totale</div>
+      <div style="display:flex;gap:40px;flex-wrap:wrap">
+        <div><div style="font-size:11px;color:var(--txt3)">Previsto</div><div style="font-size:20px;font-weight:700;color:var(--accent)">${fmt.currency(d.projected_balance)}</div></div>
+        <div><div style="font-size:11px;color:var(--txt3)">Reale</div><div style="font-size:20px;font-weight:700">${fmt.currency(d.actual_balance)}</div></div>
+        <div><div style="font-size:11px;color:var(--txt3)">Differenza</div><div style="font-size:20px;font-weight:700;color:${diffColor(balDiff)}">${diffStr(balDiff)}</div></div>
+      </div>
+    </div>
+
+    <!-- Categorie -->
+    <div class="card" style="overflow:hidden">
+      <div style="padding:12px 16px;font-weight:600;border-bottom:1px solid var(--border)">Dettaglio categorie</div>
+      ${!cats.length ? `<div style="padding:20px;color:var(--txt3)">Nessuna categoria salvata.</div>` :
+      `<table style="width:100%;border-collapse:collapse">
+        <thead><tr>
+          <th style="${thS};text-align:left">Categoria</th>
+          <th style="${thS};text-align:center">Tipo</th>
+          <th style="${thS};text-align:right">Previsto</th>
+          <th style="${thS};text-align:right">Reale</th>
+          <th style="${thS};text-align:right">Differenza</th>
+        </tr></thead>
+        <tbody>
+          ${cats.map(c => {
+            const diff = c.diff;
+            const rowBg = diff > 0 ? 'rgba(63,185,80,.04)' : diff < 0 ? 'rgba(248,81,73,.04)' : '';
+            return `<tr style="background:${rowBg}">
+              <td style="${tdS}">${c.category_name}</td>
+              <td style="${tdS};text-align:center">
+                <span style="font-size:11px;padding:1px 7px;border-radius:8px;background:${c.category_type==='income'?'rgba(63,185,80,.15)':'rgba(248,81,73,.15)'};color:${c.category_type==='income'?'var(--income)':'var(--expense)'}">
+                  ${c.category_type==='income'?'Entrata':'Uscita'}
+                </span>
+              </td>
+              <td style="${tdS};text-align:right;font-variant-numeric:tabular-nums">${fmt.currency(c.projected_amount)}</td>
+              <td style="${tdS};text-align:right;font-variant-numeric:tabular-nums">${fmt.currency(c.actual_amount)}</td>
+              <td style="${tdS};text-align:right;font-variant-numeric:tabular-nums;font-weight:600;color:${diffColor(diff)}">${diffStr(diff)}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>`}
+    </div>`;
+}
+
+async function _deleteForecast(id) {
+  openModal('Elimina previsione', '<p>Eliminare questa previsione? L\'operazione non è reversibile.</p>', async () => {
+    try { await api.deleteForecast({id}); toast('Previsione eliminata'); renderForecasts(); }
+    catch(e) { toast(e.message,'error'); }
+  }, 'Elimina', 'btn-danger');
 }
 
 // Aspetta che il bridge JCEF sia pronto

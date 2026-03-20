@@ -5109,6 +5109,7 @@ async function renderCategories() {
         <div class="cat-parent">
           <div class="cat-row cat-parent-row">
             <span class="cat-icon" style="background:${p.color}22;color:${p.color}">${p.icon}</span>
+            <span class="cat-color-dot" style="background:${p.color}" title="${p.color}"></span>
             <span class="cat-name">${p.name}</span>
             <span class="badge ${typeCls(p.type)}">${typeLabel(p.type)}</span>
             <span class="cat-sub-count">${kids.length} sottocategorie</span>
@@ -5126,6 +5127,7 @@ async function renderCategories() {
                 <div class="cat-row cat-child-row">
                   <span class="cat-indent">└</span>
                   <span class="cat-icon" style="background:${k.color}22;color:${k.color}">${k.icon}</span>
+                  <span class="cat-color-dot" style="background:${k.color}" title="${k.color}"></span>
                   <span class="cat-name">${k.name}</span>
                   <span class="cat-inherited">eredita ${typeLabel(k.type)}</span>
                   <div class="cat-actions">
@@ -5299,6 +5301,7 @@ async function showCategoryModal(cat, type, parentId) {
     try {
       if (isEdit) { data.id = cat.id; await api.updateCategory(data); toast('Categoria aggiornata'); }
       else        { await api.addCategory(data); toast('Categoria creata'); }
+      closeModal();
       renderCategories();
     } catch(e) { toast(e.message, 'error'); return false; }
   });

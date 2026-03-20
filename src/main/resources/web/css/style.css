@@ -36,7 +36,7 @@
 [data-theme="light"] th { background: var(--bg3); }
 [data-theme="light"] td { border-bottom-color: #e8ecf0; }
 [data-theme="light"] {
-  --bg:       #f6f8fa;
+  --bg:       #eaeef2;
   --bg2:      #ffffff;
   --bg3:      #eaeef2;
   --bg4:      #d0d7de;
@@ -91,14 +91,14 @@ input,select,textarea { font-family:inherit; }
   display:flex; align-items:center; gap:8px;
   padding:8px 14px; color:var(--txt2);
   border-left:3px solid transparent;
-  transition:all .15s; font-size:12.5px;
+  transition:all .15s; font-size:13.5px; font-weight:600;
 }
 .nav-item:hover  { background:var(--bg4); color:var(--txt); }
 .nav-item.active { background:var(--bg3); color:var(--accent); border-left-color:var(--accent); }
 .nav-icon { font-size:14px; width:18px; text-align:center; }
 
 .sidebar-accounts {
-  padding:10px; border-top:1px solid var(--border);
+  padding:10px; margin-top:10px; border-top:1px solid var(--border);
   display:flex; flex-direction:column; gap:4px;
 }
 .sidebar-account-item {
@@ -275,14 +275,15 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 
 /* ─── Dashboard layout ───────────────────────────────────────────────────── */
 .dash-top-row    { display:flex; gap:16px; align-items:stretch; margin-bottom:16px; }
-.dash-accounts-card { flex:1; min-width:0; border:1px solid #fff; }
+.dash-accounts-card { flex:0 0 40%; min-width:0; }
+.dash-upcoming-card { flex:0 0 calc(60% - 16px); min-width:0; display:flex; flex-direction:column; }
+.dash-charts-row { display:flex; gap:16px; align-items:stretch; margin-bottom:16px; }
 .dash-barchart-card    { flex:1; min-width:0; display:flex; flex-direction:column; align-self:stretch; }
 .dash-budgetchart-card { flex:1; min-width:0; display:flex; flex-direction:column; align-self:stretch; }
 .dash-chart-wrap { position:relative; flex:1; min-height:160px; margin-top:6px; }
 
 .dash-tables-row { display:flex; gap:16px; align-items:stretch; }
 .dash-recent-card   { flex:1; min-width:0; }
-.dash-upcoming-card { flex:1; min-width:0; }
 
 .dash-bottom-charts { display:flex; gap:16px; margin-top:16px; }
 .dash-chart-sm { flex:1; min-width:0; }

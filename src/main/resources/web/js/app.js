@@ -213,9 +213,9 @@ const api = {
 
   // Transazioni
   getTransactions:             f    => callJava('getTransactions',             f || {}),
-  addTransaction:              data => callJava('addTransaction',              data),
-  updateTransaction:           data => callJava('updateTransaction',           data),
-  deleteTransaction:           id   => callJava('deleteTransaction',           {id}),
+  addTransaction:              async data  => { api._invalidateAccounts(); return callJava('addTransaction',    data); },
+  updateTransaction:           async data  => { api._invalidateAccounts(); return callJava('updateTransaction', data); },
+  deleteTransaction:           async id    => { api._invalidateAccounts(); return callJava('deleteTransaction', {id}); },
   updateTransactionReconciled: (id, reconciled) => callJava('updateTransactionReconciled', {id, reconciled}),
   getAccountSummary:           account_id => callJava('getAccountSummary',    {account_id}),
 
@@ -451,13 +451,21 @@ document.getElementById('modalClose').onclick  = closeModal;
 document.getElementById('modalCancel').onclick = closeModal;
 document.getElementById('modalConfirm').onclick = () => { if (modalConfirmCallback) modalConfirmCallback(); };
 
+/* ─── Refresh after any transaction change ───────────────────────────────── */
+let _dashboardDirty = false;
+async function refreshAfterTxChange() {
+  updateSidebar();
+  renderTransactions();
+  if (currentPage === 'dashboard') renderDashboard();
+}
+
 /* ─── Sidebar accounts ───────────────────────────────────────────────────── */
 async function updateSidebar() {
   const accounts = await api.getAccounts();
   const el = document.getElementById('sidebarAccounts');
   el.innerHTML = accounts.filter(isAccountVisible).map(a => `
     <div class="sidebar-account-item" style="${a.is_closed ? 'opacity:.55' : ''}cursor:pointer" onclick="navigateToAccountTx(${a.id})">
-      <span>${a.icon}</span><span>${a.name}</span>
+      <span style="flex:1;text-align:right">${a.name}</span><span style="margin-left:6px">${a.icon}</span>
     </div>`).join('');
   if (_reportsGroupOpen) renderSidebarReports();
 }
@@ -581,16 +589,31 @@ async function renderDashboard() {
   const pg = document.getElementById('pg-dashboard');
   pg.innerHTML = `
     <div class="stats-grid" id="statsGrid"></div>
-    <div class="dash-top-row" style="margin-bottom:24px">
+    <div class="dash-top-row">
       <div class="card dash-accounts-card">
         <div class="card-header"><span class="card-title">I miei conti</span>
           <button class="btn btn-ghost" onclick="navigate('accounts')">Gestisci →</button>
         </div>
         <div id="dashAccounts"></div>
       </div>
+      <div class="card dash-upcoming-card">
+        <div class="card-header">
+          <span class="card-title">🗓️ Prossime pianificate</span>
+          <button class="btn btn-ghost" onclick="navigate('scheduled')">Gestisci →</button>
+        </div>
+        <div class="table-wrap"><table><thead><tr>
+          <th>Categoria</th><th>Descrizione</th><th>Giorni</th><th class="text-right">Importo</th>
+        </tr></thead><tbody id="upcomingRows"></tbody></table></div>
+      </div>
+    </div>
+    <div class="dash-charts-row">
       <div class="card dash-barchart-card">
         <div class="card-header"><span class="card-title">Entrate vs Uscite ${dashYear}</span></div>
         <div class="dash-chart-wrap"><canvas id="barChart"></canvas></div>
+      </div>
+      <div class="card dash-barchart-card">
+        <div class="card-header"><span class="card-title">Risparmio mensile</span></div>
+        <div class="dash-chart-wrap"><canvas id="savingsChart"></canvas></div>
       </div>
       <div class="card dash-budgetchart-card" style="cursor:pointer" onclick="_budgetTab='andamento';navigate('budgets')">
         <div class="card-header"><span class="card-title">Budget vs Reale ${dashYear}</span></div>
@@ -607,24 +630,11 @@ async function renderDashboard() {
           <th>Data</th><th>Descrizione</th><th>Categoria</th><th>Conto</th><th class="text-right">Importo</th>
         </tr></thead><tbody id="recentRows"></tbody></table></div>
       </div>
-      <div class="card dash-upcoming-card">
-        <div class="card-header">
-          <span class="card-title">🗓️ Prossime pianificate</span>
-          <button class="btn btn-ghost" onclick="navigate('scheduled')">Gestisci →</button>
-        </div>
-        <div class="table-wrap"><table><thead><tr>
-          <th>Categoria</th><th>Descrizione</th><th>Giorni</th><th class="text-right">Importo</th>
-        </tr></thead><tbody id="upcomingRows"></tbody></table></div>
-      </div>
     </div>
     <div class="dash-bottom-charts">
       <div class="card dash-chart-sm">
         <div class="card-header"><span class="card-title">Spese per categoria</span></div>
         <canvas id="pieChart"></canvas>
-      </div>
-      <div class="card dash-chart-sm">
-        <div class="card-header"><span class="card-title">Risparmio mensile</span></div>
-        <canvas id="savingsChart"></canvas>
       </div>
       <div class="card dash-chart-sm">
         <div class="card-header"><span class="card-title">Top categorie spesa</span></div>
@@ -1287,7 +1297,7 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
           ${accounts.filter(a => isAccountActive(a) && a.type !== 'investment').map(a=>`<option value="${a.id}" ${(tx ? tx.account_id==a.id : String(a.id)===String(txFilters.account_id))?'selected':''}>${a.icon} ${a.name}</option>`).join('')}
         </select>
       </div>
-      <div class="form-group" id="toAccGroup" style="${tx?.type!=='transfer'?'display:none':''}">
+      <div class="form-group" id="toAccGroup" style="${(tx?.type ?? initType)!=='transfer'?'display:none':''}">
         <label class="form-label">Conto destinazione</label>
         <select class="form-control" id="f_toAccount">
           <option value="">— Seleziona —</option>
@@ -1384,8 +1394,7 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
       if (onAfterSave) await onAfterSave();
       closeModal();
       toast(isEdit ? 'Transazione aggiornata' : 'Transazione aggiunta');
-      updateSidebar();
-      loadTxRows(await api.getCategories(), await api.getAccounts());
+      refreshAfterTxChange();
     } catch(e) { toast(e.message, 'error'); }
   });
 
@@ -1470,8 +1479,7 @@ window.deleteTx = async id => {
   if (!ok) return;
   await api.deleteTransaction(id);
   toast('Transazione eliminata');
-  updateSidebar();
-  renderTransactions();
+  refreshAfterTxChange();
 };
 
 /* ─── Contex menu transazioni ─────────────────────────────────────────────── */

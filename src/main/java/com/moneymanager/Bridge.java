@@ -286,11 +286,20 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             case "getSettings" -> {
                 java.util.Map<String, String> all = new java.util.LinkedHashMap<>(settings.getAll());
                 all.put("_settings_path", settings.getPath().toAbsolutePath().toString());
+                String ver = Bridge.class.getPackage().getImplementationVersion();
+                if (ver != null) all.put("_app_version", ver);
                 try {
                     org.cef.CefApp.CefVersion v = org.cef.CefApp.getInstance().getVersion();
                     all.put("_chromium", v.CHROME_VERSION_MAJOR + "." + v.CHROME_VERSION_MINOR
                             + "." + v.CHROME_VERSION_BUILD + "." + v.CHROME_VERSION_PATCH);
                 } catch (Exception ignored) {}
+                try {
+                    all.put("_sqlite_version", db.getSQLiteVersion());
+                } catch (Exception ignored) {}
+                all.put("_dep_jcef",   mavenVersion("me.friwi",              "jcefmaven"));
+                all.put("_dep_sqlite", mavenVersion("org.xerial",             "sqlite-jdbc"));
+                all.put("_dep_gson",   mavenVersion("com.google.code.gson",  "gson"));
+                all.put("_dep_slf4j",  mavenVersion("org.slf4j",             "slf4j-nop"));
                 yield all;
             }
 
@@ -301,6 +310,11 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
 
             case "openSettingsFile" -> {
                 java.awt.Desktop.getDesktop().open(settings.getPath().toFile());
+                yield Map.of("ok", true);
+            }
+
+            case "openUrl" -> {
+                java.awt.Desktop.getDesktop().browse(new java.net.URI(p.get("url").getAsString()));
                 yield Map.of("ok", true);
             }
 
@@ -361,5 +375,15 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
 
             default -> throw new Exception("Metodo sconosciuto: " + method);
         };
+    }
+
+    private static String mavenVersion(String groupId, String artifactId) {
+        try (var is = Bridge.class.getResourceAsStream(
+                "/META-INF/maven/" + groupId + "/" + artifactId + "/pom.properties")) {
+            if (is == null) return "?";
+            var props = new java.util.Properties();
+            props.load(is);
+            return props.getProperty("version", "?");
+        } catch (Exception e) { return "?"; }
     }
 }

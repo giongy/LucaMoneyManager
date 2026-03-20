@@ -54,6 +54,13 @@ public class Database {
      * Il file avrà il formato: nomedb_YYYY-MM-DD_HH-mm-ss.db.bak
      * Mantiene al massimo maxBackups file, eliminando i più vecchi.
      */
+    public String getSQLiteVersion() throws SQLException {
+        try (var st = conn.createStatement();
+             var rs = st.executeQuery("SELECT sqlite_version()")) {
+            return rs.next() ? rs.getString(1) : "?";
+        }
+    }
+
     public String backup(String backupDir, int maxBackups) throws IOException {
         if (backupDir == null || backupDir.isBlank())
             throw new IOException("Cartella backup non configurata");

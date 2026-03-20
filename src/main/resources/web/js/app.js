@@ -253,6 +253,7 @@ const api = {
   reloadDb:          (path)  => callJava('reloadDb', {path}),
   chooseBackupDir:   ()      => callJava('chooseBackupDir', {}),
   openSettingsFile:  ()      => callJava('openSettingsFile', {}),
+  openUrl:           (url)   => callJava('openUrl', {url}),
   resetJcef:         ()      => callJava('resetJcef', {}),
   doBackup:        ()         => callJava('doBackup', {}),
 
@@ -4823,13 +4824,9 @@ async function renderSettings() {
         <div class="settings-section-title">ℹ️ Informazioni</div>
         <div class="settings-info-grid">
           <span class="settings-info-label">Versione app</span>
-          <span class="settings-info-value">1.0.0</span>
-          <span class="settings-info-label">Database</span>
-          <span class="settings-info-value">SQLite 3.45 (JDBC)</span>
+          <span class="settings-info-value">${s['_app_version'] || '—'}</span>
           <span class="settings-info-label">Browser engine</span>
-          <span class="settings-info-value">Chromium ${s['_chromium'] ? s['_chromium'] : '(JCEF)'}</span>
-          <span class="settings-info-label">Java</span>
-          <span class="settings-info-value">JDK 25</span>
+          <span class="settings-info-value">Chromium ${s['_chromium'] || '(JCEF)'}</span>
           <span class="settings-info-label">Database</span>
           <span class="settings-info-value">${s['db.path'] || '—'}</span>
           <span class="settings-info-label">Impostazioni</span>
@@ -4839,6 +4836,43 @@ async function renderSettings() {
                     onclick="api.openSettingsFile()">Apri ↗</button>
           </span>
         </div>
+      </div>
+      <div class="settings-section">
+        <div class="settings-section-title">📦 Dipendenze</div>
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead>
+            <tr style="border-bottom:1px solid var(--border-color)">
+              <th style="text-align:left;padding:6px 8px;color:var(--text-secondary);font-weight:500">Componente</th>
+              <th style="text-align:left;padding:6px 8px;color:var(--text-secondary);font-weight:500">Versione</th>
+              <th style="text-align:left;padding:6px 8px;color:var(--text-secondary);font-weight:500">Maven Central</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${(function() {
+              var deps = [
+                { name: 'jcefmaven (JCEF)',  ver: s['_dep_jcef'],   g: 'me.friwi',            a: 'jcefmaven'   },
+                { name: 'sqlite-jdbc',        ver: s['_dep_sqlite'], g: 'org.xerial',           a: 'sqlite-jdbc' },
+                { name: 'gson',               ver: s['_dep_gson'],   g: 'com.google.code.gson', a: 'gson'        },
+                { name: 'slf4j-nop',          ver: s['_dep_slf4j'],  g: 'org.slf4j',            a: 'slf4j-nop'   },
+              ];
+              var url = function(d) { return 'https://central.sonatype.com/artifact/' + d.g + '/' + d.a; };
+              var rows = deps.map(function(d) {
+                return '<tr style="border-bottom:1px solid var(--border-color)">'
+                  + '<td style="padding:7px 8px">' + d.name + '</td>'
+                  + '<td style="padding:7px 8px;font-family:monospace">' + (d.ver || '—') + '</td>'
+                  + '<td style="padding:7px 8px"><a href="#" onclick="api.openUrl(\'' + url(d) + '\');return false;"'
+                  + ' style="color:var(--accent-color);text-decoration:none">' + d.g + ':' + d.a + ' ↗</a></td>'
+                  + '</tr>';
+              });
+              rows.push('<tr>'
+                + '<td style="padding:7px 8px">SQLite (native)</td>'
+                + '<td style="padding:7px 8px;font-family:monospace">' + (s['_sqlite_version'] || '—') + '</td>'
+                + '<td style="padding:7px 8px;color:var(--text-secondary)">embedded in sqlite-jdbc</td>'
+                + '</tr>');
+              return rows.join('');
+            })()}
+          </tbody>
+        </table>
       </div>`,
   };
 

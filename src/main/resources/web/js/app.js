@@ -2097,9 +2097,10 @@ function renderBudgetTable() {
       const budgetStr = (budget > 0 || hasCfg) ? fmt.currency(budget) : '';
       const curCls = isCurMonthCol(m) ? ' budget-cur-month' : '';
       if (isGroupHeader) {
-        return `<td class="budget-cell budget-cell-parent budget-cell-readonly${curCls}" data-over="${over?1:0}">
-          <span class="budget-cell-val">${budget>0?fmt.currency(budget):''}</span>
-          ${cellBottom(budget, actual, m)}
+        const collapsed = _budgetCollapsed.has(cat.id);
+        return `<td class="budget-cell budget-cell-parent budget-cell-readonly${curCls}" data-over="${collapsed&&over?1:0}">
+          ${collapsed ? `<span class="budget-cell-val">${budget>0?fmt.currency(budget):''}</span>` : ''}
+          ${collapsed ? cellBottom(budget, actual, m) : ''}
         </td>`;
       }
       const isCalc = hasCfg && (budgetMap[cat.id]?.[m] === undefined);
@@ -2128,7 +2129,8 @@ function renderBudgetTable() {
     const parentCollapsed = isChild && _budgetCollapsed.has(cat.parent_id);
     const rowStyle = parentCollapsed ? 'display:none' : '';
 
-    return `<tr class="${isGroupHeader?'budget-row-parent':''} ${isChild?'budget-row-child':''}" data-cat-id="${cat.id}" data-parent-id="${cat.parent_id||''}" data-row-over="${anyOver?1:0}" style="${rowStyle}" ${isGroupHeader?`ondblclick="_budgetToggle(${cat.id})"`:''}">
+    const showParentData = !isGroupHeader || isCollapsed;
+    return `<tr class="${isGroupHeader?'budget-row-parent':''} ${isChild?'budget-row-child':''}" data-cat-id="${cat.id}" data-parent-id="${cat.parent_id||''}" data-row-over="${showParentData&&anyOver?1:0}" style="${rowStyle}" ${isGroupHeader?`ondblclick="_budgetToggle(${cat.id})"`:''}">
       <td class="budget-cat-cell ${isChild?'budget-child-indent':''}">
         ${isGroupHeader ? `<button class="btn-budget-toggle" onclick="_budgetToggle(${cat.id})">${isCollapsed?'▶':'▼'}</button>` : ''}
         <span style="color:${cat.color}">${cat.icon}</span> ${cat.name}
@@ -2138,8 +2140,8 @@ function renderBudgetTable() {
       ${gestioneCell}
       ${cells}
       <td class="budget-total-cell ${isGroupHeader?'budget-cell-parent':''}">
-        ${displayTotal>0?`<b>${fmt.currency(displayTotal)}</b>`:''}
-        ${displayTotal>0?`<span class="budget-cell-actual ${totalOver?'over':''}">${fmt.currency(annualActual)}</span>`:''}
+        ${showParentData&&displayTotal>0?`<b>${fmt.currency(displayTotal)}</b>`:''}
+        ${showParentData&&displayTotal>0?`<span class="budget-cell-actual ${totalOver?'over':''}">${fmt.currency(annualActual)}</span>`:''}
       </td>
       ${actions}
     </tr>`;
@@ -2753,9 +2755,6 @@ window._budgetShowDetail = (catId, catName) => {
         <div style="position:relative;height:360px">
           <canvas id="budgetDetailChart"></canvas>
         </div>
-        <div style="font-size:10px;color:var(--txt3);text-align:center">
-          Scroll per zoom · Trascina per spostare · Doppio click per reset
-        </div>
       </div>
     </div>`;
 
@@ -2791,8 +2790,8 @@ window._budgetShowDetail = (catId, catName) => {
           {
             label: 'Reale (cumulativo)',
             data: chartLabels.map((_,i) => { let s=0; for(let m=1;m<=i+1;m++) s+=am[m]||0; return s; }),
-            borderColor: '#3fb950',
-            backgroundColor: 'rgba(63,185,80,0.08)',
+            borderColor: '#a78bfa',
+            backgroundColor: 'rgba(167,139,250,0.08)',
             borderWidth: 2,
             pointRadius: 2,
             tension: 0.3,
@@ -2801,13 +2800,24 @@ window._budgetShowDetail = (catId, catName) => {
           {
             label: 'Differenza cumulativa',
             data: chartLabels.map((_,i) => { let a=0,b=0; for(let m=1;m<=i+1;m++){a+=am[m]||0;b+=bm[m]||0;} return a-b; }),
-            borderColor: '#a78bfa',
-            backgroundColor: 'rgba(167,139,250,0.08)',
             borderWidth: 2,
-            borderDash: [4,3],
             pointRadius: 2,
             tension: 0.3,
-            fill: false,
+            fill: {
+              target: 'origin',
+              above: isIncome ? 'rgba(63,185,80,0.20)' : 'rgba(248,81,73,0.20)',
+              below: isIncome ? 'rgba(248,81,73,0.20)' : 'rgba(63,185,80,0.20)',
+            },
+            segment: {
+              borderColor: ctx => {
+                const good = isIncome ? ctx.p1.parsed.y > 0 : ctx.p1.parsed.y < 0;
+                return good ? 'rgba(63,185,80,0.9)' : 'rgba(248,81,73,0.9)';
+              }
+            },
+            pointBackgroundColor: ctx => {
+              const good = isIncome ? ctx.parsed.y > 0 : ctx.parsed.y < 0;
+              return good ? 'rgba(63,185,80,0.9)' : 'rgba(248,81,73,0.9)';
+            },
           },
         ]
       },
@@ -2829,63 +2839,6 @@ window._budgetShowDetail = (catId, catName) => {
       }
     });
 
-    // Zoom con scroll, pan con drag, reset con doppio click
-    const chart = window._budgetDetailChart;
-    const N = chartLabels.length - 1;
-    const getRange = () => {
-      const s = chart.scales.x;
-      const mn = s.min != null ? MONTHS_SHORT.indexOf(s.min) : 0;
-      const mx = s.max != null ? MONTHS_SHORT.indexOf(s.max) : N;
-      return { mn: mn < 0 ? 0 : mn, mx: mx < 0 ? N : mx };
-    };
-    const setRange = (mn, mx) => {
-      mn = Math.max(0, Math.round(mn));
-      mx = Math.min(N, Math.round(mx));
-      if (mx <= mn) mx = mn + 1;
-      chart.options.scales.x.min = chartLabels[mn];
-      chart.options.scales.x.max = chartLabels[mx];
-      chart.update('none');
-    };
-
-    canvas.addEventListener('wheel', e => {
-      e.preventDefault();
-      const { mn, mx } = getRange();
-      const range = mx - mn;
-      const rect = canvas.getBoundingClientRect();
-      const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left - chart.scales.x.left) / (chart.scales.x.right - chart.scales.x.left)));
-      const pivot = mn + ratio * range;
-      const factor = e.deltaY > 0 ? 1.25 : 0.8;
-      const newRange = Math.max(1, Math.min(N + 1, range * factor));
-      setRange(pivot - ratio * newRange, pivot + (1 - ratio) * newRange);
-    }, { passive: false });
-
-    canvas.addEventListener('dblclick', () => {
-      chart.options.scales.x.min = undefined;
-      chart.options.scales.x.max = undefined;
-      chart.update('none');
-    });
-
-    let _drag = null;
-    canvas.addEventListener('mousedown', e => {
-      const r = getRange();
-      _drag = { startX: e.clientX, mn: r.mn, mx: r.mx };
-      canvas.style.cursor = 'grabbing';
-    });
-    canvas.addEventListener('mousemove', e => {
-      if (!_drag) return;
-      const pixW = chart.scales.x.right - chart.scales.x.left;
-      const range = _drag.mx - _drag.mn;
-      const shift = -(_drag.startX - e.clientX) / pixW * range;
-      let mn = _drag.mn - shift, mx = _drag.mx - shift;
-      if (mn < 0) { mx -= mn; mn = 0; }
-      if (mx > N) { mn -= mx - N; mx = N; }
-      chart.options.scales.x.min = chartLabels[Math.max(0, Math.round(mn))];
-      chart.options.scales.x.max = chartLabels[Math.min(N, Math.round(mx))];
-      chart.update('none');
-    });
-    const endDrag = () => { _drag = null; canvas.style.cursor = 'default'; };
-    canvas.addEventListener('mouseup', endDrag);
-    canvas.addEventListener('mouseleave', endDrag);
   }, 50);
 };
 

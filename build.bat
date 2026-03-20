@@ -6,6 +6,7 @@ set MVN=C:\Tools\apache-maven-3.9.6\bin\mvn.cmd
 set ROOT=%~dp0
 set JAR=%ROOT%target\moneymanager-1.0.0.jar
 set DIST=%ROOT%dist
+set DEPLOY=D:\Luca Money Manager App
 
 echo.
 echo  ========================================
@@ -76,14 +77,31 @@ mkdir "%DIST%\app"
 
 if errorlevel 1 ( echo [ERRORE] jpackage fallito. & pause & exit /b 1 )
 
+:: ── Deploy in "D:\Luca Money Manager App" ──────────────────────────────────
+echo.
+echo [3/3] Deploy in "%DEPLOY%"...
+if not exist "%DEPLOY%" mkdir "%DEPLOY%"
+
+:: robocopy: copia tutto tranne db, settings, backup, bak
+:: Codici di uscita 0-7 = successo; 8+ = errore
+%SystemRoot%\System32\robocopy.exe "%DIST%\app\LucaMoneyManager" "%DEPLOY%" /e ^
+  /xf "*.db" "settings.properties" "*.bak" "*.properties" "*.log" ^
+  /xd "backup" "jcef" ^
+  /njh /njs /ndl
+
+if errorlevel 8 ( echo [ERRORE] Deploy fallito. & pause & exit /b 1 )
+
+echo       OK - Deploy completato.
 echo.
 echo  ----------------------------------------
 echo   APP EXE pronta in:
 echo   %DIST%\app\LucaMoneyManager\
 echo.
+echo   Deploy aggiornato in:
+echo   %DEPLOY%
+echo.
 echo   Sul PC destinazione:
 echo   - Nessun Java richiesto
-echo   - Zippa e copia la cartella LucaMoneyManager\
 echo   - Al primo avvio scarica Chromium (~200MB)
 echo  ----------------------------------------
 

@@ -356,7 +356,7 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 .budget-row-parent:hover td, .budget-row-child:hover td { background:var(--bg4); }
 
 .budget-cell {
-  padding:5px 4px; text-align:left; cursor:pointer;
+  padding:5px 6px; text-align:right; cursor:pointer;
   border-bottom:1px solid var(--border); border-left:1px solid var(--border);
   min-width:80px; vertical-align:top; transition:background .1s;
 }
@@ -366,9 +366,10 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 .budget-cell-readonly { cursor:default; pointer-events:none; opacity:0.85; }
 .budget-cell-readonly:hover { background:inherit !important; }
 .budget-group-hint { font-size:10px; color:var(--txt3); font-weight:400; }
-.budget-cell-val { display:block; font-size:12px; color:var(--txt); }
-.budget-cell-actual { display:block; font-size:10px; color:var(--txt2); margin-top:2px; }
-.budget-cell-diff   { display:block; font-size:10px; font-weight:600; text-align:right; margin-top:1px; }
+.budget-cell-val    { display:block; font-size:12px; font-weight:500; color:var(--txt); text-align:right; }
+.budget-cell-actual { display:block; font-size:10px; color:var(--txt3); margin-top:2px; text-align:right; }
+.budget-cell-diff   { display:block; font-size:10px; font-weight:700; text-align:right;
+                      margin-top:3px; padding-top:3px; border-top:1px solid var(--border); }
 .budget-cell-input {
   width:64px; padding:3px 4px; font-size:12px; text-align:center;
   background:var(--bg); border:1px solid var(--accent); border-radius:4px;

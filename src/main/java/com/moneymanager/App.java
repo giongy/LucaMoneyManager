@@ -54,6 +54,8 @@ public class App {
         builder.setInstallDir(dataDir.resolve("jcef").toFile());
         builder.addJcefArgs("--disable-gpu"); // più stabile su alcuni sistemi
         builder.getCefSettings().windowless_rendering_enabled = false;
+        builder.getCefSettings().root_cache_path = dataDir.resolve("jcef_cache").toAbsolutePath().toString();
+        builder.getCefSettings().log_severity = org.cef.CefSettings.LogSeverity.LOGSEVERITY_DISABLE;
         builder.setAppHandler(new MavenCefAppHandlerAdapter() {});
         builder.setProgressHandler((state, percent) -> {
             String msg = switch (state) {

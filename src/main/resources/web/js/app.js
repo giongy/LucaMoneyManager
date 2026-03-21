@@ -7141,7 +7141,6 @@ async function renderForecasts() {
   const thS = `${tdS};color:var(--txt2);font-weight:500;font-size:12px;text-transform:uppercase;letter-spacing:.4px`;
 
   pg.innerHTML = `
-    <div class="page-header"><h2 class="page-title">Previsioni</h2></div>
     <div class="card" style="overflow:hidden">
       ${!list.length ? `<div style="padding:32px;text-align:center;color:var(--txt3)">
           Nessuna previsione salvata.<br>

@@ -688,7 +688,9 @@ public class Database {
             sql.append(" AND t.description LIKE ?");
             params.add("%" + str(f,"search") + "%");
         }
-        sql.append(" GROUP BY t.id ORDER BY t.date ASC, t.id ASC");
+        boolean desc = f.has("sort_desc") && f.get("sort_desc").getAsBoolean();
+        sql.append(desc ? " GROUP BY t.id ORDER BY t.date DESC, t.id DESC"
+                        : " GROUP BY t.id ORDER BY t.date ASC,  t.id ASC");
         if (f.has("limit")) { sql.append(" LIMIT ?"); params.add(f.get("limit").getAsInt()); }
 
         List<Map<String, Object>> rows = parseTags(queryList(sql.toString(), params.toArray()));

@@ -645,7 +645,7 @@ async function renderDashboard() {
   const [stats, accounts, recent, monthly, catData, upcoming, budgetYear] = await Promise.all([
     api.getDashboardStats(dashYear),
     api.getAccounts(),
-    api.getTransactions({year:dashYear, limit:10}),
+    api.getTransactions({limit:20, sort_desc:true}),
     api.getMonthlyChartData(dashYear),
     api.getCategoryChartData(dashYear, 'expense'),
     api.getUpcomingAll(10),

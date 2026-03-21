@@ -1918,13 +1918,13 @@ async function renderBudgets() {
           <span id="budgYearLabel"></span>
           <button id="budgNext">›</button>
         </div>
-        <div id="budgGridActions" style="display:${_budgetTab==='grid'?'flex':'none'};gap:8px">
+        <div id="budgGridActions" style="display:${_budgetTab==='grid'?'flex':'none'};gap:8px;margin-left:auto">
           <button class="btn btn-ghost" id="btnBudgOnlyRed">Solo rossi</button>
           <button class="btn btn-ghost" id="btnBudgToggleAll">Comprimi tutto</button>
           <button class="btn btn-primary" id="btnGenBudget">Genera budget</button>
         </div>
       </div>
-      <div class="scheduled-tabs" style="margin-top:8px">
+      <div class="scheduled-tabs">
         <button class="sched-tab ${_budgetTab==='grid'?'active':''}"        data-btab="grid"        onclick="_setBudgetTab('grid')">📊 Budget</button>
         <button class="sched-tab ${_budgetTab==='andamento'?'active':''}"   data-btab="andamento"   onclick="_setBudgetTab('andamento')">📈 Andamento</button>
         <button class="sched-tab ${_budgetTab==='scostamenti'?'active':''}" data-btab="scostamenti" onclick="_setBudgetTab('scostamenti')">📉 Scostamenti</button>
@@ -2942,19 +2942,24 @@ async function renderPortfolio() {
   const pnlPct           = totalInvested ? (totalPnL/totalInvested)*100 : 0;
 
   pg.innerHTML = `
-    <div class="section-header">
-      <h2 class="section-title">Portafoglio Titoli</h2>
-      <div class="theme-toggle-group" style="margin-right:auto">
-        <button class="btn theme-btn ${_portfolioTab==='portfolio'?'theme-btn-active':''}" onclick="_setPortfolioTab('portfolio')">📋 Portafoglio</button>
-        <button class="btn theme-btn ${_portfolioTab==='analisi'?'theme-btn-active':''}"   onclick="_setPortfolioTab('analisi')">📊 Analisi</button>
-      </div>
+    <div style="display:flex;align-items:center;gap:0;border-bottom:1px solid var(--border);margin-bottom:16px">
+      <button class="btn" onclick="_setPortfolioTab('portfolio')"
+        style="border-radius:0;border:none;border-bottom:2px solid ${_portfolioTab==='portfolio'?'var(--accent)':'transparent'};
+               color:${_portfolioTab==='portfolio'?'var(--accent)':'var(--txt2)'};font-weight:${_portfolioTab==='portfolio'?'600':'400'};
+               padding:8px 18px;background:none">📋 Portafoglio</button>
+      <button class="btn" onclick="_setPortfolioTab('analisi')"
+        style="border-radius:0;border:none;border-bottom:2px solid ${_portfolioTab==='analisi'?'var(--accent)':'transparent'};
+               color:${_portfolioTab==='analisi'?'var(--accent)':'var(--txt2)'};font-weight:${_portfolioTab==='analisi'?'600':'400'};
+               padding:8px 18px;background:none">📊 Analisi</button>
       ${investAccounts.length && _portfolioTab==='portfolio' ? `
-        <div class="theme-toggle-group" style="margin-right:8px">
-          <button class="btn theme-btn ${_portfolioActiveOnly?'theme-btn-active':''}"  onclick="_setPortfolioFilter(true)">Solo attivi</button>
-          <button class="btn theme-btn ${!_portfolioActiveOnly?'theme-btn-active':''}" onclick="_setPortfolioFilter(false)">Tutti</button>
-        </div>
-        <button class="btn btn-secondary" id="btnImportPos">📥 Carica esistente</button>
-        <button class="btn btn-primary" id="btnBuyStock">+ Acquista</button>` : ''}
+        <div style="margin-left:auto;display:flex;align-items:center;gap:8px;padding-bottom:2px">
+          <div class="theme-toggle-group">
+            <button class="btn theme-btn ${_portfolioActiveOnly?'theme-btn-active':''}"  onclick="_setPortfolioFilter(true)">Solo attivi</button>
+            <button class="btn theme-btn ${!_portfolioActiveOnly?'theme-btn-active':''}" onclick="_setPortfolioFilter(false)">Tutti</button>
+          </div>
+          <button class="btn btn-secondary" id="btnImportPos">📥 Carica esistente</button>
+          <button class="btn btn-primary" id="btnBuyStock">+ Acquista</button>
+        </div>` : ''}
     </div>
     ${!investAccounts.length ? `
       <div class="card" style="padding:32px;text-align:center;color:var(--txt2)">
@@ -3132,8 +3137,9 @@ function renderPortfolioAnalisi(items) {
     const c = bondCountry(b);
     byCountry[c] = (byCountry[c] || 0) + b.quantity;
   });
-  const c1Labels = Object.keys(byCountry);
-  const c1Data   = c1Labels.map(c => byCountry[c]);
+  const c1Sorted = Object.entries(byCountry).sort((a, b) => b[1] - a[1]);
+  const c1Labels = c1Sorted.map(([c]) => c);
+  const c1Data   = c1Sorted.map(([, v]) => v);
   const c1Colors = c1Labels.map(c => countryColor[c] || palette[0]);
   const c1Total  = c1Data.reduce((a,b) => a+b, 0);
 
@@ -6075,10 +6081,7 @@ async function renderScheduled() {
   const pg = document.getElementById('pg-scheduled');
   pg.innerHTML = `
     <div style="flex-shrink:0;padding:16px 16px 0;background:var(--bg)">
-      <div class="section-header">
-        <h2 class="section-title">Transazioni Pianificate</h2>
-      </div>
-      <div class="scheduled-tabs">
+      <div class="scheduled-tabs" id="schedTabBar">
         <button class="sched-tab ${schedTab==='lista'?'active':''}"      onclick="setSchedTab('lista')">📋 Lista</button>
         <button class="sched-tab ${schedTab==='projection'?'active':''}" onclick="setSchedTab('projection')">📈 Proiezione Saldo</button>
         <button class="sched-tab ${schedTab==='cashflow'?'active':''}"   onclick="setSchedTab('cashflow')">💰 Flusso di Cassa</button>

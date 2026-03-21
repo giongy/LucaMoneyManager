@@ -6082,9 +6082,10 @@ async function renderScheduled() {
   pg.innerHTML = `
     <div style="flex-shrink:0;padding:16px 16px 0;background:var(--bg)">
       <div class="scheduled-tabs" id="schedTabBar">
-        <button class="sched-tab ${schedTab==='lista'?'active':''}"      onclick="setSchedTab('lista')">📋 Lista</button>
-        <button class="sched-tab ${schedTab==='projection'?'active':''}" onclick="setSchedTab('projection')">📈 Proiezione Saldo</button>
-        <button class="sched-tab ${schedTab==='cashflow'?'active':''}"   onclick="setSchedTab('cashflow')">💰 Flusso di Cassa</button>
+        <button class="sched-tab ${schedTab==='lista'?'active':''}"      data-stab="lista"       onclick="setSchedTab('lista')">📋 Lista</button>
+        <button class="sched-tab ${schedTab==='projection'?'active':''}" data-stab="projection"  onclick="setSchedTab('projection')">📈 Proiezione Saldo</button>
+        <button class="sched-tab ${schedTab==='cashflow'?'active':''}"   data-stab="cashflow"    onclick="setSchedTab('cashflow')">💰 Flusso di Cassa</button>
+        <button class="sched-tab ${schedTab==='forecasts'?'active':''}"  data-stab="forecasts"   onclick="setSchedTab('forecasts')">🔮 Previsioni</button>
       </div>
     </div>
     <div id="schedContent" style="flex:1;overflow-y:auto;padding:0 16px 16px"></div>`;
@@ -6094,19 +6095,17 @@ async function renderScheduled() {
 
 window.setSchedTab = tab => {
   schedTab = tab;
-  document.querySelectorAll('.sched-tab').forEach(b => b.classList.remove('active'));
-  document.querySelectorAll('.sched-tab').forEach(b => {
-    if ((tab==='lista'&&b.textContent.includes('Lista'))||
-        (tab==='projection'&&b.textContent.includes('Proiezione'))||
-        (tab==='cashflow'&&b.textContent.includes('Flusso'))) b.classList.add('active');
+  document.querySelectorAll('#schedTabBar .sched-tab').forEach(b => {
+    b.classList.toggle('active', b.dataset.stab === tab);
   });
   renderSchedTab();
 };
 
 async function renderSchedTab() {
-  if (schedTab === 'lista')       await renderSchedLista();
+  if      (schedTab === 'lista')      await renderSchedLista();
   else if (schedTab === 'projection') await renderSchedProjection();
   else if (schedTab === 'cashflow')   await renderSchedCashflow();
+  else if (schedTab === 'forecasts')  await renderForecastsInTab();
 }
 
 // Restituisce la prossima occorrenza di una transazione pianificata.
@@ -7128,19 +7127,10 @@ function renderLogLines() {
 
 let _forecastDetailId = null;
 
-async function renderForecasts() {
-  const pg = document.getElementById('pg-forecasts');
-  let list; try { list = await api.getForecasts(); } catch(e) { pg.innerHTML=`<p class="text-muted">${e.message}</p>`; return; }
-
-  if (_forecastDetailId != null) {
-    await renderForecastDetail(pg, _forecastDetailId);
-    return;
-  }
-
+function _forecastsHTML(list, openCmd) {
   const tdS = 'padding:8px 12px;border-bottom:1px solid var(--border)';
   const thS = `${tdS};color:var(--txt2);font-weight:500;font-size:12px;text-transform:uppercase;letter-spacing:.4px`;
-
-  pg.innerHTML = `
+  return `
     <div class="card" style="overflow:hidden">
       ${!list.length ? `<div style="padding:32px;text-align:center;color:var(--txt3)">
           Nessuna previsione salvata.<br>
@@ -7157,12 +7147,11 @@ async function renderForecasts() {
         </tr></thead>
         <tbody>
           ${list.map(f => {
-            const ready   = f.is_ready === 1;
-            const rowStyle = ready ? 'cursor:pointer' : 'opacity:.75';
+            const ready = f.is_ready === 1;
             const statusBadge = ready
               ? `<span style="background:rgba(63,185,80,.15);color:#3fb950;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">Pronta</span>`
               : `<span style="background:rgba(88,166,255,.12);color:#58a6ff;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">In attesa</span>`;
-            return `<tr style="${rowStyle}" ${ready ? `onclick="_forecastDetailId=${f.id};renderForecasts()"` : ''}>
+            return `<tr style="${ready?'cursor:pointer':'opacity:.75'}" ${ready ? `onclick="_forecastDetailId=${f.id};${openCmd}"` : ''}>
               <td style="${tdS};font-weight:600">${fmt.date(f.forecast_date)}</td>
               <td style="${tdS};text-align:right;font-variant-numeric:tabular-nums">${fmt.currency(f.projected_balance)}</td>
               <td style="${tdS};text-align:center">${f.cat_count}</td>
@@ -7178,7 +7167,21 @@ async function renderForecasts() {
     </div>`;
 }
 
-async function renderForecastDetail(pg, id) {
+async function renderForecasts() {
+  const pg = document.getElementById('pg-forecasts');
+  let list; try { list = await api.getForecasts(); } catch(e) { pg.innerHTML=`<p class="text-muted">${e.message}</p>`; return; }
+  if (_forecastDetailId != null) { await renderForecastDetail(pg, _forecastDetailId, 'renderForecasts()'); return; }
+  pg.innerHTML = _forecastsHTML(list, 'renderForecasts()');
+}
+
+async function renderForecastsInTab() {
+  const pg = document.getElementById('schedContent');
+  let list; try { list = await api.getForecasts(); } catch(e) { pg.innerHTML=`<p class="text-muted">${e.message}</p>`; return; }
+  if (_forecastDetailId != null) { await renderForecastDetail(pg, _forecastDetailId, 'renderForecastsInTab()'); return; }
+  pg.innerHTML = _forecastsHTML(list, 'renderForecastsInTab()');
+}
+
+async function renderForecastDetail(pg, id, backCmd = 'renderForecasts()') {
   let d; try { d = await api.getForecastDetail({id}); } catch(e) { toast(e.message,'error'); return; }
   const cats = d.categories || [];
   const balDiff = d.actual_balance - d.projected_balance;
@@ -7189,7 +7192,7 @@ async function renderForecastDetail(pg, id) {
 
   pg.innerHTML = `
     <div class="page-header" style="display:flex;align-items:center;gap:12px">
-      <button class="btn btn-ghost btn-sm" onclick="_forecastDetailId=null;renderForecasts()">← Lista</button>
+      <button class="btn btn-ghost btn-sm" onclick="_forecastDetailId=null;${backCmd}">← Lista</button>
       <h2 class="page-title">Previsione al ${fmt.date(d.forecast_date)}</h2>
     </div>
 

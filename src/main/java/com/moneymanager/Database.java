@@ -1391,38 +1391,19 @@ public class Database {
         if (!filter.isEmpty()) accounts = accounts.stream()
             .filter(a -> filter.contains(((Number)a.get("id")).intValue())).collect(Collectors.toList());
 
-        // Starting balance per account:
-        // - daily:   call getAccounts() directly — same logic as dashboard (handles investment correctly)
-        // - monthly: transactions before fromDate
-        LocalDate schedFrom = forceDaily ? from.plusDays(1) : from;
+        // Starting balance: sempre saldo reale di oggi (getAccounts), sia per daily che monthly.
+        // Le pianificate partono da domani in entrambe le modalità.
+        // La differenza daily/monthly è solo nella granularità dei punti del grafico.
+        LocalDate schedFrom = from.plusDays(1);
         Map<Integer, Double> balance = new HashMap<>();
-        if (forceDaily) {
-            // Use getAccounts() which already handles investment/portfolio/credit correctly
-            for (var a : getAccounts()) {
-                int aid = ((Number) a.get("id")).intValue();
-                if (!filter.isEmpty() && !filter.contains(aid)) continue;
-                balance.put(aid, ((Number) a.get("balance")).doubleValue());
-            }
+        for (var a : getAccounts()) {
+            int aid = ((Number) a.get("id")).intValue();
+            if (!filter.isEmpty() && !filter.contains(aid)) continue;
+            balance.put(aid, ((Number) a.get("balance")).doubleValue());
         }
         for (var a : accounts) {
             int aid = ((Number) a.get("id")).intValue();
-            if (forceDaily) {
-                balance.putIfAbsent(aid, 0.0); // already populated above
-            } else {
-                var r = queryOne(
-                    "SELECT COALESCE(SUM(CASE WHEN type='income' THEN amount" +
-                    "  WHEN type='expense' THEN -amount" +
-                    "  WHEN type='transfer' AND account_id=? THEN -amount" +
-                    "  WHEN type='transfer' AND to_account_id=? THEN amount" +
-                    "  ELSE 0 END), 0) AS bal FROM transactions" +
-                    "  WHERE (account_id=? OR to_account_id=?) AND date < ?",
-                    aid, aid, aid, aid, fromDate);
-                double initialBal = r != null ? ((Number) r.get("bal")).doubleValue() : 0.0;
-                var acc = queryOne("SELECT initial_balance FROM accounts WHERE id=?", aid);
-                double init = acc != null && acc.get("initial_balance") != null
-                    ? ((Number) acc.get("initial_balance")).doubleValue() : 0.0;
-                balance.put(aid, init + initialBal);
-            }
+            balance.putIfAbsent(aid, 0.0);
         }
 
         // Expand scheduled transactions into allDeltas
@@ -1488,12 +1469,22 @@ public class Database {
                 c = c.plusDays(1);
             }
         } else {
-            // Mensile: un punto per mese = ultimo giorno del mese (o to se precedente).
-            // Garantisce che monthly_last (fine mese) sia sempre incluso nel mese corretto.
+            // Mensile: primo punto = oggi (saldo reale), poi fine di ogni mese.
+            String todayStr = from.toString();
+            for (var a : accounts) {
+                int aid = ((Number) a.get("id")).intValue();
+                Map<String, Object> pt = new HashMap<>();
+                pt.put("date", todayStr); pt.put("account_id", aid);
+                pt.put("account_name", a.get("name"));
+                pt.put("balance", running.getOrDefault(aid, 0.0));
+                series.add(pt);
+            }
+            // Poi un punto per ogni fine mese nel periodo
             LocalDate c = from;
             while (!c.isAfter(to)) {
                 LocalDate eom = c.withDayOfMonth(c.lengthOfMonth());
                 if (eom.isAfter(to)) eom = to;
+                if (eom.equals(from)) { c = eom.plusDays(1); continue; } // salta se oggi è già fine mese
                 String es = eom.toString();
                 while (di < deltaKeys.size() && deltaKeys.get(di).compareTo(es) <= 0) {
                     for (var e : allDeltas.get(deltaKeys.get(di)).entrySet())
@@ -1508,7 +1499,7 @@ public class Database {
                     pt.put("balance", running.getOrDefault(aid, 0.0));
                     series.add(pt);
                 }
-                c = eom.plusDays(1); // primo giorno del mese successivo
+                c = eom.plusDays(1);
             }
         }
 
@@ -1994,8 +1985,9 @@ public class Database {
 
     /** Somma le transazioni pianificate per categoria nel periodo fromDate..toDate */
     public List<Map<String, Object>> getProjectionByCategory(String fromDate, String toDate) throws SQLException {
-        LocalDate from = LocalDate.parse(fromDate);
-        LocalDate to   = LocalDate.parse(toDate);
+        LocalDate from     = LocalDate.parse(fromDate);
+        LocalDate to       = LocalDate.parse(toDate);
+        LocalDate schedFrom = from.plusDays(1); // coerente con getProjection: esclude oggi (già nel saldo reale)
         var scheds = getScheduled().stream()
                 .filter(s -> Integer.valueOf(1).equals(s.get("is_active")))
                 .toList();
@@ -2011,7 +2003,7 @@ public class Database {
             LocalDate start = LocalDate.parse((String) s.get("start_date"));
             LocalDate end   = s.get("end_date") != null ? LocalDate.parse((String) s.get("end_date")) : to;
             if (end.isAfter(to)) end = to;
-            LocalDate cur   = firstOccurrenceFrom(start, freq, from);
+            LocalDate cur   = firstOccurrenceFrom(start, freq, schedFrom);
             if (cur == null) continue;
             double amount = ((Number) s.get("amount")).doubleValue();
             while (!cur.isAfter(end)) {

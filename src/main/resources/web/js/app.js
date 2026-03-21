@@ -5915,14 +5915,14 @@ let _projMode = 'monthly'; // 'monthly' | 'daily'
 
 function projRangeToFilter(range, customMonths, useMonthBoundaries = false) {
   const today = new Date();
-  const fmt = d => d.toISOString().slice(0,10);
+  // Fix timezone bug: usa date locali invece di toISOString() che converte in UTC
+  const localFmt = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   const y = today.getFullYear();
 
   if (useMonthBoundaries) {
-    // Mensile: dal 1° del mese corrente alla fine del mese d'arrivo (N mesi pieni)
-    const som  = new Date(today.getFullYear(), today.getMonth(), 1); // 1° mese corrente
-    const addM = (d, n) => new Date(d.getFullYear(), d.getMonth() + n, 1);
-    const eom  = d  => new Date(d.getFullYear(), d.getMonth() + 1, 0); // ultimo giorno mese
+    // Mensile: parte sempre da oggi (saldo reale attuale), arriva alla fine dell'N-esimo mese
+    // Mostra un punto per fine mese → N punti totali
+    // Stessa data di fine del daily: oggi + N mesi
     let n;
     switch(range) {
       case '3m':       n = 3;  break;
@@ -5934,22 +5934,26 @@ function projRangeToFilter(range, customMonths, useMonthBoundaries = false) {
       case 'custom':   n = parseInt(customMonths)||6; break;
       default:         n = 6;
     }
-    // N mesi pieni: mese corrente = mese 1, mese corrente+(N-1) = mese N
-    return { from_date: fmt(som), to_date: fmt(eom(addM(som, n - 1))) };
+    const end = new Date(today); end.setMonth(end.getMonth() + n);
+    const eom = new Date(end.getFullYear(), end.getMonth() + 1, 0); // fine del mese di arrivo
+    return { from_date: localFmt(today), to_date: localFmt(eom) };
   }
 
-  // Daily / cashflow: parte da oggi
-  const add = months => { const d=new Date(today); d.setMonth(d.getMonth()+months); return d; };
+  // Daily: parte da oggi, fine arrotondata a fine mese di arrivo
+  const addEom = months => {
+    const d = new Date(today); d.setMonth(d.getMonth() + months);
+    return new Date(d.getFullYear(), d.getMonth() + 1, 0);
+  };
   switch(range) {
-    case '3m':       return { from_date: fmt(today), to_date: fmt(add(3)) };
-    case '6m':       return { from_date: fmt(today), to_date: fmt(add(6)) };
-    case '1y':       return { from_date: fmt(today), to_date: fmt(add(12)) };
-    case '2y':       return { from_date: fmt(today), to_date: fmt(add(24)) };
+    case '3m':       return { from_date: localFmt(today), to_date: localFmt(addEom(3)) };
+    case '6m':       return { from_date: localFmt(today), to_date: localFmt(addEom(6)) };
+    case '1y':       return { from_date: localFmt(today), to_date: localFmt(addEom(12)) };
+    case '2y':       return { from_date: localFmt(today), to_date: localFmt(addEom(24)) };
     case 'ytd':      return { from_date: `${y}-01-01`, to_date: `${y}-12-31` };
     case 'nxt_year': return { from_date: `${y+1}-01-01`, to_date: `${y+1}-12-31` };
     case 'custom':   { const m = parseInt(customMonths)||6;
-                       return { from_date: fmt(today), to_date: fmt(add(m)) }; }
-    default:         return { from_date: fmt(today), to_date: fmt(add(6)) };
+                       return { from_date: localFmt(today), to_date: localFmt(addEom(m)) }; }
+    default:         return { from_date: localFmt(today), to_date: localFmt(addEom(6)) };
   }
 }
 
@@ -6147,7 +6151,9 @@ async function loadProjectionChart(accounts) {
       const pts = series.filter(p=>p.date===lastDate);
       return pts.length ? pts.reduce((s,p)=>s+p.balance,0) : null;
     });
-    const firstTotal = monthTotals.find(t => t != null);
+    // Δ totale sempre relativo al saldo di oggi (primo punto della serie)
+    const todayPts = series.filter(p => p.date === dates[0]);
+    const firstTotal = todayPts.length ? todayPts.reduce((s,p)=>s+p.balance,0) : monthTotals.find(t=>t!=null);
 
     tbl.innerHTML = `
       <table style="width:100%;border-collapse:collapse;font-size:13px">

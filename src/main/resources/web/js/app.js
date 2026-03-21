@@ -645,7 +645,7 @@ async function renderDashboard() {
   const [stats, accounts, recent, monthly, catData, upcoming, budgetYear] = await Promise.all([
     api.getDashboardStats(dashYear),
     api.getAccounts(),
-    api.getTransactions({limit:20, sort_desc:true}),
+    api.getTransactions({limit:15, sort_desc:true}),
     api.getMonthlyChartData(dashYear),
     api.getCategoryChartData(dashYear, 'expense'),
     api.getUpcomingAll(10),
@@ -823,16 +823,18 @@ async function renderDashboard() {
     });
   }
 
-  // Recent transactions
-  document.getElementById('recentRows').innerHTML = recent.length ? recent.map(t => `
+  // Recent transactions (fetch desc → display asc: most recent at bottom)
+  const recentAsc = [...recent].reverse();
+  const compactTd = 'padding:4px 8px;font-size:12px';
+  document.getElementById('recentRows').innerHTML = recentAsc.length ? recentAsc.map(t => `
     <tr>
-      <td>${fmt.date(t.date)}</td>
-      <td class="td-main">${t.description}</td>
-      <td><span class="cat-chip">${t.category_icon||''}  ${t.category_name||'-'}</span></td>
-      <td>${t.account_name||'-'}</td>
-      <td class="text-right amount-${t.type}">${t.type==='expense'?'-':''}${fmt.currency(t.amount)}</td>
+      <td style="${compactTd};white-space:nowrap;color:var(--txt2)">${fmt.date(t.date)}</td>
+      <td style="${compactTd}" class="td-main">${t.description}</td>
+      <td style="${compactTd}"><span class="cat-chip">${t.category_icon||''}  ${t.category_name||'-'}</span></td>
+      <td style="${compactTd};color:var(--txt2)">${t.account_name||'-'}</td>
+      <td style="${compactTd}" class="text-right amount-${t.type}">${t.type==='expense'?'-':''}${fmt.currency(t.amount)}</td>
     </tr>`).join('') :
-    '<tr><td colspan="5" class="text-muted" style="text-align:center;padding:30px">Nessuna transazione</td></tr>';
+    '<tr><td colspan="5" class="text-muted" style="text-align:center;padding:20px">Nessuna transazione</td></tr>';
 
   // Upcoming scheduled
   const dashTodayStr = new Date().toLocaleDateString('en-CA');

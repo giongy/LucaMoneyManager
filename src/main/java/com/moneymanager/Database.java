@@ -352,6 +352,7 @@ public class Database {
         try { executePlain("ALTER TABLE portfolio ADD COLUMN coupon_frequency TEXT"); } catch (SQLException ignored) {}
         try { executePlain("ALTER TABLE portfolio ADD COLUMN coupon_tax REAL DEFAULT 12.5"); } catch (SQLException ignored) {}
         try { executePlain("ALTER TABLE portfolio ADD COLUMN total_commissions REAL DEFAULT 0"); } catch (SQLException ignored) {}
+        try { executePlain("ALTER TABLE portfolio ADD COLUMN country TEXT"); } catch (SQLException ignored) {}
         executePlain("""
             CREATE TABLE IF NOT EXISTS portfolio (
                 id               INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -369,6 +370,7 @@ public class Database {
                 coupon_frequency TEXT,
                 coupon_tax         REAL    DEFAULT 12.5,
                 total_commissions  REAL    DEFAULT 0,
+                country            TEXT,
                 created_at         TEXT    DEFAULT CURRENT_TIMESTAMP
             )
         """);
@@ -1711,14 +1713,16 @@ public class Database {
                                ? p.get("coupon_tax").getAsDouble() : 12.5;
         String notes         = p.has("notes") && !p.get("notes").isJsonNull()
                                ? p.get("notes").getAsString() : null;
+        String country       = p.has("country") && !p.get("country").isJsonNull()
+                               ? p.get("country").getAsString() : null;
         execute("""
             UPDATE portfolio SET
                 name=?, account_id=?, quantity=?, avg_price=?, current_price=?,
                 total_commissions=?, asset_type=?, maturity_date=?,
-                coupon_rate=?, coupon_frequency=?, coupon_tax=?, notes=?
+                coupon_rate=?, coupon_frequency=?, coupon_tax=?, notes=?, country=?
             WHERE id=?
         """, name, accountId, quantity, avgPrice, curPrice,
-             totalComm, assetType, maturityDate, couponRate, couponFreq, couponTax, notes, id);
+             totalComm, assetType, maturityDate, couponRate, couponFreq, couponTax, notes, country, id);
         logger.log("PORTAFOGLIO MODIFICATO", "id:" + id, "nome:" + name,
                    "quantita:" + quantity, "prezzo_medio:" + DbLogger.amt(avgPrice));
         return queryOne("SELECT * FROM portfolio WHERE id=?", id);

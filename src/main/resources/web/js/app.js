@@ -2932,6 +2932,7 @@ function portfolioItemValue(i, useAvg = false) {
 async function renderPortfolio() {
   const pg = document.getElementById('pg-portfolio');
   const [items, accounts] = await Promise.all([api.getPortfolio(), api.getAccounts()]);
+  _portfolioItems = items;
   const investAccounts = accounts.filter(a => a.type === 'investment' && !a.is_closed);
 
   const totalInvested    = items.reduce((s,i) => s + portfolioItemValue(i, true), 0);
@@ -2943,7 +2944,11 @@ async function renderPortfolio() {
   pg.innerHTML = `
     <div class="section-header">
       <h2 class="section-title">Portafoglio Titoli</h2>
-      ${investAccounts.length ? `
+      <div class="theme-toggle-group" style="margin-right:auto">
+        <button class="btn theme-btn ${_portfolioTab==='portfolio'?'theme-btn-active':''}" onclick="_setPortfolioTab('portfolio')">📋 Portafoglio</button>
+        <button class="btn theme-btn ${_portfolioTab==='analisi'?'theme-btn-active':''}"   onclick="_setPortfolioTab('analisi')">📊 Analisi</button>
+      </div>
+      ${investAccounts.length && _portfolioTab==='portfolio' ? `
         <div class="theme-toggle-group" style="margin-right:8px">
           <button class="btn theme-btn ${_portfolioActiveOnly?'theme-btn-active':''}"  onclick="_setPortfolioFilter(true)">Solo attivi</button>
           <button class="btn theme-btn ${!_portfolioActiveOnly?'theme-btn-active':''}" onclick="_setPortfolioFilter(false)">Tutti</button>
@@ -2957,7 +2962,9 @@ async function renderPortfolio() {
         <div style="font-size:16px;font-weight:600;margin-bottom:8px">Nessun conto investimento</div>
         <div style="margin-bottom:16px">Per usare il portafoglio crea prima un conto di tipo <strong>Investimento</strong>.</div>
         <button class="btn btn-primary" onclick="navigate('accounts')">Vai ai Conti →</button>
-      </div>` : `
+      </div>` : _portfolioTab === 'analisi' ? `
+    <div id="pgPortfolioAnalisi"></div>
+    ` : `
     <div class="portfolio-summary">
       <div class="stat-card">
         <div class="stat-label">💼 Investito</div>
@@ -2985,6 +2992,7 @@ async function renderPortfolio() {
             ['tipo',     'Tipo',          ''],
             ['ticker',   'Ticker',        ''],
             ['nome',     'Nome',          ''],
+            ['paese',    'Paese',         ''],
             ['scadenza', 'Scadenza',      ''],
             ['conto',    'Conto',         ''],
             ['qty',      'Qtà / Nominale',''],
@@ -2998,7 +3006,6 @@ async function renderPortfolio() {
             const ind = active ? (_portfolioSort.dir > 0 ? ' ▲' : ' ▼') : '';
             return `<th class="${cls} sched-th-sort" style="cursor:pointer;white-space:nowrap" onclick="_portfolioSortBy('${col}')">${label}<span class="sort-ind">${ind}</span></th>`;
           }).join('')}
-          <th></th>
         </tr></thead><tbody>
         ${(() => {
           let rows = items.filter(i => _portfolioActiveOnly ? i.quantity > 0 : true);
@@ -3015,6 +3022,7 @@ async function renderPortfolio() {
               case 'tipo':     va = a.asset_type || ''; vb = b.asset_type || ''; break;
               case 'ticker':   va = a.ticker || '';     vb = b.ticker || '';     break;
               case 'nome':     va = a.name || '';       vb = b.name || '';       break;
+              case 'paese':    va = a.country || '';    vb = b.country || '';    break;
               case 'scadenza': va = a.maturity_date||'9999'; vb = b.maturity_date||'9999'; break;
               case 'conto':    va = a.account_name||''; vb = b.account_name||''; break;
               case 'qty':      va = a.quantity||0;      vb = b.quantity||0;      break;
@@ -3028,7 +3036,7 @@ async function renderPortfolio() {
             if (typeof va === 'string') return dir * va.localeCompare(vb);
             return dir * (va - vb);
           });
-          if (!rows.length) return '<tr><td colspan="12" style="text-align:center;padding:40px;color:var(--txt3)">Nessun titolo in portafoglio. Clicca "+ Acquista" per iniziare.</td></tr>';
+          if (!rows.length) return '<tr><td colspan="12" style="text-align:center;padding:40px;color:var(--txt3)">Nessun titolo in portafoglio. Clicca "+ Acquista" per iniziare.<br><small style="color:var(--txt3)">Tasto destro su una riga per le azioni</small></td></tr>';
           return rows.map(i => {
             const isBond = i.asset_type === 'bond';
             const val = i._val, cost = i._cost, pnl = i._pnl, comm = i._comm;
@@ -3038,9 +3046,6 @@ async function renderPortfolio() {
             const typeBadge    = isBond
               ? `<span class="badge" style="background:#d29922;color:#fff;font-size:10px;padding:1px 5px;border-radius:4px">OBB</span>`
               : `<span class="badge" style="background:#58a6ff;color:#fff;font-size:10px;padding:1px 5px;border-radius:4px">AZI</span>`;
-            const couponBtn = isBond && i.coupon_rate > 0
-              ? `<button class="btn btn-ghost btn-icon" title="Registra cedola" onclick="showCouponModal(${i.id})">💰</button>`
-              : '';
             const couponInfo = isBond && i.coupon_rate
               ? `<br><small style="color:var(--txt3);font-size:10px">${i.coupon_rate}% → netto ${((1-(i.coupon_tax||12.5)/100)*i.coupon_rate).toFixed(3)}%</small>`
               : '';
@@ -3048,10 +3053,14 @@ async function renderPortfolio() {
               ? `<span title="Nominale totale">${fmt.currency(i.quantity)}</span>`
               : i.quantity;
             const scadenzaDisplay = i.maturity_date || '<span style="color:var(--txt3)">—</span>';
-            return `<tr oncontextmenu="_showPortfolioCtx(${i.id},event)" style="cursor:context-menu">
+            const countryDisplay = i.country
+              ? `<span style="font-size:12px">${i.country}</span>`
+              : `<span style="color:var(--txt3)">—</span>`;
+            return `<tr oncontextmenu="_showPortfolioCtx(${i.id},event)" style="cursor:context-menu" title="Tasto destro per le azioni">
               <td>${typeBadge}</td>
               <td class="td-main" style="font-weight:700">${i.ticker}</td>
               <td>${i.name}${couponInfo}</td>
+              <td>${countryDisplay}</td>
               <td style="font-size:12px;white-space:nowrap">${scadenzaDisplay}</td>
               <td><span style="color:${i.account_color}">${i.account_icon}</span> ${i.account_name}</td>
               <td>${qtyDisplay}</td>
@@ -3069,14 +3078,6 @@ async function renderPortfolio() {
               <td class="text-right">${fmt.currency(val)}</td>
               <td class="text-right" style="color:var(--txt3);font-size:12px">${comm > 0 ? fmt.currency(comm) : '—'}</td>
               <td class="text-right ${pnl>=0?'pnl-positive':'pnl-negative'}">${fmt.currency(pnl)}<br><small>${fmt.pct(pnlP)}</small></td>
-              <td style="white-space:nowrap">
-                <button class="btn btn-ghost btn-icon" title="Acquista altro" onclick="showBuyModal(${i.id})">➕</button>
-                <button class="btn btn-ghost btn-icon" title="Vendi" onclick="showSellModal(${i.id})">➖</button>
-                ${couponBtn}
-                <button class="btn btn-ghost btn-icon" title="Modifica" onclick="showEditPositionModal(${i.id})">✏️</button>
-                <button class="btn btn-ghost btn-icon" title="Storico" onclick="showPortfolioHistory(${i.id})">📋</button>
-                <button class="btn btn-ghost btn-icon" title="Elimina" onclick="deleteStock(${i.id})">🗑️</button>
-              </td>
             </tr>`;
           }).join('');
         })()}
@@ -3084,10 +3085,332 @@ async function renderPortfolio() {
       </div>
     </div>`}`;
 
-  if (investAccounts.length) {
+  if (investAccounts.length && _portfolioTab === 'portfolio') {
     document.getElementById('btnBuyStock').onclick  = () => showBuyModal(null, investAccounts, accounts).catch(e => toast(e.message,'error'));
     document.getElementById('btnImportPos').onclick = () => showImportModal(investAccounts);
   }
+  if (investAccounts.length && _portfolioTab === 'analisi') {
+    renderPortfolioAnalisi(items);
+  }
+}
+
+function _setPortfolioTab(tab) {
+  _portfolioTab = tab;
+  renderPortfolio();
+}
+
+function renderPortfolioAnalisi(items) {
+  const container = document.getElementById('pgPortfolioAnalisi');
+  if (!container) return;
+
+  const today     = new Date();
+  const todayYear = today.getFullYear();
+
+  const bonds = items.filter(i => i.asset_type === 'bond' && i.quantity > 0);
+
+  if (!bonds.length) {
+    container.innerHTML = '<div class="card" style="padding:32px;text-align:center;color:var(--txt3)">Nessun titolo obbligazionario in portafoglio.</div>';
+    return;
+  }
+
+  // Usa il campo country se presente, normalizzato (trim + title case), altrimenti "Sconosciuto"
+  const normCountry = s => s.trim().toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+  const bondCountry = b => (b.country && b.country.trim()) ? normCountry(b.country) : 'Sconosciuto';
+
+  const palette = [
+    '#e05252','#52aee0','#52c47d','#e0c952','#b352e0',
+    '#e07852','#52d4c4','#8fe052','#e052b3','#52b8e0',
+    '#e0a352','#7d88e0','#c4e052','#e05290','#52e0d4'
+  ];
+
+  const countries = [...new Set(bonds.map(bondCountry))];
+  const countryColor = Object.fromEntries(countries.map((c,i) => [c, palette[i % palette.length]]));
+
+  // ── Chart 1: Esposizione per Paese ────────────────────────────────────
+  const byCountry = {};
+  bonds.forEach(b => {
+    const c = bondCountry(b);
+    byCountry[c] = (byCountry[c] || 0) + b.quantity;
+  });
+  const c1Labels = Object.keys(byCountry);
+  const c1Data   = c1Labels.map(c => byCountry[c]);
+  const c1Colors = c1Labels.map(c => countryColor[c] || palette[0]);
+  const c1Total  = c1Data.reduce((a,b) => a+b, 0);
+
+  // ── Chart 2: Ripartizione per durata (stacked per Paese) ─────────────
+  const durLabels = ['0 anni','1 anno','2 anni','3 anni','4 anni','5 anni','6 anni','Scaduto / N.D.'];
+  const durData = {};
+  countries.forEach(c => { durData[c] = new Array(8).fill(0); });
+  bonds.forEach(b => {
+    const c = bondCountry(b);
+    let idx = 7;
+    if (b.maturity_date) {
+      const yearsLeft = (new Date(b.maturity_date) - today) / (365.25 * 24 * 3600 * 1000);
+      if (yearsLeft >= 0) idx = Math.min(6, Math.floor(yearsLeft));
+    }
+    if (durData[c]) durData[c][idx] += b.quantity;
+  });
+
+  // ── Chart 3: Ladder cumulativa ────────────────────────────────────────
+  const byYear = {};
+  bonds.forEach(b => {
+    if (!b.maturity_date) return;
+    const y = new Date(b.maturity_date).getFullYear();
+    byYear[y] = (byYear[y] || 0) + b.quantity;
+  });
+  const maxYear = Object.keys(byYear).length ? Math.max(...Object.keys(byYear).map(Number)) : todayYear + 1;
+  const allYears = [];
+  for (let y = todayYear; y <= maxYear; y++) allYears.push(y);
+  let cumul = 0;
+  const ladderData = allYears.map(y => { cumul += (byYear[y] || 0); return cumul; });
+  // Nominale in scadenza per anno (per tooltip)
+  const ladderDeltaByYear = allYears.map(y => byYear[y] || 0);
+
+  // ── Chart 4: Cedole per mese ──────────────────────────────────────────
+  const freqMap = { annual:1, semiannual:2, quarterly:4, monthly:12 };
+  const months  = Array.from({length:12}, (_,i) => `${todayYear}-${String(i+1).padStart(2,'0')}`);
+  const couponBonds = bonds.filter(b => b.coupon_rate > 0);
+  const couponMonthData = {};
+  couponBonds.forEach(b => {
+    const freq     = freqMap[b.coupon_frequency] || 2;
+    const matMonth = b.maturity_date ? new Date(b.maturity_date).getMonth() + 1 : 6;
+    const matYear  = b.maturity_date ? new Date(b.maturity_date).getFullYear() : 9999;
+    const interval = 12 / freq;
+    const payMonths = new Set();
+    for (let i = 0; i < freq; i++) {
+      const m = ((matMonth - 1 - Math.round(i * interval)) % 12 + 12) % 12 + 1;
+      payMonths.add(m);
+    }
+    const netPerPay = b.quantity * (b.coupon_rate / 100) * (1 - (b.coupon_tax || 12.5) / 100) / freq;
+    const data = new Array(12).fill(0);
+    payMonths.forEach(m => { if (matYear >= todayYear) data[m - 1] = netPerPay; });
+    couponMonthData[b.ticker] = data;
+  });
+
+  // ── Chart 5: Cedole annue ─────────────────────────────────────────────
+  const couponYears = allYears.length >= 2 ? allYears : [todayYear, todayYear + 1];
+  const couponYearData = {};
+  couponBonds.forEach(b => {
+    const matYear   = b.maturity_date ? new Date(b.maturity_date).getFullYear() : todayYear + 10;
+    const annualNet = b.quantity * (b.coupon_rate / 100) * (1 - (b.coupon_tax || 12.5) / 100);
+    couponYearData[b.ticker] = couponYears.map(y => y <= matYear ? annualNet : 0);
+  });
+
+  // ── HTML ───────────────────────────────────────────────────────────────
+  container.innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:8px">
+      <div class="card" style="padding:16px">
+        <div style="font-weight:600;margin-bottom:12px">Esposizione per Paese</div>
+        <canvas id="chAnPaese" style="max-height:340px"></canvas>
+      </div>
+      <div class="card" style="padding:16px">
+        <div style="font-weight:600;margin-bottom:12px">Ripartizione per durata (stacked per Paese)</div>
+        <canvas id="chAnDurata" style="max-height:340px"></canvas>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:2fr 3fr;gap:16px;margin-top:16px">
+      <div class="card" style="padding:16px">
+        <div style="font-weight:600;margin-bottom:12px">Ladder cumulativa (per anno)</div>
+        <canvas id="chAnLadder" style="max-height:320px"></canvas>
+      </div>
+      <div class="card" style="padding:16px">
+        <div style="font-weight:600;margin-bottom:12px">Incasso cedole per mese (stacked per ISIN)</div>
+        <canvas id="chAnCedoleMese" style="max-height:320px"></canvas>
+      </div>
+    </div>
+    <div style="margin-top:16px">
+      <div class="card" style="padding:16px">
+        <div style="font-weight:600;margin-bottom:12px">Cedole annue</div>
+        <canvas id="chAnCedoleAnno" style="max-height:320px"></canvas>
+      </div>
+    </div>`;
+
+  const txtColor    = getComputedStyle(document.documentElement).getPropertyValue('--txt1').trim() || '#ccc';
+  const txt2Color   = getComputedStyle(document.documentElement).getPropertyValue('--txt2').trim() || '#aaa';
+  const borderColor = getComputedStyle(document.documentElement).getPropertyValue('--border').trim() || '#333';
+  const SEP         = '─'.repeat(22);
+
+  // Plugin inline per data labels (donut → %, bar → valore, line → valore sopra punto)
+  let _pdlSeq = 0;
+  const makeDataLabels = () => ({
+    id: '_pdl_' + (++_pdlSeq),
+    afterDatasetsDraw(chart) {
+      const ctx  = chart.ctx;
+      const type = chart.config.type;
+      chart.data.datasets.forEach((ds, di) => {
+        const meta = chart.getDatasetMeta(di);
+        if (meta.hidden) return;
+        meta.data.forEach((el, idx) => {
+          const val = ds.data[idx];
+          if (!val || val === 0) return;
+          ctx.save();
+          ctx.textAlign = 'center';
+          if (type === 'doughnut') {
+            const total = chart.data.datasets[0].data.reduce((a, b) => a + b, 0);
+            const mid   = (el.startAngle + el.endAngle) / 2;
+            const r     = (el.innerRadius + el.outerRadius) / 2;
+            if ((el.endAngle - el.startAngle) * r < 28) { ctx.restore(); return; }
+            ctx.font = 'bold 10px Segoe UI,sans-serif';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = '#fff';
+            ctx.shadowColor = 'rgba(0,0,0,.55)';
+            ctx.shadowBlur  = 3;
+            ctx.fillText(((val / total) * 100).toFixed(1) + '%',
+              el.x + r * Math.cos(mid), el.y + r * Math.sin(mid));
+          } else if (type === 'bar') {
+            const segH = Math.abs(el.base - el.y);
+            if (segH < 14) { ctx.restore(); return; }
+            ctx.font = 'bold 9px Segoe UI,sans-serif';
+            ctx.textBaseline = 'middle';
+            const text = fmt.currency(val);
+            if (ctx.measureText(text).width > Math.abs(el.width) - 6) { ctx.restore(); return; }
+            ctx.fillStyle = '#fff';
+            ctx.shadowColor = 'rgba(0,0,0,.55)';
+            ctx.shadowBlur  = 3;
+            ctx.fillText(text, el.x, (el.y + el.base) / 2);
+          } else if (type === 'line') {
+            ctx.font = 'bold 9px Segoe UI,sans-serif';
+            ctx.textBaseline = 'bottom';
+            ctx.fillStyle = txt2Color;
+            ctx.shadowColor = 'rgba(0,0,0,.3)';
+            ctx.shadowBlur  = 2;
+            ctx.fillText(fmt.currency(val), el.x, el.y - 5);
+          }
+          ctx.restore();
+        });
+      });
+    }
+  });
+
+  const axisOpts = (stacked = false) => ({
+    x: { stacked, ticks: { color: txt2Color, maxRotation: 45 }, grid: { color: borderColor } },
+    y: { stacked, ticks: { color: txt2Color, callback: v => fmt.currency(v) }, grid: { color: borderColor } }
+  });
+
+  // Tooltip helper per stacked bar / line: totale IN CIMA, poi lista valori
+  const stackedTooltip = (extraFooter) => ({
+    mode: 'index',
+    intersect: false,
+    callbacks: {
+      beforeBody: items => {
+        const visible = items.filter(i => i.parsed.y !== 0);
+        if (!visible.length) return [];
+        const total = visible.reduce((s,i) => s + i.parsed.y, 0);
+        const lines = [`Totale: ${fmt.currency(total)}`, SEP];
+        if (extraFooter) lines.push(...extraFooter(items));
+        return lines;
+      },
+      label: ctx => ctx.parsed.y !== 0 ? ` ${ctx.dataset.label}: ${fmt.currency(ctx.parsed.y)}` : null,
+    }
+  });
+
+  // Chart 1: Donut — vignetta con tutti i valori + totale
+  new Chart(document.getElementById('chAnPaese'), {
+    type: 'doughnut',
+    plugins: [makeDataLabels()],
+    data: { labels: c1Labels, datasets: [{ data: c1Data, backgroundColor: c1Colors, borderWidth: 1 }] },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { position: 'bottom', labels: { color: txtColor, font: { size: 11 }, padding: 8 } },
+        tooltip: {
+          callbacks: {
+            label:     ctx => ` ${ctx.label}: ${fmt.currency(ctx.parsed)} (${((ctx.parsed/c1Total)*100).toFixed(1)}%)`,
+            afterBody: () => [SEP],
+            footer:    ()  => [`Totale: ${fmt.currency(c1Total)}`]
+          }
+        }
+      }
+    }
+  });
+
+  // Chart 2: Stacked bar – durata
+  new Chart(document.getElementById('chAnDurata'), {
+    type: 'bar',
+    plugins: [makeDataLabels()],
+    data: {
+      labels: durLabels,
+      datasets: countries.map(c => ({ label: c, data: durData[c], backgroundColor: countryColor[c], stack: 'st' }))
+    },
+    options: {
+      responsive: true,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { labels: { color: txtColor, font: { size: 11 } } },
+        tooltip: stackedTooltip()
+      },
+      scales: axisOpts(true)
+    }
+  });
+
+  // Chart 3: Ladder cumulativa
+  new Chart(document.getElementById('chAnLadder'), {
+    type: 'line',
+    plugins: [makeDataLabels()],
+    data: {
+      labels: allYears,
+      datasets: [{ label: 'Nominale cumulativo', data: ladderData, borderColor: '#58a6ff',
+        backgroundColor: 'rgba(88,166,255,0.15)', fill: true, tension: 0.3, pointRadius: 5 }]
+    },
+    options: {
+      responsive: true,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label:  ctx => ` Cumulativo: ${fmt.currency(ctx.parsed.y)}`,
+            footer: items => {
+              const idx   = items[0]?.dataIndex ?? -1;
+              const delta = idx >= 0 ? ladderDeltaByYear[idx] : 0;
+              return delta > 0 ? [SEP, `In scadenza: ${fmt.currency(delta)}`] : [];
+            }
+          }
+        }
+      },
+      scales: axisOpts()
+    }
+  });
+
+  // Chart 4: Cedole per mese
+  const tkList = Object.keys(couponMonthData);
+  new Chart(document.getElementById('chAnCedoleMese'), {
+    type: 'bar',
+    plugins: [makeDataLabels()],
+    data: {
+      labels: months,
+      datasets: tkList.map((tk, i) => ({ label: tk, data: couponMonthData[tk], backgroundColor: palette[i % palette.length], stack: 'st' }))
+    },
+    options: {
+      responsive: true,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { labels: { color: txtColor, font: { size: 10 } } },
+        tooltip: stackedTooltip()
+      },
+      scales: axisOpts(true)
+    }
+  });
+
+  // Chart 5: Cedole annue
+  const tkYList = Object.keys(couponYearData);
+  new Chart(document.getElementById('chAnCedoleAnno'), {
+    type: 'bar',
+    plugins: [makeDataLabels()],
+    data: {
+      labels: couponYears,
+      datasets: tkYList.map((tk, i) => ({ label: tk, data: couponYearData[tk], backgroundColor: palette[i % palette.length], stack: 'st' }))
+    },
+    options: {
+      responsive: true,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { labels: { color: txtColor, font: { size: 10 } } },
+        tooltip: stackedTooltip()
+      },
+      scales: axisOpts(true)
+    }
+  });
 }
 
 async function showBuyModal(portfolioId, investAccounts, allAccounts) {
@@ -3754,9 +4077,15 @@ async function showEditPositionModal(portfolioId) {
         <input type="text" inputmode="decimal" class="form-control" id="e_coupon_tax" value="${pos.coupon_tax??12.5}">
       </div>
     </div>` : ''}
-    <div class="form-group">
-      <label class="form-label">Note</label>
-      <input class="form-control" id="e_notes" value="${pos.notes||''}" placeholder="Opzionale">
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Paese / Emittente</label>
+        <input class="form-control" id="e_country" value="${pos.country||''}" placeholder="Es. Italia, Germania…">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Note</label>
+        <input class="form-control" id="e_notes" value="${pos.notes||''}" placeholder="Opzionale">
+      </div>
     </div>`;
 
   openModal('Modifica Posizione', body, async () => {
@@ -3774,6 +4103,7 @@ async function showEditPositionModal(portfolioId) {
       coupon_rate:      isBond ? (parseFloat(n('e_coupon_rate')) || 0) : 0,
       coupon_frequency: isBond ? (document.getElementById('e_coupon_freq')?.value || null) : null,
       coupon_tax:       isBond ? (parseFloat(n('e_coupon_tax')) ?? 12.5) : 0,
+      country:          document.getElementById('e_country').value.trim() || null,
       notes:            document.getElementById('e_notes').value.trim() || null,
     };
     if (!data.name)                         { toast('Inserisci il nome','error'); return; }
@@ -3823,20 +4153,44 @@ window._showPortfolioCtx = (portfolioId, evt) => {
   evt.preventDefault();
   closePortfolioContextMenu();
 
+  const pos    = _portfolioItems.find(i => i.id === portfolioId);
+  const isBond = pos?.asset_type === 'bond';
+  const hasCoupon = isBond && pos?.coupon_rate > 0 && pos?.maturity_date;
+
   const menu = document.createElement('div');
   menu.id = 'portfolio-ctx-menu';
   menu.style.cssText = `position:fixed;z-index:9999;background:var(--bg2);border:1px solid var(--border);
     border-radius:8px;padding:4px 0;min-width:220px;box-shadow:0 4px 16px rgba(0,0,0,.3);
-    left:${Math.min(evt.clientX, window.innerWidth-240)}px;top:${Math.min(evt.clientY, window.innerHeight-80)}px`;
+    left:${Math.min(evt.clientX, window.innerWidth-240)}px;top:${Math.min(evt.clientY, window.innerHeight-260)}px`;
 
-  const addCouponItem = document.createElement('div');
-  addCouponItem.style.cssText = 'padding:8px 14px;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:8px';
-  addCouponItem.innerHTML = '📅 Aggiungi cedola a pianificate';
-  addCouponItem.onmouseenter = () => addCouponItem.style.background = 'var(--bg3)';
-  addCouponItem.onmouseleave = () => addCouponItem.style.background = '';
-  addCouponItem.onclick = () => { closePortfolioContextMenu(); showAddCouponToScheduled(portfolioId); };
+  const mkItem = (icon, label, cb, danger = false) => {
+    const el = document.createElement('div');
+    el.style.cssText = `padding:8px 14px;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:8px;${danger?'color:var(--expense)':''}`;
+    el.innerHTML = `${icon} ${label}`;
+    el.onmouseenter = () => el.style.background = 'var(--bg3)';
+    el.onmouseleave = () => el.style.background = '';
+    el.onclick = () => { closePortfolioContextMenu(); cb(); };
+    return el;
+  };
 
-  menu.appendChild(addCouponItem);
+  const mkSep = () => {
+    const s = document.createElement('div');
+    s.style.cssText = 'border-top:1px solid var(--border);margin:4px 0';
+    return s;
+  };
+
+  menu.appendChild(mkItem('➕', 'Acquista altro', () => showBuyModal(portfolioId)));
+  menu.appendChild(mkItem('➖', 'Vendi',          () => showSellModal(portfolioId)));
+  if (hasCoupon) {
+    menu.appendChild(mkItem('💰', 'Registra cedola',            () => showCouponModal(portfolioId)));
+    menu.appendChild(mkItem('📅', 'Aggiungi cedola a pianificate', () => showAddCouponToScheduled(portfolioId)));
+  }
+  menu.appendChild(mkSep());
+  menu.appendChild(mkItem('✏️', 'Modifica',  () => showEditPositionModal(portfolioId)));
+  menu.appendChild(mkItem('📋', 'Storico',   () => showPortfolioHistory(portfolioId)));
+  menu.appendChild(mkSep());
+  menu.appendChild(mkItem('🗑️', 'Elimina',  () => deleteStock(portfolioId), true));
+
   document.body.appendChild(menu);
   setTimeout(() => {
     document.addEventListener('click', closePortfolioContextMenu, { once: true });
@@ -3953,6 +4307,7 @@ async function showAddCouponToScheduled(portfolioId) {
 }
 window.showAddCouponToScheduled = showAddCouponToScheduled;
 
+window._setPortfolioTab = _setPortfolioTab;
 window._setPortfolioFilter = async (activeOnly) => {
   _portfolioActiveOnly = activeOnly;
   await api.setSetting('portfolio.active_only', activeOnly ? '1' : '0');
@@ -5763,6 +6118,8 @@ function computeSchedNext(startDate, _freq, endDate) {
 let _settingsTab = 'data';
 let _portfolioActiveOnly = true;
 let _portfolioSort = { col: 'ticker', dir: 1 };
+let _portfolioTab = 'portfolio';
+let _portfolioItems = [];
 let _schedSort   = { col: 'days', dir: 'asc' };
 let _schedFilter = { type: '', active: '1' };
 
@@ -5976,10 +6333,10 @@ async function renderSchedProjection() {
         </span>
       </div>
       <div class="proj-chart-wrap"><canvas id="projChart"></canvas></div>
-      <div id="projTable" style="margin-top:16px;overflow-x:auto"></div>
       <div style="margin-top:12px;text-align:right">
         <button class="btn btn-ghost" id="btnSalvaPrevisione" style="gap:6px">🔮 Salva previsione</button>
       </div>
+      <div id="projTable" style="margin-top:16px;overflow-x:auto"></div>
     </div>`;
 
   document.getElementById('projRange').addEventListener('change', () => {
@@ -6057,6 +6414,7 @@ async function renderSchedProjection() {
       try {
         await api.saveForecast({ forecast_date: forecastDate, projected_balance: lastBal, categories: cats });
         toast('Previsione salvata');
+        closeModal();
       } catch(e) { toast(e.message,'error'); }
     }, 'Salva');
   });

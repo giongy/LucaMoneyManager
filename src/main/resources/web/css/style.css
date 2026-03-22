@@ -367,9 +367,9 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 .budget-cell-readonly { cursor:default; pointer-events:none; opacity:0.85; }
 .budget-cell-readonly:hover { background:inherit !important; }
 .budget-group-hint { font-size:10px; color:var(--txt3); font-weight:400; }
-.budget-cell-val    { display:block; font-size:12px; font-weight:500; color:var(--txt); text-align:right; }
-.budget-cell-actual { display:block; font-size:10px; color:var(--txt3); margin-top:2px; text-align:right; }
-.budget-cell-diff   { display:block; font-size:10px; font-weight:700; text-align:right;
+.budget-cell-val    { display:block; font-size:13px; font-weight:500; color:var(--txt); text-align:right; }
+.budget-cell-actual { display:block; font-size:11px; color:var(--txt3); margin-top:2px; text-align:right; }
+.budget-cell-diff   { display:block; font-size:11px; font-weight:700; text-align:right;
                       margin-top:3px; padding-top:3px; border-top:1px solid var(--border); }
 .budget-cell-input {
   width:64px; padding:3px 4px; font-size:12px; text-align:center;

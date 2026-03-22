@@ -70,15 +70,17 @@ public class App {
 
         CefApp cefApp = builder.build(); // blocca finché JCEF non è pronto
 
-        loading.setVisible(false);
-        loading.dispose();
+        // Aggiorna il loading (rimane visibile finché la pagina non è pronta)
+        loading.update("Caricamento interfaccia...", 0);
 
-        // Crea e mostra la finestra principale
+        final LoadingDialog ld = loading;
         SwingUtilities.invokeAndWait(() -> {
             try {
                 MainWindow window = new MainWindow(cefApp, db, settings, htmlUrl, dataDir);
-                window.show();
+                window.showWhenReady(ld); // nasconde ld solo dopo onLoadEnd
             } catch (Exception e) {
+                ld.setVisible(false);
+                ld.dispose();
                 e.printStackTrace();
                 JOptionPane.showMessageDialog(null,
                         "Errore avvio: " + e.getMessage(), "Errore", JOptionPane.ERROR_MESSAGE);

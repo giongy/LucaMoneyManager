@@ -3,6 +3,8 @@ package com.moneymanager;
 import org.cef.CefApp;
 import org.cef.CefClient;
 import org.cef.browser.CefBrowser;
+import org.cef.browser.CefFrame;
+import org.cef.handler.CefLoadHandlerAdapter;
 
 import javax.swing.*;
 import java.awt.*;
@@ -16,6 +18,7 @@ public class MainWindow {
     private final CefApp cefApp;
     private final Database db;
     private final Settings settings;
+    private final CefClient client;
 
     public MainWindow(CefApp cefApp, Database db, Settings settings, String htmlUrl, java.nio.file.Path dataDir) {
         this.cefApp = cefApp;
@@ -33,7 +36,7 @@ public class MainWindow {
         frame.getContentPane().setBackground(new Color(13, 17, 23));
 
         // Client JCEF
-        CefClient client = cefApp.createClient();
+        client = cefApp.createClient();
 
         // Message router (canale JS <-> Java)
         var routerConfig = new org.cef.browser.CefMessageRouter.CefMessageRouterConfig();
@@ -68,6 +71,29 @@ public class MainWindow {
                 CefApp.getInstance().dispose();
                 frame.dispose();
                 System.exit(0);
+            }
+        });
+    }
+
+    /** Mostra la finestra solo dopo che la pagina HTML è completamente caricata,
+     *  poi nasconde il loading dialog. Evita il flash di schermata nera all'avvio. */
+    public void showWhenReady(LoadingDialog loading) {
+        GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
+        frame.setMaximizedBounds(ge.getMaximumWindowBounds());
+        frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
+        frame.setVisible(true); // browser inizia a renderizzare sotto il loading
+
+        client.addLoadHandler(new CefLoadHandlerAdapter() {
+            private boolean done = false;
+            @Override
+            public void onLoadEnd(CefBrowser b, CefFrame f, int httpStatusCode) {
+                if (!f.isMain() || done) return;
+                done = true;
+                SwingUtilities.invokeLater(() -> {
+                    loading.setVisible(false);
+                    loading.dispose();
+                    frame.toFront();
+                });
             }
         });
     }

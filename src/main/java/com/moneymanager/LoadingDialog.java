@@ -12,6 +12,7 @@ public class LoadingDialog extends JWindow {
         setSize(400, 120);
         setLocationRelativeTo(null);
         setBackground(new Color(13, 17, 23));
+        setAlwaysOnTop(true);
 
         JPanel panel = new JPanel(new BorderLayout(10, 10));
         panel.setBackground(new Color(22, 27, 34));

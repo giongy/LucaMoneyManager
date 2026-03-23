@@ -894,11 +894,12 @@ tr.tx-selected td { background:rgba(88,166,255,.07); }
 /* ─── Analytics table ────────────────────────────────────────────────────── */
 .analytics-table { width:100%; border-collapse:collapse; font-size:12px; white-space:nowrap; }
 .analytics-table thead th { position:sticky; top:0; background:var(--bg2); padding:5px 10px; font-size:11px; font-weight:600; color:var(--txt2); border-bottom:1px solid var(--border); z-index:2; }
-.analytics-table td { padding:4px 10px; border-bottom:1px solid var(--border2); }
+.analytics-table td { padding:4px 10px; border-bottom:1px solid var(--border); }
+.analytics-table tbody tr:nth-child(even) td { background:rgba(255,255,255,.025); }
 .analytics-table tbody tr:hover td { background:var(--bg3); }
 .analytics-cat-name { font-size:12px; min-width:160px; }
-.analytics-total { font-weight:600; }
-.analytics-avg  { color:var(--txt2); }
+.analytics-total { font-weight:600; border-left:2px solid var(--border) !important; }
+.analytics-avg  { font-weight:700; color:var(--accent) !important; }
 .analytics-section-header td { background:var(--bg3); color:var(--txt2); font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; padding:5px 10px; }
 .analytics-subtotal td { font-weight:700; background:var(--bg2); border-top:2px solid var(--border); }
 

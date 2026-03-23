@@ -1680,7 +1680,7 @@ window.duplicateTx = async id => {
     api.getTransactions({limit:10000}), api.getCategories(), api.getAccounts(), api.getTags()
   ]);
   const tx = txs.find(t => t.id === id);
-  if (tx) showTxModal({...tx, id: undefined}, cats, accs, tx.type, tgs);
+  if (tx) showTxModal({...tx, id: undefined, date: new Date().toISOString().slice(0,10)}, cats, accs, tx.type, tgs);
 };
 
 // ── Selezione riga con click (non su bottoni) ────────────────────────────
@@ -4603,8 +4603,8 @@ async function renderAnalyticsCatMonth() {
     html += `<tr class="analytics-subtotal">
       <td>Totale ${label}</td>
       ${colTotals.map(t => `<td class="text-right">${fmt.currency(t)}</td>`).join('')}
-      <td class="text-right">${fmt.currency(grand)}</td>
-      <td class="text-right">${fmt.currency(monthCols.length ? grand / monthCols.length : 0)}</td>
+      <td class="text-right analytics-total">${fmt.currency(grand)}</td>
+      <td class="text-right analytics-avg">${fmt.currency(monthCols.length ? grand / monthCols.length : 0)}</td>
     </tr>`;
     return html;
   };
@@ -4614,8 +4614,8 @@ async function renderAnalyticsCatMonth() {
       <thead><tr>
         <th>Categoria</th>
         ${monthCols.map(m => `<th class="text-right">${m.label}</th>`).join('')}
-        <th class="text-right">Totale</th>
-        <th class="text-right">Media/mese</th>
+        <th class="text-right analytics-total">Totale</th>
+        <th class="text-right analytics-avg" style="color:var(--accent)">Media/mese</th>
       </tr></thead>
       <tbody>
         ${renderSection(expenses, 'Uscite')}

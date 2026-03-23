@@ -653,7 +653,10 @@ public class Database {
                 ta.name AS to_account_name,
                 GROUP_CONCAT(CASE WHEN tg.id IS NOT NULL
                     THEN tg.id || '\u00A7' || tg.name || '\u00A7' || tg.color END, '||') AS tags_concat,
-                (SELECT COUNT(*) FROM transaction_splits ts WHERE ts.transaction_id = t.id) AS split_count
+                (SELECT COUNT(*) FROM transaction_splits ts WHERE ts.transaction_id = t.id) AS split_count,
+                (SELECT GROUP_CONCAT(COALESCE(sc.icon,'') || ' ' || COALESCE(sc.name,'?') || ' (' || PRINTF('%.2f', ts.amount) || '€)', ' · ')
+                 FROM transaction_splits ts LEFT JOIN categories sc ON sc.id = ts.category_id
+                 WHERE ts.transaction_id = t.id) AS splits_summary
             FROM transactions t
             LEFT JOIN categories c  ON t.category_id    = c.id
             LEFT JOIN categories pc ON c.parent_id      = pc.id

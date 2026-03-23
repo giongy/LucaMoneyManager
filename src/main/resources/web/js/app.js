@@ -1151,7 +1151,7 @@ function renderTxBodyAndHeaders() {
       <td><span class="badge badge-${t.type}">${t.type==='income'?'Entrata':t.type==='expense'?'Uscita':'Trasferimento'}</span></td>
       <td class="td-tags">${(t.tags&&t.tags.length)?t.tags.map(tg=>`<span class="tag-inline" style="--tc:${tg.color}">${tg.name}</span>`).join(''):''}</td>
       <td>${t.split_count > 0
-        ? `<span class="cat-chip" style="opacity:.8">÷ Suddivisa (${t.split_count})</span>`
+        ? `<span class="cat-chip" style="opacity:.8;font-size:11px" title="${t.splits_summary||''}">÷ ${t.splits_summary||`${t.split_count} voci`}</span>`
         : `${t.category_icon||''} ${t.parent_category_name ? t.parent_category_name + ' : ' + t.category_name : (t.category_name||'-')}`
       }</td>
       <td class="td-main">${t.description||''}</td>
@@ -1536,7 +1536,9 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
 
   function _splitCatOptions(type, selId) {
     const cats = type === 'income' ? incCats : expCats;
-    return cats.map(c => {
+    const parentIds = new Set(cats.filter(c => c.parent_id).map(c => c.parent_id));
+    const leaves = cats.filter(c => c.parent_id || !parentIds.has(c.id));
+    return leaves.map(c => {
       const label = c.parent_name ? `${c.parent_name} › ${c.icon||''} ${c.name}` : `${c.icon||''} ${c.name}`;
       return `<option value="${c.id}" ${c.id==selId?'selected':''}>${label}</option>`;
     }).join('');

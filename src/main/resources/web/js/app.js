@@ -296,6 +296,23 @@ const isAccountVisible = a =>
   _accFavoritesOnly ? (a.is_favorite && !a.is_closed) : true;
 const isAccountActive  = a => !a.is_closed;
 
+/* ─── Calculator helper ────────────────────────────────────────────────────── */
+/** Valuta una semplice espressione +/- (es. "40+10.30", "100-49.70").
+ *  Accetta sia virgola che punto come separatore decimale.
+ *  Ritorna un Number >= 0 se valido, null altrimenti. */
+function evalAmount(raw) {
+  if (!raw || !raw.toString().trim()) return null;
+  // Normalizza: virgola → punto, spazi → niente
+  const s = raw.toString().replace(/,/g, '.').replace(/\s/g, '');
+  // Ammette solo cifre, punti, +, -
+  if (!/^[0-9+\-.][0-9+\-.]*$/.test(s)) return null;
+  // Previene eval injection: solo numeri e operatori +/-
+  const tokens = s.split(/(?=[+\-])/).map(t => parseFloat(t));
+  if (tokens.some(isNaN)) return null;
+  const result = tokens.reduce((a, b) => a + b, 0);
+  return result >= 0 ? result : null;
+}
+
 /* ─── Utils ───────────────────────────────────────────────────────────────── */
 const fmt = {
   currency: v => new Intl.NumberFormat('it-IT',{style:'currency',currency:'EUR'}).format(v ?? 0),
@@ -1281,7 +1298,7 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
     <div class="form-row">
       <div class="form-group">
         <label class="form-label">Importo (€)</label>
-        <input type="number" step="0.01" min="0" class="form-control" id="f_amount" value="${tx?.amount||''}">
+        <input type="text" inputmode="decimal" class="form-control" id="f_amount" value="${tx?.amount||''}" placeholder="es. 40+10.30" autocomplete="off">
       </div>
       <div class="form-group" id="catGroup">
         <label class="form-label">Categoria</label>
@@ -1377,7 +1394,7 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
       id:            tx?.id,
       date:          document.getElementById('f_date').value,
       description:   document.getElementById('f_desc').value.trim(),
-      amount:        parseFloat(document.getElementById('f_amount').value),
+      amount:        evalAmount(document.getElementById('f_amount').value),
       type,
       category_id:   parseInt(document.getElementById('f_cat').value) || null,
       account_id:    parseInt(document.getElementById('f_account').value),
@@ -1459,10 +1476,17 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
   // Focus immediato sull'importo
   setTimeout(() => document.getElementById('f_amount')?.focus(), 50);
 
-  // Enter su importo → salva
-  document.getElementById('f_amount')?.addEventListener('keydown', e => {
-    if (e.key === 'Enter') { e.preventDefault(); document.getElementById('modalConfirm')?.click(); }
-  });
+  // Enter su importo → salva; blur → valuta espressione
+  const amtEl = document.getElementById('f_amount');
+  if (amtEl) {
+    amtEl.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); document.getElementById('modalConfirm')?.click(); }
+    });
+    amtEl.addEventListener('blur', () => {
+      const v = evalAmount(amtEl.value);
+      if (v !== null) amtEl.value = v.toFixed(2);
+    });
+  }
 
   initCatPicker('f_cat_input', 'f_cat', 'catPickerList');
   updateCatSelect(tx?.category_id);

@@ -1309,7 +1309,7 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
       <div class="form-group" id="catGroup">
         <label class="form-label" style="display:flex;justify-content:space-between;align-items:center">
           Categoria
-          <button type="button" class="btn btn-ghost btn-xs" id="splitToggleBtn" onclick="toggleSplit()" style="font-size:11px;padding:2px 8px">÷ Suddividi</button>
+          <button type="button" class="btn btn-ghost btn-xs" id="splitToggleBtn" onclick="toggleSplit()" tabindex="-1" style="font-size:11px;padding:2px 8px">÷ Suddividi</button>
         </label>
         <div class="cat-picker">
           <input type="text" class="form-control" id="f_cat_input" placeholder="— Seleziona categoria —" autocomplete="off">
@@ -1521,6 +1521,10 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
   if (amtEl) {
     amtEl.addEventListener('keydown', e => {
       if (e.key === 'Enter') { e.preventDefault(); document.getElementById('modalConfirm')?.click(); }
+      if (e.key === 'Tab' && !e.shiftKey && !_splitActive) {
+        const catInput = document.getElementById('f_cat_input');
+        if (catInput) { e.preventDefault(); catInput.focus(); catInput.dispatchEvent(new Event('input')); }
+      }
     });
     amtEl.addEventListener('blur', () => {
       const v = evalAmount(amtEl.value);

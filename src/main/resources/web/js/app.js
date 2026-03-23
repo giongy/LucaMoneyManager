@@ -4570,14 +4570,20 @@ async function renderAnalyticsCatMonth() {
   // Group rows by category
   const catMap = {};
   for (const r of rows) {
-    if (!catMap[r.id]) catMap[r.id] = { id: r.id, name: r.name, type: r.type, color: r.color, icon: r.icon, m: {} };
+    if (!catMap[r.id]) catMap[r.id] = { id: r.id, name: r.name, type: r.type, color: r.color, icon: r.icon, parent_name: r.parent_name || null, m: {} };
     catMap[r.id].m[r.ym] = r.total;
   }
 
   const catTotal = c => monthCols.reduce((s, m) => s + (c.m[m.ym] || 0), 0);
 
-  const expenses = Object.values(catMap).filter(c => c.type === 'expense').sort((a, b) => catTotal(b) - catTotal(a));
-  const incomes  = Object.values(catMap).filter(c => c.type === 'income' ).sort((a, b) => catTotal(b) - catTotal(a));
+  const expenses = Object.values(catMap).filter(c => c.type === 'expense').sort((a, b) => {
+    const pa = a.parent_name || a.name, pb = b.parent_name || b.name;
+    return pa.localeCompare(pb) || a.name.localeCompare(b.name);
+  });
+  const incomes  = Object.values(catMap).filter(c => c.type === 'income').sort((a, b) => {
+    const pa = a.parent_name || a.name, pb = b.parent_name || b.name;
+    return pa.localeCompare(pb) || a.name.localeCompare(b.name);
+  });
 
   const renderSection = (cats, label) => {
     if (!cats.length) return '';
@@ -4586,7 +4592,7 @@ async function renderAnalyticsCatMonth() {
       const total = catTotal(c);
       const avg = total / monthCols.length;
       html += `<tr>
-        <td class="analytics-cat-name"><span style="color:${c.color}">${c.icon}</span> ${c.name}</td>
+        <td class="analytics-cat-name">${c.parent_name ? `<span style="color:var(--txt3);font-size:11px">${c.parent_name} ›</span> ` : ''}<span style="color:${c.color}">${c.icon}</span> ${c.name}</td>
         ${monthCols.map(m => `<td class="text-right">${c.m[m.ym] ? fmt.currency(c.m[m.ym]) : '<span style="color:var(--text3)">—</span>'}</td>`).join('')}
         <td class="text-right analytics-total">${fmt.currency(total)}</td>
         <td class="text-right analytics-avg">${fmt.currency(avg)}</td>

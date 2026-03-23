@@ -2207,10 +2207,13 @@ public class Database {
                 WHERE t.date >= ? AND t.type IN ('expense','income')
             )
             SELECT c.id, c.name, c.type, c.color, c.icon,
+                   c.parent_id, p.name AS parent_name,
                    strftime('%Y-%m', ca.date) AS ym,
                    SUM(ABS(ca.amount)) AS total
-            FROM cat_amounts ca JOIN categories c ON ca.category_id = c.id
-            GROUP BY c.id, ym ORDER BY c.type, c.name, ym
+            FROM cat_amounts ca
+            JOIN categories c ON ca.category_id = c.id
+            LEFT JOIN categories p ON c.parent_id = p.id
+            GROUP BY c.id, ym ORDER BY c.type, COALESCE(p.name, c.name), c.parent_id NULLS FIRST, c.name, ym
             """;
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, start.toString());

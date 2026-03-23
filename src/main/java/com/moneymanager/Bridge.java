@@ -295,6 +295,16 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                 java.util.Map<String, String> all = new java.util.LinkedHashMap<>(settings.getAll());
                 all.put("_settings_path", settings.getPath().toAbsolutePath().toString());
                 String ver = Bridge.class.getPackage().getImplementationVersion();
+                if (ver == null) {
+                    // Fallback: version.properties generato da Maven con resource filtering
+                    try (var is = Bridge.class.getResourceAsStream("/version.properties")) {
+                        if (is != null) {
+                            java.util.Properties vp = new java.util.Properties();
+                            vp.load(is);
+                            ver = vp.getProperty("version");
+                        }
+                    } catch (Exception ignored) {}
+                }
                 if (ver != null) all.put("_app_version", ver);
                 try {
                     org.cef.CefApp.CefVersion v = org.cef.CefApp.getInstance().getVersion();

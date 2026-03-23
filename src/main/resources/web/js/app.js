@@ -1404,8 +1404,8 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
                ? document.getElementById('f_color').value : null,
       reconciled: parseInt(document.querySelector('input[name="f_reconciled"]:checked')?.value ?? '1'),
     };
-    if (!data.amount || !data.account_id) {
-      toast('Compila i campi obbligatori', 'error'); return;
+    if (!data.amount || !data.account_id || (data.type !== 'transfer' && !data.category_id)) {
+      toast('Compila importo, conto e categoria', 'error'); return;
     }
     try {
       if (isEdit) await api.updateTransaction(data);

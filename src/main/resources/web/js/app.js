@@ -1544,7 +1544,7 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
     }).join('');
   }
 
-  function _updateSplitRemaining() {
+  window._updateSplitRemaining = function _updateSplitRemaining() {
     const total = evalAmount(document.getElementById('f_amount')?.value) || 0;
     const used  = [...document.querySelectorAll('#splitRows .split-amount')]
                     .reduce((s, el) => s + (evalAmount(el.value) || 0), 0);

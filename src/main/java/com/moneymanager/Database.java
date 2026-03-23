@@ -100,6 +100,86 @@ public class Database {
         return dest.toAbsolutePath().toString();
     }
 
+    public List<Map<String, Object>> listBackups(String backupDir) throws IOException {
+        Path src = Path.of(currentDbPath);
+
+        List<Path> searchDirs = new ArrayList<>();
+        if (backupDir != null && !backupDir.isBlank()) searchDirs.add(Path.of(backupDir));
+        searchDirs.add(src.getParent()); // directory del db come fallback
+
+        List<Map<String, Object>> result = new ArrayList<>();
+        Set<Path> seen = new HashSet<>();
+        DateTimeFormatter fmt = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss");
+        DateTimeFormatter display = DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss");
+
+        for (Path dir : searchDirs) {
+            if (!Files.isDirectory(dir) || seen.contains(dir)) continue;
+            seen.add(dir);
+            try (DirectoryStream<Path> ds = Files.newDirectoryStream(dir, "*.db.bak")) {
+                for (Path f : ds) {
+                    String name = f.getFileName().toString();
+                    String ts = null;
+                    String displayTs = name;
+                    // Estrai timestamp dal nome tipo: luca_2026-03-23_05-24-33.db.bak
+                    java.util.regex.Matcher m = java.util.regex.Pattern
+                            .compile("(\\d{4}-\\d{2}-\\d{2}_\\d{2}-\\d{2}-\\d{2})").matcher(name);
+                    if (m.find()) {
+                        ts = m.group(1);
+                        try { displayTs = LocalDateTime.parse(ts, fmt).format(display); } catch (Exception ignored) {}
+                    }
+                    result.add(Map.of(
+                        "name", name,
+                        "path", f.toAbsolutePath().toString(),
+                        "timestamp", ts != null ? ts : "",
+                        "displayTs", displayTs,
+                        "size", Files.size(f)
+                    ));
+                }
+            }
+        }
+        result.sort(Comparator.comparing(r -> ((String) r.get("timestamp")), Comparator.reverseOrder()));
+        return result;
+    }
+
+    public Map<String, Object> restoreBackup(String backupPath, String backupDir) throws Exception {
+        Path bak = Path.of(backupPath);
+        if (!Files.exists(bak)) throw new IOException("File backup non trovato: " + backupPath);
+
+        Path src = Path.of(currentDbPath);
+        String baseName = src.getFileName().toString().replaceAll("\\.[^.]+$", "");
+        String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss"));
+
+        // WAL checkpoint per consistenza
+        try (Statement st = conn.createStatement()) {
+            st.execute("PRAGMA wal_checkpoint(TRUNCATE)");
+        } catch (SQLException ignored) {}
+
+        // Chiudi connessione prima di spostare il file
+        try { conn.close(); } catch (SQLException ignored) {}
+        conn = null;
+
+        // Sposta il db corrente nella cartella backup con nome che evidenzia che era il "vero" db
+        Path archiveDir = (backupDir != null && !backupDir.isBlank()) ? Path.of(backupDir) : src.getParent();
+        Files.createDirectories(archiveDir);
+        String archiveName = baseName + "_PRIMA-RIPRISTINO_" + timestamp + ".db.bak";
+        Path archive = archiveDir.resolve(archiveName);
+        Files.move(src, archive, StandardCopyOption.REPLACE_EXISTING);
+
+        // Copia il backup al posto del db corrente
+        Files.copy(bak, src, StandardCopyOption.REPLACE_EXISTING);
+
+        // Riapri la connessione direttamente (senza richiuderla: conn è già null)
+        conn = openConnection(currentDbPath);
+        initSchema();
+        migrate();
+
+        logger.log("RIPRISTINO BACKUP",
+                "sorgente:" + backupPath,
+                "db-archiviato:" + archive.toAbsolutePath());
+
+        return Map.of("ok", true, "archived", archive.toAbsolutePath().toString());
+    }
+
     // ─── Helpers JDBC ─────────────────────────────────────────────────────────
 
     private List<Map<String, Object>> queryList(String sql, Object... params) throws SQLException {

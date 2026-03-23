@@ -358,6 +358,16 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                 yield Map.of("ok", true, "path", dest);
             }
 
+            case "listBackups" -> {
+                String bDir = settings.get(Settings.BACKUP_DIR);
+                yield Map.of("backups", db.listBackups(bDir));
+            }
+
+            case "restoreBackup" -> {
+                String bDir = settings.get(Settings.BACKUP_DIR);
+                yield db.restoreBackup(p.get("path").getAsString(), bDir);
+            }
+
             // ─── Manutenzione DB ───────────────────────────────────────────────────
             case "dbGetInfo"        -> db.dbGetInfo();
             case "dbVacuum"         -> db.dbVacuum();

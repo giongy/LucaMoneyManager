@@ -257,6 +257,8 @@ const api = {
   openUrl:           (url)   => callJava('openUrl', {url}),
   resetJcef:         ()      => callJava('resetJcef', {}),
   doBackup:        ()         => callJava('doBackup', {}),
+  listBackups:     ()         => callJava('listBackups', {}),
+  restoreBackup:   (path)     => callJava('restoreBackup', {path}),
 
   // Pianificate
   getScheduled:    ()    => callJava('getScheduled'),
@@ -1400,8 +1402,12 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
   }
 
   window.toggleCats = () => {
+    const isTransfer = document.getElementById('f_type')?.value === 'transfer';
     const toAcc = document.getElementById('toAccGroup');
-    if (toAcc) toAcc.style.display = document.getElementById('f_type')?.value === 'transfer' ? '' : 'none';
+    if (toAcc) toAcc.style.display = isTransfer ? '' : 'none';
+    const splitBtn = document.getElementById('splitToggleBtn');
+    if (splitBtn) { splitBtn.disabled = isTransfer; splitBtn.style.opacity = isTransfer ? '.3' : ''; }
+    if (isTransfer && _splitActive) toggleSplit(); // chiudi split se era aperto
     updateCatSelect(null);
   };
 
@@ -1534,6 +1540,7 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
 
   initCatPicker('f_cat_input', 'f_cat', 'catPickerList');
   updateCatSelect(tx?.category_id);
+  window.toggleCats(); // aggiorna stato bottone Suddividi in base al tipo iniziale
 
   // ── Split transaction logic ──────────────────────────────────────────────
   let _splitActive = false;
@@ -5264,6 +5271,16 @@ async function renderSettings() {
             <span class="settings-hint" id="backupHint" style="margin-left:10px"></span>
           </div>
         </div>
+        <div class="settings-row" style="align-items:flex-start">
+          <div class="settings-label">
+            <strong>Ripristina backup</strong>
+            <span class="settings-hint">Seleziona un backup da ripristinare. Il database attuale verrà archiviato prima di procedere.</span>
+          </div>
+          <div class="settings-control" style="flex-direction:column;align-items:flex-start;gap:6px">
+            <button class="btn btn-secondary" onclick="settingsLoadBackupList()">📂 Mostra backup disponibili</button>
+            <div id="backupRestoreList" style="width:100%"></div>
+          </div>
+        </div>
       </div>`,
 
     prefs: `
@@ -5599,6 +5616,65 @@ async function settingsDoBackup() {
     if (hint) hint.textContent = `✅ Salvato: ${res.path}`;
   } catch(e) {
     if (hint) hint.textContent = `❌ ${e.message}`;
+  }
+}
+
+async function settingsLoadBackupList() {
+  const container = document.getElementById('backupRestoreList');
+  if (!container) return;
+  container.innerHTML = '<span class="settings-hint">⏳ Caricamento...</span>';
+  try {
+    const res = await api.listBackups();
+    const list = res.backups || [];
+    if (!list.length) {
+      container.innerHTML = '<span class="settings-hint">Nessun backup trovato.</span>';
+      return;
+    }
+    container.innerHTML = `
+      <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:4px">
+        <thead>
+          <tr style="color:var(--txt2);border-bottom:1px solid var(--border)">
+            <th style="text-align:left;padding:4px 8px">Data e ora</th>
+            <th style="text-align:left;padding:4px 8px">File</th>
+            <th style="text-align:right;padding:4px 8px">Dim.</th>
+            <th style="padding:4px 8px"></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${list.map((b,i) => `
+          <tr style="border-bottom:1px solid var(--border);${i%2===1?'background:rgba(255,255,255,.025)':''}">
+            <td style="padding:5px 8px;font-weight:600;color:var(--accent)">${b.displayTs}</td>
+            <td style="padding:5px 8px;color:var(--txt2);font-size:11px">${b.name}</td>
+            <td style="padding:5px 8px;text-align:right;color:var(--txt3)">${(b.size/1024).toFixed(1)} KB</td>
+            <td style="padding:5px 8px">
+              <button class="btn btn-secondary btn-restore-bak" style="font-size:11px;padding:2px 10px"
+                data-path="${b.path.replace(/\\/g,'\\\\')}" data-ts="${b.displayTs}">
+                ♻️ Ripristina
+              </button>
+            </td>
+          </tr>`).join('')}
+        </tbody>
+      </table>`;
+    container.querySelectorAll('.btn-restore-bak').forEach(btn => {
+      btn.addEventListener('click', () => settingsConfirmRestore(btn.dataset.path, btn.dataset.ts));
+    });
+  } catch(e) {
+    container.innerHTML = `<span class="settings-hint" style="color:var(--expense)">❌ ${e.message}</span>`;
+  }
+}
+
+async function settingsConfirmRestore(path, displayTs) {
+  const ok = await confirm('Ripristina backup', `Ripristinare il backup del <strong>${displayTs}</strong>?<br><br>Il database corrente verrà archiviato nella cartella backup prima di procedere.`);
+  if (!ok) return;
+  const container = document.getElementById('backupRestoreList');
+  if (container) container.innerHTML = '<span class="settings-hint">⏳ Ripristino in corso...</span>';
+  try {
+    const res = await api.restoreBackup(path);
+    openModal('✅ Ripristino completato',
+      `<p style="color:var(--txt2);line-height:1.6">Database precedente archiviato in:<br><code style="font-size:11px">${res.archived}</code><br><br>L'applicazione verrà ricaricata.</p>`,
+      () => { closeModal(); location.reload(); }, 'Ok', 'btn-primary');
+  } catch(e) {
+    if (container) container.innerHTML = `<span class="settings-hint" style="color:var(--expense)">❌ ${e.message}</span>`;
   }
 }
 

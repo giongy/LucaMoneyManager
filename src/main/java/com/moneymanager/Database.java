@@ -49,6 +49,8 @@ public class Database {
 
     public void close() throws SQLException { conn.close(); }
 
+    public String getDbPath() { return currentDbPath; }
+
     /**
      * Esegue un backup del database corrente nella cartella specificata.
      * Il file avrà il formato: nomedb_YYYY-MM-DD_HH-mm-ss.db.bak

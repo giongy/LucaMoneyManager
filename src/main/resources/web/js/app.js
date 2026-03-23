@@ -178,6 +178,7 @@ const api = {
   minimize:    ()          => callJava('minimize'),
   maximize:    ()          => callJava('maximize'),
   close:       ()          => callJava('close'),
+  getDbPath:      ()          => callJava('getDbPath'),
   getWindowPos:   ()          => callJava('getWindowPos'),
   setWindowPos:   (x,y)       => callJava('setWindowPos', {x,y}),
   getWindowBounds:()          => callJava('getWindowBounds'),
@@ -426,6 +427,7 @@ function navigate(page) {
   document.getElementById(`pg-${page}`).classList.add('active');
   document.querySelector(`[data-page="${page}"]`).classList.add('active');
   document.getElementById('pageTitle').textContent = PAGE_TITLES[page];
+  document.getElementById('pageTitleSub').textContent = '';
   currentPage = page;
   renderPage(page);
 }
@@ -619,6 +621,10 @@ window._dashQuickTx = async (accountId, type) => {
 };
 
 async function renderDashboard() {
+  api.getDbPath().then(r => {
+    const el = document.getElementById('pageTitleSub');
+    if (el) el.textContent = '(' + r.path + ')';
+  }).catch(() => {});
   const dashYear = new Date().getFullYear();
   const pg = document.getElementById('pg-dashboard');
   pg.innerHTML = `

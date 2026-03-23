@@ -161,6 +161,7 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                     window.dispatchEvent(new WindowEvent(window, WindowEvent.WINDOW_CLOSING)));
                 yield Map.of("ok", true);
             }
+            case "getDbPath"    -> Map.of("path", db.getDbPath());
             case "getWindowPos" -> Map.of("x", window.getX(), "y", window.getY());
             case "setWindowPos" -> {
                 int x = p.get("x").getAsInt();

@@ -118,7 +118,8 @@ input,select,textarea { font-family:inherit; }
   height:var(--titlebar); background:var(--bg2); border-bottom:1px solid var(--border);
   display:flex; align-items:center; flex-shrink:0; user-select:none;
 }
-.titlebar-title { padding:0 16px; font-size:16px; font-weight:700; color:var(--txt1); min-width:120px; }
+.titlebar-title    { padding:0 16px; font-size:16px; font-weight:700; color:var(--txt1); min-width:120px; }
+.titlebar-subtitle { font-size:11px; color:var(--txt3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:400px; }
 .titlebar-drag  { flex:1; height:100%; -webkit-app-region:drag; }
 .titlebar-controls { display:flex; }
 .tb-btn {

@@ -32,6 +32,9 @@ public class Database {
     private static Connection openConnection(String dbPath) throws SQLException {
         SQLiteConfig config = new SQLiteConfig();
         config.setJournalMode(SQLiteConfig.JournalMode.WAL);
+        config.setSynchronous(SQLiteConfig.SynchronousMode.NORMAL); // sicuro con WAL, più veloce di FULL
+        config.setCacheSize(-16000);   // 16 MB di cache (default 2 MB)
+        config.setTempStore(SQLiteConfig.TempStore.MEMORY); // tabelle temporanee in RAM
         config.enforceForeignKeys(true);
         return DriverManager.getConnection("jdbc:sqlite:" + dbPath, config.toProperties());
     }
@@ -358,7 +361,16 @@ public class Database {
         """);
     }
 
+    private static final int SCHEMA_VERSION = 1;
+
     private void migrate() throws SQLException {
+        // Crea tabella versione se non esiste
+        executePlain("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL DEFAULT 0)");
+        Map<String, Object> vRow = queryOne("SELECT version FROM schema_version");
+        int currentVersion = vRow == null ? 0 : ((Number) vRow.get("version")).intValue();
+        if (currentVersion >= SCHEMA_VERSION) return; // già aggiornato, salta tutto
+
+        // ── Migrazioni (eseguite solo se necessario) ──────────────────────────
         // Aggiunge parent_id se il DB è stato creato prima di questa versione
         try {
             executePlain("ALTER TABLE categories ADD COLUMN parent_id INTEGER REFERENCES categories(id) ON DELETE CASCADE");
@@ -528,6 +540,10 @@ public class Database {
 
         // Aggiorna le statistiche query-planner (come ANALYZE ma incrementale)
         executePlain("PRAGMA optimize");
+
+        // Segna il DB come aggiornato all'ultima versione
+        executePlain("DELETE FROM schema_version");
+        executePlain("INSERT INTO schema_version(version) VALUES(" + SCHEMA_VERSION + ")");
     }
 
     private void seedDefaultData() throws SQLException {

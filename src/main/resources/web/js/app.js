@@ -1871,6 +1871,15 @@ async function loadAccountCards() {
     });
   });
 
+  // ── Click → transazioni del conto ───────────────────────────────────────────
+  grid.querySelectorAll('.account-card').forEach(card => {
+    card.style.cursor = 'pointer';
+    card.addEventListener('click', e => {
+      if (e.target.closest('.account-actions, .acc-drag-handle')) return;
+      navigateToAccountTx(Number(card.dataset.id));
+    });
+  });
+
   // ── Drag sezioni ────────────────────────────────────────────────────────────
   let dragSecType = null;
   grid.querySelectorAll('.accounts-section').forEach(sec => {

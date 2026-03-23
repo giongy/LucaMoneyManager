@@ -305,14 +305,28 @@ const isAccountActive  = a => !a.is_closed;
  *  Ritorna un Number >= 0 se valido, null altrimenti. */
 function evalAmount(raw) {
   if (!raw || !raw.toString().trim()) return null;
-  // Normalizza: virgola → punto, spazi → niente
   const s = raw.toString().replace(/,/g, '.').replace(/\s/g, '');
-  // Ammette solo cifre, punti, +, -
-  if (!/^[0-9+\-.][0-9+\-.]*$/.test(s)) return null;
-  // Previene eval injection: solo numeri e operatori +/-
-  const tokens = s.split(/(?=[+\-])/).map(t => parseFloat(t));
-  if (tokens.some(isNaN)) return null;
-  const result = tokens.reduce((a, b) => a + b, 0);
+  if (!/^[0-9+\-*/.][0-9+\-*/.]*$/.test(s)) return null;
+  // Split su + e - come nell'originale (lookahead, nessun lookbehind)
+  const addTerms = s.split(/(?=[+\-])/).filter(t => t !== '');
+  let result = 0;
+  for (const term of addTerms) {
+    // Estrai segno iniziale (+/-)
+    let sign = 1, rest = term;
+    if (rest[0] === '+') rest = rest.slice(1);
+    else if (rest[0] === '-') { sign = -1; rest = rest.slice(1); }
+    // Gestisci * e / all'interno del termine (split con delimitatori)
+    const parts = rest.split(/([*\/])/);
+    let val = parseFloat(parts[0]);
+    if (isNaN(val)) return null;
+    for (let i = 1; i < parts.length; i += 2) {
+      const op = parts[i], n = parseFloat(parts[i + 1]);
+      if (isNaN(n)) return null;
+      if (op === '*') val *= n;
+      else { if (n === 0) return null; val /= n; }
+    }
+    result += sign * val;
+  }
   return result >= 0 ? result : null;
 }
 
@@ -1306,7 +1320,7 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
     <div class="form-row">
       <div class="form-group">
         <label class="form-label">Importo (€)</label>
-        <input type="text" inputmode="decimal" class="form-control" id="f_amount" value="${tx?.amount||''}" placeholder="es. 40+10.30" autocomplete="off">
+        <input type="text" inputmode="decimal" class="form-control" id="f_amount" value="${tx?.amount||''}" placeholder="es. 40+10.30 o 100/3*2" autocomplete="off">
       </div>
       <div class="form-group" id="catGroup">
         <label class="form-label" style="display:flex;justify-content:space-between;align-items:center">
@@ -3735,11 +3749,11 @@ async function showBuyModal(portfolioId, investAccounts, allAccounts) {
       from_account_id: parseInt(document.getElementById('b_from_account').value),
       ticker:          document.getElementById('b_ticker').value.trim().toUpperCase(),
       name:            document.getElementById('b_name').value.trim(),
-      quantity:        parseFloat(document.getElementById('b_qty').value.replace(',','.')),
-      price:           parseFloat(document.getElementById('b_price').value.replace(',','.')),
+      quantity:        evalAmount(document.getElementById('b_qty').value),
+      price:           evalAmount(document.getElementById('b_price').value),
       date:            document.getElementById('b_date').value,
       notes:           document.getElementById('b_notes').value.trim() || null,
-      commissions:     parseFloat((document.getElementById('b_comm')?.value||'').replace(',','.')) || 0,
+      commissions:     evalAmount(document.getElementById('b_comm')?.value) || 0,
       asset_type:      assetType,
       face_value:      1,
       maturity_date:   isBond ? (document.getElementById('b_maturity')?.value || null) : null,
@@ -3777,9 +3791,9 @@ async function showBuyModal(portfolioId, investAccounts, allAccounts) {
 
   // Live total calculation
   const calcTotal = () => {
-    const q      = parseFloat((document.getElementById('b_qty')?.value||'').replace(',','.'))||0;
-    const p      = parseFloat((document.getElementById('b_price')?.value||'').replace(',','.'))||0;
-    const c      = parseFloat((document.getElementById('b_comm')?.value||'').replace(',','.'))  ||0;
+    const q      = evalAmount(document.getElementById('b_qty')?.value)||0;
+    const p      = evalAmount(document.getElementById('b_price')?.value)||0;
+    const c      = evalAmount(document.getElementById('b_comm')?.value)||0;
     const isBond = document.getElementById('b_type_bond')?.classList.contains('theme-btn-active');
     const total  = (isBond ? q * p / 100 : q * p) + c;
     const t = document.getElementById('b_total');
@@ -3884,13 +3898,13 @@ async function showImportModal(investAccounts) {
 
   openModal('Carica posizione esistente', body, async () => {
     const isBond = document.getElementById('ip_type_bond')?.classList.contains('theme-btn-active');
-    const qty    = parseFloat((document.getElementById('ip_qty').value||'').replace(',','.'));
-    const price  = parseFloat((document.getElementById('ip_price').value||'').replace(',','.'));
-    const comm   = parseFloat((document.getElementById('ip_comm').value||'').replace(',','.')) || 0;
+    const qty    = evalAmount(document.getElementById('ip_qty').value);
+    const price  = evalAmount(document.getElementById('ip_price').value);
+    const comm   = evalAmount(document.getElementById('ip_comm').value) || 0;
     // Per bond: qty = nominale €, prezzo in %, comm in € → avg% = price + (comm/qty)*100
     // Per equity: avg = (qty*price + comm) / qty
     const avg    = qty && price ? (isBond ? price + (comm / qty) * 100 : (qty * price + comm) / qty) : NaN;
-    const cur    = parseFloat((document.getElementById('ip_cur').value||'').replace(',','.')) || null;
+    const cur    = evalAmount(document.getElementById('ip_cur').value) || null;
     const data  = {
       account_id:       parseInt(document.getElementById('ip_account').value),
       ticker:           document.getElementById('ip_ticker').value.trim().toUpperCase(),
@@ -3939,9 +3953,9 @@ async function showImportModal(investAccounts) {
   // Calcola prezzo medio al cambio di qty/prezzo/commissioni
   const calcAvg = () => {
     const isBond = document.getElementById('ip_type_bond')?.classList.contains('theme-btn-active');
-    const q  = parseFloat((document.getElementById('ip_qty')?.value||'').replace(',','.'))   || 0;
-    const p  = parseFloat((document.getElementById('ip_price')?.value||'').replace(',','.')) || 0;
-    const c  = parseFloat((document.getElementById('ip_comm')?.value||'').replace(',','.'))  || 0;
+    const q  = evalAmount(document.getElementById('ip_qty')?.value)   || 0;
+    const p  = evalAmount(document.getElementById('ip_price')?.value) || 0;
+    const c  = evalAmount(document.getElementById('ip_comm')?.value)  || 0;
     const el = document.getElementById('ip_avg');
     if (!el) return;
     if (!q || !p) { el.value = ''; return; }
@@ -4018,8 +4032,8 @@ async function showSellModal(portfolioId) {
     const data = {
       portfolio_id:  portfolioId,
       to_account_id: parseInt(document.getElementById('s_to_account').value),
-      quantity:      parseFloat((document.getElementById('s_qty').value||'').replace(',','.')),
-      price:         parseFloat((document.getElementById('s_price').value||'').replace(',','.')),
+      quantity:      evalAmount(document.getElementById('s_qty').value),
+      price:         evalAmount(document.getElementById('s_price').value),
       date:          document.getElementById('s_date').value,
       notes:         document.getElementById('s_notes').value.trim() || null,
     };
@@ -4036,8 +4050,8 @@ async function showSellModal(portfolioId) {
   });
 
   const calcSell = () => {
-    const q = parseFloat((document.getElementById('s_qty')?.value||'').replace(',','.'))||0;
-    const p = parseFloat((document.getElementById('s_price')?.value||'').replace(',','.'))||0;
+    const q = evalAmount(document.getElementById('s_qty')?.value)||0;
+    const p = evalAmount(document.getElementById('s_price')?.value)||0;
     // Bond: q = nominale €, p = prezzo% → valore = q*p/100
     const totalVal = isBond ? q * p / 100 : q * p;
     const costVal  = isBond ? q * pos.avg_price / 100 : q * pos.avg_price;
@@ -4281,18 +4295,18 @@ async function showEditPositionModal(portfolioId) {
     </div>`;
 
   openModal('Modifica Posizione', body, async () => {
-    const n = (id, fallback='') => (document.getElementById(id)?.value||'').replace(',','.') || fallback;
+    const n = (id) => document.getElementById(id)?.value || '';
     const data = {
       id:               portfolioId,
       name:             document.getElementById('e_name').value.trim(),
       account_id:       parseInt(document.getElementById('e_account').value),
-      quantity:         parseFloat(n('e_qty')),
-      avg_price:        parseFloat(n('e_avg')),
-      current_price:    parseFloat(n('e_cur')) || null,
-      total_commissions:parseFloat(n('e_comm')) || 0,
+      quantity:         evalAmount(n('e_qty')),
+      avg_price:        evalAmount(n('e_avg')),
+      current_price:    evalAmount(n('e_cur')) || null,
+      total_commissions:evalAmount(n('e_comm')) || 0,
       asset_type:       pos.asset_type,
       maturity_date:    isBond ? (document.getElementById('e_maturity')?.value || null) : null,
-      coupon_rate:      isBond ? (parseFloat(n('e_coupon_rate')) || 0) : 0,
+      coupon_rate:      isBond ? (evalAmount(n('e_coupon_rate')) || 0) : 0,
       coupon_frequency: isBond ? (document.getElementById('e_coupon_freq')?.value || null) : null,
       coupon_tax:       isBond ? (parseFloat(n('e_coupon_tax')) ?? 12.5) : 0,
       country:          document.getElementById('e_country').value.trim() || null,
@@ -7015,7 +7029,7 @@ function showScheduledModal(sched, accounts, categories, tags = []) {
       </div>
       <div class="form-group">
         <label class="form-label">Importo (€) *</label>
-        <input type="number" step="0.01" min="0" class="form-control" id="sc_amount" value="${sched?.amount||''}">
+        <input type="text" inputmode="decimal" class="form-control" id="sc_amount" value="${sched?.amount||''}" placeholder="es. 40+10.30 o 100/3*2" autocomplete="off">
       </div>
     </div>
     <div class="form-group">
@@ -7130,7 +7144,7 @@ function showScheduledModal(sched, accounts, categories, tags = []) {
     const data = {
       id:            sched?.id,
       description:   document.getElementById('sc_desc').value.trim(),
-      amount:        parseFloat(document.getElementById('sc_amount').value),
+      amount:        evalAmount(document.getElementById('sc_amount').value),
       type,
       category_id:   parseInt(document.getElementById('sc_cat').value)||null,
       account_id:    parseInt(document.getElementById('sc_account').value),
@@ -7168,6 +7182,18 @@ function showScheduledModal(sched, accounts, categories, tags = []) {
 
   initCatPicker('sc_cat_input', 'sc_cat', 'sc_catPickerList');
   updateSchedCatSelect(sched?.category_id);
+
+  // Enter su importo → salva; blur → valuta espressione
+  const scAmtEl = document.getElementById('sc_amount');
+  if (scAmtEl) {
+    scAmtEl.addEventListener('blur', () => {
+      const v = evalAmount(scAmtEl.value);
+      if (v !== null) scAmtEl.value = v.toFixed(2);
+    });
+    scAmtEl.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); document.getElementById('modalConfirm')?.click(); }
+    });
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════

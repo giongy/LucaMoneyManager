@@ -200,6 +200,13 @@ public class Database {
                 reconciled    INTEGER DEFAULT 1,
                 created_at    TEXT    DEFAULT CURRENT_TIMESTAMP
             );
+            CREATE TABLE IF NOT EXISTS transaction_splits (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                transaction_id INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
+                category_id    INTEGER REFERENCES categories(id) ON DELETE SET NULL,
+                amount         REAL    NOT NULL,
+                description    TEXT    DEFAULT ''
+            );
             CREATE TABLE IF NOT EXISTS budgets (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
                 category_id INTEGER NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
@@ -645,7 +652,8 @@ public class Database {
                 a.name  AS account_name,  a.color AS account_color,
                 ta.name AS to_account_name,
                 GROUP_CONCAT(CASE WHEN tg.id IS NOT NULL
-                    THEN tg.id || '\u00A7' || tg.name || '\u00A7' || tg.color END, '||') AS tags_concat
+                    THEN tg.id || '\u00A7' || tg.name || '\u00A7' || tg.color END, '||') AS tags_concat,
+                (SELECT COUNT(*) FROM transaction_splits ts WHERE ts.transaction_id = t.id) AS split_count
             FROM transactions t
             LEFT JOIN categories c  ON t.category_id    = c.id
             LEFT JOIN categories pc ON c.parent_id      = pc.id
@@ -742,6 +750,7 @@ public class Database {
                 str(p,"description") != null ? str(p,"description") : "",
                 str(p,"color"), reconciled);
         saveTags(id, p);
+        saveSplits(id, p);
         Map<String, Object> tx = getTransactionById(id);
         logger.log("TRANSAZIONE AGGIUNTA",
             "id:" + id,
@@ -766,6 +775,7 @@ public class Database {
                 str(p,"description") != null ? str(p,"description") : "",
                 str(p,"color"), reconciled, id);
         saveTags(id, p);
+        saveSplits(id, p);
         Map<String, Object> tx = getTransactionById(id);
         logger.log("TRANSAZIONE MODIFICATA",
             "id:" + id,
@@ -896,6 +906,30 @@ public class Database {
         }
     }
 
+    private void saveSplits(long txId, JsonObject p) throws SQLException {
+        execute("DELETE FROM transaction_splits WHERE transaction_id=?", txId);
+        if (p.has("splits") && p.get("splits").isJsonArray()) {
+            for (var el : p.get("splits").getAsJsonArray()) {
+                JsonObject s = el.getAsJsonObject();
+                execute("INSERT INTO transaction_splits(transaction_id,category_id,amount,description) VALUES(?,?,?,?)",
+                        txId,
+                        s.has("category_id") && !s.get("category_id").isJsonNull() ? s.get("category_id").getAsInt() : null,
+                        s.get("amount").getAsDouble(),
+                        s.has("description") && !s.get("description").isJsonNull() ? s.get("description").getAsString() : "");
+            }
+        }
+    }
+
+    public List<Map<String, Object>> getTransactionSplits(int txId) throws SQLException {
+        return queryList("""
+            SELECT ts.*, c.name AS category_name, c.icon AS category_icon, c.color AS category_color
+            FROM transaction_splits ts
+            LEFT JOIN categories c ON ts.category_id = c.id
+            WHERE ts.transaction_id = ?
+            ORDER BY ts.id
+        """, txId);
+    }
+
     private Map<String, Object> getTransactionById(long id) throws SQLException {
         List<Map<String, Object>> r = parseTags(queryList("""
             SELECT t.*,
@@ -941,15 +975,28 @@ public class Database {
 
     public List<Map<String, Object>> getBudgets(int month, int year) throws SQLException {
         return queryList("""
+            WITH cat_amounts AS (
+                SELECT t.type, t.category_id AS cat_id, t.amount AS amt
+                FROM transactions t
+                WHERE t.category_id IS NOT NULL
+                  AND NOT EXISTS (SELECT 1 FROM transaction_splits ts WHERE ts.transaction_id = t.id)
+                  AND strftime('%m',t.date)=? AND strftime('%Y',t.date)=?
+                UNION ALL
+                SELECT t.type, ts.category_id AS cat_id, ts.amount AS amt
+                FROM transactions t
+                JOIN transaction_splits ts ON ts.transaction_id = t.id
+                WHERE strftime('%m',t.date)=? AND strftime('%Y',t.date)=?
+            )
             SELECT b.*, c.name AS category_name, c.icon AS category_icon, c.color AS category_color,
-                COALESCE(SUM(CASE WHEN t.type='expense' THEN t.amount ELSE 0 END), 0) AS spent
+                COALESCE(SUM(CASE WHEN ca.type='expense' THEN ca.amt ELSE 0 END), 0) AS spent
             FROM budgets b
             JOIN categories c ON b.category_id = c.id
-            LEFT JOIN transactions t ON t.category_id = b.category_id
-                AND strftime('%m',t.date)=? AND strftime('%Y',t.date)=?
+            LEFT JOIN cat_amounts ca ON ca.cat_id = b.category_id
             WHERE b.month=? AND b.year=?
             GROUP BY b.id ORDER BY c.name
-        """, String.format("%02d",month), String.valueOf(year), month, year);
+        """, String.format("%02d",month), String.valueOf(year),
+             String.format("%02d",month), String.valueOf(year),
+             month, year);
     }
 
     public Map<String, Object> setBudget(JsonObject p) throws SQLException {
@@ -985,13 +1032,24 @@ public class Database {
             "SELECT category_id, month, amount FROM budgets WHERE year=? ORDER BY category_id, month",
             year);
         List<Map<String, Object>> actuals = queryList("""
-            SELECT t.category_id,
-                   CAST(strftime('%m', t.date) AS INTEGER) AS month,
-                   SUM(t.amount) AS total
-            FROM transactions t
-            WHERE strftime('%Y', t.date)=? AND t.type IN ('expense','income')
-            GROUP BY t.category_id, strftime('%m', t.date)
-        """, String.valueOf(year));
+            WITH cat_amounts AS (
+                SELECT t.category_id AS cat_id, t.type,
+                       CAST(strftime('%m', t.date) AS INTEGER) AS month, t.amount
+                FROM transactions t
+                WHERE t.category_id IS NOT NULL
+                  AND NOT EXISTS (SELECT 1 FROM transaction_splits ts WHERE ts.transaction_id = t.id)
+                  AND strftime('%Y', t.date)=? AND t.type IN ('expense','income')
+                UNION ALL
+                SELECT ts.category_id AS cat_id, t.type,
+                       CAST(strftime('%m', t.date) AS INTEGER) AS month, ts.amount
+                FROM transactions t
+                JOIN transaction_splits ts ON ts.transaction_id = t.id
+                WHERE strftime('%Y', t.date)=? AND t.type IN ('expense','income')
+            )
+            SELECT cat_id AS category_id, month, SUM(amount) AS total
+            FROM cat_amounts
+            GROUP BY cat_id, month
+        """, String.valueOf(year), String.valueOf(year));
         List<Map<String, Object>> categories = queryList("""
             SELECT c.id, c.name, c.icon, c.color, c.type, c.parent_id, p.name AS parent_name
             FROM categories c

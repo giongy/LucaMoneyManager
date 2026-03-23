@@ -213,6 +213,7 @@ const api = {
 
   // Transazioni
   getTransactions:             f    => callJava('getTransactions',             f || {}),
+  getTransactionSplits:        id   => callJava('getTransactionSplits',        {id}),
   addTransaction:              async data  => { api._invalidateAccounts(); return callJava('addTransaction',    data); },
   updateTransaction:           async data  => { api._invalidateAccounts(); return callJava('updateTransaction', data); },
   deleteTransaction:           async id    => { api._invalidateAccounts(); return callJava('deleteTransaction', {id}); },
@@ -847,7 +848,9 @@ async function renderDashboard() {
     <tr>
       <td style="${compactTd};white-space:nowrap;color:var(--txt2)">${fmt.date(t.date)}</td>
       <td style="${compactTd}" class="td-main">${t.description}</td>
-      <td style="${compactTd}"><span class="cat-chip">${t.category_icon||''}  ${t.category_name||'-'}</span></td>
+      <td style="${compactTd}">${t.split_count > 0
+        ? `<span class="cat-chip" style="opacity:.8">÷ ${t.split_count} voci</span>`
+        : `<span class="cat-chip">${t.category_icon||''}  ${t.category_name||'-'}</span>`}</td>
       <td style="${compactTd};color:var(--txt2)">${t.account_name||'-'}</td>
       <td style="${compactTd}" class="text-right amount-${t.type}">${t.type==='expense'?'-':''}${fmt.currency(t.amount)}</td>
     </tr>`).join('') :
@@ -1147,7 +1150,10 @@ function renderTxBodyAndHeaders() {
       <td>${t.account_name||'-'}${t.to_account_name?` → ${t.to_account_name}`:''}</td>
       <td><span class="badge badge-${t.type}">${t.type==='income'?'Entrata':t.type==='expense'?'Uscita':'Trasferimento'}</span></td>
       <td class="td-tags">${(t.tags&&t.tags.length)?t.tags.map(tg=>`<span class="tag-inline" style="--tc:${tg.color}">${tg.name}</span>`).join(''):''}</td>
-      <td>${t.category_icon||''} ${t.parent_category_name ? t.parent_category_name + ' : ' + t.category_name : (t.category_name||'-')}</td>
+      <td>${t.split_count > 0
+        ? `<span class="cat-chip" style="opacity:.8">÷ Suddivisa (${t.split_count})</span>`
+        : `${t.category_icon||''} ${t.parent_category_name ? t.parent_category_name + ' : ' + t.category_name : (t.category_name||'-')}`
+      }</td>
       <td class="td-main">${t.description||''}</td>
       <td class="text-right amount-${t.type}">${t.type==='expense'?'-':''}${fmt.currency(t.amount)}</td>
       ${balCell}
@@ -1301,13 +1307,24 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
         <input type="text" inputmode="decimal" class="form-control" id="f_amount" value="${tx?.amount||''}" placeholder="es. 40+10.30" autocomplete="off">
       </div>
       <div class="form-group" id="catGroup">
-        <label class="form-label">Categoria</label>
+        <label class="form-label" style="display:flex;justify-content:space-between;align-items:center">
+          Categoria
+          <button type="button" class="btn btn-ghost btn-xs" id="splitToggleBtn" onclick="toggleSplit()" style="font-size:11px;padding:2px 8px">÷ Suddividi</button>
+        </label>
         <div class="cat-picker">
           <input type="text" class="form-control" id="f_cat_input" placeholder="— Seleziona categoria —" autocomplete="off">
           <input type="hidden" id="f_cat" value="">
           <div class="cat-picker-list" id="catPickerList"></div>
         </div>
       </div>
+    </div>
+    <div id="splitSection" style="display:none;margin-bottom:8px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <label class="form-label" style="margin:0">Voci suddivise</label>
+        <span id="splitRemaining" style="font-size:12px"></span>
+      </div>
+      <div id="splitRows" style="display:flex;flex-direction:column;gap:6px"></div>
+      <button type="button" class="btn btn-ghost btn-sm" style="margin-top:8px;font-size:12px" onclick="addSplitRow()">+ Aggiungi voce</button>
     </div>
     <div class="form-row">
       <div class="form-group">
@@ -1389,14 +1406,26 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
   };
 
   openModal(isEdit ? 'Modifica Transazione' : 'Nuova Transazione', body, async () => {
-    const type = document.getElementById('f_type').value;
+    const type   = document.getElementById('f_type').value;
+    const amount = evalAmount(document.getElementById('f_amount').value);
+
+    // Raccoglie split se attivi
+    const splits = _splitActive
+      ? [...document.querySelectorAll('#splitRows .split-row')].map(row => ({
+          category_id: parseInt(row.querySelector('.split-cat').value) || null,
+          amount:      evalAmount(row.querySelector('.split-amount').value) || 0,
+          description: ''
+        })).filter(s => s.amount > 0)
+      : null;
+
     const data = {
       id:            tx?.id,
       date:          document.getElementById('f_date').value,
       description:   document.getElementById('f_desc').value.trim(),
-      amount:        evalAmount(document.getElementById('f_amount').value),
+      amount,
       type,
-      category_id:   parseInt(document.getElementById('f_cat').value) || null,
+      category_id:   _splitActive ? null : (parseInt(document.getElementById('f_cat').value) || null),
+      splits,
       account_id:    parseInt(document.getElementById('f_account').value),
       to_account_id: type==='transfer' ? parseInt(document.getElementById('f_toAccount').value)||null : null,
       tag_ids:       [...selectedTagIds],
@@ -1404,9 +1433,20 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
                ? document.getElementById('f_color').value : null,
       reconciled: parseInt(document.querySelector('input[name="f_reconciled"]:checked')?.value ?? '1'),
     };
-    if (!data.amount || !data.account_id || (data.type !== 'transfer' && !data.category_id)) {
-      toast('Compila importo, conto e categoria', 'error'); return;
+
+    if (!data.amount || !data.account_id) { toast('Compila importo e conto', 'error'); return; }
+    if (type !== 'transfer') {
+      if (_splitActive) {
+        if (!splits.length) { toast('Aggiungi almeno una voce', 'error'); return; }
+        const splitTotal = splits.reduce((s,sp) => s + sp.amount, 0);
+        if (Math.abs(splitTotal - data.amount) > 0.01) {
+          toast(`Le voci (${fmt.currency(splitTotal)}) non corrispondono al totale (${fmt.currency(data.amount)})`, 'error'); return;
+        }
+      } else {
+        if (!data.category_id) { toast('Seleziona una categoria', 'error'); return; }
+      }
     }
+
     try {
       if (isEdit) await api.updateTransaction(data);
       else        await api.addTransaction(data);
@@ -1490,6 +1530,88 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
 
   initCatPicker('f_cat_input', 'f_cat', 'catPickerList');
   updateCatSelect(tx?.category_id);
+
+  // ── Split transaction logic ──────────────────────────────────────────────
+  let _splitActive = false;
+
+  function _splitCatOptions(type, selId) {
+    const cats = type === 'income' ? incCats : expCats;
+    return cats.map(c => {
+      const label = c.parent_name ? `${c.parent_name} › ${c.icon||''} ${c.name}` : `${c.icon||''} ${c.name}`;
+      return `<option value="${c.id}" ${c.id==selId?'selected':''}>${label}</option>`;
+    }).join('');
+  }
+
+  function _updateSplitRemaining() {
+    const total = evalAmount(document.getElementById('f_amount')?.value) || 0;
+    const used  = [...document.querySelectorAll('#splitRows .split-amount')]
+                    .reduce((s, el) => s + (evalAmount(el.value) || 0), 0);
+    const rem = Math.round((total - used) * 100) / 100;
+    const el = document.getElementById('splitRemaining');
+    if (!el) return;
+    const ok = Math.abs(rem) < 0.005;
+    el.textContent = ok ? '✓ Bilanciato' : `Rimanente: ${fmt.currency(rem)}`;
+    el.style.color  = ok ? 'var(--income)' : (rem < 0 ? 'var(--expense)' : 'var(--txt2)');
+  }
+
+  window.toggleSplit = () => {
+    _splitActive = !_splitActive;
+    const catGroup = document.getElementById('catGroup');
+    const section  = document.getElementById('splitSection');
+    const btn      = document.getElementById('splitToggleBtn');
+    catGroup.style.opacity       = _splitActive ? '0.4' : '1';
+    catGroup.style.pointerEvents = _splitActive ? 'none' : '';
+    section.style.display        = _splitActive ? '' : 'none';
+    btn.textContent              = _splitActive ? '× Unisci' : '÷ Suddividi';
+    if (_splitActive && !document.getElementById('splitRows').children.length) {
+      // Pre-aggiungi 2 righe: la prima con il totale rimanente
+      window.addSplitRow();
+      window.addSplitRow();
+    }
+  };
+
+  window.addSplitRow = (catId = null, amount = null) => {
+    const container = document.getElementById('splitRows');
+    const type = document.getElementById('f_type')?.value || 'expense';
+    if (amount === null) {
+      const total = evalAmount(document.getElementById('f_amount')?.value) || 0;
+      const used  = [...container.querySelectorAll('.split-amount')]
+                      .reduce((s, el) => s + (evalAmount(el.value) || 0), 0);
+      const rem = Math.max(0, Math.round((total - used) * 100) / 100);
+      amount = rem > 0 ? rem.toFixed(2) : '';
+    }
+    const div = document.createElement('div');
+    div.className = 'split-row';
+    div.style.cssText = 'display:flex;gap:6px;align-items:center';
+    div.innerHTML = `
+      <select class="form-control split-cat" style="flex:1;font-size:13px" onchange="_updateSplitRemaining()">
+        <option value="">— Categoria —</option>
+        ${_splitCatOptions(type, catId)}
+      </select>
+      <input type="text" inputmode="decimal" class="form-control split-amount"
+             style="width:110px;flex:none;font-size:13px" value="${amount}"
+             placeholder="Importo"
+             oninput="_updateSplitRemaining()"
+             onblur="const v=evalAmount(this.value);if(v!==null)this.value=v.toFixed(2);_updateSplitRemaining()">
+      <button type="button" class="btn btn-ghost btn-icon" style="flex:none"
+              onclick="this.closest('.split-row').remove();_updateSplitRemaining()">✕</button>`;
+    container.appendChild(div);
+    _updateSplitRemaining();
+  };
+
+  // Carica split esistenti se si sta modificando una transazione suddivisa
+  if (tx?.split_count > 0) {
+    (async () => {
+      try {
+        const splits = await api.getTransactionSplits(tx.id);
+        if (splits.length > 0) {
+          window.toggleSplit();
+          document.getElementById('splitRows').innerHTML = '';
+          splits.forEach(s => window.addSplitRow(s.category_id, s.amount));
+        }
+      } catch(e) { /* ignora */ }
+    })();
+  }
 }
 
 window.editTx = async id => {

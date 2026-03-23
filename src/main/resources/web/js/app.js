@@ -1401,6 +1401,9 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
     input._catPickerSetItems(items, keepSelected);
   }
 
+  // Dichiarato qui (prima di toggleCats) per evitare TDZ
+  let _splitActive = false;
+
   window.toggleCats = () => {
     const isTransfer = document.getElementById('f_type')?.value === 'transfer';
     const toAcc = document.getElementById('toAccGroup');
@@ -1408,7 +1411,8 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
     const splitBtn = document.getElementById('splitToggleBtn');
     if (splitBtn) { splitBtn.disabled = isTransfer; splitBtn.style.opacity = isTransfer ? '.3' : ''; }
     if (isTransfer && _splitActive) toggleSplit(); // chiudi split se era aperto
-    updateCatSelect(null);
+    // Preserva la selezione corrente (evita reset durante init e cambio tipo)
+    updateCatSelect(parseInt(document.getElementById('f_cat')?.value) || null);
   };
 
   openModal(isEdit ? 'Modifica Transazione' : 'Nuova Transazione', body, async () => {
@@ -1444,6 +1448,7 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
     if (type !== 'transfer') {
       if (_splitActive) {
         if (!splits.length) { toast('Aggiungi almeno una voce', 'error'); return; }
+        if (splits.some(s => !s.category_id)) { toast('Seleziona la categoria per ogni voce', 'error'); return; }
         const splitTotal = splits.reduce((s,sp) => s + sp.amount, 0);
         if (Math.abs(splitTotal - data.amount) > 0.01) {
           toast(`Le voci (${fmt.currency(splitTotal)}) non corrispondono al totale (${fmt.currency(data.amount)})`, 'error'); return;
@@ -1543,7 +1548,6 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
   window.toggleCats(); // aggiorna stato bottone Suddividi in base al tipo iniziale
 
   // ── Split transaction logic ──────────────────────────────────────────────
-  let _splitActive = false;
 
   function _splitCatOptions(type, selId) {
     const cats = type === 'income' ? incCats : expCats;

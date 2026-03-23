@@ -1140,7 +1140,7 @@ function renderTxBodyAndHeaders() {
       : (showBalance ? '<td></td>' : '');
     const bgStyle = t.color ? `style="background:${t.color}40"` : '';
     return `
-    <tr data-tx-id="${t.id}" class="${t.color ? 'tx-colored' : ''}${isSel ? ' tx-selected' : ''}${!isRec ? ' tx-unreconciled' : ''}" ${bgStyle}>
+    <tr data-tx-id="${t.id}" class="${t.color ? 'tx-colored' : ''}${isSel ? ' tx-selected' : ''}${!isRec ? ' tx-unreconciled' : ''}" ${bgStyle} ondblclick="editTx(${t.id})">
       <td>${fmt.date(t.date)}</td>
       <td class="td-reconciled">
         <button class="btn-reconcile ${isRec ? 'reconciled' : 'unreconciled'}" title="${isRec ? 'Conciliata [R] – clicca per annullare' : 'Da verificare [V] – clicca per conciliare'}" onclick="toggleReconciled(${t.id}, ${isRec ? 0 : 1})">
@@ -1646,6 +1646,7 @@ function _showCtxMenu(txId, x, y) {
   const m = document.getElementById('ctxMenu');
   m.innerHTML = `
     <div class="ctx-item" onclick="_ctxDo('dup')">📋 Duplica transazione</div>
+    <div class="ctx-item" onclick="_ctxDo('tosched')">🗓️ Crea pianificata</div>
     <div class="ctx-separator"></div>
     <div class="ctx-item" onclick="_ctxDo('edit')">✏️ Modifica</div>
     <div class="ctx-separator"></div>
@@ -1669,6 +1670,7 @@ function _hideCtxMenu() {
 window._ctxDo = action => {
   const id = _ctxTxId; _hideCtxMenu();
   if (action === 'dup')         duplicateTx(id);
+  if (action === 'tosched')     txToSched(id);
   if (action === 'edit')        window.editTx(id);
   if (action === 'del')         window.deleteTx(id);
   if (action === 'reconcile')   toggleReconciled(id, 1);
@@ -1682,6 +1684,25 @@ window.duplicateTx = async id => {
   const tx = txs.find(t => t.id === id);
   if (tx) showTxModal({...tx, id: undefined, date: new Date().toISOString().slice(0,10)}, cats, accs, tx.type, tgs);
 };
+
+async function txToSched(id) {
+  const [txs, cats, accs, tgs] = await Promise.all([
+    api.getTransactions({limit:10000}), api.getCategories(), api.getAccounts(), api.getTags()
+  ]);
+  const tx = txs.find(t => t.id === id);
+  if (!tx) return;
+  const sched = {
+    type:        tx.type,
+    amount:      tx.amount,
+    description: tx.description,
+    category_id: tx.category_id,
+    account_id:  tx.account_id,
+    to_account_id: tx.to_account_id,
+    color:       tx.color,
+    start_date:  new Date().toISOString().slice(0,10)
+  };
+  showScheduledModal(sched, accs, cats, tgs);
+}
 
 // ── Selezione riga con click (non su bottoni) ────────────────────────────
 document.addEventListener('click', e => {

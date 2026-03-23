@@ -1072,13 +1072,19 @@ public class Database {
 
         int prevYear = year - 1;
         List<Map<String, Object>> actuals = queryList("""
-            SELECT category_id,
-                   CAST(strftime('%m', date) AS INTEGER) AS month,
-                   SUM(amount) AS total
-            FROM transactions
-            WHERE strftime('%Y', date)=? AND type IN ('expense','income')
-            GROUP BY category_id, strftime('%m', date)
-        """, String.valueOf(prevYear));
+            WITH cat_amounts AS (
+                SELECT t.category_id, t.date, t.amount FROM transactions t
+                WHERE t.category_id IS NOT NULL
+                  AND NOT EXISTS (SELECT 1 FROM transaction_splits ts WHERE ts.transaction_id = t.id)
+                  AND strftime('%Y', t.date)=? AND t.type IN ('expense','income')
+                UNION ALL
+                SELECT ts.category_id, t.date, ts.amount FROM transactions t
+                JOIN transaction_splits ts ON ts.transaction_id = t.id
+                WHERE strftime('%Y', t.date)=? AND t.type IN ('expense','income')
+            )
+            SELECT category_id, CAST(strftime('%m', date) AS INTEGER) AS month, SUM(amount) AS total
+            FROM cat_amounts GROUP BY category_id, strftime('%m', date)
+        """, String.valueOf(prevYear), String.valueOf(prevYear));
 
         Map<Object, Map<Integer, Double>> map = new HashMap<>();
         for (var a : actuals) {
@@ -1941,11 +1947,20 @@ public class Database {
 
     public List<Map<String, Object>> getCategoryChartData(int year, String type) throws SQLException {
         return queryList("""
-            SELECT c.name, c.color, c.icon, SUM(t.amount) AS total
-            FROM transactions t JOIN categories c ON t.category_id = c.id
-            WHERE strftime('%Y',t.date)=? AND t.type=?
-            GROUP BY t.category_id ORDER BY total DESC
-        """, String.valueOf(year), type);
+            WITH cat_amounts AS (
+                SELECT t.category_id, t.amount FROM transactions t
+                WHERE t.category_id IS NOT NULL
+                  AND NOT EXISTS (SELECT 1 FROM transaction_splits ts WHERE ts.transaction_id = t.id)
+                  AND strftime('%Y',t.date)=? AND t.type=?
+                UNION ALL
+                SELECT ts.category_id, ts.amount FROM transactions t
+                JOIN transaction_splits ts ON ts.transaction_id = t.id
+                WHERE strftime('%Y',t.date)=? AND t.type=?
+            )
+            SELECT c.name, c.color, c.icon, SUM(ca.amount) AS total
+            FROM cat_amounts ca JOIN categories c ON ca.category_id = c.id
+            GROUP BY ca.category_id ORDER BY total DESC
+        """, String.valueOf(year), type, String.valueOf(year), type);
     }
 
     // ─── Manutenzione DB ────────────────────────────────────────────────────────
@@ -2138,9 +2153,17 @@ public class Database {
             String txType = (String) cat.get("category_type");
             double actual = 0;
             if (catId != null) {
-                var row = queryOne(
-                        "SELECT COALESCE(SUM(amount),0) AS tot FROM transactions " +
-                        "WHERE category_id=? AND date>=? AND date<=? AND type=?",
+                var row = queryOne("""
+                        SELECT COALESCE(SUM(amt),0) AS tot FROM (
+                            SELECT amount AS amt FROM transactions
+                            WHERE category_id=? AND date>=? AND date<=? AND type=?
+                              AND NOT EXISTS (SELECT 1 FROM transaction_splits ts WHERE ts.transaction_id = id)
+                            UNION ALL
+                            SELECT ts.amount AS amt FROM transactions t
+                            JOIN transaction_splits ts ON ts.transaction_id = t.id
+                            WHERE ts.category_id=? AND t.date>=? AND t.date<=? AND t.type=?
+                        )""",
+                        ((Number) catId).intValue(), createdAt, forecastDate, txType,
                         ((Number) catId).intValue(), createdAt, forecastDate, txType);
                 if (row != null) actual = ((Number) row.get("tot")).doubleValue();
             }
@@ -2173,17 +2196,25 @@ public class Database {
         java.time.LocalDate start = java.time.LocalDate.now()
                 .withDayOfMonth(1).minusMonths(months - 1);
         String sql = """
+            WITH cat_amounts AS (
+                SELECT t.category_id, t.date, t.amount FROM transactions t
+                WHERE t.category_id IS NOT NULL
+                  AND NOT EXISTS (SELECT 1 FROM transaction_splits ts WHERE ts.transaction_id = t.id)
+                  AND t.date >= ? AND t.type IN ('expense','income')
+                UNION ALL
+                SELECT ts.category_id, t.date, ts.amount FROM transactions t
+                JOIN transaction_splits ts ON ts.transaction_id = t.id
+                WHERE t.date >= ? AND t.type IN ('expense','income')
+            )
             SELECT c.id, c.name, c.type, c.color, c.icon,
-                   strftime('%Y-%m', t.date) AS ym,
-                   SUM(ABS(t.amount))        AS total
-            FROM transactions t
-            JOIN categories c ON t.category_id = c.id
-            WHERE t.date >= ? AND t.type IN ('expense','income')
-            GROUP BY c.id, ym
-            ORDER BY c.type, c.name, ym
+                   strftime('%Y-%m', ca.date) AS ym,
+                   SUM(ABS(ca.amount)) AS total
+            FROM cat_amounts ca JOIN categories c ON ca.category_id = c.id
+            GROUP BY c.id, ym ORDER BY c.type, c.name, ym
             """;
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, start.toString());
+            ps.setString(2, start.toString());
             return toList(ps.executeQuery());
         }
     }

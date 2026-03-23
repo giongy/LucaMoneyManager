@@ -5531,7 +5531,9 @@ async function maintLoadInfo() {
       <span class="maint-info-label">Transazioni</span>
       <span class="maint-info-value">${info.tx_count}</span>
       <span class="maint-info-label">Conti</span>
-      <span class="maint-info-value">${info.acc_count}</span>`;
+      <span class="maint-info-value">${info.acc_count}</span>
+      <span class="maint-info-label">Schema DB</span>
+      <span class="maint-info-value">v${info.schema_version} / v${info.schema_latest}</span>`;
   } catch(e) {
     panel.innerHTML = `<span class="settings-hint" style="color:var(--expense)">Errore: ${e}</span>`;
   }

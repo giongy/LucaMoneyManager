@@ -2090,18 +2090,22 @@ public class Database {
         long fp = ((Number) freePages.get("freelist_count")).longValue();
         var txCount   = queryOne("SELECT COUNT(*) AS n FROM transactions");
         var accCount  = queryOne("SELECT COUNT(*) AS n FROM accounts");
-        int txN  = txCount  != null ? ((Number) txCount.get("n")).intValue()  : 0;
+        var svRow     = queryOne("SELECT version FROM schema_version");
+        int txN  = txCount != null ? ((Number) txCount.get("n")).intValue()  : 0;
         int accN = accCount != null ? ((Number) accCount.get("n")).intValue() : 0;
-        return Map.of(
-            "file_size",  fileSize,
-            "wal_size",   walSize,
-            "page_count", pc,
-            "page_size",  ps,
-            "free_pages", fp,
-            "free_bytes", fp * ps,
-            "tx_count",   txN,
-            "acc_count",  accN
-        );
+        int sv   = svRow   != null ? ((Number) svRow.get("version")).intValue() : 0;
+        Map<String, Object> result = new java.util.LinkedHashMap<>();
+        result.put("file_size",      fileSize);
+        result.put("wal_size",       walSize);
+        result.put("page_count",     pc);
+        result.put("page_size",      ps);
+        result.put("free_pages",     fp);
+        result.put("free_bytes",     fp * ps);
+        result.put("tx_count",       txN);
+        result.put("acc_count",      accN);
+        result.put("schema_version", sv);
+        result.put("schema_latest",  SCHEMA_VERSION);
+        return result;
     }
 
     public Map<String, Object> dbVacuum() throws SQLException, IOException {

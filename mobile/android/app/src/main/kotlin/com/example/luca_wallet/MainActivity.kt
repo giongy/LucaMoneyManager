@@ -2,91 +2,130 @@ package com.example.luca_wallet
 
 import android.content.Intent
 import android.net.Uri
-import android.provider.OpenableColumns
-import io.flutter.embedding.android.FlutterActivity
-import io.flutter.embedding.engine.FlutterEngine
-import io.flutter.plugin.common.MethodChannel
-import java.io.File
-import java.io.FileInputStream
-import java.io.FileOutputStream
+import android.os.Bundle
+import android.view.Menu
+import android.view.MenuItem
+import android.view.View
+import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
+import com.google.android.material.appbar.MaterialToolbar
+import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
-class MainActivity : FlutterActivity() {
+class MainActivity : AppCompatActivity() {
 
-    companion object {
-        private const val CHANNEL = "com.example.luca_wallet/file_uri"
+    private val openFileLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) onFilePicked(uri)
     }
 
-    override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
-        super.configureFlutterEngine(flutterEngine)
+    private val addTransactionLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == RESULT_OK) lifecycleScope.launch { loadAccounts() }
+    }
 
-        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, CHANNEL)
-            .setMethodCallHandler { call, result ->
-                when (call.method) {
+    private lateinit var recyclerView: RecyclerView
+    private lateinit var fab: ExtendedFloatingActionButton
+    private val accounts = mutableListOf<DbHelper.Account>()
+    private lateinit var adapter: AccountAdapter
 
-                    // Copia il file da content:// URI nella cartella privata dell'app.
-                    // Restituisce il path assoluto locale su cui sqflite può operare.
-                    "copyUriToLocal" -> {
-                        val uriStr = call.argument<String>("uri")
-                        if (uriStr == null) {
-                            result.error("BAD_ARGS", "uri is null", null)
-                            return@setMethodCallHandler
-                        }
-                        try {
-                            val uri = Uri.parse(uriStr)
-                            // Acquisisce permesso persistente per write-back futuro
-                            try {
-                                val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                                            Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                                contentResolver.takePersistableUriPermission(uri, flags)
-                            } catch (ignored: Exception) {}
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        setContentView(R.layout.activity_main)
 
-                            val displayName = resolveDisplayName(uri) ?: "database.db"
-                            val localFile = File(filesDir, displayName)
+        val toolbar = findViewById<MaterialToolbar>(R.id.toolbar)
+        setSupportActionBar(toolbar)
 
-                            contentResolver.openInputStream(uri)!!.use { input ->
-                                FileOutputStream(localFile).use { output ->
-                                    input.copyTo(output)
-                                }
-                            }
-                            result.success(localFile.absolutePath)
-                        } catch (e: Exception) {
-                            result.error("COPY_FAILED", e.message, null)
-                        }
-                    }
+        recyclerView = findViewById(R.id.recyclerView)
+        fab          = findViewById(R.id.fabAdd)
+        adapter      = AccountAdapter(accounts)
+        recyclerView.layoutManager = LinearLayoutManager(this)
+        recyclerView.adapter = adapter
 
-                    // Riscrive il file locale modificato sul content:// URI originale (OneDrive).
-                    "writeLocalBackToUri" -> {
-                        val localPath = call.argument<String>("localPath")
-                        val uriStr    = call.argument<String>("uri")
-                        if (localPath == null || uriStr == null) {
-                            result.error("BAD_ARGS", "missing args", null)
-                            return@setMethodCallHandler
-                        }
-                        try {
-                            val uri = Uri.parse(uriStr)
-                            // "wt" = write + truncate: sovrascrive completamente il file
-                            contentResolver.openOutputStream(uri, "wt")!!.use { output ->
-                                FileInputStream(localPath).use { input ->
-                                    input.copyTo(output)
-                                }
-                            }
-                            result.success(null)
-                        } catch (e: Exception) {
-                            result.error("WRITE_BACK_FAILED", e.message, null)
-                        }
-                    }
+        fab.setOnClickListener {
+            addTransactionLauncher.launch(
+                Intent(this, AddTransactionActivity::class.java)
+            )
+        }
 
-                    else -> result.notImplemented()
+        lifecycleScope.launch { init() }
+    }
+
+    override fun onCreateOptionsMenu(menu: Menu): Boolean {
+        menuInflater.inflate(R.menu.main_menu, menu)
+        return true
+    }
+
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        return when (item.itemId) {
+            R.id.menu_open    -> { openFileLauncher.launch(arrayOf("*/*")); true }
+            R.id.menu_refresh -> { lifecycleScope.launch { loadAccounts() }; true }
+            else -> super.onOptionsItemSelected(item)
+        }
+    }
+
+    private suspend fun init() {
+        val savedUriStr = DbHelper.getSavedContentUri(this)
+        val savedPath   = DbHelper.getSavedPath(this)
+        if (savedUriStr == null && savedPath == null) return
+
+        if (savedUriStr != null) {
+            val uri = Uri.parse(savedUriStr)
+            try {
+                val localPath = withContext(Dispatchers.IO) {
+                    DbHelper.copyUriToLocal(this@MainActivity, uri)
                 }
+                DbHelper.savePrefs(this, localPath, savedUriStr)
+                openDbAndLoad(localPath, uri)
+            } catch (_: Exception) {
+                if (savedPath != null) openDbAndLoad(savedPath, uri)
+                else showToast("Impossibile accedere al file OneDrive")
             }
+        } else {
+            openDbAndLoad(savedPath!!, null)
+        }
     }
 
-    private fun resolveDisplayName(uri: Uri): String? {
-        return try {
-            contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-                val col = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                if (col >= 0 && cursor.moveToFirst()) cursor.getString(col) else null
+    private fun onFilePicked(uri: Uri) {
+        lifecycleScope.launch {
+            try {
+                val localPath = withContext(Dispatchers.IO) {
+                    DbHelper.copyUriToLocal(this@MainActivity, uri)
+                }
+                DbHelper.savePrefs(this@MainActivity, localPath, uri.toString())
+                openDbAndLoad(localPath, uri)
+            } catch (e: Exception) {
+                showToast("Errore apertura file: ${e.message}")
             }
-        } catch (ignored: Exception) { null }
+        }
     }
+
+    private suspend fun openDbAndLoad(path: String, uri: Uri?) {
+        val err = withContext(Dispatchers.IO) { DbHelper.openDb(path, uri) }
+        if (err != null) {
+            showToast(err)
+        } else {
+            loadAccounts()
+            supportActionBar?.subtitle = DbHelper.currentFilename
+        }
+    }
+
+    private suspend fun loadAccounts() {
+        val list = withContext(Dispatchers.IO) { DbHelper.getFavoriteAccounts() }
+        accounts.clear()
+        accounts.addAll(list)
+        adapter.notifyDataSetChanged()
+        fab.visibility = if (DbHelper.isOpen) View.VISIBLE else View.GONE
+    }
+
+    private fun showToast(msg: String) =
+        Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
 }

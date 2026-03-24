@@ -18,23 +18,17 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.41.5'
-          channel: stable
-          cache: true
-
-      - name: flutter pub get
-        working-directory: mobile
-        run: flutter pub get
+      - name: Make gradlew executable
+        working-directory: mobile/android
+        run: chmod +x gradlew
 
       - name: Build APK
-        working-directory: mobile
-        run: flutter build apk --release
+        working-directory: mobile/android
+        run: ./gradlew assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: luca-wallet-apk
-          path: mobile/build/app/outputs/flutter-apk/app-release.apk
+          path: mobile/android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30

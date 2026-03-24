@@ -154,13 +154,13 @@ class AddTransactionActivity : AppCompatActivity() {
         }
 
         if (withContext(Dispatchers.IO) { DbHelper.hasConflict() }) {
-            val go = suspendCancellableCoroutine { cont ->
+            val go = suspendCancellableCoroutine<Boolean> { cont ->
                 AlertDialog.Builder(this)
                     .setTitle("Attenzione")
                     .setMessage("Il file è stato modificato da un altro dispositivo. Continuare?")
-                    .setPositiveButton("Continua") { _, _ -> cont.resume(true)  }
-                    .setNegativeButton("Annulla")  { _, _ -> cont.resume(false) }
-                    .setOnCancelListener           { cont.resume(false) }
+                    .setPositiveButton("Continua") { _, _ -> cont.resumeWith(Result.success(true))  }
+                    .setNegativeButton("Annulla")  { _, _ -> cont.resumeWith(Result.success(false)) }
+                    .setOnCancelListener           { cont.resumeWith(Result.success(false)) }
                     .show()
             }
             if (!go) return

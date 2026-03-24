@@ -34,12 +34,9 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _openAndLoad(String path) async {
     setState(() { _loading = true; _error = null; });
-    final ok = await DbHelper.openDb(path);
-    if (!ok) {
-      setState(() {
-        _loading = false;
-        _error = 'Impossibile aprire il file.\nVerifica che sia disponibile offline su OneDrive.';
-      });
+    final err = await DbHelper.openDb(path);
+    if (err != null) {
+      setState(() { _loading = false; _error = err; });
       return;
     }
     await _loadAccounts();
@@ -51,18 +48,65 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _pickDb() async {
-    if (await Permission.manageExternalStorage.isDenied) {
-      final status = await Permission.manageExternalStorage.request();
-      if (!status.isGranted) {
-        await openAppSettings();
-        return;
-      }
-    }
-    final result = await FilePicker.platform.pickFiles(allowMultiple: false);
-    if (result == null || result.files.single.path == null) return;
-    final path = result.files.single.path!;
-    await DbHelper.savePath(path);
-    await _openAndLoad(path);
+    final current = await DbHelper.getSavedPath();
+    final ctrl = TextEditingController(
+      text: current ?? '/storage/emulated/0/OneDrive/',
+    );
+
+    if (!mounted) return;
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Percorso file DB'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'Inserisci il percorso completo del file .db\n'
+              'Es: /storage/emulated/0/OneDrive/luca.db',
+              style: TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: ctrl,
+              decoration: const InputDecoration(
+                border: OutlineInputBorder(),
+                labelText: 'Percorso',
+              ),
+              style: const TextStyle(fontSize: 13),
+            ),
+            const SizedBox(height: 8),
+            TextButton.icon(
+              icon: const Icon(Icons.folder_open, size: 18),
+              label: const Text('Sfoglia (se funziona)'),
+              onPressed: () async {
+                // Prova a richiedere il permesso
+                await Permission.manageExternalStorage.request();
+                final result = await FilePicker.platform.pickFiles(
+                  allowMultiple: false,
+                );
+                final path = result?.files.single.path;
+                if (path != null) ctrl.text = path;
+              },
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Annulla'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+            child: const Text('Apri'),
+          ),
+        ],
+      ),
+    ).then((path) async {
+      if (path == null || path.isEmpty) return;
+      await DbHelper.savePath(path);
+      await _openAndLoad(path);
+    });
   }
 
   Future<void> _openAddTransaction() async {

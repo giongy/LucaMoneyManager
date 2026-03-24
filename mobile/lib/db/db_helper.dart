@@ -21,25 +21,23 @@ class DbHelper {
 
   // ── Apertura DB ─────────────────────────────────────────────────────────
 
-  static Future<bool> openDb(String path) async {
+  /// Restituisce null se OK, oppure il messaggio di errore.
+  static Future<String?> openDb(String path) async {
     try {
       if (_db != null && _db!.isOpen) await _db!.close();
       _db = await openDatabase(
         path,
         onOpen: (db) async {
-          // Checkpoint eventuali WAL pendenti, poi passa a DELETE journal mode.
-          // In DELETE mode le scritture vanno direttamente nel file .db
-          // (niente .db-wal / .db-shm) → OneDrive sincronizza correttamente.
           await db.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)');
           await db.execute('PRAGMA journal_mode=DELETE');
         },
       );
       await _ensureSyncMeta();
       _openedAt = await _readLastModified();
-      return true;
-    } catch (_) {
+      return null;
+    } catch (e) {
       _db = null;
-      return false;
+      return 'Errore apertura DB:\n$e\n\nVerifica il percorso e che il file sia disponibile offline su OneDrive.';
     }
   }
 

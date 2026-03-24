@@ -14,7 +14,9 @@ public class WebExtractor {
         "index.html",
         "css/style.css",
         "js/app.js",
-        "js/vendor/chart.min.js"
+        "js/vendor/chart.min.js",
+        "js/vendor/hammer.min.js",
+        "js/vendor/chartjs-plugin-zoom.min.js"
     };
 
     public static String extract(Path webDir) throws Exception {

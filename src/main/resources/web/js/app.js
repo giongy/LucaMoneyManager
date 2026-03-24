@@ -291,9 +291,17 @@ const api = {
 };
 
 /* ─── Chart theme helpers ─────────────────────────────────────────────────── */
+Chart.defaults.animation.duration = 700;
+Chart.defaults.animation.easing   = 'linear';
+
 const chartColors = () => document.documentElement.dataset.theme === 'light'
   ? { tick: '#636c76', grid: '#e8ecf0' }
   : { tick: '#8b949e', grid: '#21262d' };
+
+const zoomOpts = () => ({
+  zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' },
+  pan:  { enabled: true, mode: 'x' }
+});
 
 /* ─── Account visibility helpers ─────────────────────────────────────────── */
 const isAccountVisible = a =>
@@ -732,7 +740,8 @@ async function renderDashboard() {
       interaction:{ mode:'index', intersect:false },
       plugins:{
         legend:{labels:{color:chartColors().tick}},
-        tooltip:{ callbacks:{ label: ctx => ` ${ctx.dataset.label}: ${fmt.currency(ctx.parsed.y)}` } }
+        tooltip:{ callbacks:{ label: ctx => ` ${ctx.dataset.label}: ${fmt.currency(ctx.parsed.y)}` } },
+        zoom: zoomOpts()
       },
       scales:{x:{ticks:{color:chartColors().tick},grid:{color:chartColors().grid}},
               y:{ticks:{color:chartColors().tick},grid:{color:chartColors().grid}}}}
@@ -822,7 +831,8 @@ async function renderDashboard() {
                   return { borderColor: c, backgroundColor: c };
                 }
               }
-            }
+            },
+            zoom: zoomOpts()
           },
           scales: {
             x: { ticks: { color: chartColors().tick }, grid: { color: chartColors().grid } },
@@ -909,7 +919,7 @@ async function renderDashboard() {
       backgroundColor: savArr.map(v => v >= 0 ? 'rgba(63,185,80,.75)' : 'rgba(248,81,73,.75)'),
       borderRadius: 4
     }]},
-    options: { responsive:true, plugins:{legend:{display:false}},
+    options: { responsive:true, plugins:{legend:{display:false}, zoom:zoomOpts()},
       scales:{ x:{ticks:{color:chartColors().tick,font:{size:10}},grid:{color:chartColors().grid}},
                y:{ticks:{color:chartColors().tick,font:{size:10}},grid:{color:chartColors().grid}}}}
   });
@@ -923,7 +933,7 @@ async function renderDashboard() {
       data: { labels: top5.map(c => c.icon+' '+c.name),
               datasets: [{label:'Spesa', data: top5.map(c=>c.total),
                 backgroundColor: top5.map(c=>c.color||'rgba(88,166,255,.7)'), borderRadius:4}]},
-      options: { indexAxis:'y', responsive:true, plugins:{legend:{display:false}},
+      options: { indexAxis:'y', responsive:true, plugins:{legend:{display:false}, zoom:zoomOpts()},
         scales:{ x:{ticks:{color:chartColors().tick,font:{size:10}},grid:{color:chartColors().grid}},
                  y:{ticks:{color:chartColors().tick,font:{size:10}},grid:{color:chartColors().grid}}}}
     });
@@ -2611,7 +2621,8 @@ function renderBudgetAndamento() {
       interaction: { mode: 'index', intersect: false },
       plugins: {
         legend: { labels: { color: chartColors().tick } },
-        tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmt.currency(ctx.parsed.y)}` } }
+        tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmt.currency(ctx.parsed.y)}` } },
+        zoom: zoomOpts()
       },
       scales: {
         x: { ticks: { color: chartColors().tick }, grid: { color: chartColors().grid } },
@@ -3060,7 +3071,8 @@ window._budgetShowDetail = (catId, catName) => {
             callbacks: {
               label: ctx => ` ${ctx.dataset.label}: ${fmt.currency(ctx.parsed.y)}`
             }
-          }
+          },
+          zoom: zoomOpts()
         },
         scales: {
           x: { ticks: { color: '#8b949e', font: { size: 10 } }, grid: { color: '#21262d' } },
@@ -4765,7 +4777,8 @@ async function renderAnalyticsBalance() {
       interaction:{ mode:'index', intersect:false },
       plugins:{
         tooltip:{ callbacks:{ label: ctx => ` ${ctx.dataset.label}: ${fmt.currency(ctx.parsed.y)}` } },
-        legend:{ labels:{ color:cc.tick, boxWidth:12 } }
+        legend:{ labels:{ color:cc.tick, boxWidth:12 } },
+        zoom: zoomOpts()
       },
       scales:{
         x:{ ticks:{color:cc.tick}, grid:{color:cc.grid} },
@@ -5191,7 +5204,10 @@ function renderReportResults(txs, groupby, chartType) {
       data: { labels: chartData.labels, datasets: chartData.datasets },
       options: {
         responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { labels: { color: cc.tick } } },
+        plugins: {
+          legend: { labels: { color: cc.tick } },
+          zoom: (chartData.type!=='doughnut'&&chartData.type!=='pie') ? zoomOpts() : undefined
+        },
         scales: (chartData.type!=='doughnut'&&chartData.type!=='pie') ? {
           x: { ticks:{color:cc.tick}, grid:{color:cc.grid} },
           y: { ticks:{color:cc.tick}, grid:{color:cc.grid} }
@@ -6751,7 +6767,7 @@ async function loadProjectionChart(accounts) {
     }]},
     options: {
       responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { labels: { color:chartColors().tick } } },
+      plugins: { legend: { labels: { color:chartColors().tick } }, zoom: zoomOpts() },
       scales: {
         x: { ticks:{ color:chartColors().tick, maxTicksLimit: isDaily ? 20 : 14 }, grid:{ color:chartColors().grid } },
         y: { ticks:{ color:chartColors().tick, callback: v => fmt.currency(v) }, grid:{ color:chartColors().grid } }
@@ -6901,7 +6917,7 @@ async function loadCashflowChart() {
     },
     options: {
       responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { labels: { color:chartColors().tick } } },
+      plugins: { legend: { labels: { color:chartColors().tick } }, zoom: zoomOpts() },
       scales: {
         x: { ticks:{ color:chartColors().tick }, grid:{ color:chartColors().grid } },
         y: { ticks:{ color:chartColors().tick, callback: v => fmt.currency(v) }, grid:{ color:chartColors().grid } }

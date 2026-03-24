@@ -1,0 +1,78 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:        # avvio manuale dal sito GitHub
+  push:
+    branches: [ master ]
+    paths: [ 'mobile/**' ]  # solo quando cambia qualcosa in mobile/
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.5'
+          channel: stable
+          cache: true
+
+      - name: Scaffold Android (genera android/ senza toccare lib/)
+        working-directory: mobile
+        run: |
+          cp -r lib lib_bak
+          flutter create --project-name luca_wallet --platforms android . --quiet
+          cp -r lib_bak/. lib/
+          rm -rf lib_bak
+
+      - name: Patch AndroidManifest.xml
+        working-directory: mobile
+        run: |
+          python3 - <<'EOF'
+          import re, pathlib
+
+          p = pathlib.Path('android/app/src/main/AndroidManifest.xml')
+          t = p.read_text()
+
+          # xmlns:tools
+          t = t.replace(
+              'xmlns:android="http://schemas.android.com/apk/res/android"',
+              'xmlns:android="http://schemas.android.com/apk/res/android"\n    xmlns:tools="http://schemas.android.com/tools"',
+              1)
+
+          # permessi storage
+          perms = (
+              '    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32"/>\n'
+              '    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="32"/>\n'
+              '    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" tools:ignore="ScopedStorage"/>\n'
+          )
+          t = re.sub(r'(\s*<application)', perms + r'\1', t, count=1)
+
+          # requestLegacyExternalStorage
+          t = t.replace('<application', '<application\n        android:requestLegacyExternalStorage="true"', 1)
+
+          p.write_text(t)
+          print('AndroidManifest patched OK')
+          EOF
+
+      - name: flutter pub get
+        working-directory: mobile
+        run: flutter pub get
+
+      - name: Build APK
+        working-directory: mobile
+        run: flutter build apk --release
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: luca-wallet-apk
+          path: mobile/build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 30

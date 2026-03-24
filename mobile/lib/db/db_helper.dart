@@ -1,12 +1,14 @@
-import 'dart:io';
 import 'package:sqflite/sqflite.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/account.dart';
 import '../models/category.dart';
+import 'file_uri_bridge.dart';
 
 class DbHelper {
   static Database? _db;
-  static String? _openedAt; // valore di last_modified al momento dell'apertura
+  static String? _path;        // path locale (in filesDir dell'app)
+  static String? _contentUri;  // content:// URI originale (OneDrive)
+  static String? _openedAt;    // valore last_modified al momento dell'apertura
 
   // ── Configurazione percorso ──────────────────────────────────────────────
 
@@ -20,12 +22,24 @@ class DbHelper {
     await prefs.setString('db_path', path);
   }
 
+  static Future<String?> getSavedContentUri() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString('db_content_uri');
+  }
+
+  static Future<void> saveContentUri(String? uri) async {
+    _contentUri = uri;
+    final prefs = await SharedPreferences.getInstance();
+    if (uri != null) {
+      await prefs.setString('db_content_uri', uri);
+    } else {
+      await prefs.remove('db_content_uri');
+    }
+  }
+
   // ── Apertura DB ─────────────────────────────────────────────────────────
 
-  /// Restituisce null se OK, oppure il messaggio di errore.
-  static String? _path;
-  static String? _syncBackPath; // path reale OneDrive, se diverso da _path (cache)
-
+  /// Apre il DB dal path locale. Restituisce null se OK, messaggio di errore altrimenti.
   static Future<String?> openDb(String path) async {
     try {
       if (_db != null && _db!.isOpen) await _db!.close();
@@ -41,11 +55,17 @@ class DbHelper {
       return null;
     } catch (e) {
       _db = null;
-      return 'Errore apertura DB:\n$e\n\nVerifica il percorso e che il file sia disponibile offline su OneDrive.';
+      return 'Errore apertura DB:\n$e';
     }
   }
 
   static bool get isOpen => _db != null && _db!.isOpen;
+
+  /// Nome del file correntemente aperto (per mostrarlo nell'UI).
+  static String? get currentFilename {
+    if (_path == null) return null;
+    return _path!.split('/').last;
+  }
 
   // ── sync_meta ────────────────────────────────────────────────────────────
 
@@ -67,80 +87,24 @@ class DbHelper {
     return rows.isEmpty ? null : rows.first['value'] as String?;
   }
 
-  /// true se il file è stato modificato da un altro dispositivo dopo l'apertura
-  static Future<bool> hasConflict() async {
-    if (_db == null) return false;
-    return await _readLastModified() != _openedAt;
-  }
-
-  /// Aggiorna il riferimento locale dopo che l'utente ha scelto di ignorare il conflitto
-  static Future<void> refreshOpenedAt() async {
-    _openedAt = await _readLastModified();
-  }
-
-  // ── Risoluzione path reale OneDrive ──────────────────────────────────────
-
-  /// Dopo il file picker (che può restituire un path di cache),
-  /// cerca il file vero in OneDrive e lo usa direttamente.
-  /// Se lo trova: apre sqflite dal path reale, nessuna copia necessaria.
-  /// Se non lo trova: usa il path cache + copia indietro dopo ogni scrittura.
-  static Future<String> resolveRealPath(String pickedPath, String filename) async {
-    // Se non sembra un path di cache, usalo com'è
-    if (!pickedPath.contains('/cache/') && !pickedPath.contains('file_picker')) {
-      _syncBackPath = null;
-      return pickedPath;
-    }
-    // Cerca il file vero in OneDrive
-    final real = await _findInOneDrive(filename);
-    if (real != null) {
-      _syncBackPath = null; // sqflite scrive direttamente sul file reale
-      return real;
-    }
-    // Non trovato: lavora sulla cache e copia indietro dopo le scritture
-    _syncBackPath = pickedPath; // non dovrebbe succedere, ma sicurezza
-    return pickedPath;
-  }
-
-  static Future<String?> _findInOneDrive(String filename) async {
-    final roots = [
-      '/storage/emulated/0/OneDrive',
-      '/storage/emulated/0/OneDrive - Personal',
-      '/sdcard/OneDrive',
-    ];
-    for (final root in roots) {
-      final dir = Directory(root);
-      if (!await dir.exists()) continue;
-      // Controlla la radice
-      final direct = File('$root/$filename');
-      if (await direct.exists()) return direct.path;
-      // Controlla il primo livello di sottocartelle
-      try {
-        await for (final sub in dir.list(followLinks: false)) {
-          if (sub is Directory) {
-            final f = File('${sub.path}/$filename');
-            if (await f.exists()) return f.path;
-          }
-        }
-      } catch (_) {}
-    }
-    return null;
-  }
-
   static Future<void> _touchSyncMeta() async {
     final now = DateTime.now().toIso8601String();
     await _db!.insert('sync_meta', {'key': 'last_modified', 'value': now},
         conflictAlgorithm: ConflictAlgorithm.replace);
     await _db!.insert('sync_meta', {'key': 'last_modified_by', 'value': 'android'},
         conflictAlgorithm: ConflictAlgorithm.replace);
-    // Chiudi e riapri per forzare flush su disco (WAL checkpoint + fsync)
-    // così OneDrive vede il file .db aggiornato
+
+    // Checkpoint WAL e chiusura per flush completo su disco
     await _db!.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)');
     await _db!.close();
-    // Se stiamo lavorando su una copia cache, copiala sul file reale
-    if (_syncBackPath != null && _path != null) {
-      try { await File(_path!).copy(_syncBackPath!); } catch (_) {}
+    _db = null;
+
+    // Write-back: riscrive il file locale sul content URI originale (OneDrive)
+    if (_contentUri != null && _path != null) {
+      await FileUriBridge.writeLocalBackToUri(_path!, _contentUri!);
     }
-    _db = await openDatabase(_syncBackPath ?? _path!);
+
+    _db = await openDatabase(_path!);
     _openedAt = now;
   }
 

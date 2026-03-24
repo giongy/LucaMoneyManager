@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 import '../db/db_helper.dart';
+import '../db/file_uri_bridge.dart';
 import '../models/account.dart';
 import 'add_transaction_screen.dart';
 
@@ -24,12 +25,33 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _init() async {
-    final path = await DbHelper.getSavedPath();
-    if (path == null) {
+    final savedUri  = await DbHelper.getSavedContentUri();
+    final savedPath = await DbHelper.getSavedPath();
+
+    if (savedUri == null && savedPath == null) {
       setState(() => _loading = false);
       return;
     }
-    await _openAndLoad(path);
+
+    if (savedUri != null) {
+      // Copia fresca da OneDrive all'avvio (prende eventuali modifiche del desktop)
+      try {
+        final localPath = await FileUriBridge.copyUriToLocal(savedUri);
+        await DbHelper.savePath(localPath);
+        await DbHelper.saveContentUri(savedUri); // mantiene _contentUri in memoria
+        await _openAndLoad(localPath);
+      } catch (_) {
+        // Se OneDrive non è raggiungibile, usa la copia locale salvata
+        if (savedPath != null) {
+          await DbHelper.saveContentUri(savedUri);
+          await _openAndLoad(savedPath);
+        } else {
+          setState(() { _loading = false; _error = 'Impossibile accedere al file OneDrive.'; });
+        }
+      }
+    } else {
+      await _openAndLoad(savedPath!);
+    }
   }
 
   Future<void> _openAndLoad(String path) async {
@@ -50,19 +72,37 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _pickDb() async {
     if (await Permission.manageExternalStorage.isDenied) {
       final status = await Permission.manageExternalStorage.request();
-      if (!status.isGranted) {
-        await openAppSettings();
+      if (!status.isGranted) { await openAppSettings(); return; }
+    }
+
+    final result = await FilePicker.platform.pickFiles(allowMultiple: false);
+    if (result == null) return;
+
+    final contentUri = result.files.single.identifier; // content:// URI (Android)
+    final pickedPath = result.files.single.path;
+
+    String localPath;
+
+    if (contentUri != null && contentUri.startsWith('content://')) {
+      // Percorso corretto: copia tramite content URI e salva l'URI per il write-back
+      try {
+        localPath = await FileUriBridge.copyUriToLocal(contentUri);
+        await DbHelper.saveContentUri(contentUri);
+      } catch (e) {
+        setState(() => _error = 'Errore apertura file: $e');
         return;
       }
+    } else if (pickedPath != null) {
+      // Fallback: path reale restituito direttamente (raro su Android moderno)
+      localPath = pickedPath;
+      await DbHelper.saveContentUri(null);
+    } else {
+      setState(() => _error = 'Impossibile accedere al file selezionato.');
+      return;
     }
-    final result = await FilePicker.platform.pickFiles(allowMultiple: false);
-    if (result == null || result.files.single.path == null) return;
-    final pickedPath = result.files.single.path!;
-    final filename = result.files.single.name;
-    // Cerca il file vero in OneDrive (il picker potrebbe aver restituito una copia cache)
-    final realPath = await DbHelper.resolveRealPath(pickedPath, filename);
-    await DbHelper.savePath(realPath);
-    await _openAndLoad(realPath);
+
+    await DbHelper.savePath(localPath);
+    await _openAndLoad(localPath);
   }
 
   Future<void> _openAddTransaction() async {
@@ -84,9 +124,18 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final filename = DbHelper.currentFilename;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Luca Wallet'),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Luca Wallet'),
+            if (filename != null)
+              Text(filename,
+                  style: const TextStyle(fontSize: 11, color: Colors.white70)),
+          ],
+        ),
         actions: [
           IconButton(
             icon: const Icon(Icons.folder_open),

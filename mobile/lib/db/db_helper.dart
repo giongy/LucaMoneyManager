@@ -87,6 +87,17 @@ class DbHelper {
     return rows.isEmpty ? null : rows.first['value'] as String?;
   }
 
+  /// true se il file è stato modificato da un altro dispositivo dopo l'apertura
+  static Future<bool> hasConflict() async {
+    if (_db == null) return false;
+    return await _readLastModified() != _openedAt;
+  }
+
+  /// Aggiorna il riferimento locale dopo che l'utente ha scelto di ignorare il conflitto
+  static Future<void> refreshOpenedAt() async {
+    _openedAt = await _readLastModified();
+  }
+
   static Future<void> _touchSyncMeta() async {
     final now = DateTime.now().toIso8601String();
     await _db!.insert('sync_meta', {'key': 'last_modified', 'value': now},

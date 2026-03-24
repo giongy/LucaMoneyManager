@@ -38,7 +38,7 @@ class MainActivity : FlutterActivity() {
                                 val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or
                                             Intent.FLAG_GRANT_WRITE_URI_PERMISSION
                                 contentResolver.takePersistableUriPermission(uri, flags)
-                            } catch (_: Exception) {}
+                            } catch (ignored: Exception) {}
 
                             val displayName = resolveDisplayName(uri) ?: "database.db"
                             val localFile = File(filesDir, displayName)
@@ -87,6 +87,6 @@ class MainActivity : FlutterActivity() {
                 val col = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
                 if (col >= 0 && cursor.moveToFirst()) cursor.getString(col) else null
             }
-        } catch (_: Exception) { null }
+        } catch (ignored: Exception) { null }
     }
 }

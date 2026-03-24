@@ -57,9 +57,12 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     final result = await FilePicker.platform.pickFiles(allowMultiple: false);
     if (result == null || result.files.single.path == null) return;
-    final path = result.files.single.path!;
-    await DbHelper.savePath(path);
-    await _openAndLoad(path);
+    final pickedPath = result.files.single.path!;
+    final filename = result.files.single.name;
+    // Cerca il file vero in OneDrive (il picker potrebbe aver restituito una copia cache)
+    final realPath = await DbHelper.resolveRealPath(pickedPath, filename);
+    await DbHelper.savePath(realPath);
+    await _openAndLoad(realPath);
   }
 
   Future<void> _openAddTransaction() async {

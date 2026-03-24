@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:sqflite/sqflite.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../models/account.dart';
@@ -23,6 +24,7 @@ class DbHelper {
 
   /// Restituisce null se OK, oppure il messaggio di errore.
   static String? _path;
+  static String? _syncBackPath; // path reale OneDrive, se diverso da _path (cache)
 
   static Future<String?> openDb(String path) async {
     try {
@@ -76,6 +78,54 @@ class DbHelper {
     _openedAt = await _readLastModified();
   }
 
+  // ── Risoluzione path reale OneDrive ──────────────────────────────────────
+
+  /// Dopo il file picker (che può restituire un path di cache),
+  /// cerca il file vero in OneDrive e lo usa direttamente.
+  /// Se lo trova: apre sqflite dal path reale, nessuna copia necessaria.
+  /// Se non lo trova: usa il path cache + copia indietro dopo ogni scrittura.
+  static Future<String> resolveRealPath(String pickedPath, String filename) async {
+    // Se non sembra un path di cache, usalo com'è
+    if (!pickedPath.contains('/cache/') && !pickedPath.contains('file_picker')) {
+      _syncBackPath = null;
+      return pickedPath;
+    }
+    // Cerca il file vero in OneDrive
+    final real = await _findInOneDrive(filename);
+    if (real != null) {
+      _syncBackPath = null; // sqflite scrive direttamente sul file reale
+      return real;
+    }
+    // Non trovato: lavora sulla cache e copia indietro dopo le scritture
+    _syncBackPath = pickedPath; // non dovrebbe succedere, ma sicurezza
+    return pickedPath;
+  }
+
+  static Future<String?> _findInOneDrive(String filename) async {
+    final roots = [
+      '/storage/emulated/0/OneDrive',
+      '/storage/emulated/0/OneDrive - Personal',
+      '/sdcard/OneDrive',
+    ];
+    for (final root in roots) {
+      final dir = Directory(root);
+      if (!await dir.exists()) continue;
+      // Controlla la radice
+      final direct = File('$root/$filename');
+      if (await direct.exists()) return direct.path;
+      // Controlla il primo livello di sottocartelle
+      try {
+        await for (final sub in dir.list(followLinks: false)) {
+          if (sub is Directory) {
+            final f = File('${sub.path}/$filename');
+            if (await f.exists()) return f.path;
+          }
+        }
+      } catch (_) {}
+    }
+    return null;
+  }
+
   static Future<void> _touchSyncMeta() async {
     final now = DateTime.now().toIso8601String();
     await _db!.insert('sync_meta', {'key': 'last_modified', 'value': now},
@@ -86,7 +136,11 @@ class DbHelper {
     // così OneDrive vede il file .db aggiornato
     await _db!.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)');
     await _db!.close();
-    _db = await openDatabase(_path!);
+    // Se stiamo lavorando su una copia cache, copiala sul file reale
+    if (_syncBackPath != null && _path != null) {
+      try { await File(_path!).copy(_syncBackPath!); } catch (_) {}
+    }
+    _db = await openDatabase(_syncBackPath ?? _path!);
     _openedAt = now;
   }
 

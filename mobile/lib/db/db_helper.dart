@@ -22,15 +22,17 @@ class DbHelper {
   // ── Apertura DB ─────────────────────────────────────────────────────────
 
   /// Restituisce null se OK, oppure il messaggio di errore.
+  static String? _path;
+
   static Future<String?> openDb(String path) async {
     try {
       if (_db != null && _db!.isOpen) await _db!.close();
       _db = await openDatabase(path);
-      // Tenta di uscire dal WAL mode per far sì che OneDrive sincronizzi il .db
-      // direttamente. Se fallisce (es. file aperto altrove) non è bloccante.
+      _path = path;
       try {
         await _db!.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)');
         await _db!.execute('PRAGMA journal_mode=DELETE');
+        await _db!.execute('PRAGMA synchronous=FULL');
       } catch (_) {}
       await _ensureSyncMeta();
       _openedAt = await _readLastModified();
@@ -80,9 +82,11 @@ class DbHelper {
         conflictAlgorithm: ConflictAlgorithm.replace);
     await _db!.insert('sync_meta', {'key': 'last_modified_by', 'value': 'android'},
         conflictAlgorithm: ConflictAlgorithm.replace);
-    // Forza il checkpoint WAL: scrive tutte le modifiche nel file .db principale
-    // senza questo, OneDrive sincronizza il .db senza le modifiche recenti
+    // Chiudi e riapri per forzare flush su disco (WAL checkpoint + fsync)
+    // così OneDrive vede il file .db aggiornato
     await _db!.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)');
+    await _db!.close();
+    _db = await openDatabase(_path!);
     _openedAt = now;
   }
 

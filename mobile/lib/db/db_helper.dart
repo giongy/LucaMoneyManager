@@ -25,13 +25,13 @@ class DbHelper {
   static Future<String?> openDb(String path) async {
     try {
       if (_db != null && _db!.isOpen) await _db!.close();
-      _db = await openDatabase(
-        path,
-        onOpen: (db) async {
-          await db.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)');
-          await db.execute('PRAGMA journal_mode=DELETE');
-        },
-      );
+      _db = await openDatabase(path);
+      // Tenta di uscire dal WAL mode per far sì che OneDrive sincronizzi il .db
+      // direttamente. Se fallisce (es. file aperto altrove) non è bloccante.
+      try {
+        await _db!.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)');
+        await _db!.execute('PRAGMA journal_mode=DELETE');
+      } catch (_) {}
       await _ensureSyncMeta();
       _openedAt = await _readLastModified();
       return null;

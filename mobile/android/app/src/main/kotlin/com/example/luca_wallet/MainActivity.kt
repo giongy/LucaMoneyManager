@@ -12,6 +12,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
 import kotlinx.coroutines.Dispatchers
@@ -29,9 +30,10 @@ class MainActivity : AppCompatActivity() {
     private val addTransactionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        if (result.resultCode == RESULT_OK) lifecycleScope.launch { loadAccounts() }
+        if (result.resultCode == RESULT_OK) lifecycleScope.launch { init() }
     }
 
+    private lateinit var swipeRefresh: SwipeRefreshLayout
     private lateinit var recyclerView: RecyclerView
     private lateinit var fab: ExtendedFloatingActionButton
     private val accounts = mutableListOf<DbHelper.Account>()
@@ -44,11 +46,24 @@ class MainActivity : AppCompatActivity() {
         val toolbar = findViewById<MaterialToolbar>(R.id.toolbar)
         setSupportActionBar(toolbar)
 
+        swipeRefresh = findViewById(R.id.swipeRefresh)
         recyclerView = findViewById(R.id.recyclerView)
         fab          = findViewById(R.id.fabAdd)
-        adapter      = AccountAdapter(accounts)
+
+        adapter = AccountAdapter(accounts) { account ->
+            val intent = Intent(this, AddTransactionActivity::class.java)
+            intent.putExtra("account_id", account.id)
+            addTransactionLauncher.launch(intent)
+        }
         recyclerView.layoutManager = LinearLayoutManager(this)
         recyclerView.adapter = adapter
+
+        swipeRefresh.setOnRefreshListener {
+            lifecycleScope.launch {
+                init()
+                swipeRefresh.isRefreshing = false
+            }
+        }
 
         fab.setOnClickListener {
             addTransactionLauncher.launch(

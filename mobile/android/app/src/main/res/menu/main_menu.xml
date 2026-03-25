@@ -4,14 +4,14 @@
 
     <item
         android:id="@+id/menu_open"
-        android:title="Apri file DB"
+        android:title="Scegli DB"
         android:icon="@drawable/ic_folder"
-        app:showAsAction="always"/>
+        app:showAsAction="never"/>
 
     <item
         android:id="@+id/menu_refresh"
         android:title="Aggiorna"
         android:icon="@drawable/ic_refresh"
-        app:showAsAction="ifRoom"/>
+        app:showAsAction="never"/>
 
 </menu>

@@ -7,8 +7,10 @@ import android.view.ViewGroup
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 
-class AccountAdapter(private val items: List<DbHelper.Account>) :
-    RecyclerView.Adapter<AccountAdapter.VH>() {
+class AccountAdapter(
+    private val items: List<DbHelper.Account>,
+    private val onItemClick: (DbHelper.Account) -> Unit
+) : RecyclerView.Adapter<AccountAdapter.VH>() {
 
     class VH(view: View) : RecyclerView.ViewHolder(view) {
         val icon:    TextView = view.findViewById(R.id.tvIcon)
@@ -30,5 +32,6 @@ class AccountAdapter(private val items: List<DbHelper.Account>) :
             if (a.balance >= 0) Color.parseColor("#3fb950")
             else                Color.parseColor("#f85149")
         )
+        holder.itemView.setOnClickListener { onItemClick(a) }
     }
 }

@@ -117,7 +117,13 @@ class AddTransactionActivity : AppCompatActivity() {
         actvAccount.setOnItemClickListener   { _, _, i, _ -> accIdx   = i }
         actvToAccount.setOnItemClickListener { _, _, i, _ -> toAccIdx = i }
 
-        val favIdx = accounts.indexOfFirst { it.isFavorite }.takeIf { it >= 0 } ?: 0
+        val preselectedId = intent.getIntExtra("account_id", -1)
+        val favIdx = if (preselectedId >= 0) {
+            accounts.indexOfFirst { it.id == preselectedId }.takeIf { it >= 0 }
+                ?: accounts.indexOfFirst { it.isFavorite }.takeIf { it >= 0 } ?: 0
+        } else {
+            accounts.indexOfFirst { it.isFavorite }.takeIf { it >= 0 } ?: 0
+        }
         if (accounts.isNotEmpty()) {
             actvAccount.setText(names[favIdx], false)
             accIdx = favIdx

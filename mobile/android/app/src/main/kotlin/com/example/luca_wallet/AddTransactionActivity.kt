@@ -4,6 +4,8 @@ import android.app.Activity
 import android.app.DatePickerDialog
 import android.os.Bundle
 import android.view.View
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
 import android.widget.ArrayAdapter
 import android.widget.AutoCompleteTextView
 import android.widget.Toast
@@ -67,6 +69,10 @@ class AddTransactionActivity : AppCompatActivity() {
             toAccIdx = -1
             updateTransferUI()
             lifecycleScope.launch { loadCategories() }
+        }
+
+        etAmount.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_DONE) { hideKeyboard(); true } else false
         }
 
         etDate.setOnClickListener { pickDate() }
@@ -145,7 +151,13 @@ class AddTransactionActivity : AppCompatActivity() {
         actvCategory.setOnItemClickListener { _, _, i, _ -> catIdx = i }
     }
 
+    private fun hideKeyboard() {
+        val imm = getSystemService(INPUT_METHOD_SERVICE) as InputMethodManager
+        currentFocus?.let { imm.hideSoftInputFromWindow(it.windowToken, 0) }
+    }
+
     private suspend fun save() {
+        hideKeyboard()
         val amount = etAmount.text?.toString()?.replace(',', '.')?.toDoubleOrNull()
         if (amount == null || amount <= 0) {
             Toast.makeText(this, "Inserisci un importo valido", Toast.LENGTH_SHORT).show(); return

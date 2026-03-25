@@ -1404,7 +1404,7 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
       <div class="form-group">
         <label class="form-label">Tag</label>
         <div class="tag-selector" id="tagSelector">
-          ${tags.map(t=>`<span class="tag-chip" data-tag-id="${t.id}" style="--tc:${t.color}">${t.name}</span>`).join('')}
+          ${tags.filter(t=>!t.is_system).map(t=>`<span class="tag-chip" data-tag-id="${t.id}" style="--tc:${t.color}">${t.name}</span>`).join('')}
           <span class="tag-chip tag-chip-new" id="tagChipNew">+ nuovo</span>
         </div>
         <div class="tag-new-row" id="tagNewRow" style="display:none">
@@ -4983,7 +4983,7 @@ async function showReportModal(reportId = null) {
     <div class="form-group" style="margin-top:6px">
       <label class="form-label">Tag</label>
       <div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:3px" id="rmTagsSelector">
-        ${tags.map(t=>`<span class="tag-chip${(f.tag_ids||[]).includes(t.id)?' selected':''}" style="--tc:${t.color}" data-tag-id="${t.id}" onclick="this.classList.toggle('selected')">${t.name}</span>`).join('')}
+        ${tags.filter(t=>!t.is_system).map(t=>`<span class="tag-chip${(f.tag_ids||[]).includes(t.id)?' selected':''}" style="--tc:${t.color}" data-tag-id="${t.id}" onclick="this.classList.toggle('selected')">${t.name}</span>`).join('')}
       </div>
     </div>` : ''}`;
 

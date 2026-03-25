@@ -1268,7 +1268,18 @@ function initCatPicker(inputId, hiddenId, listId) {
   input.addEventListener('input', () => {
     hidden.value = '';
     const q = input.value.toLowerCase();
-    renderList(q ? items.filter(i => !i.separator && i.label.toLowerCase().includes(q)) : items);
+    if (q) {
+      const seen = new Set();
+      const filtered = items.filter(i => {
+        if (i.separator || !i.label.toLowerCase().includes(q)) return false;
+        if (seen.has(i.id)) return false;
+        seen.add(i.id);
+        return true;
+      });
+      renderList(filtered);
+    } else {
+      renderList(items);
+    }
   });
 
   input.addEventListener('keydown', e => {

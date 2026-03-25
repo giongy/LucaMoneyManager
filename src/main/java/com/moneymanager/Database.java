@@ -367,7 +367,7 @@ public class Database {
         """);
     }
 
-    private static final int SCHEMA_VERSION = 1;
+    private static final int SCHEMA_VERSION = 2;
 
     private void migrate() throws SQLException {
         // Crea tabella versione se non esiste
@@ -376,7 +376,8 @@ public class Database {
         int currentVersion = vRow == null ? 0 : ((Number) vRow.get("version")).intValue();
         if (currentVersion >= SCHEMA_VERSION) return; // già aggiornato, salta tutto
 
-        // ── Migrazioni (eseguite solo se necessario) ──────────────────────────
+        // ── v1: migrazioni iniziali ────────────────────────────────────────────
+        if (currentVersion < 1) {
         // Aggiunge parent_id se il DB è stato creato prima di questa versione
         try {
             executePlain("ALTER TABLE categories ADD COLUMN parent_id INTEGER REFERENCES categories(id) ON DELETE CASCADE");
@@ -397,9 +398,7 @@ public class Database {
             executePlain("UPDATE transactions SET reconciled=1 WHERE reconciled IS NULL OR reconciled=0");
         } catch (SQLException ignored) { /* già presente */ }
         // Crea tabelle tag se non esistono (CREATE IF NOT EXISTS è idempotente)
-        executePlain("CREATE TABLE IF NOT EXISTS tags (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, color TEXT DEFAULT '#58a6ff', is_system INTEGER DEFAULT 0, created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
-        try { executePlain("ALTER TABLE tags ADD COLUMN is_system INTEGER DEFAULT 0"); } catch (SQLException ignored) { /* già presente */ }
-        ensureSystemTags();
+        executePlain("CREATE TABLE IF NOT EXISTS tags (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, color TEXT DEFAULT '#58a6ff', created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
         executePlain("CREATE TABLE IF NOT EXISTS transaction_tags (transaction_id INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE, tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE, PRIMARY KEY (transaction_id, tag_id))");
         // scheduled_transactions (idempotente)
         executePlain("""
@@ -529,25 +528,24 @@ public class Database {
         """);
 
         // ─── Indici per performance (idempotenti) ─────────────────────────────
-        // transactions: colonne filtrate/join più frequenti
         executePlain("CREATE INDEX IF NOT EXISTS idx_tx_date        ON transactions(date)");
         executePlain("CREATE INDEX IF NOT EXISTS idx_tx_account      ON transactions(account_id)");
         executePlain("CREATE INDEX IF NOT EXISTS idx_tx_to_account   ON transactions(to_account_id)");
         executePlain("CREATE INDEX IF NOT EXISTS idx_tx_category     ON transactions(category_id)");
         executePlain("CREATE INDEX IF NOT EXISTS idx_tx_account_date ON transactions(account_id, date)");
-        // categories
         executePlain("CREATE INDEX IF NOT EXISTS idx_cat_parent      ON categories(parent_id)");
-        // budgets: getBudgetYear filtra per year
         executePlain("CREATE INDEX IF NOT EXISTS idx_budgets_year    ON budgets(year)");
-        // scheduled_transactions: getScheduled filtra per is_active
         executePlain("CREATE INDEX IF NOT EXISTS idx_sched_active    ON scheduled_transactions(is_active)");
-        // transaction_tags: lookup inverso per tag
         executePlain("CREATE INDEX IF NOT EXISTS idx_tx_tags_tag     ON transaction_tags(tag_id)");
-        // portfolio
         executePlain("CREATE INDEX IF NOT EXISTS idx_portfolio_acc   ON portfolio(account_id)");
-
-        // Aggiorna le statistiche query-planner (come ANALYZE ma incrementale)
         executePlain("PRAGMA optimize");
+        } // fine blocco v1
+
+        // ── v2: tag di sistema ─────────────────────────────────────────────────
+        if (currentVersion < 2) {
+            try { executePlain("ALTER TABLE tags ADD COLUMN is_system INTEGER DEFAULT 0"); } catch (SQLException ignored) {}
+            ensureSystemTags();
+        }
 
         // Segna il DB come aggiornato all'ultima versione
         executePlain("DELETE FROM schema_version");

@@ -31,8 +31,8 @@ public class Database {
 
     private static Connection openConnection(String dbPath) throws SQLException {
         SQLiteConfig config = new SQLiteConfig();
-        config.setJournalMode(SQLiteConfig.JournalMode.WAL);
-        config.setSynchronous(SQLiteConfig.SynchronousMode.NORMAL); // sicuro con WAL, più veloce di FULL
+        config.setJournalMode(SQLiteConfig.JournalMode.DELETE);
+        config.setSynchronous(SQLiteConfig.SynchronousMode.FULL);
         config.setCacheSize(-16000);   // 16 MB di cache (default 2 MB)
         config.setTempStore(SQLiteConfig.TempStore.MEMORY); // tabelle temporanee in RAM
         config.enforceForeignKeys(true);
@@ -81,11 +81,6 @@ public class Database {
         String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss"));
         String backupName = baseName + "_" + timestamp + ".db.bak";
         Path dest = dir.resolve(backupName);
-
-        // WAL checkpoint prima di copiare per avere un file consistente
-        try (Statement st = conn.createStatement()) {
-            st.execute("PRAGMA wal_checkpoint(TRUNCATE)");
-        } catch (SQLException ignored) {}
 
         Files.copy(src, dest, StandardCopyOption.REPLACE_EXISTING);
         logger.log("BACKUP ESEGUITO", "dest:" + dest);
@@ -154,11 +149,6 @@ public class Database {
         String baseName = src.getFileName().toString().replaceAll("\\.[^.]+$", "");
         String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss"));
 
-        // WAL checkpoint per consistenza
-        try (Statement st = conn.createStatement()) {
-            st.execute("PRAGMA wal_checkpoint(TRUNCATE)");
-        } catch (SQLException ignored) {}
-
         // Chiudi connessione prima di spostare il file
         try { conn.close(); } catch (SQLException ignored) {}
         conn = null;
@@ -205,10 +195,6 @@ public class Database {
             ps.executeUpdate();
             ResultSet keys = ps.getGeneratedKeys();
             long id = keys.next() ? keys.getLong(1) : -1;
-            // Checkpoint WAL subito: il .db principale è sempre aggiornato per OneDrive
-            try (Statement st = conn.createStatement()) {
-                st.execute("PRAGMA wal_checkpoint(TRUNCATE)");
-            } catch (SQLException ignored) {}
             return id;
         }
     }
@@ -2114,9 +2100,8 @@ public class Database {
 
     // ─── Manutenzione DB ────────────────────────────────────────────────────────
 
-    /** Esegue un'operazione che richiede accesso esclusivo al file DB.
-     *  Chiude la connessione principale, apre una connessione plain (senza WAL),
-     *  esegue l'operazione, poi riapre la connessione WAL normale. */
+    /** Esegue un'operazione che richiede accesso esclusivo al file DB (es. VACUUM).
+     *  Chiude la connessione principale, esegue l'operazione, poi la riapre. */
     @FunctionalInterface
     private interface DbOp { void run(Connection c) throws SQLException; }
 
@@ -2131,8 +2116,6 @@ public class Database {
 
     public Map<String, Object> dbGetInfo() throws SQLException, IOException {
         long fileSize = Files.exists(Path.of(currentDbPath)) ? Files.size(Path.of(currentDbPath)) : 0;
-        Path walPath  = Path.of(currentDbPath + "-wal");
-        long walSize  = Files.exists(walPath) ? Files.size(walPath) : 0;
         var pageCount = queryOne("PRAGMA page_count");
         var pageSize  = queryOne("PRAGMA page_size");
         var freePages = queryOne("PRAGMA freelist_count");
@@ -2147,7 +2130,7 @@ public class Database {
         int sv   = svRow   != null ? ((Number) svRow.get("version")).intValue() : 0;
         Map<String, Object> result = new java.util.LinkedHashMap<>();
         result.put("file_size",      fileSize);
-        result.put("wal_size",       walSize);
+
         result.put("page_count",     pc);
         result.put("page_size",      ps);
         result.put("free_pages",     fp);

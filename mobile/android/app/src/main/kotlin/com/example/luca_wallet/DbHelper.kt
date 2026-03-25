@@ -59,6 +59,15 @@ object DbHelper {
 
     // ── File I/O ─────────────────────────────────────────────────────────────
 
+    /** Cancella il file locale e tutti i file SQLite associati (-wal, -shm, -journal). */
+    fun clearLocalCache(context: Context) {
+        val path = localPath ?: getSavedPath(context) ?: return
+        val base = File(path)
+        for (suffix in listOf("", "-wal", "-shm", "-journal")) {
+            File(base.absolutePath + suffix).delete()
+        }
+    }
+
     fun copyUriToLocal(context: Context, uri: Uri): String {
         try {
             val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or
@@ -68,6 +77,12 @@ object DbHelper {
 
         val displayName = resolveDisplayName(context, uri) ?: "database.db"
         val localFile = File(context.filesDir, displayName)
+
+        // Rimuovi file residui SQLite prima di sovrascrivere
+        for (suffix in listOf("", "-wal", "-shm", "-journal")) {
+            File(localFile.absolutePath + suffix).delete()
+        }
+
         context.contentResolver.openInputStream(uri)!!.use { input ->
             FileOutputStream(localFile).use { output -> input.copyTo(output) }
         }

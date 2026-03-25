@@ -98,8 +98,11 @@ class MainActivity : AppCompatActivity() {
         val savedPath   = DbHelper.getSavedPath(this)
         if (savedUriStr == null && savedPath == null) return
 
-        // Chiudi prima di sovrascrivere il file locale
-        withContext(Dispatchers.IO) { DbHelper.closeDb() }
+        // Chiudi e svuota la cache locale prima di scaricare la versione aggiornata
+        withContext(Dispatchers.IO) {
+            DbHelper.closeDb()
+            DbHelper.clearLocalCache(this@MainActivity)
+        }
 
         if (savedUriStr != null) {
             val uri = Uri.parse(savedUriStr)

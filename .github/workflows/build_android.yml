@@ -9,6 +9,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
@@ -24,11 +26,14 @@ jobs:
 
       - name: Build APK
         working-directory: mobile/android
-        run: ./gradlew assembleDebug --info
+        run: ./gradlew assembleDebug
 
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: luca-wallet-apk
-          path: mobile/android/app/build/outputs/apk/debug/app-debug.apk
-          retention-days: 30
+      - name: Publish APK as release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete latest --yes 2>/dev/null || true
+          gh release create latest \
+            --title "LucaMoney - latest build" \
+            --notes "Build automatico dall'ultimo commit su master." \
+            mobile/android/app/build/outputs/apk/debug/app-debug.apk#LucaMoney.apk

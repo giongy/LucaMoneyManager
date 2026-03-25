@@ -67,7 +67,7 @@ class MainActivity : AppCompatActivity() {
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         return when (item.itemId) {
             R.id.menu_open    -> { openFileLauncher.launch(arrayOf("*/*")); true }
-            R.id.menu_refresh -> { lifecycleScope.launch { loadAccounts() }; true }
+            R.id.menu_refresh -> { lifecycleScope.launch { init() }; true }
             else -> super.onOptionsItemSelected(item)
         }
     }

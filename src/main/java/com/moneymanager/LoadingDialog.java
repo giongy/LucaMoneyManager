@@ -9,14 +9,19 @@ public class LoadingDialog extends JWindow {
     private final JProgressBar progressBar;
 
     public LoadingDialog() {
-        setSize(400, 120);
-        setLocationRelativeTo(null);
+        // Copre tutto lo schermo per nascondere il flash di Chromium durante il caricamento
+        GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
+        Rectangle screen = ge.getMaximumWindowBounds();
+        setBounds(screen);
         setBackground(new Color(13, 17, 23));
         setAlwaysOnTop(true);
 
-        JPanel panel = new JPanel(new BorderLayout(10, 10));
-        panel.setBackground(new Color(22, 27, 34));
-        panel.setBorder(BorderFactory.createLineBorder(new Color(48, 54, 61), 1));
+        // Pannello centrato con le info di caricamento
+        JPanel card = new JPanel(new BorderLayout(10, 10));
+        card.setBackground(new Color(22, 27, 34));
+        card.setBorder(BorderFactory.createLineBorder(new Color(48, 54, 61), 1));
+        card.setPreferredSize(new Dimension(400, 120));
+        card.setMaximumSize(new Dimension(400, 120));
 
         JLabel titleLabel = new JLabel("💰 LucaMoneyManager", SwingConstants.CENTER);
         titleLabel.setForeground(new Color(230, 237, 243));
@@ -34,11 +39,15 @@ public class LoadingDialog extends JWindow {
         progressBar.setBorder(BorderFactory.createEmptyBorder(0, 20, 15, 20));
         progressBar.setIndeterminate(true);
 
-        panel.add(titleLabel, BorderLayout.NORTH);
-        panel.add(statusLabel, BorderLayout.CENTER);
-        panel.add(progressBar, BorderLayout.SOUTH);
+        card.add(titleLabel, BorderLayout.NORTH);
+        card.add(statusLabel, BorderLayout.CENTER);
+        card.add(progressBar, BorderLayout.SOUTH);
 
-        setContentPane(panel);
+        // Wrapper scuro a schermo intero con card centrata
+        JPanel bg = new JPanel(new GridBagLayout());
+        bg.setBackground(new Color(13, 17, 23));
+        bg.add(card);
+        setContentPane(bg);
     }
 
     public void update(String status, float percent) {

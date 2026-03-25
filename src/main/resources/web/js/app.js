@@ -1228,11 +1228,15 @@ function initCatPicker(inputId, hiddenId, listId) {
 
   const renderList = filtered => {
     activeIdx = -1;
-    if (!filtered.length) {
+    const selectables = filtered.filter(it => !it.separator);
+    if (!selectables.length) {
       list.innerHTML = '<div class="cat-picker-empty">Nessuna categoria trovata</div>';
     } else {
       list.innerHTML = filtered.map(it =>
-        `<div class="cat-picker-item" data-id="${it.id}">${it.label}</div>`).join('');
+        it.separator
+          ? `<div class="cat-picker-sep">${it.label}</div>`
+          : `<div class="cat-picker-item" data-id="${it.id}">${it.label}</div>`
+      ).join('');
       list.querySelectorAll('.cat-picker-item').forEach(el => {
         el.onmousedown = e => { e.preventDefault(); selectById(Number(el.dataset.id)); };
       });
@@ -1264,7 +1268,7 @@ function initCatPicker(inputId, hiddenId, listId) {
   input.addEventListener('input', () => {
     hidden.value = '';
     const q = input.value.toLowerCase();
-    renderList(q ? items.filter(i => i.label.toLowerCase().includes(q)) : items);
+    renderList(q ? items.filter(i => !i.separator && i.label.toLowerCase().includes(q)) : items);
   });
 
   input.addEventListener('keydown', e => {
@@ -1423,10 +1427,21 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
     if (type === 'transfer') { input._catPickerSetItems([], null); return; }
     const cats = type === 'expense' ? expCats : incCats;
     const parentIds = new Set(cats.filter(c => c.parent_id).map(c => c.parent_id));
-    const items = cats.filter(c => c.parent_id || !parentIds.has(c.id)).map(c => ({
+    const leafs = cats.filter(c => c.parent_id || !parentIds.has(c.id));
+    const toItem = c => ({
       id: c.id,
-      label: c.parent_id ? `${c.parent_name} › ${c.icon} ${c.name}` : `${c.icon} ${c.name}`
-    }));
+      label: c.parent_id ? `${c.parent_name} › ${c.icon} ${c.name}` : `${c.icon} ${c.name}`,
+      usage_count: c.usage_count || 0
+    });
+    const top3 = [...leafs].sort((a,b) => (b.usage_count||0) - (a.usage_count||0))
+                           .slice(0, 3)
+                           .filter(c => (c.usage_count||0) > 0);
+    const allItems = leafs.map(toItem);
+    const items = top3.length
+      ? [ ...top3.map(toItem),
+          { separator: true, label: '── tutte le categorie ──' },
+          ...allItems ]
+      : allItems;
     input._catPickerSetItems(items, keepSelected);
   }
 

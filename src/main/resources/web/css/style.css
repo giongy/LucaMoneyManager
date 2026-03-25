@@ -237,6 +237,11 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 }
 .cat-picker-item:hover, .cat-picker-item.active { background:var(--bg4); }
 .cat-picker-empty { padding:10px 12px; color:var(--txt3); font-size:12px; }
+.cat-picker-sep {
+  padding:4px 12px; font-size:11px; color:var(--txt3);
+  border-top:1px solid var(--border); margin-top:2px;
+  cursor:default; user-select:none;
+}
 
 /* ─── Filtri ──────────────────────────────────────────────────────────────── */
 .filter-bar {

@@ -684,7 +684,8 @@ public class Database {
             SELECT c.*,
                    p.name  AS parent_name,
                    p.type  AS parent_type,
-                   p.color AS parent_color
+                   p.color AS parent_color,
+                   (SELECT COUNT(*) FROM transactions t WHERE t.category_id = c.id) AS usage_count
             FROM categories c
             LEFT JOIN categories p ON c.parent_id = p.id
             ORDER BY

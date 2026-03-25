@@ -5993,9 +5993,10 @@ async function renderTags() {
             <div class="tag-mgmt-row">
               <span class="tag-inline" style="--tc:${t.color};font-size:13px;padding:4px 10px">${t.name}</span>
               <span class="text-muted" style="font-size:11px;margin-left:8px">${t.color}</span>
+              ${t.is_system ? '<span class="text-muted" style="font-size:11px;margin-left:4px" title="Tag di sistema">🔒</span>' : ''}
               <div style="margin-left:auto;display:flex;gap:4px">
                 <button class="btn btn-ghost btn-icon" onclick="editTagMgmt(${t.id})">✏️</button>
-                <button class="btn btn-ghost btn-icon" onclick="deleteTagMgmt(${t.id})">🗑️</button>
+                ${t.is_system ? '' : `<button class="btn btn-ghost btn-icon" onclick="deleteTagMgmt(${t.id})">🗑️</button>`}
               </div>
             </div>`).join('')}
         </div>` :
@@ -7021,6 +7022,11 @@ window.registerSched = async id => {
   const [cats, accs, tags] = await Promise.all([
     api.getCategories(), api.getAccounts(), api.getTags()
   ]);
+  const budgetTag = tags.find(t => t.name === 'Da Budget');
+  const existingIds = (s.tags || []).map(t => t.id);
+  const tagIds = budgetTag && !existingIds.includes(budgetTag.id)
+    ? [...existingIds, budgetTag.id]
+    : existingIds;
   const prefilled = {
     id: null,
     date: s._next,
@@ -7032,7 +7038,7 @@ window.registerSched = async id => {
     description:   s.description   || '',
     color:         s.color         || null,
     reconciled:    s.reconciled    ?? 1,
-    tag_ids: (s.tags || []).map(t => t.id)
+    tag_ids: tagIds
   };
   showTxModal(prefilled, cats, accs, s.type, tags, async () => {
     await api.advanceScheduled(id, s._next);

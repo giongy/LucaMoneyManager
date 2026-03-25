@@ -338,6 +338,7 @@ public class Database {
                 id         INTEGER PRIMARY KEY AUTOINCREMENT,
                 name       TEXT    NOT NULL UNIQUE,
                 color      TEXT    DEFAULT '#58a6ff',
+                is_system  INTEGER DEFAULT 0,
                 created_at TEXT    DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE IF NOT EXISTS transaction_tags (
@@ -396,7 +397,9 @@ public class Database {
             executePlain("UPDATE transactions SET reconciled=1 WHERE reconciled IS NULL OR reconciled=0");
         } catch (SQLException ignored) { /* già presente */ }
         // Crea tabelle tag se non esistono (CREATE IF NOT EXISTS è idempotente)
-        executePlain("CREATE TABLE IF NOT EXISTS tags (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, color TEXT DEFAULT '#58a6ff', created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
+        executePlain("CREATE TABLE IF NOT EXISTS tags (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, color TEXT DEFAULT '#58a6ff', is_system INTEGER DEFAULT 0, created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
+        try { executePlain("ALTER TABLE tags ADD COLUMN is_system INTEGER DEFAULT 0"); } catch (SQLException ignored) { /* già presente */ }
+        ensureSystemTags();
         executePlain("CREATE TABLE IF NOT EXISTS transaction_tags (transaction_id INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE, tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE, PRIMARY KEY (transaction_id, tag_id))");
         // scheduled_transactions (idempotente)
         executePlain("""
@@ -549,6 +552,25 @@ public class Database {
         // Segna il DB come aggiornato all'ultima versione
         executePlain("DELETE FROM schema_version");
         executePlain("INSERT INTO schema_version(version) VALUES(" + SCHEMA_VERSION + ")");
+    }
+
+    private void ensureSystemTags() throws SQLException {
+        String[][] sys = {
+            {"Da Telefono", "#58a6ff"},
+            {"Da Budget",   "#d29922"},
+            {"Investimenti","#3fb950"}
+        };
+        for (String[] t : sys) {
+            executePlain("INSERT OR IGNORE INTO tags(name,color,is_system) VALUES('" + t[0] + "','" + t[1] + "',1)");
+            executePlain("UPDATE tags SET is_system=1 WHERE name='" + t[0] + "'");
+        }
+    }
+
+    private Integer getSystemTagId(String name) {
+        try {
+            Map<String, Object> row = queryOne("SELECT id FROM tags WHERE name=?", name);
+            return row != null ? ((Number) row.get("id")).intValue() : null;
+        } catch (Exception e) { return null; }
     }
 
     private void seedDefaultData() throws SQLException {
@@ -962,7 +984,9 @@ public class Database {
     }
 
     public Map<String, Object> deleteTag(int id) throws SQLException {
-        Map<String, Object> old = queryOne("SELECT name FROM tags WHERE id=?", id);
+        Map<String, Object> old = queryOne("SELECT name, is_system FROM tags WHERE id=?", id);
+        if (old != null && Integer.valueOf(1).equals(old.get("is_system")))
+            throw new SQLException("Il tag '" + old.get("name") + "' è di sistema e non può essere eliminato.");
         execute("DELETE FROM tags WHERE id=?", id);
         logger.log("TAG ELIMINATO", "id:" + id, "nome:" + DbLogger.s(old != null ? old.get("name") : null));
         return Map.of("id", id, "deleted", true);
@@ -1984,6 +2008,10 @@ public class Database {
             INSERT INTO portfolio_transactions(portfolio_id,type,quantity,price,date,transaction_id,notes)
             VALUES(?,?,?,?,?,?,?)
         """, portfolioId, "coupon", 0, amount, date, txId, notes);
+
+        Integer investTagId = getSystemTagId("Investimenti");
+        if (investTagId != null)
+            executePlain("INSERT OR IGNORE INTO transaction_tags(transaction_id,tag_id) VALUES(" + txId + "," + investTagId + ")");
 
         logger.log("CEDOLA REGISTRATA", "ticker:" + ticker,
                    "importo:" + DbLogger.amt(amount), "data:" + date,

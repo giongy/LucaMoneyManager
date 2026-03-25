@@ -20,13 +20,22 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Decode keystore
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > mobile/android/app/lucamoney.keystore
+
       - name: Make gradlew executable
         working-directory: mobile/android
         run: chmod +x gradlew
 
       - name: Build APK
         working-directory: mobile/android
-        run: ./gradlew assembleDebug
+        env:
+          KEYSTORE_PATH: lucamoney.keystore
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: ./gradlew assembleRelease
 
       - name: Publish APK as release
         env:
@@ -36,4 +45,4 @@ jobs:
           gh release create latest \
             --title "LucaMoney - latest build" \
             --notes "Build automatico dall'ultimo commit su master." \
-            mobile/android/app/build/outputs/apk/debug/app-debug.apk#LucaMoney.apk
+            mobile/android/app/build/outputs/apk/release/app-release.apk#LucaMoney.apk

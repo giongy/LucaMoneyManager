@@ -254,7 +254,8 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             case "deleteScheduled"  -> db.deleteScheduled(p.get("id").getAsInt());
             case "getUpcoming"      -> db.getUpcoming(p.has("limit") ? p.get("limit").getAsInt() : 15);
             case "getUpcomingAll"   -> db.getUpcomingAll(p.has("limit") ? p.get("limit").getAsInt() : 15);
-            case "getOverdue"       -> db.getOverdue();
+            case "getOverdue"            -> db.getOverdue();
+            case "getTransactionsWithTag" -> db.getTransactionsWithTag(p.get("name").getAsString());
             case "advanceScheduled"  -> { db.advanceScheduled(p.get("id").getAsInt(), p.get("date").getAsString()); yield Map.of("ok", true); }
             case "getProjection"    -> db.getProjection(
                 p.get("from_date").getAsString(), p.get("to_date").getAsString(),

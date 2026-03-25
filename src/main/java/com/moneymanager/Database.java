@@ -1459,6 +1459,17 @@ public class Database {
         return overdue;
     }
 
+    public List<Map<String, Object>> getTransactionsWithTag(String tagName) throws SQLException {
+        return queryList("""
+            SELECT t.id, t.date, t.description, t.amount, t.type
+            FROM transactions t
+            JOIN transaction_tags tt ON tt.transaction_id = t.id
+            JOIN tags tg ON tg.id = tt.tag_id
+            WHERE tg.name = ?
+            ORDER BY t.date DESC
+        """, tagName);
+    }
+
     /**
      * Avanza start_date alla prossima occorrenza dopo registeredDate.
      * Chiamato dopo aver registrato un'occorrenza pianificata: in questo modo

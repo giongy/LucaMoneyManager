@@ -740,8 +740,7 @@ async function renderDashboard() {
       interaction:{ mode:'index', intersect:false },
       plugins:{
         legend:{labels:{color:chartColors().tick}},
-        tooltip:{ callbacks:{ label: ctx => ` ${ctx.dataset.label}: ${fmt.currency(ctx.parsed.y)}` } },
-        zoom: zoomOpts()
+        tooltip:{ callbacks:{ label: ctx => ` ${ctx.dataset.label}: ${fmt.currency(ctx.parsed.y)}` } }
       },
       scales:{x:{ticks:{color:chartColors().tick},grid:{color:chartColors().grid}},
               y:{ticks:{color:chartColors().tick},grid:{color:chartColors().grid}}}}
@@ -832,7 +831,6 @@ async function renderDashboard() {
                 }
               }
             },
-            zoom: zoomOpts()
           },
           scales: {
             x: { ticks: { color: chartColors().tick }, grid: { color: chartColors().grid } },
@@ -919,7 +917,7 @@ async function renderDashboard() {
       backgroundColor: savArr.map(v => v >= 0 ? 'rgba(63,185,80,.75)' : 'rgba(248,81,73,.75)'),
       borderRadius: 4
     }]},
-    options: { responsive:true, plugins:{legend:{display:false}, zoom:zoomOpts()},
+    options: { responsive:true, plugins:{legend:{display:false}},
       scales:{ x:{ticks:{color:chartColors().tick,font:{size:10}},grid:{color:chartColors().grid}},
                y:{ticks:{color:chartColors().tick,font:{size:10}},grid:{color:chartColors().grid}}}}
   });
@@ -933,7 +931,7 @@ async function renderDashboard() {
       data: { labels: top5.map(c => c.icon+' '+c.name),
               datasets: [{label:'Spesa', data: top5.map(c=>c.total),
                 backgroundColor: top5.map(c=>c.color||'rgba(88,166,255,.7)'), borderRadius:4}]},
-      options: { indexAxis:'y', responsive:true, plugins:{legend:{display:false}, zoom:zoomOpts()},
+      options: { indexAxis:'y', responsive:true, plugins:{legend:{display:false}},
         scales:{ x:{ticks:{color:chartColors().tick,font:{size:10}},grid:{color:chartColors().grid}},
                  y:{ticks:{color:chartColors().tick,font:{size:10}},grid:{color:chartColors().grid}}}}
     });
@@ -7232,6 +7230,35 @@ function showScheduledModal(sched, accounts, categories, tags = []) {
 /* ═══════════════════════════════════════════════════════════════════════════
    INIT
 ═══════════════════════════════════════════════════════════════════════════ */
+function showDaTelefonoNotice(list) {
+  const el = document.createElement('div');
+  el.className = 'overdue-notice notice-telefono';
+  el.innerHTML = `
+    <div class="overdue-notice-head">
+      <span>📱 ${list.length} transazion${list.length===1?'e':'i'} da telefono da controllare</span>
+      <button onclick="this.closest('.overdue-notice').remove()">✕</button>
+    </div>
+    <div class="overdue-notice-body">
+      ${list.slice(0,4).map(t=>`<div class="overdue-row">
+        <span>${fmt.date(t.date)}</span>
+        <span class="td-main">${t.description||'-'}</span>
+        <span class="amount-${t.type}">${t.type==='expense'?'-':''}${fmt.currency(t.amount)}</span>
+      </div>`).join('')}
+      ${list.length>4?`<div class="overdue-more">+ altre ${list.length-4}…</div>`:''}
+    </div>
+    <div class="overdue-notice-bar"><div class="overdue-notice-progress"></div></div>`;
+  document.getElementById('noticeStack').appendChild(el);
+  requestAnimationFrame(() => {
+    el.querySelector('.overdue-notice-progress').style.transition = 'width 8s linear';
+    el.querySelector('.overdue-notice-progress').style.width = '0%';
+  });
+  setTimeout(() => el.classList.add('fade-out'), 7800);
+  setTimeout(() => el.remove(), 8500);
+  el.querySelector('.overdue-notice-head').addEventListener('click', e => {
+    if (!e.target.closest('button')) navigate('transactions');
+  });
+}
+
 function showForecastReadyNotice(list) {
   const el = document.createElement('div');
   el.className = 'overdue-notice';
@@ -7313,6 +7340,11 @@ async function init() {
   if (s['portfolio.active_only']) _portfolioActiveOnly = s['portfolio.active_only'] !== '0';
   await updateSidebar();
   await renderDashboard();
+  // Notifica transazioni da telefono
+  try {
+    const daTelefono = await api.getTransactionsWithTag({ name: 'Da Telefono' });
+    if (daTelefono.length) showDaTelefonoNotice(daTelefono);
+  } catch(e) {}
   // Notifica scadute (non bloccante, dopo il render)
   const overdue = await api.getOverdue();
   if (overdue.length) showOverdueNotice(overdue);

@@ -207,10 +207,11 @@ const api = {
   reassignCategory:  data => callJava('reassignCategory', data),
 
   // Tag
-  getTags:    ()   => callJava('getTags'),
-  addTag:     data => callJava('addTag',    data),
-  updateTag:  data => callJava('updateTag', data),
-  deleteTag:  id   => callJava('deleteTag', {id}),
+  getTags:                ()     => callJava('getTags'),
+  addTag:                 data   => callJava('addTag',    data),
+  updateTag:              data   => callJava('updateTag', data),
+  deleteTag:              id     => callJava('deleteTag', {id}),
+  getTransactionsWithTag: name   => callJava('getTransactionsWithTag', {name}),
 
   // Transazioni
   getTransactions:             f    => callJava('getTransactions',             f || {}),
@@ -7348,7 +7349,7 @@ async function init() {
   await renderDashboard();
   // Notifica transazioni da telefono
   try {
-    const daTelefono = await api.getTransactionsWithTag({ name: 'Da Telefono' });
+    const daTelefono = await api.getTransactionsWithTag('Da Telefono');
     if (daTelefono.length) showDaTelefonoNotice(daTelefono);
   } catch(e) {}
   // Notifica scadute (non bloccante, dopo il render)

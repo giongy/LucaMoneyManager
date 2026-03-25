@@ -385,6 +385,7 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             case "dbVacuum"         -> db.dbVacuum();
             case "dbIntegrityCheck" -> db.dbIntegrityCheck();
             case "dbReindex"        -> db.dbReindex();
+            case "dbAnalyze"        -> db.dbAnalyze();
 
             // ─── Analytics ─────────────────────────────────────────────────────────
             case "getCategoryMonthTable" -> db.getCategoryMonthTable(

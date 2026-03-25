@@ -5418,6 +5418,17 @@ async function renderSettings() {
           </div>
         </div>
 
+        <div class="settings-row">
+          <div class="settings-label">
+            <strong>Analizza statistiche</strong>
+            <span class="settings-hint">ANALYZE: aggiorna le statistiche usate dal query planner per scegliere il piano di esecuzione migliore.</span>
+          </div>
+          <div class="settings-control maint-op-control">
+            <button class="btn btn-secondary" id="btnAnalyze" onclick="maintAnalyze()">📊 Analizza</button>
+            <span class="settings-hint maint-result" id="analyzeResult"></span>
+          </div>
+        </div>
+
 
         <div class="settings-row">
           <div class="settings-label">
@@ -5582,6 +5593,22 @@ async function maintIntegrity() {
     res.textContent = 'Errore: ' + e;
   }
   btn.disabled = false; btn.textContent = '🔍 Verifica';
+}
+
+async function maintAnalyze() {
+  const btn = document.getElementById('btnAnalyze');
+  const res = document.getElementById('analyzeResult');
+  btn.disabled = true; btn.textContent = '⏳ In corso...';
+  res.textContent = '';
+  try {
+    await callJava('dbAnalyze');
+    res.style.color = 'var(--income)';
+    res.textContent = '✓ Statistiche aggiornate';
+  } catch(e) {
+    res.style.color = 'var(--expense)';
+    res.textContent = 'Errore: ' + e;
+  }
+  btn.disabled = false; btn.textContent = '📊 Analizza';
 }
 
 async function maintReindex() {

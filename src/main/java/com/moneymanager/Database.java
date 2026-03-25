@@ -2169,6 +2169,12 @@ public class Database {
         return Map.of("ok", true);
     }
 
+    public Map<String, Object> dbAnalyze() throws SQLException {
+        try (Statement st = conn.createStatement()) { st.execute("ANALYZE"); }
+        logger.log("MANUTENZIONE", "ANALYZE");
+        return Map.of("ok", true);
+    }
+
 
     // ─── Analytics ────────────────────────────────────────────────────────────
 

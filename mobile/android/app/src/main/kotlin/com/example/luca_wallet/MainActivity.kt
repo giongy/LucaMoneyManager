@@ -74,6 +74,12 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch { init() }
     }
 
+    // Libera il lock sul file quando l'app va in background → OneDrive può sincronizzare
+    override fun onStop() {
+        super.onStop()
+        DbHelper.closeDb()
+    }
+
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
         menuInflater.inflate(R.menu.main_menu, menu)
         return true
@@ -138,7 +144,7 @@ class MainActivity : AppCompatActivity() {
         accounts.clear()
         accounts.addAll(list)
         adapter.notifyDataSetChanged()
-        fab.visibility = if (DbHelper.isOpen) View.VISIBLE else View.GONE
+        fab.visibility = if (DbHelper.isConfigured) View.VISIBLE else View.GONE
     }
 
     private fun showToast(msg: String) =

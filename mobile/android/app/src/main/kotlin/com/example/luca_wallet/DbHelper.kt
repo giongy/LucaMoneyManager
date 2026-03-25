@@ -34,7 +34,9 @@ object DbHelper {
     private var contentUri: Uri? = null
     private var openedAt: String? = null
 
-    val isOpen: Boolean get() = db?.isOpen == true
+    /** True se il DB è stato configurato (path noto), indipendentemente dalla connessione aperta. */
+    val isConfigured: Boolean get() = localPath != null
+
     val currentFilename: String? get() = localPath?.substringAfterLast('/')
 
     // ── Preferences ───────────────────────────────────────────────────────────
@@ -87,25 +89,41 @@ object DbHelper {
         }
     } catch (_: Exception) { null }
 
-    // ── DB open ───────────────────────────────────────────────────────────────
+    // ── Connessione ───────────────────────────────────────────────────────────
 
     fun openDb(path: String, uri: Uri?): String? {
         return try {
-            db?.close()
-            db = SQLiteDatabase.openDatabase(path, null, SQLiteDatabase.OPEN_READWRITE)
+            closeDb()
             localPath  = path
             contentUri = uri
-            ensureSyncMeta()
-            try {
-                db!!.execSQL("PRAGMA journal_mode=DELETE")
-                db!!.execSQL("PRAGMA synchronous=FULL")
-            } catch (_: Exception) {}
+            ensureOpen()
             openedAt = readLastModified()
             null
         } catch (e: Exception) {
+            localPath = null
             db = null
             "Errore apertura DB:\n${e.message}"
         }
+    }
+
+    /** Apre la connessione se chiusa, senza ri-scaricare da OneDrive. */
+    @Synchronized
+    fun ensureOpen() {
+        if (db?.isOpen == true) return
+        val path = localPath ?: throw Exception("Database non configurato")
+        db = SQLiteDatabase.openDatabase(path, null, SQLiteDatabase.OPEN_READWRITE)
+        ensureSyncMeta()
+        try {
+            db!!.execSQL("PRAGMA journal_mode=DELETE")
+            db!!.execSQL("PRAGMA synchronous=FULL")
+        } catch (_: Exception) {}
+    }
+
+    /** Chiude la connessione liberando il lock sul file. */
+    @Synchronized
+    fun closeDb() {
+        db?.close()
+        db = null
     }
 
     // ── sync_meta ─────────────────────────────────────────────────────────────
@@ -122,9 +140,16 @@ object DbHelper {
         ).use { c -> if (c.moveToFirst()) c.getString(0) else null }
     } catch (_: Exception) { null }
 
-    fun hasConflict(): Boolean = isOpen && readLastModified() != openedAt
+    fun hasConflict(): Boolean {
+        if (!isConfigured) return false
+        ensureOpen()
+        return readLastModified() != openedAt
+    }
 
-    fun refreshOpenedAt() { openedAt = readLastModified() }
+    fun refreshOpenedAt() {
+        ensureOpen()
+        openedAt = readLastModified()
+    }
 
     private fun touchSyncMeta(context: Context) {
         val now = java.time.Instant.now().toString()
@@ -135,17 +160,19 @@ object DbHelper {
             ContentValues().apply { put("key", "last_modified_by"); put("value", "android") },
             SQLiteDatabase.CONFLICT_REPLACE)
         try { db!!.rawQuery("PRAGMA wal_checkpoint(TRUNCATE)", null).close() } catch (_: Exception) {}
-        db!!.close()
-        db = null
+        // Chiudi prima di scrivere su OneDrive → nessun lock residuo
+        closeDb()
         writeLocalBackToUri(context)
-        db = SQLiteDatabase.openDatabase(localPath!!, null, SQLiteDatabase.OPEN_READWRITE)
         openedAt = now
+        // Riapri subito così il prossimo accesso è già pronto
+        ensureOpen()
     }
 
     // ── Queries ───────────────────────────────────────────────────────────────
 
     fun getFavoriteAccounts(): List<Account> {
-        if (!isOpen) return emptyList()
+        if (!isConfigured) return emptyList()
+        ensureOpen()
         return db!!.rawQuery("""
             SELECT a.id, a.name, a.icon, a.color, a.currency, a.initial_balance,
                 COALESCE(SUM(
@@ -178,7 +205,8 @@ object DbHelper {
     }
 
     fun getAllAccounts(): List<Account> {
-        if (!isOpen) return emptyList()
+        if (!isConfigured) return emptyList()
+        ensureOpen()
         return db!!.rawQuery("""
             SELECT id, name, icon, color, currency, is_favorite
             FROM accounts WHERE is_closed = 0
@@ -198,9 +226,9 @@ object DbHelper {
         }
     }
 
-    // Solo sottocategorie (con parent), mostrate come "Macro: Nome"
     fun getSubCategories(type: String): List<Category> {
-        if (!isOpen) return emptyList()
+        if (!isConfigured) return emptyList()
+        ensureOpen()
         return db!!.rawQuery("""
             SELECT c.id, c.name, p.name
             FROM categories c
@@ -230,7 +258,8 @@ object DbHelper {
         toAccountId: Int?,
         description: String
     ) {
-        if (!isOpen) throw Exception("Database non aperto")
+        if (!isConfigured) throw Exception("Database non aperto")
+        ensureOpen()
         val tagId = getOrCreateTag()
         val txId = db!!.insert("transactions", null, ContentValues().apply {
             put("date", date.format(DateTimeFormatter.ISO_LOCAL_DATE))

@@ -204,7 +204,12 @@ public class Database {
             bind(ps, params);
             ps.executeUpdate();
             ResultSet keys = ps.getGeneratedKeys();
-            return keys.next() ? keys.getLong(1) : -1;
+            long id = keys.next() ? keys.getLong(1) : -1;
+            // Checkpoint WAL subito: il .db principale è sempre aggiornato per OneDrive
+            try (Statement st = conn.createStatement()) {
+                st.execute("PRAGMA wal_checkpoint(TRUNCATE)");
+            } catch (SQLException ignored) {}
+            return id;
         }
     }
 

@@ -5418,16 +5418,6 @@ async function renderSettings() {
           </div>
         </div>
 
-        <div class="settings-row">
-          <div class="settings-label">
-            <strong>Flush WAL</strong>
-            <span class="settings-hint">Incorpora il file di log (WAL) nel database principale, riducendo le dimensioni su disco.</span>
-          </div>
-          <div class="settings-control maint-op-control">
-            <button class="btn btn-secondary" id="btnWal" onclick="maintWal()">💾 Flush WAL</button>
-            <span class="settings-hint maint-result" id="walResult"></span>
-          </div>
-        </div>
 
         <div class="settings-row">
           <div class="settings-label">
@@ -5610,24 +5600,6 @@ async function maintReindex() {
   btn.disabled = false; btn.textContent = '⚡ Ricostruisci';
 }
 
-async function maintWal() {
-  const btn = document.getElementById('btnWal');
-  const res = document.getElementById('walResult');
-  btn.disabled = true; btn.textContent = '⏳ In corso...';
-  res.textContent = '';
-  try {
-    const r = await callJava('dbWalCheckpoint');
-    res.style.color = 'var(--income)';
-    res.textContent = Number(r.wal_size) === 0
-      ? '✓ WAL già incorporato (0 B)'
-      : `✓ WAL incorporato (era ${fmtBytes(r.wal_size)})`;
-    maintLoadInfo();
-  } catch(e) {
-    res.style.color = 'var(--expense)';
-    res.textContent = 'Errore: ' + e;
-  }
-  btn.disabled = false; btn.textContent = '💾 Flush WAL';
-}
 
 function applyTheme(theme) {
   document.documentElement.dataset.theme = theme === 'light' ? 'light' : '';

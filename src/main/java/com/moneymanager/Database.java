@@ -2169,15 +2169,6 @@ public class Database {
         return Map.of("ok", true);
     }
 
-    public Map<String, Object> dbWalCheckpoint() throws SQLException, IOException {
-        withExclusiveAccess(c -> {
-            try (Statement st = c.createStatement()) { st.execute("PRAGMA wal_checkpoint(TRUNCATE)"); }
-        });
-        Path walPath = Path.of(currentDbPath + "-wal");
-        long walSize = Files.exists(walPath) ? Files.size(walPath) : 0;
-        logger.log("MANUTENZIONE", "WAL checkpoint(TRUNCATE): wal_size=" + walSize);
-        return Map.of("ok", true, "wal_size", walSize);
-    }
 
     // ─── Analytics ────────────────────────────────────────────────────────────
 

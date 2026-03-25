@@ -17,10 +17,10 @@ android {
 
     signingConfigs {
         create("release") {
-            storeFile     = file(System.getenv("KEYSTORE_PATH") ?: "lucamoney.keystore")
-            storePassword = System.getenv("KEYSTORE_PASSWORD") ?: ""
-            keyAlias      = System.getenv("KEY_ALIAS") ?: ""
-            keyPassword   = System.getenv("KEY_PASSWORD") ?: ""
+            storeFile     = file("lucamoney.keystore")
+            storePassword = "lucamoney123"
+            keyAlias      = "lucamoney"
+            keyPassword   = "lucamoney123"
             storeType     = "PKCS12"
         }
     }

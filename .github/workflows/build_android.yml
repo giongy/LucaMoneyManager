@@ -40,11 +40,6 @@ jobs:
 
       - name: Build APK
         working-directory: mobile/android
-        env:
-          KEYSTORE_PATH:     lucamoney.keystore
-          KEYSTORE_PASSWORD: lucamoney123
-          KEY_ALIAS:         lucamoney
-          KEY_PASSWORD:      lucamoney123
         run: ./gradlew assembleRelease
 
       - name: Publish APK as release

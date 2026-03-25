@@ -2171,8 +2171,10 @@ public class Database {
 
     public Map<String, Object> dbAnalyze() throws SQLException {
         try (Statement st = conn.createStatement()) { st.execute("ANALYZE"); }
-        logger.log("MANUTENZIONE", "ANALYZE");
-        return Map.of("ok", true);
+        List<Map<String, Object>> stats = queryList(
+            "SELECT tbl AS name, stat FROM sqlite_stat1 ORDER BY tbl");
+        logger.log("MANUTENZIONE", "ANALYZE: " + stats.size() + " indici analizzati");
+        return Map.of("ok", true, "stats", stats);
     }
 
 

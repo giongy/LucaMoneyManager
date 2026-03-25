@@ -5601,9 +5601,18 @@ async function maintAnalyze() {
   btn.disabled = true; btn.textContent = '⏳ In corso...';
   res.textContent = '';
   try {
-    await callJava('dbAnalyze');
+    const r = await callJava('dbAnalyze');
+    // Raggruppa per tabella e prendi il primo valore stat (righe totali)
+    const byTable = {};
+    for (const s of r.stats) {
+      if (!byTable[s.name]) byTable[s.name] = parseInt((s.stat||'0').split(' ')[0], 10);
+    }
+    const lines = Object.entries(byTable)
+      .sort((a,b) => b[1]-a[1])
+      .map(([t,n]) => `${t}: ${n.toLocaleString()} righe`)
+      .join(' · ');
     res.style.color = 'var(--income)';
-    res.textContent = '✓ Statistiche aggiornate';
+    res.textContent = '✓ ' + (lines || 'statistiche aggiornate');
   } catch(e) {
     res.style.color = 'var(--expense)';
     res.textContent = 'Errore: ' + e;

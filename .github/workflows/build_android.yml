@@ -20,9 +20,19 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Decode keystore
+      - name: Build keystore from PEM secrets
+        env:
+          SIGNING_KEY:  ${{ secrets.SIGNING_KEY }}
+          SIGNING_CERT: ${{ secrets.SIGNING_CERT }}
         run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | tr -d '[:space:]' | base64 -d > mobile/android/app/lucamoney.keystore
+          echo "$SIGNING_KEY"  > /tmp/signing.key
+          echo "$SIGNING_CERT" > /tmp/signing.crt
+          openssl pkcs12 -export \
+            -in /tmp/signing.crt \
+            -inkey /tmp/signing.key \
+            -out mobile/android/app/lucamoney.keystore \
+            -passout pass:lucamoney123 \
+            -name lucamoney
 
       - name: Make gradlew executable
         working-directory: mobile/android
@@ -31,10 +41,10 @@ jobs:
       - name: Build APK
         working-directory: mobile/android
         env:
-          KEYSTORE_PATH: lucamoney.keystore
-          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          KEYSTORE_PATH:     lucamoney.keystore
+          KEYSTORE_PASSWORD: lucamoney123
+          KEY_ALIAS:         lucamoney
+          KEY_PASSWORD:      lucamoney123
         run: ./gradlew assembleRelease
 
       - name: Publish APK as release

@@ -40,7 +40,6 @@ class AddTransactionActivity : AppCompatActivity() {
     private lateinit var actvAccount:  AutoCompleteTextView
     private lateinit var tilToAccount: TextInputLayout
     private lateinit var actvToAccount: AutoCompleteTextView
-    private lateinit var etDesc:       TextInputEditText
     private lateinit var btnSave:      MaterialButton
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -87,7 +86,6 @@ class AddTransactionActivity : AppCompatActivity() {
         actvAccount   = findViewById(R.id.actvAccount)
         tilToAccount  = findViewById(R.id.tilToAccount)
         actvToAccount = findViewById(R.id.actvToAccount)
-        etDesc        = findViewById(R.id.etDesc)
         btnSave       = findViewById(R.id.btnSave)
     }
 
@@ -184,7 +182,7 @@ class AddTransactionActivity : AppCompatActivity() {
                     categoryId  = if (catIdx >= 0) categories[catIdx].id else null,
                     accountId   = accounts[accIdx].id,
                     toAccountId = if (txType == "transfer" && toAccIdx >= 0) accounts[toAccIdx].id else null,
-                    description = etDesc.text?.toString()?.trim() ?: ""
+                    description = ""
                 )
             }
             setResult(Activity.RESULT_OK)

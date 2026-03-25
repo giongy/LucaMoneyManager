@@ -109,8 +109,7 @@
                     android:id="@+id/actvCategory"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:inputType="none"
-                    android:focusable="false"/>
+                    android:inputType="none"/>
 
             </com.google.android.material.textfield.TextInputLayout>
 
@@ -127,8 +126,7 @@
                     android:id="@+id/actvAccount"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:inputType="none"
-                    android:focusable="false"/>
+                    android:inputType="none"/>
 
             </com.google.android.material.textfield.TextInputLayout>
 
@@ -147,25 +145,7 @@
                     android:id="@+id/actvToAccount"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:inputType="none"
-                    android:focusable="false"/>
-
-            </com.google.android.material.textfield.TextInputLayout>
-
-            <Space android:layout_width="match_parent" android:layout_height="16dp"/>
-
-            <!-- Descrizione -->
-            <com.google.android.material.textfield.TextInputLayout
-                style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:hint="Descrizione (opzionale)">
-
-                <com.google.android.material.textfield.TextInputEditText
-                    android:id="@+id/etDesc"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:inputType="text"/>
+                    android:inputType="none"/>
 
             </com.google.android.material.textfield.TextInputLayout>
 

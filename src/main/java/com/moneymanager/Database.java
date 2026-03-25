@@ -339,6 +339,7 @@ public class Database {
                 name       TEXT    NOT NULL UNIQUE,
                 color      TEXT    DEFAULT '#58a6ff',
                 is_system  INTEGER DEFAULT 0,
+                system_key TEXT    UNIQUE,
                 created_at TEXT    DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE IF NOT EXISTS transaction_tags (
@@ -367,7 +368,7 @@ public class Database {
         """);
     }
 
-    private static final int SCHEMA_VERSION = 2;
+    private static final int SCHEMA_VERSION = 3;
 
     private void migrate() throws SQLException {
         // Crea tabella versione se non esiste
@@ -546,6 +547,11 @@ public class Database {
             try { executePlain("ALTER TABLE tags ADD COLUMN is_system INTEGER DEFAULT 0"); } catch (SQLException ignored) {}
             ensureSystemTags();
         }
+        // ── v3: system_key immutabile sui tag di sistema ───────────────────────
+        if (currentVersion < 3) {
+            try { executePlain("ALTER TABLE tags ADD COLUMN system_key TEXT"); } catch (SQLException ignored) {}
+            ensureSystemTags();
+        }
 
         // Segna il DB come aggiornato all'ultima versione
         executePlain("DELETE FROM schema_version");
@@ -553,20 +559,23 @@ public class Database {
     }
 
     private void ensureSystemTags() throws SQLException {
+        // {system_key, default_name, default_color}
         String[][] sys = {
-            {"Da Telefono", "#58a6ff"},
-            {"Da Budget",   "#d29922"},
-            {"Investimenti","#3fb950"}
+            {"phone",      "Da Telefono", "#58a6ff"},
+            {"budget",     "Da Budget",   "#d29922"},
+            {"investment", "Investimenti","#3fb950"}
         };
         for (String[] t : sys) {
-            executePlain("INSERT OR IGNORE INTO tags(name,color,is_system) VALUES('" + t[0] + "','" + t[1] + "',1)");
-            executePlain("UPDATE tags SET is_system=1 WHERE name='" + t[0] + "'");
+            // Crea se non esiste ancora un tag con questa system_key
+            executePlain("INSERT OR IGNORE INTO tags(name,color,is_system,system_key) VALUES('" + t[1] + "','" + t[2] + "',1,'" + t[0] + "')");
+            // Per tag già esistenti (es. creati prima della v3): imposta system_key e is_system se il nome corrisponde
+            executePlain("UPDATE tags SET is_system=1, system_key='" + t[0] + "' WHERE name='" + t[1] + "' AND (system_key IS NULL OR system_key='')");
         }
     }
 
-    private Integer getSystemTagId(String name) {
+    private Integer getSystemTagIdByKey(String key) {
         try {
-            Map<String, Object> row = queryOne("SELECT id FROM tags WHERE name=?", name);
+            Map<String, Object> row = queryOne("SELECT id FROM tags WHERE system_key=?", key);
             return row != null ? ((Number) row.get("id")).intValue() : null;
         } catch (Exception e) { return null; }
     }
@@ -1481,15 +1490,15 @@ public class Database {
         return overdue;
     }
 
-    public List<Map<String, Object>> getTransactionsWithTag(String tagName) throws SQLException {
+    public List<Map<String, Object>> getTransactionsWithTag(String systemKey) throws SQLException {
         return queryList("""
             SELECT t.id, t.date, t.description, t.amount, t.type
             FROM transactions t
             JOIN transaction_tags tt ON tt.transaction_id = t.id
             JOIN tags tg ON tg.id = tt.tag_id
-            WHERE tg.name = ?
+            WHERE tg.system_key = ?
             ORDER BY t.date DESC
-        """, tagName);
+        """, systemKey);
     }
 
     /**
@@ -2007,7 +2016,7 @@ public class Database {
             VALUES(?,?,?,?,?,?,?)
         """, portfolioId, "coupon", 0, amount, date, txId, notes);
 
-        Integer investTagId = getSystemTagId("Investimenti");
+        Integer investTagId = getSystemTagIdByKey("investment");
         if (investTagId != null)
             executePlain("INSERT OR IGNORE INTO transaction_tags(transaction_id,tag_id) VALUES(" + txId + "," + investTagId + ")");
 

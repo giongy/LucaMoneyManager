@@ -7023,7 +7023,7 @@ window.registerSched = async id => {
   const [cats, accs, tags] = await Promise.all([
     api.getCategories(), api.getAccounts(), api.getTags()
   ]);
-  const budgetTag = tags.find(t => t.name === 'Da Budget');
+  const budgetTag = tags.find(t => t.system_key === 'budget');
   const existingIds = (s.tags || []).map(t => t.id);
   const tagIds = budgetTag && !existingIds.includes(budgetTag.id)
     ? [...existingIds, budgetTag.id]
@@ -7349,7 +7349,7 @@ async function init() {
   await renderDashboard();
   // Notifica transazioni da telefono
   try {
-    const daTelefono = await api.getTransactionsWithTag('Da Telefono');
+    const daTelefono = await api.getTransactionsWithTag('phone');
     if (daTelefono.length) showDaTelefonoNotice(daTelefono);
   } catch(e) {}
   // Notifica scadute (non bloccante, dopo il render)

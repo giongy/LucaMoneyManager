@@ -299,12 +299,14 @@ object DbHelper {
     }
 
     private fun getOrCreateTag(): Int {
-        db!!.rawQuery("SELECT id FROM tags WHERE name='Da Telefono' LIMIT 1", null).use { c ->
+        db!!.rawQuery("SELECT id FROM tags WHERE system_key='phone' LIMIT 1", null).use { c ->
             if (c.moveToFirst()) return c.getInt(0)
         }
         return db!!.insert("tags", null, ContentValues().apply {
             put("name", "Da Telefono")
             put("color", "#58a6ff")
+            put("is_system", 1)
+            put("system_key", "phone")
         }).toInt()
     }
 }

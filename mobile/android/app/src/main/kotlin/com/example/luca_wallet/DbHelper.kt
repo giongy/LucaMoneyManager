@@ -134,11 +134,16 @@ object DbHelper {
         } catch (_: Exception) {}
     }
 
-    /** Chiude la connessione liberando il lock sul file. */
+    /** Chiude la connessione e rimuove file WAL/SHM residui. */
     @Synchronized
     fun closeDb() {
         db?.close()
         db = null
+        localPath?.let { path ->
+            for (suffix in listOf("-wal", "-shm")) {
+                File(path + suffix).delete()
+            }
+        }
     }
 
     // ── sync_meta ─────────────────────────────────────────────────────────────

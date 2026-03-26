@@ -434,7 +434,7 @@ function navigate(page) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.getElementById(`pg-${page}`).classList.add('active');
-  document.querySelector(`[data-page="${page}"]`).classList.add('active');
+  document.querySelector(`[data-page="${page}"]`)?.classList.add('active');
   document.getElementById('pageTitle').textContent = PAGE_TITLES[page];
   document.getElementById('pageTitleSub').textContent = '';
   currentPage = page;

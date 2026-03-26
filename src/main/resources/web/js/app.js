@@ -495,7 +495,7 @@ function closeModal() {
 
 document.getElementById('modalClose').onclick  = closeModal;
 document.getElementById('modalCancel').onclick = closeModal;
-document.getElementById('modalConfirm').onclick = () => { if (modalConfirmCallback) modalConfirmCallback(); };
+document.getElementById('modalConfirm').onclick = () => { if (modalConfirmCallback) { closeModal(); modalConfirmCallback(); } };
 
 /* ─── Refresh after any transaction change ───────────────────────────────── */
 let _dashboardDirty = false;
@@ -7576,7 +7576,7 @@ function _forecastsHTML(list, openCmd) {
             ${!isArchived ? `<td style="${tdS};text-align:center">${statusBadge}</td>` : ''}
             <td style="${tdS};text-align:right;white-space:nowrap;display:flex;gap:6px;justify-content:flex-end">
               ${!isArchived ? `<button class="btn btn-xs btn-ghost" onclick="event.stopPropagation();_archiveForecast(${f.id},()=>{${openCmd}})">Archivia</button>` : ''}
-              <button class="btn btn-xs btn-danger" onclick="event.stopPropagation();_deleteForecast(${f.id})">Elimina</button>
+              <button class="btn btn-xs btn-danger" onclick="event.stopPropagation();_deleteForecast(${f.id},()=>{${openCmd}})">Elimina</button>
             </td>
           </tr>`;
         }).join('')}
@@ -7674,9 +7674,9 @@ async function renderForecastDetail(pg, id, backCmd = 'renderForecasts()') {
     </div>`;
 }
 
-async function _deleteForecast(id) {
+async function _deleteForecast(id, refresh) {
   openModal('Elimina previsione', '<p>Eliminare questa previsione? L\'operazione non è reversibile.</p>', async () => {
-    try { await api.deleteForecast({id}); toast('Previsione eliminata'); renderForecasts(); }
+    try { await api.deleteForecast({id}); toast('Previsione eliminata'); if (refresh) refresh(); else renderForecasts(); }
     catch(e) { toast(e.message,'error'); }
   }, 'Elimina', 'btn-danger');
 }

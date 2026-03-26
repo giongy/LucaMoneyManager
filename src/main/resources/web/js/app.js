@@ -7584,14 +7584,27 @@ function _forecastsHTML(list, openCmd) {
   const tdS = 'padding:8px 12px;border-bottom:1px solid var(--border)';
   const thS = `${tdS};color:var(--txt2);font-weight:500;font-size:12px;text-transform:uppercase;letter-spacing:.4px`;
 
-  const active   = list.filter(f => !f.archived);
+  const today    = new Date(); today.setHours(0,0,0,0);
+  const active   = list.filter(f => !f.archived).sort((a,b) => a.forecast_date.localeCompare(b.forecast_date));
   const archived = list.filter(f =>  f.archived);
+
+  const daysTo = dateStr => {
+    const d = new Date(dateStr); d.setHours(0,0,0,0);
+    return Math.round((d - today) / 86400000);
+  };
+
+  const daysBadge = days => {
+    if (days === 0) return `<span style="color:var(--warn);font-weight:700">Oggi</span>`;
+    if (days < 0)  return `<span style="color:var(--expense);font-weight:700">${days} gg</span>`;
+    return `<span style="color:var(--txt2)">${days} gg</span>`;
+  };
 
   const tableHTML = (rows, isArchived) => {
     if (!rows.length) return '';
     return `<table style="width:100%;border-collapse:collapse;font-size:13px">
       <thead><tr>
         <th style="${thS}">Data previsione</th>
+        ${!isArchived ? `<th style="${thS};text-align:center">Scade tra</th>` : ''}
         <th style="${thS};text-align:right">Saldo previsto</th>
         <th style="${thS};text-align:center">Categorie</th>
         <th style="${thS}">Salvata il</th>
@@ -7607,6 +7620,7 @@ function _forecastsHTML(list, openCmd) {
           const clickable = ready || isArchived;
           return `<tr style="${clickable?'cursor:pointer':''}" ${clickable ? `onclick="_forecastDetailId=${f.id};${openCmd}"` : ''}>
             <td style="${tdS};font-weight:600">${fmt.date(f.forecast_date)}</td>
+            ${!isArchived ? `<td style="${tdS};text-align:center">${daysBadge(daysTo(f.forecast_date))}</td>` : ''}
             <td style="${tdS};text-align:right;font-variant-numeric:tabular-nums">${fmt.currency(f.projected_balance)}</td>
             <td style="${tdS};text-align:center">${f.cat_count}</td>
             <td style="${tdS};color:var(--txt2)">${fmt.date(f.created_at.substring(0,10))}</td>

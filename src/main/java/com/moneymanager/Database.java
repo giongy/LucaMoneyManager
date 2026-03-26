@@ -160,13 +160,27 @@ public class Database {
         Path archive = archiveDir.resolve(archiveName);
         Files.move(src, archive, StandardCopyOption.REPLACE_EXISTING);
 
-        // Copia il backup al posto del db corrente
-        Files.copy(bak, src, StandardCopyOption.REPLACE_EXISTING);
+        try {
+            // Copia il backup al posto del db corrente
+            Files.copy(bak, src, StandardCopyOption.REPLACE_EXISTING);
 
-        // Riapri la connessione direttamente (senza richiuderla: conn è già null)
-        conn = openConnection(currentDbPath);
-        initSchema();
-        migrate();
+            // Riapri la connessione
+            conn = openConnection(currentDbPath);
+            initSchema();
+            migrate();
+        } catch (Exception e) {
+            // Rollback: ripristina il db originale
+            try {
+                if (Files.exists(src)) Files.delete(src);
+                Files.move(archive, src, StandardCopyOption.REPLACE_EXISTING);
+                conn = openConnection(currentDbPath);
+            } catch (Exception rollbackEx) {
+                throw new IOException("Ripristino fallito e rollback non riuscito. " +
+                    "Il database originale è in: " + archive.toAbsolutePath(), rollbackEx);
+            }
+            throw new IOException("Ripristino fallito: " + e.getMessage() +
+                ". Database originale ripristinato automaticamente.", e);
+        }
 
         logger.log("RIPRISTINO BACKUP",
                 "sorgente:" + backupPath,

@@ -27,3 +27,4 @@ Thumbs.db
 
 # JCEF cache (scaricato automaticamente, ~200MB)
 %APPDATA%/LucaMoneyManager/jcef/
+settings.properties

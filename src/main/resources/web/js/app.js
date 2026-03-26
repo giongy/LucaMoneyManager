@@ -2803,7 +2803,7 @@ function renderBudgetScostamenti() {
           return `<tr style="${rowBg}">
             <td style="${tdS};text-align:right;color:var(--txt3)">${i+1}</td>
             <td style="${tdS};font-size:12px">${macroEl}</td>
-            <td style="${tdS}"><span style="color:${r.cat.color}">${r.cat.icon}</span> ${r.cat.name}</td>
+            <td style="${tdS}"><span style="color:${r.cat.color}">${r.cat.icon}</span> ${r.cat.name} <button class="btn-budget-detail" title="Grafico categoria" onclick="_budgetShowDetail(${r.cat.id},'${r.cat.name.replace(/'/g,"\\'")}')">📊</button></td>
             <td style="${tdS};text-align:right;font-variant-numeric:tabular-nums">${fmt.currency(r.bDisplay)}</td>
             <td style="${tdS};text-align:right;font-variant-numeric:tabular-nums">${hasActual?fmt.currency(r.rDisplay):'—'}</td>
             <td style="${tdS};text-align:right;font-variant-numeric:tabular-nums;color:${pctCol}">${diffStr}</td>

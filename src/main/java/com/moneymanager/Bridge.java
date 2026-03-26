@@ -239,6 +239,7 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                 }
                 yield Map.of("ok", true);
             }
+            case "deleteBudgetYear" -> db.deleteBudgetYear(p.get("year").getAsInt());
             case "getBudgetYears" -> db.getBudgetYears();
             case "setBudgetConfig" -> {
                 db.setBudgetConfig(

@@ -1295,6 +1295,14 @@ public class Database {
                    "anno:" + year);
     }
 
+    /** Rimuove tutti i budget e configurazioni per un intero anno. */
+    public Map<String, Object> deleteBudgetYear(int year) throws SQLException {
+        execute("DELETE FROM budgets WHERE year=?", year);
+        execute("DELETE FROM budget_config WHERE year=?", year);
+        logger.log("BUDGET ANNO ELIMINATO", "anno:" + year);
+        return Map.of("year", year, "deleted", true);
+    }
+
     /** Rimuove il budget per una singola cella (categoria + mese + anno). */
     public void deleteBudgetMonth(int categoryId, int month, int year) throws SQLException {
         execute("DELETE FROM budgets WHERE category_id=? AND month=? AND year=?",

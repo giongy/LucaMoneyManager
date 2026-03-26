@@ -229,6 +229,7 @@ const api = {
   getBudgetYear: y          => callJava('getBudgetYear', {year:y}),
   setBudgetBulk: data       => callJava('setBudgetBulk', data),
   deleteBudgetMonth: data      => callJava('deleteBudgetMonth', data),
+  deleteBudgetYear:  year      => callJava('deleteBudgetYear', {year}),
   setBudgetConfig: data       => callJava('setBudgetConfig', data),
   generateBudget: data      => callJava('generateBudget', data),
   getBudgetYears: ()        => callJava('getBudgetYears', {}),
@@ -2174,6 +2175,7 @@ async function renderBudgets() {
         <div id="budgGridActions" style="display:${_budgetTab==='grid'?'flex':'none'};gap:8px;margin-left:auto">
           <button class="btn btn-ghost" id="btnBudgOnlyRed">Solo rossi</button>
           <button class="btn btn-ghost" id="btnBudgToggleAll">Comprimi tutto</button>
+          <button class="btn btn-ghost" id="btnDelBudgetYear" style="color:var(--expense)">Cancella anno</button>
           <button class="btn btn-primary" id="btnGenBudget">Genera budget</button>
         </div>
       </div>
@@ -2200,6 +2202,13 @@ async function renderBudgets() {
   document.getElementById('budgPrev').onclick = () => { budgetYear--; renderBudgets(); };
   document.getElementById('budgNext').onclick = () => { budgetYear++; renderBudgets(); };
   document.getElementById('btnGenBudget').onclick = () => showGenerateBudgetModal();
+  document.getElementById('btnDelBudgetYear').onclick = async () => {
+    const ok = await confirm('Cancella budget', `Eliminare tutti i budget dell'anno ${budgetYear}? L'operazione non è reversibile.`);
+    if (!ok) return;
+    await api.deleteBudgetYear(budgetYear);
+    showToast(`Budget ${budgetYear} eliminato`);
+    renderBudgets();
+  };
   document.getElementById('btnBudgOnlyRed').onclick = () => {
     _budgetOnlyRed = !_budgetOnlyRed;
     document.getElementById('btnBudgOnlyRed').classList.toggle('btn-active-red', _budgetOnlyRed);

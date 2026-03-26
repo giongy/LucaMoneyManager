@@ -495,7 +495,7 @@ function closeModal() {
 
 document.getElementById('modalClose').onclick  = closeModal;
 document.getElementById('modalCancel').onclick = closeModal;
-document.getElementById('modalConfirm').onclick = () => { if (modalConfirmCallback) { closeModal(); modalConfirmCallback(); } };
+document.getElementById('modalConfirm').onclick = () => { if (modalConfirmCallback) { const cb = modalConfirmCallback; closeModal(); cb(); } };
 
 /* ─── Refresh after any transaction change ───────────────────────────────── */
 let _dashboardDirty = false;

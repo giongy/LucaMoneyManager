@@ -1593,7 +1593,7 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
       if (e.key === 'Enter') { e.preventDefault(); document.getElementById('modalConfirm')?.click(); }
       if (e.key === 'Tab' && !e.shiftKey && !_splitActive) {
         const catInput = document.getElementById('f_cat_input');
-        if (catInput) { e.preventDefault(); catInput.focus(); catInput.dispatchEvent(new Event('input')); }
+        if (catInput) { e.preventDefault(); catInput.focus(); }
       }
     });
     amtEl.addEventListener('blur', () => {

@@ -35,6 +35,10 @@
 /* ─── Light theme ────────────────────────────────────────────────────────── */
 [data-theme="light"] th { background: var(--bg3); }
 [data-theme="light"] td { border-bottom-color: #bac0c9; }
+[data-theme="light"] .budget-row-child td { background: var(--bg); }
+[data-theme="light"] .budget-row-parent td { background: var(--bg2); }
+[data-theme="light"] .budget-gestione-badge.monthly { background: #cce0ff; color: #0550ae; border-color: #0969da66; }
+[data-theme="light"] .budget-gestione-badge.annual  { background: #ccefcc; color: #116329; border-color: #1a7f3c66; }
 [data-theme="light"] {
   --bg:       #dce0e7;
   --bg2:      #e9ecf2;

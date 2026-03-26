@@ -354,7 +354,7 @@ public class Database {
         """);
     }
 
-    private static final int SCHEMA_VERSION = 3;
+    private static final int SCHEMA_VERSION = 4;
 
     private void migrate() throws SQLException {
         // Crea tabella versione se non esiste
@@ -537,6 +537,10 @@ public class Database {
         if (currentVersion < 3) {
             try { executePlain("ALTER TABLE tags ADD COLUMN system_key TEXT"); } catch (SQLException ignored) {}
             ensureSystemTags();
+        }
+        // ── v4: colonna archived sulle previsioni ───────────────────────────────
+        if (currentVersion < 4) {
+            try { executePlain("ALTER TABLE forecasts ADD COLUMN archived INTEGER DEFAULT 0"); } catch (SQLException ignored) {}
         }
 
         // Segna il DB come aggiornato all'ultima versione
@@ -2276,6 +2280,11 @@ public class Database {
     public void deleteForecast(int id) throws SQLException {
         execute("DELETE FROM forecasts WHERE id=?", id);
         logger.log("PREVISIONE ELIMINATA", "id:" + id);
+    }
+
+    public void archiveForecast(int id) throws SQLException {
+        execute("UPDATE forecasts SET archived=1 WHERE id=?", id);
+        logger.log("PREVISIONE ARCHIVIATA", "id:" + id);
     }
 
     public Map<String, Object> getForecastDetail(int id) throws SQLException {

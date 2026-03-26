@@ -276,6 +276,7 @@ const api = {
   saveForecast:           data  => callJava('saveForecast', data),
   getForecasts:           ()    => callJava('getForecasts'),
   deleteForecast:         data  => callJava('deleteForecast', data),
+  archiveForecast:        data  => callJava('archiveForecast', data),
   getForecastDetail:      data  => callJava('getForecastDetail', data),
 
   // Analytics
@@ -7413,7 +7414,7 @@ async function init() {
   // Notifica previsioni pronte
   try {
     const forecasts = await api.getForecasts();
-    const ready = forecasts.filter(f => f.is_ready === 1);
+    const ready = forecasts.filter(f => f.is_ready === 1 && !f.archived);
     if (ready.length) showForecastReadyNotice(ready);
   } catch(e) {}
   updateNoticeBtn();
@@ -7545,41 +7546,60 @@ let _forecastDetailId = null;
 function _forecastsHTML(list, openCmd) {
   const tdS = 'padding:8px 12px;border-bottom:1px solid var(--border)';
   const thS = `${tdS};color:var(--txt2);font-weight:500;font-size:12px;text-transform:uppercase;letter-spacing:.4px`;
+
+  const active   = list.filter(f => !f.archived);
+  const archived = list.filter(f =>  f.archived);
+
+  const tableHTML = (rows, isArchived) => {
+    if (!rows.length) return '';
+    return `<table style="width:100%;border-collapse:collapse;font-size:13px">
+      <thead><tr>
+        <th style="${thS}">Data previsione</th>
+        <th style="${thS};text-align:right">Saldo previsto</th>
+        <th style="${thS};text-align:center">Categorie</th>
+        <th style="${thS}">Salvata il</th>
+        ${!isArchived ? `<th style="${thS};text-align:center">Stato</th>` : ''}
+        <th style="${thS}"></th>
+      </tr></thead>
+      <tbody>
+        ${rows.map(f => {
+          const ready = f.is_ready === 1;
+          const statusBadge = ready
+            ? `<span style="background:rgba(63,185,80,.15);color:#3fb950;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">Pronta</span>`
+            : `<span style="background:rgba(88,166,255,.12);color:#58a6ff;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">In attesa</span>`;
+          const clickable = ready && !isArchived;
+          return `<tr style="${clickable?'cursor:pointer':''}" ${clickable ? `onclick="_forecastDetailId=${f.id};${openCmd}"` : ''}>
+            <td style="${tdS};font-weight:600">${fmt.date(f.forecast_date)}</td>
+            <td style="${tdS};text-align:right;font-variant-numeric:tabular-nums">${fmt.currency(f.projected_balance)}</td>
+            <td style="${tdS};text-align:center">${f.cat_count}</td>
+            <td style="${tdS};color:var(--txt2)">${fmt.date(f.created_at.substring(0,10))}</td>
+            ${!isArchived ? `<td style="${tdS};text-align:center">${statusBadge}</td>` : ''}
+            <td style="${tdS};text-align:right;white-space:nowrap;display:flex;gap:6px;justify-content:flex-end">
+              ${!isArchived ? `<button class="btn btn-xs btn-ghost" onclick="event.stopPropagation();_archiveForecast(${f.id})">Archivia</button>` : ''}
+              <button class="btn btn-xs btn-danger" onclick="event.stopPropagation();_deleteForecast(${f.id})">Elimina</button>
+            </td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>`;
+  };
+
   return `
+    <div class="card" style="overflow:hidden;margin-bottom:${archived.length?'16px':'0'}">
+      ${!active.length
+        ? `<div style="padding:32px;text-align:center;color:var(--txt3)">
+             Nessuna previsione attiva.<br>
+             <span style="font-size:13px">Vai in <strong>Pianificate → Proiezione Saldo</strong> e clicca "Salva previsione".</span>
+           </div>`
+        : tableHTML(active, false)}
+    </div>
+    ${archived.length ? `
     <div class="card" style="overflow:hidden">
-      ${!list.length ? `<div style="padding:32px;text-align:center;color:var(--txt3)">
-          Nessuna previsione salvata.<br>
-          <span style="font-size:13px">Vai in <strong>Pianificate → Proiezione Saldo</strong> e clicca "Salva previsione".</span>
-        </div>` :
-      `<table style="width:100%;border-collapse:collapse;font-size:13px">
-        <thead><tr>
-          <th style="${thS}">Data previsione</th>
-          <th style="${thS};text-align:right">Saldo previsto</th>
-          <th style="${thS};text-align:center">Categorie</th>
-          <th style="${thS}">Salvata il</th>
-          <th style="${thS};text-align:center">Stato</th>
-          <th style="${thS}"></th>
-        </tr></thead>
-        <tbody>
-          ${list.map(f => {
-            const ready = f.is_ready === 1;
-            const statusBadge = ready
-              ? `<span style="background:rgba(63,185,80,.15);color:#3fb950;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">Pronta</span>`
-              : `<span style="background:rgba(88,166,255,.12);color:#58a6ff;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">In attesa</span>`;
-            return `<tr style="${ready?'cursor:pointer':'opacity:.75'}" ${ready ? `onclick="_forecastDetailId=${f.id};${openCmd}"` : ''}>
-              <td style="${tdS};font-weight:600">${fmt.date(f.forecast_date)}</td>
-              <td style="${tdS};text-align:right;font-variant-numeric:tabular-nums">${fmt.currency(f.projected_balance)}</td>
-              <td style="${tdS};text-align:center">${f.cat_count}</td>
-              <td style="${tdS};color:var(--txt2)">${fmt.date(f.created_at.substring(0,10))}</td>
-              <td style="${tdS};text-align:center">${statusBadge}</td>
-              <td style="${tdS};text-align:right">
-                <button class="btn btn-xs btn-danger" onclick="event.stopPropagation();_deleteForecast(${f.id})">Elimina</button>
-              </td>
-            </tr>`;
-          }).join('')}
-        </tbody>
-      </table>`}
-    </div>`;
+      <div style="padding:10px 16px;font-size:12px;font-weight:600;color:var(--txt3);border-bottom:1px solid var(--border);text-transform:uppercase;letter-spacing:.5px">
+        📦 Archiviate (${archived.length})
+      </div>
+      ${tableHTML(archived, true)}
+    </div>` : ''}`;
 }
 
 async function renderForecasts() {
@@ -7659,6 +7679,20 @@ async function _deleteForecast(id) {
     try { await api.deleteForecast({id}); toast('Previsione eliminata'); renderForecasts(); }
     catch(e) { toast(e.message,'error'); }
   }, 'Elimina', 'btn-danger');
+}
+
+async function _archiveForecast(id) {
+  try {
+    await api.archiveForecast({id});
+    // rimuovi dalla lista notifiche
+    const entry = _noticeData.find(n => n.type === 'forecast');
+    if (entry) {
+      entry.list = entry.list.filter(f => f.id !== id);
+      if (entry.list.length === 0) _noticeData.splice(_noticeData.indexOf(entry), 1);
+      updateNoticeBtn();
+    }
+    renderForecasts();
+  } catch(e) { toast(e.message, 'error'); }
 }
 
 // Aspetta che il bridge JCEF sia pronto

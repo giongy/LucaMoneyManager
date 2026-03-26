@@ -608,18 +608,21 @@ function _renderDashAccountsWidget(accounts) {
         </tbody>`).join('')}
       <tbody>
         <tr class="acc-total-row">
-          <td>Conti</td>
-          <td class="acc-bal ${contiBalance<0?'neg':''}" style="color:${contiBalance<0?'var(--expense)':'var(--income)'}">
-            ${fmt.currency(contiBalance)}
+          <td colspan="3">
+            <div style="display:flex;align-items:center;gap:0">
+              <span style="flex:1;display:flex;align-items:center;gap:8px">
+                <span>Totale Conti:</span>
+                <span class="acc-bal" style="color:${contiBalance<0?'var(--expense)':'var(--income)'}">${fmt.currency(contiBalance)}</span>
+              </span>
+              ${investBalance !== 0 ? `
+              <span style="display:inline-block;width:3px;min-width:3px;height:14px;background:var(--accent);border-radius:2px;margin:0 14px;flex-shrink:0;opacity:.8"></span>
+              <span style="flex:1;display:flex;align-items:center;justify-content:flex-end;gap:8px">
+                <span style="color:var(--txt2)">Investimenti</span>
+                <span class="acc-bal" style="color:var(--accent2)">${fmt.currency(investBalance)}</span>
+              </span>` : ''}
+            </div>
           </td>
-          <td></td>
         </tr>
-        ${investBalance !== 0 ? `
-        <tr class="acc-total-row">
-          <td style="color:var(--txt2)">Investimenti</td>
-          <td class="acc-bal" style="color:var(--accent2)">${fmt.currency(investBalance)}</td>
-          <td></td>
-        </tr>` : ''}
       </tbody>
     </table>`;
 }

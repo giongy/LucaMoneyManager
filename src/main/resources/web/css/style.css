@@ -303,7 +303,7 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 /* ─── Dashboard conti ────────────────────────────────────────────────────── */
 .acc-list-table { width:100%; border-collapse:collapse; }
 .acc-group-row td {
-  padding:5px 14px; font-size:11px; font-weight:600;
+  padding:2px 14px; font-size:10px; font-weight:600;
   color:var(--txt2); background:var(--bg3);
   border-top:1px solid var(--border);
   border-bottom:1px solid var(--border);
@@ -332,10 +332,12 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 .acc-name { font-size:13px; font-weight:500; vertical-align:middle; }
 .acc-bal { font-size:13px; font-weight:700; }
 .acc-total-row td {
-  padding:5px 14px; font-size:13px; font-weight:600;
-  border-top:1px solid var(--border);
+  padding:5px 14px; font-size:11px; font-weight:500;
+  color:var(--txt3); opacity:.55;
+  background:var(--bg3);
+  border-top:2px solid var(--accent);
 }
-.acc-total-row:first-child td { border-top:2px solid var(--border); }
+.acc-total-row:first-child td { border-top:2px solid var(--accent); }
 .acc-total-row td:last-child { text-align:right; }
 .account-card-closed { opacity: 0.6; }
 .acc-badge-fav   { position:absolute; top:10px; right:10px; font-size:11px; color:var(--warn); }

@@ -497,7 +497,7 @@ function closeModal() {
 
 document.getElementById('modalClose').onclick  = closeModal;
 document.getElementById('modalCancel').onclick = closeModal;
-document.getElementById('modalConfirm').onclick = () => { if (modalConfirmCallback) { const cb = modalConfirmCallback; closeModal(); cb(); } };
+document.getElementById('modalConfirm').onclick = async () => { if (modalConfirmCallback) { const result = await modalConfirmCallback(); if (result !== false) closeModal(); } };
 
 /* ─── Refresh after any transaction change ───────────────────────────────── */
 let _dashboardDirty = false;
@@ -1503,17 +1503,28 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
       reconciled: parseInt(document.querySelector('input[name="f_reconciled"]:checked')?.value ?? '1'),
     };
 
-    if (!data.amount || !data.account_id) { toast('Compila importo e conto', 'error'); return; }
+    const _markErr = (id, msg) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.style.borderColor = 'var(--expense)';
+      el.style.boxShadow   = '0 0 0 2px rgba(248,81,73,.25)';
+      const clear = () => { el.style.borderColor = ''; el.style.boxShadow = ''; };
+      el.addEventListener('input',  clear, { once: true });
+      el.addEventListener('change', clear, { once: true });
+      toast(msg, 'error');
+    };
+    if (!data.amount)     { _markErr('f_amount',  'Inserisci l\'importo'); return false; }
+    if (!data.account_id) { _markErr('f_account', 'Seleziona il conto');   return false; }
     if (type !== 'transfer') {
       if (_splitActive) {
-        if (!splits.length) { toast('Aggiungi almeno una voce', 'error'); return; }
-        if (splits.some(s => !s.category_id)) { toast('Seleziona la categoria per ogni voce', 'error'); return; }
+        if (!splits.length) { toast('Aggiungi almeno una voce', 'error'); return false; }
+        if (splits.some(s => !s.category_id)) { toast('Seleziona la categoria per ogni voce', 'error'); return false; }
         const splitTotal = splits.reduce((s,sp) => s + sp.amount, 0);
         if (Math.abs(splitTotal - data.amount) > 0.01) {
-          toast(`Le voci (${fmt.currency(splitTotal)}) non corrispondono al totale (${fmt.currency(data.amount)})`, 'error'); return;
+          toast(`Le voci (${fmt.currency(splitTotal)}) non corrispondono al totale (${fmt.currency(data.amount)})`, 'error'); return false;
         }
       } else {
-        if (!data.category_id) { toast('Seleziona una categoria', 'error'); return; }
+        if (!data.category_id) { _markErr('f_cat_input', 'Seleziona una categoria'); return false; }
       }
     }
 
@@ -1524,7 +1535,7 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
       closeModal();
       toast(isEdit ? 'Transazione aggiornata' : 'Transazione aggiunta');
       refreshAfterTxChange();
-    } catch(e) { toast(e.message, 'error'); }
+    } catch(e) { toast(e.message, 'error'); return false; }
   });
 
   // ── Wiring tag selector ──
@@ -7254,16 +7265,27 @@ function showScheduledModal(sched, accounts, categories, tags = []) {
       reconciled: parseInt(document.querySelector('input[name="sc_reconciled"]:checked')?.value ?? '1'),
       tag_ids:    [...sc_selectedTagIds],
     };
-    if (!data.amount || !data.account_id || !data.start_date) {
-      toast('Compila i campi obbligatori', 'error'); return;
-    }
+    const _markErr = (id, msg) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.style.borderColor = 'var(--expense)';
+      el.style.boxShadow   = '0 0 0 2px rgba(248,81,73,.25)';
+      const clear = () => { el.style.borderColor = ''; el.style.boxShadow = ''; };
+      el.addEventListener('input',  clear, { once: true });
+      el.addEventListener('change', clear, { once: true });
+      toast(msg, 'error');
+    };
+    if (!data.amount) { _markErr('sc_amount', 'Inserisci l\'importo'); return false; }
+    if (!data.account_id) { _markErr('sc_account', 'Seleziona il conto'); return false; }
+    if (data.type !== 'transfer' && !data.category_id) { _markErr('sc_cat_input', 'Seleziona la categoria'); return false; }
+    if (!data.start_date) { _markErr('sc_start', 'Inserisci la data di inizio'); return false; }
     try {
       if (isEdit) await api.updateScheduled(data);
       else        await api.addScheduled(data);
       closeModal();
       toast(isEdit ? 'Transazione pianificata aggiornata' : 'Transazione pianificata aggiunta');
       renderSchedLista();
-    } catch(e) { toast(e.message, 'error'); }
+    } catch(e) { toast(e.message, 'error'); return false; }
   });
 
   // wire tag chips (DOM già disponibile dopo openModal)

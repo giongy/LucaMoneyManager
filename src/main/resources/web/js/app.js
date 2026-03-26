@@ -7377,7 +7377,7 @@ function showOverdueNotice(list, save=true) {
       ${list.length>4?`<div class="overdue-more">+ altri ${list.length-4}…</div>`:''}
     </div>
     <div class="overdue-notice-bar"><div class="overdue-notice-progress"></div></div>`,
-    () => navigate('scheduled'));
+    () => { schedTab = 'lista'; navigate('scheduled'); });
 }
 
 /* ─── Chart.js global font (allineato al body Segoe UI) ──────────────────── */

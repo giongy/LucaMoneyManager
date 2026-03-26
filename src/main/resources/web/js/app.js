@@ -7567,7 +7567,7 @@ function _forecastsHTML(list, openCmd) {
           const statusBadge = ready
             ? `<span style="background:rgba(63,185,80,.15);color:#3fb950;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">Pronta</span>`
             : `<span style="background:rgba(88,166,255,.12);color:#58a6ff;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">In attesa</span>`;
-          const clickable = ready && !isArchived;
+          const clickable = ready || isArchived;
           return `<tr style="${clickable?'cursor:pointer':''}" ${clickable ? `onclick="_forecastDetailId=${f.id};${openCmd}"` : ''}>
             <td style="${tdS};font-weight:600">${fmt.date(f.forecast_date)}</td>
             <td style="${tdS};text-align:right;font-variant-numeric:tabular-nums">${fmt.currency(f.projected_balance)}</td>
@@ -7575,7 +7575,7 @@ function _forecastsHTML(list, openCmd) {
             <td style="${tdS};color:var(--txt2)">${fmt.date(f.created_at.substring(0,10))}</td>
             ${!isArchived ? `<td style="${tdS};text-align:center">${statusBadge}</td>` : ''}
             <td style="${tdS};text-align:right;white-space:nowrap;display:flex;gap:6px;justify-content:flex-end">
-              ${!isArchived ? `<button class="btn btn-xs btn-ghost" onclick="event.stopPropagation();_archiveForecast(${f.id})">Archivia</button>` : ''}
+              ${!isArchived ? `<button class="btn btn-xs btn-ghost" onclick="event.stopPropagation();_archiveForecast(${f.id},()=>{${openCmd}})">Archivia</button>` : ''}
               <button class="btn btn-xs btn-danger" onclick="event.stopPropagation();_deleteForecast(${f.id})">Elimina</button>
             </td>
           </tr>`;
@@ -7681,17 +7681,16 @@ async function _deleteForecast(id) {
   }, 'Elimina', 'btn-danger');
 }
 
-async function _archiveForecast(id) {
+async function _archiveForecast(id, refresh) {
   try {
     await api.archiveForecast({id});
-    // rimuovi dalla lista notifiche
     const entry = _noticeData.find(n => n.type === 'forecast');
     if (entry) {
       entry.list = entry.list.filter(f => f.id !== id);
       if (entry.list.length === 0) _noticeData.splice(_noticeData.indexOf(entry), 1);
       updateNoticeBtn();
     }
-    renderForecasts();
+    if (refresh) refresh(); else renderForecasts();
   } catch(e) { toast(e.message, 'error'); }
 }
 

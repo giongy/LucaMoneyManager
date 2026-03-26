@@ -7043,10 +7043,19 @@ window._showSchedCtx = (id, evt) => {
   }, 0);
 };
 
+function _resolveOverdue(schedId) {
+  const entry = _noticeData.find(n => n.type === 'overdue');
+  if (!entry) return;
+  entry.list = entry.list.filter(u => u.id !== schedId);
+  if (entry.list.length === 0) _noticeData.splice(_noticeData.indexOf(entry), 1);
+  updateNoticeBtn();
+}
+
 window.skipSched = async id => {
   const s = window._schedCache?.[id];
   if (!s || !s._next) return;
   await api.advanceScheduled(id, s._next);
+  _resolveOverdue(id);
   toast('Occorrenza saltata');
   renderSchedLista();
 };
@@ -7077,6 +7086,7 @@ window.registerSched = async id => {
   };
   showTxModal(prefilled, cats, accs, s.type, tags, async () => {
     await api.advanceScheduled(id, s._next);
+    _resolveOverdue(id);
     renderSchedLista();
   });
 };

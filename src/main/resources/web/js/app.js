@@ -270,6 +270,7 @@ const api = {
   getUpcoming:     (n)   => callJava('getUpcoming',    {limit: n||15}),
   getUpcomingAll:  (n)   => callJava('getUpcomingAll', {limit: n||15}),
   getOverdue:      ()    => callJava('getOverdue'),
+  getDueToday:     ()    => callJava('getDueToday'),
   advanceScheduled: (id, date) => callJava('advanceScheduled', {id, date}),
   getProjection:          data  => callJava('getProjection', data),
   getProjectionByCategory:data  => callJava('getProjectionByCategory', data),
@@ -7046,10 +7047,12 @@ window._showSchedCtx = (id, evt) => {
 };
 
 function _resolveOverdue(schedId) {
-  const entry = _noticeData.find(n => n.type === 'overdue');
-  if (!entry) return;
-  entry.list = entry.list.filter(u => u.id !== schedId);
-  if (entry.list.length === 0) _noticeData.splice(_noticeData.indexOf(entry), 1);
+  for (const type of ['overdue', 'duetoday']) {
+    const entry = _noticeData.find(n => n.type === type);
+    if (!entry) continue;
+    entry.list = entry.list.filter(u => u.id !== schedId);
+    if (entry.list.length === 0) _noticeData.splice(_noticeData.indexOf(entry), 1);
+  }
   updateNoticeBtn();
 }
 
@@ -7321,6 +7324,7 @@ function replayNotices() {
   _noticeData.forEach(n => {
     if (n.type === 'telefono') showDaTelefonoNotice(n.list, false);
     else if (n.type === 'overdue') showOverdueNotice(n.list, false);
+    else if (n.type === 'duetoday') showDueTodayNotice(n.list, false);
     else if (n.type === 'forecast') showForecastReadyNotice(n.list, false);
   });
 }
@@ -7381,6 +7385,24 @@ function showOverdueNotice(list, save=true) {
     () => { schedTab = 'lista'; navigate('scheduled'); });
 }
 
+function showDueTodayNotice(list, save=true) {
+  if (save) _noticeData.push({type:'duetoday', list});
+  _showNotice('notice-duetoday', `
+    <div class="overdue-notice-head">
+      <span>📅 ${list.length} transazion${list.length===1?'e pianificata':'i pianificate'} da inserire oggi</span>
+      <button onclick="this.closest('.overdue-notice').remove()">✕</button>
+    </div>
+    <div class="overdue-notice-body">
+      ${list.slice(0,4).map(u=>`<div class="overdue-row">
+        <span class="td-main">${u.description||'-'}</span>
+        <span class="amount-${u.type}">${u.type==='expense'?'-':''}${fmt.currency(u.amount)}</span>
+      </div>`).join('')}
+      ${list.length>4?`<div class="overdue-more">+ altre ${list.length-4}…</div>`:''}
+    </div>
+    <div class="overdue-notice-bar"><div class="overdue-notice-progress"></div></div>`,
+    () => { schedTab = 'lista'; navigate('scheduled'); });
+}
+
 /* ─── Chart.js global font (allineato al body Segoe UI) ──────────────────── */
 Chart.defaults.font.family = "'Segoe UI', system-ui, sans-serif";
 Chart.defaults.font.size   = 13;
@@ -7412,6 +7434,11 @@ async function init() {
   // Notifica scadute (non bloccante, dopo il render)
   const overdue = await api.getOverdue();
   if (overdue.length) showOverdueNotice(overdue);
+  // Notifica pianificate da inserire oggi
+  try {
+    const dueToday = await api.getDueToday();
+    if (dueToday.length) showDueTodayNotice(dueToday);
+  } catch(e) {}
   // Notifica previsioni pronte
   try {
     const forecasts = await api.getForecasts();

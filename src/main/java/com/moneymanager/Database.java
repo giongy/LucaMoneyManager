@@ -1481,6 +1481,15 @@ public class Database {
         return overdue;
     }
 
+    /** Active scheduled transactions whose next occurrence is today. */
+    public List<Map<String, Object>> getDueToday() throws SQLException {
+        String today = LocalDate.now().toString();
+        return getScheduled().stream()
+                .filter(s -> Integer.valueOf(1).equals(s.get("is_active")))
+                .filter(s -> today.equals(s.get("start_date")))
+                .collect(java.util.stream.Collectors.toList());
+    }
+
     public List<Map<String, Object>> getTransactionsWithTag(String systemKey) throws SQLException {
         return queryList("""
             SELECT t.id, t.date, t.description, t.amount, t.type

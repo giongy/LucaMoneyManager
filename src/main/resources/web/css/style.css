@@ -482,6 +482,10 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 .notice-telefono .overdue-notice-head { background:rgba(88,166,255,.12); color:#58a6ff; }
 .notice-telefono .overdue-notice-head button { color:#58a6ff; }
 .notice-telefono .overdue-notice-progress { background:#58a6ff; }
+.notice-duetoday { border-color:#3fb950; }
+.notice-duetoday .overdue-notice-head { background:rgba(63,185,80,.12); color:#3fb950; }
+.notice-duetoday .overdue-notice-head button { color:#3fb950; }
+.notice-duetoday .overdue-notice-progress { background:#3fb950; }
 
 /* ─── Toast ──────────────────────────────────────────────────────────────── */
 .toast-container { position:fixed; bottom:16px; right:16px; z-index:2000; display:flex; flex-direction:column; gap:6px; }

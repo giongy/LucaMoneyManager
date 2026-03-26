@@ -16,6 +16,10 @@ import me.friwi.jcefmaven.MavenCefAppHandlerAdapter;
 
 public class App {
 
+    // Tenuti statici per evitare che il GC li raccolga e rilasci il lock
+    private static FileChannel _lockChannel;
+    private static FileLock    _lock;
+
     public static void main(String[] args) throws Exception {
         // Cartella dati utente
         Path dataDir = Path.of(System.getProperty("user.home"),
@@ -24,11 +28,11 @@ public class App {
 
         // Istanza singola: acquisisce un file lock esclusivo
         Path lockFile = dataDir.resolve("app.lock");
-        FileChannel lockChannel = FileChannel.open(lockFile,
+        _lockChannel = FileChannel.open(lockFile,
                 StandardOpenOption.CREATE, StandardOpenOption.WRITE);
-        FileLock lock = lockChannel.tryLock();
-        if (lock == null) {
-            lockChannel.close();
+        _lock = _lockChannel.tryLock();
+        if (_lock == null) {
+            _lockChannel.close();
             JOptionPane.showMessageDialog(null,
                     "LucaMoneyManager è già in esecuzione.",
                     "Applicazione già aperta", JOptionPane.WARNING_MESSAGE);

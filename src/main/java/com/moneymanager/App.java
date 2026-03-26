@@ -1,7 +1,10 @@
 package com.moneymanager;
 
+import java.nio.channels.FileChannel;
+import java.nio.channels.FileLock;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 
 import javax.swing.JOptionPane;
 import javax.swing.SwingUtilities;
@@ -18,6 +21,20 @@ public class App {
         Path dataDir = Path.of(System.getProperty("user.home"),
                 "AppData", "Roaming", "LucaMoneyManager");
         Files.createDirectories(dataDir);
+
+        // Istanza singola: acquisisce un file lock esclusivo
+        Path lockFile = dataDir.resolve("app.lock");
+        FileChannel lockChannel = FileChannel.open(lockFile,
+                StandardOpenOption.CREATE, StandardOpenOption.WRITE);
+        FileLock lock = lockChannel.tryLock();
+        if (lock == null) {
+            lockChannel.close();
+            JOptionPane.showMessageDialog(null,
+                    "LucaMoneyManager è già in esecuzione.",
+                    "Applicazione già aperta", JOptionPane.WARNING_MESSAGE);
+            System.exit(0);
+        }
+        // lock rimane acquisito per tutta la durata del processo
 
         // Impostazioni (settings.properties) — nella stessa cartella del JAR (o user.dir in IDE)
         Path settingsDir;

@@ -441,28 +441,42 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 .modal-body   { padding:14px 16px; overflow-y:auto; flex:1; }
 .modal-footer { padding:10px 16px; border-top:1px solid var(--border); display:flex; gap:8px; justify-content:flex-end; }
 
+/* ─── Notice button (titlebar) ───────────────────────────────────────────── */
+#noticeBtn {
+  width:40px; height:var(--titlebar); display:flex; align-items:center;
+  justify-content:center; cursor:pointer; font-size:16px; position:relative;
+  color:var(--txt3); transition:color .15s; flex-shrink:0; user-select:none;
+}
+#noticeBtn:hover { color:var(--txt1); }
+#noticeBtn.has-notices { color:#d29922; }
+#noticeBtn .notice-badge {
+  position:absolute; top:7px; right:4px; background:#d29922; color:#0d1117;
+  border-radius:8px; font-size:9px; font-weight:700; padding:0 3px;
+  min-width:13px; text-align:center; line-height:13px;
+}
+
 /* ─── Overdue notice ─────────────────────────────────────────────────────── */
 #noticeStack {
-  position:fixed; top:50%; right:30px; transform:translateY(-50%);
-  z-index:1900; display:flex; flex-direction:column; gap:12px; align-items:flex-end;
+  position:fixed; bottom:24px; right:24px;
+  z-index:1900; display:flex; flex-direction:column; gap:8px; align-items:flex-end;
 }
 .overdue-notice {
-  width:480px; background:var(--bg2); border:2px solid #d29922;
-  border-radius:12px; box-shadow:0 8px 40px rgba(0,0,0,.7);
-  overflow:hidden; transition:opacity .5s; font-size:16px;
+  width:380px; background:var(--bg2); border:1px solid #d29922;
+  border-radius:10px; box-shadow:0 4px 24px rgba(0,0,0,.6);
+  overflow:hidden; transition:opacity .5s; font-size:13px;
 }
 .overdue-notice.fade-out { opacity:0; }
 .overdue-notice-head {
   display:flex; align-items:center; justify-content:space-between;
-  padding:16px 20px; background:rgba(210,153,34,.18); cursor:pointer;
-  color:#d29922; font-weight:700; font-size:17px; gap:10px;
+  padding:10px 14px; background:rgba(210,153,34,.15); cursor:pointer;
+  color:#d29922; font-weight:700; font-size:14px; gap:8px;
 }
-.overdue-notice-head button { background:none; border:none; color:#d29922; cursor:pointer; font-size:20px; padding:0; line-height:1; flex-shrink:0; }
-.overdue-notice-body { padding:12px 20px 14px; display:flex; flex-direction:column; gap:8px; }
-.overdue-row { display:flex; gap:12px; align-items:center; font-size:15px; color:var(--txt2); }
+.overdue-notice-head button { background:none; border:none; color:#d29922; cursor:pointer; font-size:16px; padding:0; line-height:1; flex-shrink:0; }
+.overdue-notice-body { padding:8px 14px 10px; display:flex; flex-direction:column; gap:6px; }
+.overdue-row { display:flex; gap:10px; align-items:center; font-size:12px; color:var(--txt2); }
 .overdue-row .td-main { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.overdue-more { font-size:14px; color:var(--txt3); padding-top:3px; }
-.overdue-notice-bar { height:4px; background:var(--bg3); }
+.overdue-more { font-size:12px; color:var(--txt3); padding-top:2px; }
+.overdue-notice-bar { height:3px; background:var(--bg3); }
 .overdue-notice-progress { height:100%; width:100%; background:#d29922; }
 .notice-telefono { border-color:#58a6ff; }
 .notice-telefono .overdue-notice-head { background:rgba(88,166,255,.12); color:#58a6ff; }

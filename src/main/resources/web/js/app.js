@@ -7269,12 +7269,53 @@ function showScheduledModal(sched, accounts, categories, tags = []) {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   INIT
+   INIT — notices
 ═══════════════════════════════════════════════════════════════════════════ */
-function showDaTelefonoNotice(list) {
+const _noticeData = []; // {type:'telefono'|'overdue'|'forecast', list}
+
+function _showNotice(className, html, onHeadClick) {
   const el = document.createElement('div');
-  el.className = 'overdue-notice notice-telefono';
-  el.innerHTML = `
+  el.className = 'overdue-notice' + (className ? ' ' + className : '');
+  el.innerHTML = html;
+  document.getElementById('noticeStack').appendChild(el);
+  requestAnimationFrame(() => {
+    el.querySelector('.overdue-notice-progress').style.transition = 'width 8s linear';
+    el.querySelector('.overdue-notice-progress').style.width = '0%';
+  });
+  setTimeout(() => el.classList.add('fade-out'), 7800);
+  setTimeout(() => el.remove(), 8500);
+  el.querySelector('.overdue-notice-head').addEventListener('click', e => {
+    if (!e.target.closest('button')) onHeadClick();
+  });
+}
+
+function updateNoticeBtn() {
+  const btn = document.getElementById('noticeBtn');
+  if (!btn) return;
+  if (_noticeData.length === 0) {
+    btn.innerHTML = '✓';
+    btn.className = '';
+    btn.title = 'Nessuna notifica';
+  } else {
+    const total = _noticeData.reduce((s, n) => s + n.list.length, 0);
+    btn.innerHTML = `🔔<span class="notice-badge">${total}</span>`;
+    btn.className = 'has-notices';
+    btn.title = `${total} notific${total===1?'a':'he'} — clicca per rivedere`;
+  }
+}
+
+function replayNotices() {
+  if (!_noticeData.length) return;
+  _noticeData.forEach(n => {
+    if (n.type === 'telefono') showDaTelefonoNotice(n.list, false);
+    else if (n.type === 'overdue') showOverdueNotice(n.list, false);
+    else if (n.type === 'forecast') showForecastReadyNotice(n.list, false);
+  });
+}
+
+function showDaTelefonoNotice(list, save=true) {
+  if (save) _noticeData.push({type:'telefono', list});
+  _showNotice('notice-telefono', `
     <div class="overdue-notice-head">
       <span>📱 ${list.length} transazion${list.length===1?'e':'i'} da telefono da controllare</span>
       <button onclick="this.closest('.overdue-notice').remove()">✕</button>
@@ -7287,23 +7328,13 @@ function showDaTelefonoNotice(list) {
       </div>`).join('')}
       ${list.length>4?`<div class="overdue-more">+ altre ${list.length-4}…</div>`:''}
     </div>
-    <div class="overdue-notice-bar"><div class="overdue-notice-progress"></div></div>`;
-  document.getElementById('noticeStack').appendChild(el);
-  requestAnimationFrame(() => {
-    el.querySelector('.overdue-notice-progress').style.transition = 'width 8s linear';
-    el.querySelector('.overdue-notice-progress').style.width = '0%';
-  });
-  setTimeout(() => el.classList.add('fade-out'), 7800);
-  setTimeout(() => el.remove(), 8500);
-  el.querySelector('.overdue-notice-head').addEventListener('click', e => {
-    if (!e.target.closest('button')) navigate('transactions');
-  });
+    <div class="overdue-notice-bar"><div class="overdue-notice-progress"></div></div>`,
+    () => navigate('transactions'));
 }
 
-function showForecastReadyNotice(list) {
-  const el = document.createElement('div');
-  el.className = 'overdue-notice';
-  el.innerHTML = `
+function showForecastReadyNotice(list, save=true) {
+  if (save) _noticeData.push({type:'forecast', list});
+  _showNotice('', `
     <div class="overdue-notice-head">
       <span>🔮 ${list.length} previsione${list.length===1?' pronta':' pronte'} da analizzare</span>
       <button onclick="this.closest('.overdue-notice').remove()">✕</button>
@@ -7315,23 +7346,13 @@ function showForecastReadyNotice(list) {
       </div>`).join('')}
       ${list.length>4?`<div class="overdue-more">+ altre ${list.length-4}…</div>`:''}
     </div>
-    <div class="overdue-notice-bar"><div class="overdue-notice-progress"></div></div>`;
-  document.getElementById('noticeStack').appendChild(el);
-  requestAnimationFrame(() => {
-    el.querySelector('.overdue-notice-progress').style.transition = 'width 8s linear';
-    el.querySelector('.overdue-notice-progress').style.width = '0%';
-  });
-  setTimeout(() => el.classList.add('fade-out'), 7800);
-  setTimeout(() => el.remove(), 8500);
-  el.querySelector('.overdue-notice-head').addEventListener('click', e => {
-    if (!e.target.closest('button')) navigate('forecasts');
-  });
+    <div class="overdue-notice-bar"><div class="overdue-notice-progress"></div></div>`,
+    () => navigate('forecasts'));
 }
 
-function showOverdueNotice(list) {
-  const el = document.createElement('div');
-  el.className = 'overdue-notice';
-  el.innerHTML = `
+function showOverdueNotice(list, save=true) {
+  if (save) _noticeData.push({type:'overdue', list});
+  _showNotice('', `
     <div class="overdue-notice-head">
       <span>⚠️ ${list.length} transazion${list.length===1?'e pianificata scaduta':'i pianificate scadute'}</span>
       <button onclick="this.closest('.overdue-notice').remove()">✕</button>
@@ -7344,18 +7365,8 @@ function showOverdueNotice(list) {
       </div>`).join('')}
       ${list.length>4?`<div class="overdue-more">+ altri ${list.length-4}…</div>`:''}
     </div>
-    <div class="overdue-notice-bar"><div class="overdue-notice-progress"></div></div>`;
-  document.getElementById('noticeStack').appendChild(el);
-  // progress bar animation then auto-remove
-  requestAnimationFrame(() => {
-    el.querySelector('.overdue-notice-progress').style.transition = 'width 8s linear';
-    el.querySelector('.overdue-notice-progress').style.width = '0%';
-  });
-  setTimeout(() => el.classList.add('fade-out'), 7800);
-  setTimeout(() => el.remove(), 8500);
-  el.querySelector('.overdue-notice-head').addEventListener('click', e => {
-    if (!e.target.closest('button')) navigate('scheduled');
-  });
+    <div class="overdue-notice-bar"><div class="overdue-notice-progress"></div></div>`,
+    () => navigate('scheduled'));
 }
 
 /* ─── Chart.js global font (allineato al body Segoe UI) ──────────────────── */
@@ -7395,6 +7406,7 @@ async function init() {
     const ready = forecasts.filter(f => f.is_ready === 1);
     if (ready.length) showForecastReadyNotice(ready);
   } catch(e) {}
+  updateNoticeBtn();
 }
 
 /* ─── Log Viewer ──────────────────────────────────────────────────────────── */

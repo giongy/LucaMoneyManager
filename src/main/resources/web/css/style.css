@@ -34,13 +34,13 @@
 
 /* ─── Light theme ────────────────────────────────────────────────────────── */
 [data-theme="light"] th { background: var(--bg3); }
-[data-theme="light"] td { border-bottom-color: #e8ecf0; }
+[data-theme="light"] td { border-bottom-color: #bac0c9; }
 [data-theme="light"] {
-  --bg:       #eaeef2;
-  --bg2:      #ffffff;
-  --bg3:      #eaeef2;
-  --bg4:      #d0d7de;
-  --border:   #d0d7de;
+  --bg:       #dce0e7;
+  --bg2:      #e9ecf2;
+  --bg3:      #d0d5dc;
+  --bg4:      #c5cad2;
+  --border:   #bac0c9;
   --accent:   #0969da;
   --accent2:  #1a7f64;
   --income:   #1a7f3c;
@@ -49,8 +49,8 @@
   --purple:   #8250df;
   --orange:   #bc4c00;
   --txt:      #1f2328;
-  --txt2:     #636c76;
-  --txt3:     #818b98;
+  --txt2:     #555d66;
+  --txt3:     #757e88;
   --shadow:   0 8px 32px rgba(0,0,0,.12);
 }
 
@@ -74,7 +74,8 @@ input,select,textarea { font-family:inherit; }
 }
 .sidebar-logo {
   display:flex; align-items:center; gap:8px;
-  padding:12px 14px; border-bottom:1px solid var(--border);
+  height:var(--titlebar); padding:0 14px; border-bottom:1px solid var(--border);
+  box-sizing:border-box;
 }
 .logo-icon { font-size:18px; }
 .logo-text  { font-size:13px; font-weight:700; color:var(--txt); letter-spacing:.3px; }

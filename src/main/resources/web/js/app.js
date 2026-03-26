@@ -1421,6 +1421,7 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
         <label class="form-label">Tag</label>
         <div class="tag-selector" id="tagSelector">
           ${tags.filter(t=>!t.is_system).map(t=>`<span class="tag-chip" data-tag-id="${t.id}" style="--tc:${t.color}">${t.name}</span>`).join('')}
+          ${tags.filter(t=>t.is_system && (tx?.tags||[]).some(tt=>Number(tt.id)===t.id)).map(t=>`<span class="tag-chip" data-tag-id="${t.id}" style="--tc:${t.color}" title="Tag di sistema — puoi solo rimuoverlo">${t.name} 🔒</span>`).join('')}
           <span class="tag-chip tag-chip-new" id="tagChipNew">+ nuovo</span>
         </div>
         <div class="tag-new-row" id="tagNewRow" style="display:none">

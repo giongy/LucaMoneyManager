@@ -1,8 +1,11 @@
 package com.example.luca_wallet
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.database.ContentObserver
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -12,6 +15,7 @@ import android.view.View
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -35,6 +39,10 @@ class MainActivity : AppCompatActivity() {
     ) { result ->
         if (result.resultCode == RESULT_OK) lifecycleScope.launch { init() }
     }
+
+    private val notifPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { /* l'utente ha risposto: continua normalmente in entrambi i casi */ }
 
     private lateinit var swipeRefresh: SwipeRefreshLayout
     private lateinit var recyclerView: RecyclerView
@@ -75,6 +83,13 @@ class MainActivity : AppCompatActivity() {
             addTransactionLauncher.launch(
                 Intent(this, AddTransactionActivity::class.java)
             )
+        }
+
+        NotifHelper.createChannel(this)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED) {
+            notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
 
         lifecycleScope.launch { init() }
@@ -152,6 +167,7 @@ class MainActivity : AppCompatActivity() {
                             DbHelper.copyUriToLocal(this@MainActivity, uri)
                         }
                         openDbAndLoad(localPath, uri)
+                        NotifHelper.notifyDbUpdated(this@MainActivity)
                     } catch (_: Exception) {}
                     isObserverReloading = false
                 }

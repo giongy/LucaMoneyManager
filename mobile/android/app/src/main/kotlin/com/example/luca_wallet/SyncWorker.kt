@@ -19,6 +19,7 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
             }
             // Aggiorna il widget con i dati freschi (gestisce apertura/chiusura DB internamente)
             AccountsWidget.updateAll(applicationContext)
+            NotifHelper.notifyDbUpdated(applicationContext)
             Result.success()
         } catch (_: Exception) {
             Result.retry()

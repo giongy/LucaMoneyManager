@@ -924,9 +924,9 @@ async function renderDashboard() {
       backgroundColor: savArr.map(v => v >= 0 ? 'rgba(63,185,80,.75)' : 'rgba(248,81,73,.75)'),
       borderRadius: 4
     }]},
-    options: { responsive:true, plugins:{legend:{display:false}},
-      scales:{ x:{ticks:{color:chartColors().tick,font:{size:10}},grid:{color:chartColors().grid}},
-               y:{ticks:{color:chartColors().tick,font:{size:10}},grid:{color:chartColors().grid}}}}
+    options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}},
+      scales:{ x:{ticks:{color:chartColors().tick},grid:{color:chartColors().grid}},
+               y:{ticks:{color:chartColors().tick},grid:{color:chartColors().grid}}}}
   });
 
   // Top categories chart (horizontal bar)

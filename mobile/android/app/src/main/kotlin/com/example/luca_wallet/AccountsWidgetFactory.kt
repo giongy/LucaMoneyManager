@@ -13,11 +13,15 @@ class AccountsWidgetFactory(private val context: Context) : RemoteViewsService.R
     override fun onCreate() {}
 
     override fun onDataSetChanged() {
-        val path = DbHelper.getSavedPath(context) ?: return
-        if (!DbHelper.isConfigured) {
-            DbHelper.openDb(path, null)
+        try {
+            val path = DbHelper.getSavedPath(context) ?: return
+            if (!DbHelper.isConfigured) {
+                DbHelper.openDb(path, null)
+            }
+            accounts = DbHelper.getFavoriteAccounts()
+        } catch (_: Exception) {
+            accounts = emptyList()
         }
-        accounts = DbHelper.getFavoriteAccounts()
     }
 
     override fun onDestroy() {}

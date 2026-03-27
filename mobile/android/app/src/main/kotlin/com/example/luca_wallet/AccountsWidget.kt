@@ -84,8 +84,6 @@ class AccountsWidget : AppWidgetProvider() {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
             views.setOnClickPendingIntent(R.id.widgetRefresh, refreshPI)
-            // Tint the refresh icon programmatically (android:tint not reliable in RemoteViews)
-            views.setInt(R.id.widgetRefresh, "setColorFilter", 0xFF8B949E.toInt())
 
             manager.updateAppWidget(widgetId, views)
         }

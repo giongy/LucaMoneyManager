@@ -9,6 +9,7 @@ import android.view.inputmethod.InputMethodManager
 import android.widget.ArrayAdapter
 import android.widget.AutoCompleteTextView
 import android.widget.Toast
+import com.google.android.material.textfield.TextInputEditText
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
@@ -38,7 +39,7 @@ class AddTransactionActivity : AppCompatActivity() {
     private lateinit var etAmount:     TextInputEditText
     private lateinit var etDate:       TextInputEditText
     private lateinit var tilCategory:  TextInputLayout
-    private lateinit var actvCategory: AutoCompleteTextView
+    private lateinit var etCategory:   TextInputEditText
     private lateinit var actvAccount:  AutoCompleteTextView
     private lateinit var tilToAccount: TextInputLayout
     private lateinit var actvToAccount: AutoCompleteTextView
@@ -88,7 +89,8 @@ class AddTransactionActivity : AppCompatActivity() {
         etAmount      = findViewById(R.id.etAmount)
         etDate        = findViewById(R.id.etDate)
         tilCategory   = findViewById(R.id.tilCategory)
-        actvCategory  = findViewById(R.id.actvCategory)
+        etCategory    = findViewById(R.id.etCategory)
+        etCategory.setOnClickListener { showCategoryPicker() }
         actvAccount   = findViewById(R.id.actvAccount)
         tilToAccount  = findViewById(R.id.tilToAccount)
         actvToAccount = findViewById(R.id.actvToAccount)
@@ -137,18 +139,21 @@ class AddTransactionActivity : AppCompatActivity() {
 
     private suspend fun loadCategories() {
         if (txType == "transfer") {
-            actvCategory.setText("", false)
+            etCategory.setText("")
             catIdx = -1
             return
         }
         categories = withContext(Dispatchers.IO) { DbHelper.getSubCategories(txType) }
-        val catNames = categories.map { it.displayName }
-        actvCategory.setAdapter(
-            ArrayAdapter(this, android.R.layout.simple_dropdown_item_1line, catNames)
-        )
-        actvCategory.setText("", false)
+        etCategory.setText("")
         catIdx = -1
-        actvCategory.setOnItemClickListener { _, _, i, _ -> catIdx = i }
+    }
+
+    private fun showCategoryPicker() {
+        if (categories.isEmpty()) return
+        CategoryBottomSheet(categories) { idx, displayName ->
+            catIdx = idx
+            etCategory.setText(displayName.substringAfter(":").trim())
+        }.show(supportFragmentManager, "cat_picker")
     }
 
     private fun hideKeyboard() {

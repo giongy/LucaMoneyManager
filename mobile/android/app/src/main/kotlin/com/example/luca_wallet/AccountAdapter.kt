@@ -13,6 +13,7 @@ class AccountAdapter(
 ) : RecyclerView.Adapter<AccountAdapter.VH>() {
 
     class VH(view: View) : RecyclerView.ViewHolder(view) {
+        val stripe:  View     = view.findViewById(R.id.stripe)
         val icon:    TextView = view.findViewById(R.id.tvIcon)
         val name:    TextView = view.findViewById(R.id.tvName)
         val balance: TextView = view.findViewById(R.id.tvBalance)
@@ -31,6 +32,9 @@ class AccountAdapter(
         holder.balance.setTextColor(
             if (a.balance >= 0) Color.parseColor("#3fb950")
             else                Color.parseColor("#f85149")
+        )
+        holder.stripe.setBackgroundColor(
+            runCatching { Color.parseColor(a.color) }.getOrDefault(Color.parseColor("#58a6ff"))
         )
         holder.itemView.setOnClickListener { onItemClick(a) }
     }

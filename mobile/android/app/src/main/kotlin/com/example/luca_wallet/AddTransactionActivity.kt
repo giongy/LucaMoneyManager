@@ -39,10 +39,11 @@ class AddTransactionActivity : AppCompatActivity() {
     private lateinit var etDate:       TextInputEditText
     private lateinit var tilCategory:  TextInputLayout
     private lateinit var etCategory:   TextInputEditText
-    private lateinit var actvAccount:  AutoCompleteTextView
-    private lateinit var tilToAccount: TextInputLayout
+    private lateinit var actvAccount:   AutoCompleteTextView
+    private lateinit var tilToAccount:  TextInputLayout
     private lateinit var actvToAccount: AutoCompleteTextView
-    private lateinit var btnSave:      MaterialButton
+    private lateinit var etDescription: TextInputEditText
+    private lateinit var btnSave:       MaterialButton
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -92,8 +93,9 @@ class AddTransactionActivity : AppCompatActivity() {
         etCategory.setOnClickListener { showCategoryPicker() }
         actvAccount   = findViewById(R.id.actvAccount)
         tilToAccount  = findViewById(R.id.tilToAccount)
-        actvToAccount = findViewById(R.id.actvToAccount)
-        btnSave       = findViewById(R.id.btnSave)
+        actvToAccount  = findViewById(R.id.actvToAccount)
+        etDescription  = findViewById(R.id.etDescription)
+        btnSave        = findViewById(R.id.btnSave)
     }
 
     private fun updateDateField() {
@@ -169,6 +171,9 @@ class AddTransactionActivity : AppCompatActivity() {
         if (accIdx < 0) {
             Toast.makeText(this, "Seleziona un conto", Toast.LENGTH_SHORT).show(); return
         }
+        if (txType != "transfer" && catIdx < 0) {
+            Toast.makeText(this, "Seleziona una categoria", Toast.LENGTH_SHORT).show(); return
+        }
         if (txType == "transfer" && toAccIdx < 0) {
             Toast.makeText(this, "Seleziona il conto di destinazione", Toast.LENGTH_SHORT).show(); return
         }
@@ -198,7 +203,7 @@ class AddTransactionActivity : AppCompatActivity() {
                     categoryId  = if (catIdx >= 0) categories[catIdx].id else null,
                     accountId   = accounts[accIdx].id,
                     toAccountId = if (txType == "transfer" && toAccIdx >= 0) accounts[toAccIdx].id else null,
-                    description = ""
+                    description = etDescription.text?.toString()?.trim() ?: ""
                 )
             }
             setResult(Activity.RESULT_OK)

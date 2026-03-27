@@ -154,6 +154,25 @@
 
             </com.google.android.material.textfield.TextInputLayout>
 
+            <Space android:layout_width="match_parent" android:layout_height="16dp"/>
+
+            <!-- Descrizione (opzionale) -->
+            <com.google.android.material.textfield.TextInputLayout
+                style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:hint="Descrizione (opzionale)">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/etDescription"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="textMultiLine|textCapSentences"
+                    android:maxLines="3"
+                    android:imeOptions="actionDone"/>
+
+            </com.google.android.material.textfield.TextInputLayout>
+
             <Space android:layout_width="match_parent" android:layout_height="32dp"/>
 
             <!-- Salva -->

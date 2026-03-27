@@ -40,11 +40,6 @@
                 android:resource="@xml/accounts_widget_info"/>
         </receiver>
 
-        <service
-            android:name=".AccountsWidgetService"
-            android:exported="false"
-            android:permission="android.permission.BIND_REMOTEVIEWS"/>
-
     </application>
 
 </manifest>

@@ -15,6 +15,18 @@ class CategoryBottomSheet(
     private val onSelected: (index: Int, displayName: String) -> Unit
 ) : BottomSheetDialogFragment() {
 
+    // Color palette (dark-theme friendly)
+    private val PALETTE = intArrayOf(
+        0xFF58a6ff.toInt(),  // blue
+        0xFF3fb950.toInt(),  // green
+        0xFFd2a8ff.toInt(),  // purple
+        0xFFffa657.toInt(),  // orange
+        0xFFf78166.toInt(),  // red-orange
+        0xFF79c0ff.toInt(),  // light blue
+        0xFF56d364.toInt(),  // light green
+        0xFFff7b72.toInt(),  // salmon
+    )
+
     override fun onCreateView(
         inflater: LayoutInflater,
         container: ViewGroup?,
@@ -29,19 +41,21 @@ class CategoryBottomSheet(
     }
 
     private sealed class Item {
-        data class Header(val label: String)                                    : Item()
-        data class Entry(val idx: Int, val name: String, val full: String)     : Item()
+        data class Header(val label: String, val color: Int)                : Item()
+        data class Entry(val idx: Int, val name: String, val full: String)  : Item()
     }
 
     private fun buildItems(): List<Item> {
         val result = mutableListOf<Item>()
         var lastParent = ""
+        var headerIdx  = 0
         categories.forEachIndexed { i, cat ->
             val parent = cat.displayName.substringBefore(":").trim()
             val name   = cat.displayName.substringAfter(":").trim()
             if (parent != lastParent) {
-                result += Item.Header(parent)
+                result += Item.Header(parent, PALETTE[headerIdx % PALETTE.size])
                 lastParent = parent
+                headerIdx++
             }
             result += Item.Entry(i, name, cat.displayName)
         }
@@ -63,24 +77,18 @@ class CategoryBottomSheet(
             val tv  = TextView(ctx)
 
             if (viewType == 0) {
-                // Section header
                 tv.layoutParams = ViewGroup.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT
                 )
                 tv.setPadding(
-                    (20 * dp).toInt(), (14 * dp).toInt(),
-                    (20 * dp).toInt(), (4  * dp).toInt()
+                    (20 * dp).toInt(), (12 * dp).toInt(),
+                    (20 * dp).toInt(), (12 * dp).toInt()
                 )
                 tv.textSize = 11f
                 tv.isAllCaps = true
                 tv.setTextAppearance(com.google.android.material.R.style.TextAppearance_Material3_LabelSmall)
-                val mutedColor = TypedValue().also {
-                    ctx.theme.resolveAttribute(com.google.android.material.R.attr.colorOnSurfaceVariant, it, true)
-                }.data
-                tv.setTextColor(mutedColor)
             } else {
-                // Selectable entry
                 tv.layoutParams = ViewGroup.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT
@@ -101,8 +109,14 @@ class CategoryBottomSheet(
         override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
             val tv = holder.itemView as TextView
             when (val item = items[position]) {
-                is Item.Header -> tv.text = item.label
-                is Item.Entry  -> {
+                is Item.Header -> {
+                    tv.text = item.label
+                    tv.setTextColor(item.color)
+                    // Subtle tinted background: 12% alpha of the header color
+                    val bg = (item.color and 0x00FFFFFF) or (0x1F000000.toInt())
+                    tv.setBackgroundColor(bg)
+                }
+                is Item.Entry -> {
                     tv.text = item.name
                     tv.setOnClickListener {
                         onSelected(item.idx, item.full)

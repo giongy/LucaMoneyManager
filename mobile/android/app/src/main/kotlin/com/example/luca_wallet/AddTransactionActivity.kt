@@ -75,6 +75,9 @@ class AddTransactionActivity : AppCompatActivity() {
         etAmount.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_DONE) { hideKeyboard(); true } else false
         }
+        etDescription.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_DONE) { hideKeyboard(); true } else false
+        }
 
         etDate.setOnClickListener { pickDate() }
         btnSave.setOnClickListener { lifecycleScope.launch { save() } }

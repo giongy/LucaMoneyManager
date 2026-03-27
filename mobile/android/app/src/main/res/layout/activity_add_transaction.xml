@@ -167,8 +167,7 @@
                     android:id="@+id/etDescription"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:inputType="textMultiLine|textCapSentences"
-                    android:maxLines="3"
+                    android:inputType="textCapSentences"
                     android:imeOptions="actionDone"/>
 
             </com.google.android.material.textfield.TextInputLayout>

@@ -662,7 +662,7 @@ async function renderDashboard() {
       </div>
     </div>
     <div class="dash-charts-row">
-      <div class="card dash-barchart-card">
+      <div class="card dash-barchart-card" style="cursor:pointer" onclick="_analyticsTab='balance';navigate('analytics')">
         <div class="card-header"><span class="card-title">Entrate vs Uscite ${dashYear}</span></div>
         <div class="dash-chart-wrap"><canvas id="barChart"></canvas></div>
       </div>
@@ -691,7 +691,7 @@ async function renderDashboard() {
         <div class="card-header"><span class="card-title">Spese per categoria</span></div>
         <canvas id="pieChart"></canvas>
       </div>
-      <div class="card dash-chart-sm">
+      <div class="card dash-chart-sm" style="cursor:pointer" onclick="_analyticsTab='catmonth';navigate('analytics')">
         <div class="card-header"><span class="card-title">Top categorie spesa</span></div>
         <canvas id="topCatChart"></canvas>
       </div>
@@ -930,7 +930,7 @@ async function renderDashboard() {
   });
 
   // Top categories chart (horizontal bar)
-  const top5 = [...catData].sort((a,b)=>b.total-a.total).slice(0,6);
+  const top5 = [...catData].sort((a,b)=>b.total-a.total).slice(0,10);
   if (charts.topCat) charts.topCat.destroy();
   if (top5.length) {
     charts.topCat = new Chart(document.getElementById('topCatChart'), {
@@ -939,7 +939,7 @@ async function renderDashboard() {
               datasets: [{label:'Spesa', data: top5.map(c=>c.total),
                 backgroundColor: top5.map(c=>c.color||'rgba(88,166,255,.7)'), borderRadius:4}]},
       options: { indexAxis:'y', responsive:true, plugins:{legend:{display:false}},
-        scales:{ x:{ticks:{color:chartColors().tick,font:{size:10}},grid:{color:chartColors().grid}},
+        scales:{ x:{ticks:{color:chartColors().tick,font:{size:10},stepSize:200},grid:{color:chartColors().grid}},
                  y:{ticks:{color:chartColors().tick,font:{size:10}},grid:{color:chartColors().grid}}}}
     });
   }
@@ -2659,11 +2659,18 @@ function renderBudgetAndamento() {
           label: 'Δ cumulativo',
           data: deltaProg,
           borderColor: '#b388ff',
-          backgroundColor: 'transparent',
-          tension: 0.3, pointRadius: 3, pointHoverRadius: 5,
-          borderDash: [5, 3],
+          borderWidth: 1,
+          fill: { target: 'origin', above: 'rgba(63,185,80,0.18)', below: 'rgba(248,81,73,0.18)' },
+          tension: 0.3, pointRadius: 2, pointHoverRadius: 4,
           spanGaps: false,
-          order: 1
+          order: 1,
+          segment: {
+            borderColor: ctx => {
+              const avg = ((ctx.p0.parsed.y ?? 0) + (ctx.p1.parsed.y ?? 0)) / 2;
+              return avg >= 0 ? 'rgba(63,185,80,0.9)' : 'rgba(248,81,73,0.9)';
+            }
+          },
+          pointBackgroundColor: ctx => ctx.parsed.y >= 0 ? 'rgba(63,185,80,0.9)' : 'rgba(248,81,73,0.9)'
         }
       ]
     },
@@ -4637,8 +4644,8 @@ async function renderAnalytics() {
     <div style="padding:16px 24px 0;display:flex;flex-direction:column;height:100%;overflow:hidden;box-sizing:border-box">
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-shrink:0">
         <div style="display:flex;gap:6px">
-          <button class="sched-tab active" data-atab="catmonth" onclick="_setAnalyticsTab('catmonth',this)">Categorie / Mese</button>
-          <button class="sched-tab" data-atab="balance" onclick="_setAnalyticsTab('balance',this)">Bilancio Mensile</button>
+          <button class="sched-tab${_analyticsTab==='catmonth'?' active':''}" data-atab="catmonth" onclick="_setAnalyticsTab('catmonth',this)">Categorie / Mese</button>
+          <button class="sched-tab${_analyticsTab==='balance'?' active':''}" data-atab="balance" onclick="_setAnalyticsTab('balance',this)">Bilancio Mensile</button>
         </div>
         <div style="margin-left:auto;display:flex;gap:10px;align-items:center">
           <label style="font-size:13px;color:var(--text2)">Periodo:</label>
@@ -4657,9 +4664,9 @@ async function renderAnalytics() {
   slider.onchange = () => {
     _analyticsMonths = parseInt(slider.value);
     api.setSetting('analytics.months', String(_analyticsMonths));
-    renderAnalyticsCatMonth();
+    if (_analyticsTab === 'balance') renderAnalyticsBalance(); else renderAnalyticsCatMonth();
   };
-  renderAnalyticsCatMonth();
+  if (_analyticsTab === 'balance') renderAnalyticsBalance(); else renderAnalyticsCatMonth();
 }
 
 let _analyticsTab = 'catmonth';
@@ -4671,16 +4678,17 @@ window._setAnalyticsTab = (tab, btn) => {
   if (tab === 'balance')  renderAnalyticsBalance();
 };
 
+let _analyticsCatSort = { col: null, dir: -1 };
+let _analyticsCatCache = null;
+
 async function renderAnalyticsCatMonth() {
   const el = document.getElementById('analyticsContent');
   if (!el) return;
   el.innerHTML = '<p style="padding:20px;color:var(--text2)">Caricamento…</p>';
 
   const months = _analyticsMonths;
-
   const rows = await api.getCategoryMonthTable(months);
 
-  // Build month columns (oldest → newest)
   const now = new Date();
   const monthCols = [];
   for (let i = months - 1; i >= 0; i--) {
@@ -4691,23 +4699,52 @@ async function renderAnalyticsCatMonth() {
     });
   }
 
-  // Group rows by category
   const catMap = {};
   for (const r of rows) {
     if (!catMap[r.id]) catMap[r.id] = { id: r.id, name: r.name, type: r.type, color: r.color, icon: r.icon, parent_name: r.parent_name || null, m: {} };
     catMap[r.id].m[r.ym] = r.total;
   }
 
+  _analyticsCatCache = { monthCols, catMap };
+  _renderAnalyticsCatTable();
+}
+
+window._sortAnalyticsCat = col => {
+  if (_analyticsCatSort.col === col) _analyticsCatSort.dir *= -1;
+  else { _analyticsCatSort.col = col; _analyticsCatSort.dir = -1; }
+  _renderAnalyticsCatTable();
+};
+
+function _renderAnalyticsCatTable() {
+  const el = document.getElementById('analyticsContent');
+  if (!el || !_analyticsCatCache) return;
+  const { monthCols, catMap } = _analyticsCatCache;
+
   const catTotal = c => monthCols.reduce((s, m) => s + (c.m[m.ym] || 0), 0);
 
-  const expenses = Object.values(catMap).filter(c => c.type === 'expense').sort((a, b) => {
-    const pa = a.parent_name || a.name, pb = b.parent_name || b.name;
-    return pa.localeCompare(pb) || a.name.localeCompare(b.name);
-  });
-  const incomes  = Object.values(catMap).filter(c => c.type === 'income').sort((a, b) => {
-    const pa = a.parent_name || a.name, pb = b.parent_name || b.name;
-    return pa.localeCompare(pb) || a.name.localeCompare(b.name);
-  });
+  const sortCats = arr => {
+    const { col, dir } = _analyticsCatSort;
+    if (col === null) return [...arr].sort((a, b) => {
+      const pa = a.parent_name || a.name, pb = b.parent_name || b.name;
+      return pa.localeCompare(pb) || a.name.localeCompare(b.name);
+    });
+    return [...arr].sort((a, b) => {
+      if (col === 'name') return dir * a.name.localeCompare(b.name);
+      if (col === 'total' || col === 'avg') return dir * (catTotal(a) - catTotal(b));
+      const ym = monthCols[col]?.ym;
+      return dir * ((a.m[ym] || 0) - (b.m[ym] || 0));
+    });
+  };
+
+  const arrow = col => {
+    if (_analyticsCatSort.col !== col) return ' <span style="color:var(--txt3);font-size:10px;user-select:none">⇅</span>';
+    return _analyticsCatSort.dir === -1 ? ' ↓' : ' ↑';
+  };
+
+  const thStyle = 'cursor:pointer;user-select:none';
+
+  const expenses = sortCats(Object.values(catMap).filter(c => c.type === 'expense'));
+  const incomes  = sortCats(Object.values(catMap).filter(c => c.type === 'income'));
 
   const renderSection = (cats, label) => {
     if (!cats.length) return '';
@@ -4736,10 +4773,10 @@ async function renderAnalyticsCatMonth() {
   el.innerHTML = `
     <table class="analytics-table">
       <thead><tr>
-        <th>Categoria</th>
-        ${monthCols.map(m => `<th class="text-right">${m.label}</th>`).join('')}
-        <th class="text-right analytics-total">Totale</th>
-        <th class="text-right analytics-avg" style="color:var(--accent)">Media/mese</th>
+        <th style="${thStyle}" onclick="_sortAnalyticsCat('name')">Categoria${arrow('name')}</th>
+        ${monthCols.map((m, i) => `<th class="text-right" style="${thStyle}" onclick="_sortAnalyticsCat(${i})">${m.label}${arrow(i)}</th>`).join('')}
+        <th class="text-right analytics-total" style="${thStyle}" onclick="_sortAnalyticsCat('total')">Totale${arrow('total')}</th>
+        <th class="text-right analytics-avg" style="${thStyle};color:var(--accent)" onclick="_sortAnalyticsCat('avg')">Media/mese${arrow('avg')}</th>
       </tr></thead>
       <tbody>
         ${renderSection(expenses, 'Uscite')}
@@ -4779,7 +4816,7 @@ async function renderAnalyticsBalance() {
   const cc = chartColors();
 
   el.innerHTML = `
-    <div style="height:260px;margin-bottom:20px"><canvas id="balanceChart"></canvas></div>
+    <div style="height:380px;margin-bottom:20px"><canvas id="balanceChart"></canvas></div>
     <table class="analytics-table">
       <thead><tr>
         <th>Mese</th><th class="text-right">Entrate</th><th class="text-right">Uscite</th>
@@ -4788,14 +4825,16 @@ async function renderAnalyticsBalance() {
       <tbody>
         ${monthCols.map((m, i) => {
           const bal = balances[i], cum = cumuls[i];
-          const balCol = bal >= 0 ? 'var(--green)' : 'var(--red)';
-          const cumCol = cum >= 0 ? 'var(--green)' : 'var(--red)';
+          const balCol  = bal >= 0 ? 'var(--income)' : 'var(--expense)';
+          const cumCol  = cum >= 0 ? 'var(--income)' : 'var(--expense)';
+          const balBg   = bal >= 0 ? 'rgba(63,185,80,.10)' : 'rgba(248,81,73,.10)';
+          const cumBg   = cum >= 0 ? 'rgba(63,185,80,.10)' : 'rgba(248,81,73,.10)';
           return `<tr>
             <td>${m.label}</td>
-            <td class="text-right" style="color:var(--green)">${incomes[i]  ? fmt.currency(incomes[i])  : '—'}</td>
-            <td class="text-right" style="color:var(--red)">${expenses[i]  ? fmt.currency(expenses[i]) : '—'}</td>
-            <td class="text-right" style="color:${balCol};font-weight:600">${fmt.currency(bal)}</td>
-            <td class="text-right" style="color:${cumCol}">${fmt.currency(cum)}</td>
+            <td class="text-right" style="color:var(--income);background:rgba(63,185,80,.07)">${incomes[i]  ? fmt.currency(incomes[i])  : '—'}</td>
+            <td class="text-right" style="color:var(--expense);background:rgba(248,81,73,.07)">${expenses[i] ? fmt.currency(expenses[i]) : '—'}</td>
+            <td class="text-right" style="color:${balCol};background:${balBg};font-weight:600">${fmt.currency(bal)}</td>
+            <td class="text-right" style="color:${cumCol};background:${cumBg}">${fmt.currency(cum)}</td>
           </tr>`;
         }).join('')}
         <tr class="analytics-subtotal">
@@ -4819,8 +4858,16 @@ async function renderAnalyticsBalance() {
           borderColor:'#58a6ff', backgroundColor:'transparent',
           pointRadius:3, tension:.3, borderWidth:2, order:1 },
         { type:'line', label:'Cumulativo', data:cumuls,
-          borderColor:'#bc8cff', backgroundColor:'transparent',
-          pointRadius:3, tension:.3, borderWidth:2, borderDash:[4,3], order:1 },
+          borderColor:'#bc8cff', borderWidth:1,
+          fill: { target:'origin', above:'rgba(63,185,80,.18)', below:'rgba(248,81,73,.18)' },
+          pointRadius:2, pointHoverRadius:4, tension:.3, order:1,
+          segment: {
+            borderColor: ctx => {
+              const avg = ((ctx.p0.parsed.y ?? 0) + (ctx.p1.parsed.y ?? 0)) / 2;
+              return avg >= 0 ? 'rgba(63,185,80,.9)' : 'rgba(248,81,73,.9)';
+            }
+          },
+          pointBackgroundColor: ctx => ctx.parsed.y >= 0 ? 'rgba(63,185,80,.9)' : 'rgba(248,81,73,.9)' },
       ]
     },
     options: {

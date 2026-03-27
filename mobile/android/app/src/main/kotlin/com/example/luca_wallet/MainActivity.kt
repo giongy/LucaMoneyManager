@@ -151,6 +151,7 @@ class MainActivity : AppCompatActivity() {
         accounts.addAll(list)
         adapter.notifyDataSetChanged()
         fab.visibility = if (DbHelper.isConfigured) View.VISIBLE else View.GONE
+        AccountsWidget.updateAll(this)
     }
 
     private fun showToast(msg: String) =

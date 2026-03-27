@@ -1,8 +1,11 @@
 package com.example.luca_wallet
 
 import android.content.Intent
+import android.database.ContentObserver
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
@@ -39,6 +42,9 @@ class MainActivity : AppCompatActivity() {
     private val accounts = mutableListOf<DbHelper.Account>()
     private lateinit var adapter: AccountAdapter
 
+    private var contentObserver: ContentObserver? = null
+    private var isObserverReloading = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
@@ -72,12 +78,18 @@ class MainActivity : AppCompatActivity() {
         }
 
         lifecycleScope.launch { init() }
+        SyncWorker.ensureScheduled(this)
     }
 
     // Libera il lock sul file quando l'app va in background → OneDrive può sincronizzare
     override fun onStop() {
         super.onStop()
         DbHelper.closeDb()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        contentObserver?.let { contentResolver.unregisterContentObserver(it) }
     }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
@@ -87,8 +99,9 @@ class MainActivity : AppCompatActivity() {
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         return when (item.itemId) {
-            R.id.menu_open    -> { openFileLauncher.launch(arrayOf("*/*")); true }
-            R.id.menu_refresh -> { lifecycleScope.launch { init() }; true }
+            R.id.menu_open     -> { openFileLauncher.launch(arrayOf("*/*")); true }
+            R.id.menu_refresh  -> { lifecycleScope.launch { init() }; true }
+            R.id.menu_settings -> { startActivity(Intent(this, SettingsActivity::class.java)); true }
             else -> super.onOptionsItemSelected(item)
         }
     }
@@ -112,6 +125,7 @@ class MainActivity : AppCompatActivity() {
                 }
                 DbHelper.savePrefs(this, localPath, savedUriStr)
                 openDbAndLoad(localPath, uri)
+                registerObserver(uri)
             } catch (_: Exception) {
                 if (savedPath != null) openDbAndLoad(savedPath, uri)
                 else showToast("Impossibile accedere al file OneDrive")
@@ -119,6 +133,32 @@ class MainActivity : AppCompatActivity() {
         } else {
             openDbAndLoad(savedPath!!, null)
         }
+    }
+
+    /**
+     * Registra un ContentObserver sull'URI OneDrive.
+     * Quando OneDrive completa il download della versione aggiornata, onChange() viene
+     * chiamato automaticamente → ricopia il file e ricarica i dati senza secondo refresh manuale.
+     */
+    private fun registerObserver(uri: Uri) {
+        contentObserver?.let { contentResolver.unregisterContentObserver(it) }
+        val obs = object : ContentObserver(Handler(Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean) {
+                if (isObserverReloading) return
+                isObserverReloading = true
+                lifecycleScope.launch {
+                    try {
+                        val localPath = withContext(Dispatchers.IO) {
+                            DbHelper.copyUriToLocal(this@MainActivity, uri)
+                        }
+                        openDbAndLoad(localPath, uri)
+                    } catch (_: Exception) {}
+                    isObserverReloading = false
+                }
+            }
+        }
+        contentResolver.registerContentObserver(uri, false, obs)
+        contentObserver = obs
     }
 
     private fun onFilePicked(uri: Uri) {

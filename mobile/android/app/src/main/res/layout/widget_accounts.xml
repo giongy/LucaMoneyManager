@@ -36,8 +36,8 @@
 
     </LinearLayout>
 
-    <!-- Divider -->
-    <View
+    <!-- Divider: ImageView invece di View (View non è nell'allowlist RemoteViews) -->
+    <ImageView
         android:layout_width="match_parent"
         android:layout_height="1dp"
         android:background="#21262D"
@@ -58,7 +58,7 @@
 
     <!-- Row 0 -->
     <LinearLayout android:id="@+id/widgetRow0" android:layout_width="match_parent" android:layout_height="52dp" android:orientation="horizontal" android:gravity="center_vertical" android:visibility="gone">
-        <View android:id="@+id/widgetStripe0" android:layout_width="4dp" android:layout_height="match_parent" android:layout_marginStart="8dp" android:layout_marginTop="6dp" android:layout_marginBottom="6dp"/>
+        <ImageView android:id="@+id/widgetStripe0" android:layout_width="4dp" android:layout_height="match_parent" android:layout_marginStart="8dp" android:layout_marginTop="6dp" android:layout_marginBottom="6dp"/>
         <TextView android:id="@+id/widgetIcon0" android:layout_width="30dp" android:layout_height="30dp" android:gravity="center" android:textSize="17sp" android:layout_marginStart="8dp"/>
         <TextView android:id="@+id/widgetName0" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="8dp" android:textSize="13sp" android:textColor="#E6EDF3" android:singleLine="true" android:ellipsize="end"/>
         <TextView android:id="@+id/widgetBalance0" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginEnd="12dp" android:textSize="13sp" android:textStyle="bold"/>
@@ -66,7 +66,7 @@
 
     <!-- Row 1 -->
     <LinearLayout android:id="@+id/widgetRow1" android:layout_width="match_parent" android:layout_height="52dp" android:orientation="horizontal" android:gravity="center_vertical" android:visibility="gone">
-        <View android:id="@+id/widgetStripe1" android:layout_width="4dp" android:layout_height="match_parent" android:layout_marginStart="8dp" android:layout_marginTop="6dp" android:layout_marginBottom="6dp"/>
+        <ImageView android:id="@+id/widgetStripe1" android:layout_width="4dp" android:layout_height="match_parent" android:layout_marginStart="8dp" android:layout_marginTop="6dp" android:layout_marginBottom="6dp"/>
         <TextView android:id="@+id/widgetIcon1" android:layout_width="30dp" android:layout_height="30dp" android:gravity="center" android:textSize="17sp" android:layout_marginStart="8dp"/>
         <TextView android:id="@+id/widgetName1" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="8dp" android:textSize="13sp" android:textColor="#E6EDF3" android:singleLine="true" android:ellipsize="end"/>
         <TextView android:id="@+id/widgetBalance1" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginEnd="12dp" android:textSize="13sp" android:textStyle="bold"/>
@@ -74,7 +74,7 @@
 
     <!-- Row 2 -->
     <LinearLayout android:id="@+id/widgetRow2" android:layout_width="match_parent" android:layout_height="52dp" android:orientation="horizontal" android:gravity="center_vertical" android:visibility="gone">
-        <View android:id="@+id/widgetStripe2" android:layout_width="4dp" android:layout_height="match_parent" android:layout_marginStart="8dp" android:layout_marginTop="6dp" android:layout_marginBottom="6dp"/>
+        <ImageView android:id="@+id/widgetStripe2" android:layout_width="4dp" android:layout_height="match_parent" android:layout_marginStart="8dp" android:layout_marginTop="6dp" android:layout_marginBottom="6dp"/>
         <TextView android:id="@+id/widgetIcon2" android:layout_width="30dp" android:layout_height="30dp" android:gravity="center" android:textSize="17sp" android:layout_marginStart="8dp"/>
         <TextView android:id="@+id/widgetName2" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="8dp" android:textSize="13sp" android:textColor="#E6EDF3" android:singleLine="true" android:ellipsize="end"/>
         <TextView android:id="@+id/widgetBalance2" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginEnd="12dp" android:textSize="13sp" android:textStyle="bold"/>
@@ -82,7 +82,7 @@
 
     <!-- Row 3 -->
     <LinearLayout android:id="@+id/widgetRow3" android:layout_width="match_parent" android:layout_height="52dp" android:orientation="horizontal" android:gravity="center_vertical" android:visibility="gone">
-        <View android:id="@+id/widgetStripe3" android:layout_width="4dp" android:layout_height="match_parent" android:layout_marginStart="8dp" android:layout_marginTop="6dp" android:layout_marginBottom="6dp"/>
+        <ImageView android:id="@+id/widgetStripe3" android:layout_width="4dp" android:layout_height="match_parent" android:layout_marginStart="8dp" android:layout_marginTop="6dp" android:layout_marginBottom="6dp"/>
         <TextView android:id="@+id/widgetIcon3" android:layout_width="30dp" android:layout_height="30dp" android:gravity="center" android:textSize="17sp" android:layout_marginStart="8dp"/>
         <TextView android:id="@+id/widgetName3" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="8dp" android:textSize="13sp" android:textColor="#E6EDF3" android:singleLine="true" android:ellipsize="end"/>
         <TextView android:id="@+id/widgetBalance3" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginEnd="12dp" android:textSize="13sp" android:textStyle="bold"/>
@@ -90,7 +90,7 @@
 
     <!-- Row 4 -->
     <LinearLayout android:id="@+id/widgetRow4" android:layout_width="match_parent" android:layout_height="52dp" android:orientation="horizontal" android:gravity="center_vertical" android:visibility="gone">
-        <View android:id="@+id/widgetStripe4" android:layout_width="4dp" android:layout_height="match_parent" android:layout_marginStart="8dp" android:layout_marginTop="6dp" android:layout_marginBottom="6dp"/>
+        <ImageView android:id="@+id/widgetStripe4" android:layout_width="4dp" android:layout_height="match_parent" android:layout_marginStart="8dp" android:layout_marginTop="6dp" android:layout_marginBottom="6dp"/>
         <TextView android:id="@+id/widgetIcon4" android:layout_width="30dp" android:layout_height="30dp" android:gravity="center" android:textSize="17sp" android:layout_marginStart="8dp"/>
         <TextView android:id="@+id/widgetName4" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="8dp" android:textSize="13sp" android:textColor="#E6EDF3" android:singleLine="true" android:ellipsize="end"/>
         <TextView android:id="@+id/widgetBalance4" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginEnd="12dp" android:textSize="13sp" android:textStyle="bold"/>
@@ -98,7 +98,7 @@
 
     <!-- Row 5 -->
     <LinearLayout android:id="@+id/widgetRow5" android:layout_width="match_parent" android:layout_height="52dp" android:orientation="horizontal" android:gravity="center_vertical" android:visibility="gone">
-        <View android:id="@+id/widgetStripe5" android:layout_width="4dp" android:layout_height="match_parent" android:layout_marginStart="8dp" android:layout_marginTop="6dp" android:layout_marginBottom="6dp"/>
+        <ImageView android:id="@+id/widgetStripe5" android:layout_width="4dp" android:layout_height="match_parent" android:layout_marginStart="8dp" android:layout_marginTop="6dp" android:layout_marginBottom="6dp"/>
         <TextView android:id="@+id/widgetIcon5" android:layout_width="30dp" android:layout_height="30dp" android:gravity="center" android:textSize="17sp" android:layout_marginStart="8dp"/>
         <TextView android:id="@+id/widgetName5" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="8dp" android:textSize="13sp" android:textColor="#E6EDF3" android:singleLine="true" android:ellipsize="end"/>
         <TextView android:id="@+id/widgetBalance5" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginEnd="12dp" android:textSize="13sp" android:textStyle="bold"/>
@@ -106,7 +106,7 @@
 
     <!-- Row 6 -->
     <LinearLayout android:id="@+id/widgetRow6" android:layout_width="match_parent" android:layout_height="52dp" android:orientation="horizontal" android:gravity="center_vertical" android:visibility="gone">
-        <View android:id="@+id/widgetStripe6" android:layout_width="4dp" android:layout_height="match_parent" android:layout_marginStart="8dp" android:layout_marginTop="6dp" android:layout_marginBottom="6dp"/>
+        <ImageView android:id="@+id/widgetStripe6" android:layout_width="4dp" android:layout_height="match_parent" android:layout_marginStart="8dp" android:layout_marginTop="6dp" android:layout_marginBottom="6dp"/>
         <TextView android:id="@+id/widgetIcon6" android:layout_width="30dp" android:layout_height="30dp" android:gravity="center" android:textSize="17sp" android:layout_marginStart="8dp"/>
         <TextView android:id="@+id/widgetName6" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="8dp" android:textSize="13sp" android:textColor="#E6EDF3" android:singleLine="true" android:ellipsize="end"/>
         <TextView android:id="@+id/widgetBalance6" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginEnd="12dp" android:textSize="13sp" android:textStyle="bold"/>

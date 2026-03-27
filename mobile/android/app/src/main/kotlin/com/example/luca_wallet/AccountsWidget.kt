@@ -6,6 +6,7 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.widget.RemoteViews
 
 class AccountsWidget : AppWidgetProvider() {
@@ -18,14 +19,42 @@ class AccountsWidget : AppWidgetProvider() {
         for (id in appWidgetIds) updateWidget(context, appWidgetManager, id)
     }
 
+    override fun onReceive(context: Context, intent: Intent) {
+        super.onReceive(context, intent)
+        if (intent.action == ACTION_REFRESH) {
+            // Full sync like MainActivity.init(): re-download from OneDrive then reload
+            Thread {
+                val uriStr = DbHelper.getSavedContentUri(context)
+                val path   = DbHelper.getSavedPath(context)
+                if (path != null) {
+                    DbHelper.closeDb()
+                    if (uriStr != null) {
+                        try {
+                            val localPath = DbHelper.copyUriToLocal(context, Uri.parse(uriStr))
+                            DbHelper.openDb(localPath, Uri.parse(uriStr))
+                        } catch (_: Exception) {
+                            DbHelper.openDb(path, null)
+                        }
+                    } else {
+                        DbHelper.openDb(path, null)
+                    }
+                }
+                val manager = AppWidgetManager.getInstance(context)
+                val ids = manager.getAppWidgetIds(ComponentName(context, AccountsWidget::class.java))
+                manager.notifyAppWidgetViewDataChanged(ids, R.id.widgetList)
+            }.start()
+        }
+    }
+
     companion object {
+
+        const val ACTION_REFRESH = "com.example.luca_wallet.WIDGET_REFRESH"
 
         /** Called from MainActivity after accounts are reloaded. */
         fun updateAll(context: Context) {
             val manager = AppWidgetManager.getInstance(context)
             val ids = manager.getAppWidgetIds(ComponentName(context, AccountsWidget::class.java))
             if (ids.isEmpty()) return
-            // Refresh list data (triggers onDataSetChanged in factory)
             manager.notifyAppWidgetViewDataChanged(ids, R.id.widgetList)
             for (id in ids) updateWidget(context, manager, id)
         }
@@ -45,6 +74,16 @@ class AccountsWidget : AppWidgetProvider() {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
             )
             views.setPendingIntentTemplate(R.id.widgetList, clickPI)
+
+            // Refresh button → broadcast → onReceive(ACTION_REFRESH)
+            val refreshIntent = Intent(context, AccountsWidget::class.java).apply {
+                action = ACTION_REFRESH
+            }
+            val refreshPI = PendingIntent.getBroadcast(
+                context, widgetId, refreshIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            views.setOnClickPendingIntent(R.id.widgetRefresh, refreshPI)
 
             manager.updateAppWidget(widgetId, views)
         }

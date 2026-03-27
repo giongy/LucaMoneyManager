@@ -63,8 +63,11 @@ class AccountsWidget : AppWidgetProvider() {
             val views = RemoteViews(context.packageName, R.layout.widget_accounts)
 
             // Wire up RemoteViewsService as the list adapter
+            // setRemoteAdapter(viewId, intent) è API 31+; usiamo la versione a 3 parametri
+            // (deprecated API 31 ma compatibile con API 26+)
             val serviceIntent = Intent(context, AccountsWidgetService::class.java)
-            views.setRemoteAdapter(R.id.widgetList, serviceIntent)
+            @Suppress("DEPRECATION")
+            views.setRemoteAdapter(widgetId, R.id.widgetList, serviceIntent)
             views.setEmptyView(R.id.widgetList, R.id.widgetEmpty)
 
             // Template PendingIntent: each item's fillInIntent adds account_id

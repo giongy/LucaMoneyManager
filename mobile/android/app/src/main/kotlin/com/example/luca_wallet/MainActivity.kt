@@ -126,6 +126,11 @@ class MainActivity : AppCompatActivity() {
         val savedPath   = DbHelper.getSavedPath(this)
         if (savedUriStr == null && savedPath == null) return
 
+        // Leggi last_modified prima di cancellare la cache locale
+        val prevModified = withContext(Dispatchers.IO) {
+            savedPath?.let { DbHelper.readLastModifiedFromPath(it) }
+        }
+
         // Chiudi e svuota la cache locale prima di scaricare la versione aggiornata
         withContext(Dispatchers.IO) {
             DbHelper.closeDb()
@@ -141,6 +146,9 @@ class MainActivity : AppCompatActivity() {
                 DbHelper.savePrefs(this, localPath, savedUriStr)
                 openDbAndLoad(localPath, uri)
                 registerObserver(uri)
+                if (prevModified != null && DbHelper.lastModified != prevModified) {
+                    showToast("DB aggiornato — nuova versione caricata")
+                }
             } catch (_: Exception) {
                 if (savedPath != null) openDbAndLoad(savedPath, uri)
                 else showToast("Impossibile accedere al file OneDrive")

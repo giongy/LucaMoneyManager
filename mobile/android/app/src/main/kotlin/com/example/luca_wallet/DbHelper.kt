@@ -39,6 +39,17 @@ object DbHelper {
 
     val currentFilename: String? get() = localPath?.substringAfterLast('/')
 
+    /** Valore last_modified del DB attualmente aperto (null se non ancora aperto). */
+    val lastModified: String? get() = openedAt
+
+    /** Legge last_modified da un file SQLite arbitrario senza toccare la connessione principale. */
+    fun readLastModifiedFromPath(path: String): String? = try {
+        SQLiteDatabase.openDatabase(path, null, SQLiteDatabase.OPEN_READONLY).use { tmp ->
+            tmp.rawQuery("SELECT value FROM sync_meta WHERE key='last_modified' LIMIT 1", null)
+                .use { c -> if (c.moveToFirst()) c.getString(0) else null }
+        }
+    } catch (_: Exception) { null }
+
     // ── Preferences ───────────────────────────────────────────────────────────
 
     fun savePrefs(context: Context, path: String?, uri: String?) {

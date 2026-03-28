@@ -163,11 +163,14 @@ class MainActivity : AppCompatActivity() {
                 isObserverReloading = true
                 lifecycleScope.launch {
                     try {
+                        val prevModified = DbHelper.lastModified
                         val localPath = withContext(Dispatchers.IO) {
                             DbHelper.copyUriToLocal(this@MainActivity, uri)
                         }
                         openDbAndLoad(localPath, uri)
-                        NotifHelper.notifyDbUpdated(this@MainActivity)
+                        if (DbHelper.lastModified != prevModified) {
+                            NotifHelper.notifyDbUpdated(this@MainActivity)
+                        }
                     } catch (_: Exception) {}
                     isObserverReloading = false
                 }

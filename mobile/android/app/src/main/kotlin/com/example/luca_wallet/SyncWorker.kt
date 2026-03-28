@@ -13,13 +13,16 @@ class SyncWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, 
         val uriStr = DbHelper.getSavedContentUri(applicationContext) ?: return Result.success()
         val uri    = Uri.parse(uriStr)
         return try {
-            withContext(Dispatchers.IO) {
+            val changed = withContext(Dispatchers.IO) {
+                val oldModified = DbHelper.getSavedPath(applicationContext)
+                    ?.let { DbHelper.readLastModifiedFromPath(it) }
                 val path = DbHelper.copyUriToLocal(applicationContext, uri)
                 DbHelper.savePrefs(applicationContext, path, uriStr)
+                val newModified = DbHelper.readLastModifiedFromPath(path)
+                newModified != null && newModified != oldModified
             }
-            // Aggiorna il widget con i dati freschi (gestisce apertura/chiusura DB internamente)
             AccountsWidget.updateAll(applicationContext)
-            NotifHelper.notifyDbUpdated(applicationContext)
+            if (changed) NotifHelper.notifyDbUpdated(applicationContext)
             Result.success()
         } catch (_: Exception) {
             Result.retry()

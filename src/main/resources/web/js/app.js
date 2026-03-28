@@ -1023,6 +1023,21 @@ async function renderTransactions() {
           <option value="">Tutti i conti</option>
           ${accounts.filter(isAccountVisible).map(a=>`<option value="${a.id}" ${String(a.id)===String(txFilters.account_id)?'selected':''}>${a.icon} ${a.name}</option>`).join('')}
         </select>
+        <select class="form-control" id="txCategory">
+          <option value="">Tutte le categorie</option>
+          ${(() => {
+            const parents = categories.filter(c => !c.parent_id && c.type !== 'transfer');
+            return parents.map(p => {
+              const children = categories.filter(c => String(c.parent_id) === String(p.id));
+              if (!children.length) return `<option value="${p.id}" ${String(p.id)===String(txFilters.category_id)?'selected':''}>${p.icon||''} ${p.name}</option>`;
+              return `<optgroup label="${p.icon||''} ${p.name}">${children.map(c=>`<option value="${c.id}" ${String(c.id)===String(txFilters.category_id)?'selected':''}>${c.icon||''} ${c.name}</option>`).join('')}</optgroup>`;
+            }).join('');
+          })()}
+        </select>
+        <select class="form-control" id="txTag">
+          <option value="">Tutti i tag</option>
+          ${tags.map(t=>`<option value="${t.id}" ${String(t.id)===String(txFilters.tag_id)?'selected':''}>${t.name}</option>`).join('')}
+        </select>
         <input class="form-control" id="txSearch" value="${txFilters.search||''}" placeholder="🔍 Cerca..." style="min-width:160px">
       </div>
     </div>
@@ -1055,9 +1070,11 @@ async function renderTransactions() {
     txFilters = {
       range,
       ...rangeToFilter(range, from, to),
-      type:       document.getElementById('txType').value,
-      account_id: document.getElementById('txAccount').value || undefined,
-      search:     document.getElementById('txSearch').value,
+      type:        document.getElementById('txType').value,
+      account_id:  document.getElementById('txAccount').value   || undefined,
+      category_id: document.getElementById('txCategory').value  || undefined,
+      tag_id:      document.getElementById('txTag').value       || undefined,
+      search:      document.getElementById('txSearch').value,
     };
     api.setSetting('tx.range', range);
     loadTxRows(categories, accounts);
@@ -1070,7 +1087,7 @@ async function renderTransactions() {
     applyFilters();
   });
   let _txSearchTimer;
-  ['txType','txAccount'].forEach(id =>
+  ['txType','txAccount','txCategory','txTag'].forEach(id =>
     document.getElementById(id).addEventListener('change', applyFilters));
   ['txFrom','txTo'].forEach(id =>
     document.getElementById(id).addEventListener('change', applyFilters));

@@ -844,6 +844,10 @@ public class Database {
         if (f.has("category_id") && !f.get("category_id").isJsonNull()) {
             sql.append(" AND t.category_id=?"); params.add(f.get("category_id").getAsInt());
         }
+        if (f.has("tag_id") && !f.get("tag_id").isJsonNull()) {
+            sql.append(" AND t.id IN (SELECT transaction_id FROM transaction_tags WHERE tag_id=?)");
+            params.add(f.get("tag_id").getAsInt());
+        }
         if (f.has("search") && !f.get("search").getAsString().isBlank()) {
             sql.append(" AND t.description LIKE ?");
             params.add("%" + str(f,"search") + "%");

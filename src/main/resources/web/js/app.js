@@ -5598,6 +5598,16 @@ async function renderSettings() {
             <span class="settings-hint maint-result" id="logPurgeResult"></span>
           </div>
         </div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <strong>Elimina voci di sistema</strong>
+            <span class="settings-hint">Rimuove avvio, backup, manutenzione — conserva transazioni e modifiche dati</span>
+          </div>
+          <div class="settings-control maint-op-control">
+            <button class="btn btn-danger" onclick="maintPurgeSystemLog()">🗑️ Elimina voci sistema</button>
+            <span class="settings-hint maint-result" id="logSystemPurgeResult"></span>
+          </div>
+        </div>
       </div>`,
 
     info: `
@@ -5823,6 +5833,21 @@ async function maintLoadLogInfo() {
 window.maintUpdateLogCutoff = () => {
   const v = document.getElementById('logCutoffSelect').value;
   document.getElementById('logCutoffDate').style.display = v === 'custom' ? '' : 'none';
+};
+
+window.maintPurgeSystemLog = async () => {
+  const ok = await confirm('Elimina voci di sistema', 'Eliminare tutte le voci di sistema dal log (avvio, backup, manutenzione)?');
+  if (!ok) return;
+  const res = await callJava('purgeSystemLog');
+  const result = document.getElementById('logSystemPurgeResult');
+  if (res.error) {
+    result.style.color = 'var(--expense)';
+    result.textContent = 'Errore: ' + res.error;
+  } else {
+    result.style.color = res.deleted > 0 ? 'var(--income)' : '';
+    result.textContent = res.deleted > 0 ? `Eliminate ${res.deleted} righe` : 'Nessuna voce di sistema trovata';
+    maintLoadLogInfo();
+  }
 };
 
 window.maintPurgeLog = async () => {

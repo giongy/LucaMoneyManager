@@ -89,6 +89,39 @@ public class DbLogger {
         } catch (IOException e) { return Map.of("error", e.getMessage(), "deleted", 0); }
     }
 
+    private static final java.util.Set<String> SYSTEM_ACTIONS = java.util.Set.of(
+        "AVVIO", "DB CAMBIATO", "BACKUP ESEGUITO", "RIPRISTINO BACKUP", "MANUTENZIONE"
+    );
+
+    /**
+     * Estrae il nome dell'azione da una riga di log.
+     * Formato: DATE(10) + "  " + TIME(8) + "  " + ACTION(35) + ...
+     */
+    private static String extractAction(String line) {
+        if (line.length() < 23) return "";
+        int end = Math.min(22 + 35, line.length());
+        return line.substring(22, end).trim();
+    }
+
+    /**
+     * Elimina dal file di log tutte le righe di sistema
+     * (AVVIO, DB CAMBIATO, BACKUP ESEGUITO, RIPRISTINO BACKUP, MANUTENZIONE).
+     * Restituisce il numero di righe eliminate e quelle rimaste.
+     */
+    public Map<String, Object> purgeSystemEntries() {
+        if (logFile == null || !Files.exists(logFile)) return Map.of("deleted", 0, "remaining", 0);
+        try {
+            List<String> all  = Files.readAllLines(logFile, java.nio.charset.StandardCharsets.UTF_8);
+            List<String> kept = all.stream()
+                    .filter(l -> !SYSTEM_ACTIONS.contains(extractAction(l)))
+                    .collect(Collectors.toList());
+            int deleted = all.size() - kept.size();
+            String content = kept.isEmpty() ? "" : String.join(System.lineSeparator(), kept) + System.lineSeparator();
+            Files.writeString(logFile, content, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.CREATE);
+            return Map.of("deleted", deleted, "remaining", kept.size());
+        } catch (IOException e) { return Map.of("error", e.getMessage(), "deleted", 0); }
+    }
+
     /** Formatta un numero come importo leggibile. */
     static String amt(Object v) {
         if (v == null) return "0.00";

@@ -2095,6 +2095,14 @@ public class Database {
         return result;
     }
 
+    /** Elimina le righe di log di sistema (avvio, backup, manutenzione). */
+    public Map<String, Object> purgeSystemLog() {
+        Map<String, Object> result = logger.purgeSystemEntries();
+        if (!result.containsKey("error"))
+            logger.log("MANUTENZIONE", "LOG SISTEMA RIPULITO: eliminate " + result.get("deleted") + " righe");
+        return result;
+    }
+
     /** Elimina le righe di log precedenti a cutoffDate (yyyy-MM-dd). */
     public Map<String, Object> purgeLog(String cutoffDate) {
         Map<String, Object> result = logger.purgeLogBefore(cutoffDate);

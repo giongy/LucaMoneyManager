@@ -413,8 +413,9 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
 
             // ─── Log ───────────────────────────────────────────────────────────────
             case "readLog"    -> db.readLog(p.has("lines") ? p.get("lines").getAsInt() : 500);
-            case "getLogInfo" -> db.getLogInfo();
-            case "purgeLog"   -> db.purgeLog(p.get("cutoff").getAsString());
+            case "getLogInfo"      -> db.getLogInfo();
+            case "purgeLog"        -> db.purgeLog(p.get("cutoff").getAsString());
+            case "purgeSystemLog"  -> db.purgeSystemLog();
 
             default -> throw new Exception("Metodo sconosciuto: " + method);
         };

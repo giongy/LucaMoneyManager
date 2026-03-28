@@ -2079,9 +2079,20 @@ public class Database {
 
     // ─── Log ──────────────────────────────────────────────────────────────────
 
-    /** Prima/ultima data e totale righe nel file di log. */
+    /** Espone il logger per uso esterno (es. Bridge). */
+    public DbLogger getLogger() { return logger; }
+
+    /** Prima/ultima data e totale righe nel file di log, con percorso e dimensione file. */
     public Map<String, Object> getLogInfo() {
-        return logger.getLogDateRange();
+        Map<String, Object> result = new java.util.HashMap<>(logger.getLogDateRange());
+        java.nio.file.Path logFile = logger.getLogFile();
+        if (logFile != null) {
+            result.put("log_path", logFile.toString());
+            result.put("log_dir",  logFile.getParent() != null ? logFile.getParent().toString() : "");
+            try { result.put("log_size", java.nio.file.Files.size(logFile)); }
+            catch (java.io.IOException ignored) {}
+        }
+        return result;
     }
 
     /** Elimina le righe di log precedenti a cutoffDate (yyyy-MM-dd). */

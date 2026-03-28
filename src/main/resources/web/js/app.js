@@ -5559,6 +5559,20 @@ async function renderSettings() {
         <div class="settings-section-title">📋 Log operazioni</div>
         <div class="settings-row">
           <div class="settings-label">
+            <strong>File di log</strong>
+            <span class="settings-hint">Percorso e dimensione del file di log</span>
+          </div>
+          <div class="settings-control" style="display:flex;flex-direction:column;gap:4px">
+            <span class="settings-hint" id="logPathText" style="word-break:break-all;font-family:monospace">—</span>
+            <div style="display:flex;align-items:center;gap:8px">
+              <span class="settings-hint" id="logSizeText">—</span>
+              <button class="btn btn-ghost" style="white-space:nowrap;padding:2px 8px;font-size:11px"
+                      onclick="callJava('openLogFolder')">Apri cartella ↗</button>
+            </div>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">
             <strong>Contenuto log</strong>
             <span class="settings-hint">Prima e ultima registrazione nel file di log</span>
           </div>
@@ -5789,6 +5803,17 @@ async function maintLoadLogInfo() {
   if (!el) return;
   try {
     const info = await callJava('getLogInfo');
+    // percorso e dimensione
+    const pathEl = document.getElementById('logPathText');
+    const sizeEl = document.getElementById('logSizeText');
+    if (pathEl) pathEl.textContent = info.log_path || '—';
+    if (sizeEl && info.log_size != null) {
+      const kb = (info.log_size / 1024).toFixed(1);
+      sizeEl.textContent = kb >= 1024
+        ? `${(kb / 1024).toFixed(2)} MB`
+        : `${kb} KB`;
+    } else if (sizeEl) sizeEl.textContent = '—';
+    // contenuto
     if (info.empty)        el.textContent = 'Log vuoto o non trovato';
     else if (info.error)   el.textContent = 'Errore: ' + info.error;
     else                   el.textContent = `Prima registrazione: ${info.first}  ·  Ultima: ${info.last}  ·  ${info.total_lines} righe`;

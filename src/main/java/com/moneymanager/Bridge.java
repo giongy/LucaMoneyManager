@@ -335,6 +335,16 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                 yield Map.of("ok", true);
             }
 
+            case "openLogFolder" -> {
+                java.nio.file.Path logFile = db.getLogger().getLogFile();
+                if (logFile != null) {
+                    java.nio.file.Path dir = logFile.getParent();
+                    if (dir != null && java.nio.file.Files.exists(dir))
+                        java.awt.Desktop.getDesktop().open(dir.toFile());
+                }
+                yield Map.of("ok", true);
+            }
+
             case "openUrl" -> {
                 java.awt.Desktop.getDesktop().browse(new java.net.URI(p.get("url").getAsString()));
                 yield Map.of("ok", true);

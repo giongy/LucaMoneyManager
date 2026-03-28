@@ -252,6 +252,15 @@ public class Database {
         return p.has(key) && !p.get(key).isJsonNull() ? p.get(key).getAsInt() : null;
     }
 
+    // ─── sync_meta ────────────────────────────────────────────────────────────
+
+    private void touchSyncMeta() throws SQLException {
+        executePlain("CREATE TABLE IF NOT EXISTS sync_meta (key TEXT PRIMARY KEY, value TEXT)");
+        String now = java.time.Instant.now().toString();
+        execute("INSERT OR REPLACE INTO sync_meta(key,value) VALUES('last_modified',?)", now);
+        execute("INSERT OR REPLACE INTO sync_meta(key,value) VALUES('last_modified_by','desktop')");
+    }
+
     // ─── Schema ───────────────────────────────────────────────────────────────
 
     private void initSchema() throws SQLException {
@@ -657,6 +666,7 @@ public class Database {
                 dbl(p,"initial_balance") != null ? dbl(p,"initial_balance") : 0.0,
                 str(p,"color"), str(p,"icon"),
                 intVal(p,"is_favorite") != null ? intVal(p,"is_favorite") : 0, 0, nextOrder);
+        touchSyncMeta();
         logger.log("CONTO AGGIUNTO", "id:" + id, "nome:" + str(p,"name"), "tipo:" + str(p,"type"),
                    "saldo_iniziale:" + DbLogger.amt(dbl(p,"initial_balance")));
         return queryOne("SELECT * FROM accounts WHERE id=?", id);
@@ -670,6 +680,7 @@ public class Database {
                 intVal(p,"is_favorite") != null ? intVal(p,"is_favorite") : 0,
                 intVal(p,"is_closed") != null ? intVal(p,"is_closed") : 0,
                 id);
+        touchSyncMeta();
         logger.log("CONTO MODIFICATO", "id:" + id, "nome:" + str(p,"name"), "tipo:" + str(p,"type"),
                    "chiuso:" + intVal(p,"is_closed"));
         return queryOne("SELECT * FROM accounts WHERE id=?", id);
@@ -686,6 +697,7 @@ public class Database {
     public Map<String, Object> deleteAccount(int id) throws SQLException {
         Map<String, Object> old = queryOne("SELECT name FROM accounts WHERE id=?", id);
         execute("DELETE FROM accounts WHERE id=?", id);
+        touchSyncMeta();
         logger.log("CONTO ELIMINATO", "id:" + id, "nome:" + DbLogger.s(old != null ? old.get("name") : null));
         return Map.of("id", id, "deleted", true);
     }
@@ -891,6 +903,7 @@ public class Database {
                 str(p,"color"), reconciled);
         saveTags(id, p);
         saveSplits(id, p);
+        touchSyncMeta();
         Map<String, Object> tx = getTransactionById(id);
         logger.log("TRANSAZIONE AGGIUNTA",
             "id:" + id,
@@ -916,6 +929,7 @@ public class Database {
                 str(p,"color"), reconciled, id);
         saveTags(id, p);
         saveSplits(id, p);
+        touchSyncMeta();
         Map<String, Object> tx = getTransactionById(id);
         logger.log("TRANSAZIONE MODIFICATA",
             "id:" + id,
@@ -930,6 +944,7 @@ public class Database {
 
     public Map<String, Object> updateTransactionReconciled(int id, boolean reconciled) throws SQLException {
         execute("UPDATE transactions SET reconciled=? WHERE id=?", reconciled ? 1 : 0, id);
+        touchSyncMeta();
         logger.log("CONCILIAZIONE", "id:" + id, "stato:" + (reconciled ? "conciliata" : "non conciliata"));
         return Map.of("ok", true);
     }
@@ -966,6 +981,7 @@ public class Database {
             "SELECT t.date, t.amount, t.type, t.description, a.name AS account_name " +
             "FROM transactions t LEFT JOIN accounts a ON a.id=t.account_id WHERE t.id=?", id);
         execute("DELETE FROM transactions WHERE id=?", id);
+        touchSyncMeta();
         logger.log("TRANSAZIONE ELIMINATA",
             "id:" + id,
             "data:" + DbLogger.s(tx != null ? tx.get("date") : null),

@@ -995,10 +995,6 @@ async function renderTransactions() {
 
   pg.innerHTML = `
     <div style="flex-shrink:0;padding:16px 16px 0;background:var(--bg)">
-      <div class="section-header">
-        <h2 class="section-title">Transazioni</h2>
-        <div id="txHeaderSummary" class="tx-header-summary"></div>
-      </div>
       <div class="filter-bar" style="margin-bottom:12px">
         <select class="form-control" id="txRange">
           ${[

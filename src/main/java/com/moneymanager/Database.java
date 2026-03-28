@@ -2079,6 +2079,19 @@ public class Database {
 
     // ─── Log ──────────────────────────────────────────────────────────────────
 
+    /** Prima/ultima data e totale righe nel file di log. */
+    public Map<String, Object> getLogInfo() {
+        return logger.getLogDateRange();
+    }
+
+    /** Elimina le righe di log precedenti a cutoffDate (yyyy-MM-dd). */
+    public Map<String, Object> purgeLog(String cutoffDate) {
+        Map<String, Object> result = logger.purgeLogBefore(cutoffDate);
+        if (!result.containsKey("error"))
+            logger.log("MANUTENZIONE", "LOG RIPULITO: eliminate " + result.get("deleted") + " righe prima di " + cutoffDate);
+        return result;
+    }
+
     /** Restituisce le ultime {@code lines} righe del file di log come lista di stringhe. */
     public Map<String, Object> readLog(int lines) {
         Path logFile = logger.getLogFile();

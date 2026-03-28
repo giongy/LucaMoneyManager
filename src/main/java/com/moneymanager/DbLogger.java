@@ -4,6 +4,9 @@ import java.io.IOException;
 import java.nio.file.*;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Scrive una riga di log per ogni operazione di scrittura sul database.
@@ -51,6 +54,39 @@ public class DbLogger {
             Files.writeString(logFile, sb.toString(),
                     StandardOpenOption.CREATE, StandardOpenOption.APPEND);
         } catch (IOException ignored) {}
+    }
+
+    /** Prima/ultima data e totale righe nel file di log. */
+    public Map<String, Object> getLogDateRange() {
+        if (logFile == null || !Files.exists(logFile)) return Map.of("empty", true);
+        try {
+            List<String> dated = Files.readAllLines(logFile, java.nio.charset.StandardCharsets.UTF_8)
+                    .stream().filter(l -> l.length() >= 10).collect(Collectors.toList());
+            if (dated.isEmpty()) return Map.of("empty", true);
+            return Map.of(
+                "first",       dated.get(0).substring(0, 10),
+                "last",        dated.get(dated.size() - 1).substring(0, 10),
+                "total_lines", dated.size()
+            );
+        } catch (IOException e) { return Map.of("error", e.getMessage()); }
+    }
+
+    /**
+     * Elimina dal file di log tutte le righe con data < cutoffDate (formato yyyy-MM-dd).
+     * Restituisce il numero di righe eliminate e quelle rimaste.
+     */
+    public Map<String, Object> purgeLogBefore(String cutoffDate) {
+        if (logFile == null || !Files.exists(logFile)) return Map.of("deleted", 0, "remaining", 0);
+        try {
+            List<String> all  = Files.readAllLines(logFile, java.nio.charset.StandardCharsets.UTF_8);
+            List<String> kept = all.stream()
+                    .filter(l -> l.length() < 10 || l.substring(0, 10).compareTo(cutoffDate) >= 0)
+                    .collect(Collectors.toList());
+            int deleted = all.size() - kept.size();
+            String content = kept.isEmpty() ? "" : String.join(System.lineSeparator(), kept) + System.lineSeparator();
+            Files.writeString(logFile, content, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.CREATE);
+            return Map.of("deleted", deleted, "remaining", kept.size());
+        } catch (IOException e) { return Map.of("error", e.getMessage(), "deleted", 0); }
     }
 
     /** Formatta un numero come importo leggibile. */

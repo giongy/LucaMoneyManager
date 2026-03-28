@@ -291,7 +291,9 @@ const api = {
   deleteReport: id     => callJava('deleteReport', {id}),
 
   // Log
-  readLog: (lines) => callJava('readLog', {lines: lines || 1000}),
+  readLog:    (lines) => callJava('readLog', {lines: lines || 1000}),
+  getLogInfo: ()      => callJava('getLogInfo'),
+  purgeLog:   (p)     => callJava('purgeLog', p),
 };
 
 /* ─── Chart theme helpers ─────────────────────────────────────────────────── */
@@ -5551,6 +5553,37 @@ async function renderSettings() {
             <button class="btn btn-danger" onclick="if(confirm('Eliminare Chromium e chiudere l\\'app?')) api.resetJcef()">🗑️ Reset Chromium</button>
           </div>
         </div>
+      </div>
+
+      <div class="settings-section">
+        <div class="settings-section-title">📋 Log operazioni</div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <strong>Contenuto log</strong>
+            <span class="settings-hint">Prima e ultima registrazione nel file di log</span>
+          </div>
+          <div class="settings-control">
+            <span class="settings-hint" id="logInfoText">Caricamento...</span>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <strong>Elimina righe precedenti a</strong>
+            <span class="settings-hint">Rimuove dal file di log tutte le righe antecedenti alla data scelta</span>
+          </div>
+          <div class="settings-control maint-op-control">
+            <select class="form-control" id="logCutoffSelect" onchange="maintUpdateLogCutoff()">
+              <option value="3m">Mantieni ultimi 3 mesi</option>
+              <option value="6m">Mantieni ultimi 6 mesi</option>
+              <option value="1y">Mantieni ultimo anno</option>
+              <option value="2y">Mantieni ultimi 2 anni</option>
+              <option value="custom">Personalizzato…</option>
+            </select>
+            <input type="date" class="form-control" id="logCutoffDate" style="display:none">
+            <button class="btn btn-danger" onclick="maintPurgeLog()">🗑️ Elimina</button>
+            <span class="settings-hint maint-result" id="logPurgeResult"></span>
+          </div>
+        </div>
       </div>`,
 
     info: `
@@ -5622,7 +5655,7 @@ async function renderSettings() {
     <div class="settings-wrap">
       ${tabContent[_settingsTab] || ''}
     </div>`;
-  if (_settingsTab === 'maintenance') setTimeout(maintLoadInfo, 50);
+  if (_settingsTab === 'maintenance') setTimeout(() => { maintLoadInfo(); maintLoadLogInfo(); }, 50);
 }
 
 window._setSettingsTab = tab => {
@@ -5748,6 +5781,52 @@ async function maintReindex() {
   btn.disabled = false; btn.textContent = '⚡ Ricostruisci';
 }
 
+
+// ─── Manutenzione log ────────────────────────────────────────────────────────
+
+async function maintLoadLogInfo() {
+  const el = document.getElementById('logInfoText');
+  if (!el) return;
+  try {
+    const info = await callJava('getLogInfo');
+    if (info.empty)        el.textContent = 'Log vuoto o non trovato';
+    else if (info.error)   el.textContent = 'Errore: ' + info.error;
+    else                   el.textContent = `Prima registrazione: ${info.first}  ·  Ultima: ${info.last}  ·  ${info.total_lines} righe`;
+  } catch(e) { el.textContent = 'Errore: ' + e; }
+}
+
+window.maintUpdateLogCutoff = () => {
+  const v = document.getElementById('logCutoffSelect').value;
+  document.getElementById('logCutoffDate').style.display = v === 'custom' ? '' : 'none';
+};
+
+window.maintPurgeLog = async () => {
+  const sel = document.getElementById('logCutoffSelect').value;
+  let cutoff;
+  if (sel === 'custom') {
+    cutoff = document.getElementById('logCutoffDate').value;
+    if (!cutoff) { document.getElementById('logPurgeResult').textContent = 'Seleziona una data'; return; }
+  } else {
+    const d = new Date();
+    if      (sel === '3m') d.setMonth(d.getMonth() - 3);
+    else if (sel === '6m') d.setMonth(d.getMonth() - 6);
+    else if (sel === '1y') d.setFullYear(d.getFullYear() - 1);
+    else if (sel === '2y') d.setFullYear(d.getFullYear() - 2);
+    cutoff = d.toISOString().slice(0, 10);
+  }
+  const ok = await confirm('Elimina log', `Eliminare tutte le righe di log precedenti al ${cutoff}?`);
+  if (!ok) return;
+  const res = await callJava('purgeLog', { cutoff });
+  const result = document.getElementById('logPurgeResult');
+  if (res.error) {
+    result.style.color = 'var(--expense)';
+    result.textContent = 'Errore: ' + res.error;
+  } else {
+    result.style.color = res.deleted > 0 ? 'var(--income)' : '';
+    result.textContent = res.deleted > 0 ? `Eliminate ${res.deleted} righe` : 'Nessuna riga da eliminare';
+    maintLoadLogInfo();
+  }
+};
 
 function applyTheme(theme) {
   document.documentElement.dataset.theme = theme === 'light' ? 'light' : '';

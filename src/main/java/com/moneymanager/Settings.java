@@ -13,16 +13,18 @@ import java.util.*;
 public class Settings {
 
     // ─── Chiavi con valori di default ─────────────────────────────────────────
-    public static final String DB_PATH       = "db.path";
-    public static final String BACKUP_ENABLED = "backup.enabled";
-    public static final String BACKUP_DIR     = "backup.dir";
-    public static final String BACKUP_MAX     = "backup.max";
+    public static final String DB_PATH         = "db.path";
+    public static final String BACKUP_ENABLED  = "backup.enabled";
+    public static final String BACKUP_DIR      = "backup.dir";
+    public static final String BACKUP_MAX      = "backup.max";
+    public static final String ATTACHMENTS_DIR = "attachments.dir";
 
     private static final Map<String, String> DEFAULTS = Map.of(
-        DB_PATH,        "",
-        BACKUP_ENABLED, "0",
-        BACKUP_DIR,     "",
-        BACKUP_MAX,     "10"
+        DB_PATH,         "",
+        BACKUP_ENABLED,  "0",
+        BACKUP_DIR,      "",
+        BACKUP_MAX,      "10",
+        ATTACHMENTS_DIR, ""
     );
 
     // ──────────────────────────────────────────────────────────────────────────

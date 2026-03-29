@@ -255,8 +255,13 @@ const api = {
   setSetting:    (key, value) => callJava('setSetting', {key, value}),
   chooseDbFile:      (mode)   => callJava('chooseDbFile', {mode}),
   reloadDb:          (path)  => callJava('reloadDb', {path}),
-  chooseBackupDir:   ()      => callJava('chooseBackupDir', {}),
-  openSettingsFile:  ()      => callJava('openSettingsFile', {}),
+  chooseBackupDir:       ()             => callJava('chooseBackupDir', {}),
+  chooseAttachmentsDir:  ()             => callJava('chooseAttachmentsDir', {}),
+  chooseAttachmentFile:  ()             => callJava('chooseAttachmentFile', {}),
+  attachFile:            (tx_id, source_path, old_path) => callJava('attachFile', {tx_id, source_path, old_path: old_path||null}),
+  openAttachment:        (path)         => callJava('openAttachment', {path}),
+  removeAttachment:      (tx_id, path)  => callJava('removeAttachment', {tx_id, path: path||null}),
+  openSettingsFile:      ()             => callJava('openSettingsFile', {}),
   openUrl:           (url)   => callJava('openUrl', {url}),
   resetJcef:         ()      => callJava('resetJcef', {}),
   doBackup:        ()         => callJava('doBackup', {}),
@@ -1166,6 +1171,12 @@ function sortTxs(arr) {
   });
 }
 
+window.openTxAttachment = async el => {
+  const path = decodeURIComponent(el.dataset.path);
+  const res = await api.openAttachment(path);
+  if (res.error) toast(res.error, 'error');
+};
+
 window._txSortBy = col => {
   txSort.dir = txSort.col === col ? (txSort.dir === 'asc' ? 'desc' : 'asc') : 'desc';
   txSort.col = col;
@@ -1206,7 +1217,7 @@ function renderTxBodyAndHeaders() {
         ? `<span class="cat-chip" style="opacity:.8;font-size:11px" title="${t.splits_summary||''}">÷ ${t.splits_summary||`${t.split_count} voci`}</span>`
         : `${t.category_icon||''} ${t.parent_category_name ? t.parent_category_name + ' : ' + t.category_name : (t.category_name||'-')}`
       }</td>
-      <td class="td-main">${t.description||''}</td>
+      <td class="td-main">${t.description||''}${t.attachment_path?` <span class="tx-attach-badge" title="${t.attachment_path}" data-path="${encodeURIComponent(t.attachment_path)}" onclick="event.stopPropagation();openTxAttachment(this)">📎</span>`:''}</td>
       <td class="text-right amount-${t.type}">${t.type==='expense'?'-':''}${fmt.currency(t.amount)}</td>
       ${balCell}
       <td>
@@ -1450,7 +1461,21 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
           <button class="btn btn-primary btn-icon" id="tagNewConfirm">✓</button>
           <button class="btn btn-ghost btn-icon" id="tagNewCancel">✕</button>
         </div>
-      </div>`;
+      </div>
+    ${isEdit ? `
+      <div class="form-group" style="margin-top:4px">
+        <label class="form-label">Allegato</label>
+        <div id="attachDisplay">
+          ${tx.attachment_path
+            ? `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                 <span class="settings-hint" style="word-break:break-all">${tx.attachment_path}</span>
+                 <button type="button" class="btn btn-ghost btn-sm" onclick="modalOpenAttachment()">📂 Apri</button>
+                 <button type="button" class="btn btn-ghost btn-sm" onclick="modalRemoveAttachment()">🗑️ Rimuovi</button>
+               </div>`
+            : `<button type="button" class="btn btn-secondary btn-sm" onclick="modalAttachFile()">📎 Aggiungi allegato</button>`
+          }
+        </div>
+      </div>` : ''}`;
 
   // Popola il picker categoria in base al tipo selezionato
   function updateCatSelect(keepSelected) {
@@ -1491,6 +1516,44 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
     // Preserva la selezione corrente (evita reset durante init e cambio tipo)
     updateCatSelect(parseInt(document.getElementById('f_cat')?.value) || null);
   };
+
+  // ─── Funzioni allegato (solo in modifica) ────────────────────────────────
+  if (isEdit) {
+    const _refreshAttachDisplay = path => {
+      const el = document.getElementById('attachDisplay');
+      if (!el) return;
+      if (path) {
+        el.innerHTML = `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <span class="settings-hint" style="word-break:break-all">${path}</span>
+          <button type="button" class="btn btn-ghost btn-sm" onclick="modalOpenAttachment()">📂 Apri</button>
+          <button type="button" class="btn btn-ghost btn-sm" onclick="modalRemoveAttachment()">🗑️ Rimuovi</button>
+        </div>`;
+      } else {
+        el.innerHTML = `<button type="button" class="btn btn-secondary btn-sm" onclick="modalAttachFile()">📎 Aggiungi allegato</button>`;
+      }
+    };
+    window.modalAttachFile = async () => {
+      const picked = await api.chooseAttachmentFile();
+      if (picked.cancelled) return;
+      const res = await api.attachFile(tx.id, picked.path, tx.attachment_path || null);
+      if (res.error) { toast(res.error, 'error'); return; }
+      tx.attachment_path = res.path;
+      _refreshAttachDisplay(res.path);
+      const cached = txCache.find(t => t.id === tx.id);
+      if (cached) { cached.attachment_path = res.path; renderTxBodyAndHeaders(); }
+    };
+    window.modalOpenAttachment = async () => {
+      const res = await api.openAttachment(tx.attachment_path);
+      if (res.error) toast(res.error, 'error');
+    };
+    window.modalRemoveAttachment = async () => {
+      await api.removeAttachment(tx.id, tx.attachment_path || null);
+      tx.attachment_path = null;
+      _refreshAttachDisplay(null);
+      const cached = txCache.find(t => t.id === tx.id);
+      if (cached) { cached.attachment_path = null; renderTxBodyAndHeaders(); }
+    };
+  }
 
   openModal(isEdit ? 'Modifica Transazione' : 'Nuova Transazione', body, async () => {
     const type   = document.getElementById('f_type').value;
@@ -5443,6 +5506,23 @@ async function renderSettings() {
             <div id="backupRestoreList" style="width:100%"></div>
           </div>
         </div>
+      </div>
+
+      <div class="settings-section">
+        <div class="settings-section-title">📎 Allegati</div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <strong>Cartella allegati</strong>
+            <span class="settings-hint">Dove vengono copiati i file allegati alle transazioni</span>
+          </div>
+          <div class="settings-control">
+            <div class="settings-path-row">
+              <input id="attachmentsDirInput" class="form-input settings-path-input"
+                     type="text" readonly value="${s['attachments.dir'] ?? ''}">
+              <button class="btn btn-secondary" onclick="settingsChooseAttachmentsDir()">📂 Scegli</button>
+            </div>
+          </div>
+        </div>
       </div>`,
 
     prefs: `
@@ -5904,6 +5984,13 @@ async function settingsChooseBackupDir() {
   const res = await api.chooseBackupDir();
   if (res.cancelled) return;
   await api.setSetting('backup.dir', res.path);
+  renderSettings();
+}
+
+async function settingsChooseAttachmentsDir() {
+  const res = await api.chooseAttachmentsDir();
+  if (res.cancelled) return;
+  await api.setSetting('attachments.dir', res.path);
   renderSettings();
 }
 

@@ -377,7 +377,7 @@ public class Database {
         """);
     }
 
-    private static final int SCHEMA_VERSION = 4;
+    private static final int SCHEMA_VERSION = 5;
 
     private void migrate() throws SQLException {
         // Crea tabella versione se non esiste
@@ -564,6 +564,10 @@ public class Database {
         // ── v4: colonna archived sulle previsioni ───────────────────────────────
         if (currentVersion < 4) {
             try { executePlain("ALTER TABLE forecasts ADD COLUMN archived INTEGER DEFAULT 0"); } catch (SQLException ignored) {}
+        }
+        // ── v5: allegati sulle transazioni ──────────────────────────────────────
+        if (currentVersion < 5) {
+            try { executePlain("ALTER TABLE transactions ADD COLUMN attachment_path TEXT"); } catch (SQLException ignored) {}
         }
 
         // Segna il DB come aggiornato all'ultima versione
@@ -2109,6 +2113,20 @@ public class Database {
         if (!result.containsKey("error"))
             logger.log("MANUTENZIONE", "LOG RIPULITO: eliminate " + result.get("deleted") + " righe prima di " + cutoffDate);
         return result;
+    }
+
+    // ─── Allegati ─────────────────────────────────────────────────────────────
+
+    /** Salva il nome file (relativo alla cartella allegati) su una transazione. */
+    public void setAttachment(int txId, String relativePath) throws SQLException {
+        execute("UPDATE transactions SET attachment_path=? WHERE id=?", relativePath, txId);
+        touchSyncMeta();
+    }
+
+    /** Rimuove il riferimento all'allegato da una transazione (non cancella il file). */
+    public void removeAttachment(int txId) throws SQLException {
+        execute("UPDATE transactions SET attachment_path=NULL WHERE id=?", txId);
+        touchSyncMeta();
     }
 
     /** Restituisce le ultime {@code lines} righe del file di log come lista di stringhe. */

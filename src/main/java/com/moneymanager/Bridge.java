@@ -62,6 +62,14 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                 handleChooseBackupDirAsync(callback);
                 return true;
             }
+            if ("chooseAttachmentsDir".equals(method)) {
+                handleChooseAttachmentsDirAsync(callback);
+                return true;
+            }
+            if ("chooseAttachmentFile".equals(method)) {
+                handleChooseAttachmentFileAsync(callback);
+                return true;
+            }
 
             succeed(callback, dispatch(method, params, browser));
 
@@ -134,6 +142,50 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             } finally {
                 helper.dispose();
             }
+        });
+    }
+
+    private void handleChooseAttachmentsDirAsync(CefQueryCallback callback) {
+        SwingUtilities.invokeLater(() -> {
+            JFileChooser fc = new JFileChooser();
+            fc.setDialogTitle("Seleziona cartella allegati");
+            fc.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+            String cur = settings.get(Settings.ATTACHMENTS_DIR);
+            if (cur != null && !cur.isBlank()) fc.setSelectedFile(new File(cur));
+            JFrame helper = new JFrame();
+            helper.setUndecorated(true);
+            helper.setAlwaysOnTop(true);
+            helper.setSize(0, 0);
+            helper.setLocationRelativeTo(window);
+            helper.setVisible(true);
+            try {
+                if (fc.showOpenDialog(helper) == JFileChooser.APPROVE_OPTION) {
+                    succeed(callback, Map.of("path", fc.getSelectedFile().getAbsolutePath(), "cancelled", false));
+                } else {
+                    succeed(callback, Map.of("path", "", "cancelled", true));
+                }
+            } finally { helper.dispose(); }
+        });
+    }
+
+    private void handleChooseAttachmentFileAsync(CefQueryCallback callback) {
+        SwingUtilities.invokeLater(() -> {
+            JFileChooser fc = new JFileChooser();
+            fc.setDialogTitle("Seleziona file allegato");
+            fc.setFileSelectionMode(JFileChooser.FILES_ONLY);
+            JFrame helper = new JFrame();
+            helper.setUndecorated(true);
+            helper.setAlwaysOnTop(true);
+            helper.setSize(0, 0);
+            helper.setLocationRelativeTo(window);
+            helper.setVisible(true);
+            try {
+                if (fc.showOpenDialog(helper) == JFileChooser.APPROVE_OPTION) {
+                    succeed(callback, Map.of("path", fc.getSelectedFile().getAbsolutePath(), "cancelled", false));
+                } else {
+                    succeed(callback, Map.of("path", "", "cancelled", true));
+                }
+            } finally { helper.dispose(); }
         });
     }
 
@@ -332,6 +384,57 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
 
             case "openSettingsFile" -> {
                 java.awt.Desktop.getDesktop().open(settings.getPath().toFile());
+                yield Map.of("ok", true);
+            }
+
+            // ─── Allegati ─────────────────────────────────────────────────────
+            case "attachFile" -> {
+                String attDir = settings.get(Settings.ATTACHMENTS_DIR);
+                if (attDir == null || attDir.isBlank())
+                    yield Map.of("error", "Cartella allegati non configurata. Configurala in Impostazioni > Preferenze.");
+                int txId       = p.get("tx_id").getAsInt();
+                String srcPath = p.get("source_path").getAsString();
+                String oldRel  = p.has("old_path") && !p.get("old_path").isJsonNull()
+                                 ? p.get("old_path").getAsString() : null;
+                java.nio.file.Path dir = java.nio.file.Path.of(attDir);
+                java.nio.file.Files.createDirectories(dir);
+                java.io.File srcFile = new java.io.File(srcPath);
+                String destName = txId + "_" + srcFile.getName();
+                java.nio.file.Files.copy(srcFile.toPath(), dir.resolve(destName),
+                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                if (oldRel != null && !oldRel.isBlank() && !oldRel.equals(destName)) {
+                    try { java.nio.file.Files.deleteIfExists(dir.resolve(oldRel)); }
+                    catch (Exception ignored) {}
+                }
+                db.setAttachment(txId, destName);
+                yield Map.of("path", destName);
+            }
+
+            case "openAttachment" -> {
+                String attDir = settings.get(Settings.ATTACHMENTS_DIR);
+                String relPath = p.get("path").getAsString();
+                if (attDir == null || attDir.isBlank())
+                    yield Map.of("error", "Cartella allegati non configurata");
+                java.nio.file.Path file = java.nio.file.Path.of(attDir).resolve(relPath);
+                if (!java.nio.file.Files.exists(file))
+                    yield Map.of("error", "File non trovato: " + file.toAbsolutePath());
+                java.awt.Desktop.getDesktop().open(file.toFile());
+                yield Map.of("ok", true);
+            }
+
+            case "removeAttachment" -> {
+                int txId      = p.get("tx_id").getAsInt();
+                String relPath = p.has("path") && !p.get("path").isJsonNull()
+                                 ? p.get("path").getAsString() : null;
+                if (relPath != null && !relPath.isBlank()) {
+                    String attDir = settings.get(Settings.ATTACHMENTS_DIR);
+                    if (attDir != null && !attDir.isBlank()) {
+                        try { java.nio.file.Files.deleteIfExists(
+                                java.nio.file.Path.of(attDir).resolve(relPath)); }
+                        catch (Exception ignored) {}
+                    }
+                }
+                db.removeAttachment(txId);
                 yield Map.of("ok", true);
             }
 

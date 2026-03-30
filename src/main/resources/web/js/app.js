@@ -435,6 +435,8 @@ document.getElementById('btnMax').onclick   = async () => {
   document.querySelectorAll('.rh').forEach(el => el.style.display = maximized ? 'none' : '');
 };
 document.getElementById('btnClose').onclick = () => api.close();
+document.getElementById('themeToggleBtn').onclick = () => _toggleTheme();
+document.getElementById('shortcutsBtn').onclick   = () => showShortcutsHelp();
 
 /* ─── Router ──────────────────────────────────────────────────────────────── */
 const PAGE_TITLES = {
@@ -1971,13 +1973,34 @@ document.addEventListener('contextmenu', e => {
 
 // ── Scorciatoie da tastiera ──────────────────────────────────────────────
 document.addEventListener('keydown', e => {
-  if (e.key === 'Escape') { _hideCtxMenu(); return; }
+  const overlayOpen = document.getElementById('shortcutsOverlay')?.classList.contains('open');
+
+  if (e.key === 'Escape') {
+    if (overlayOpen) { closeShortcutsHelp(); return; }
+    _hideCtxMenu(); return;
+  }
+
+  const tag = document.activeElement?.tagName;
+  const inputFocused = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+  const modalOpen = document.getElementById('modalOverlay')?.classList.contains('open');
+
+  // Alt+1..9 → navigazione pagine
+  if (e.altKey && !e.ctrlKey && !e.shiftKey && !inputFocused) {
+    const nav = _NAV_SHORTCUTS.find(s => s.key === e.key);
+    if (nav) { e.preventDefault(); navigateTo(nav.page); return; }
+    if (e.key === 't' || e.key === 'T') { e.preventDefault(); _toggleTheme(); return; }
+  }
+
+  // ? → guida shortcut (senza modificatori, no input, no modal)
+  if (e.key === '?' && !e.altKey && !e.ctrlKey && !inputFocused && !modalOpen) {
+    if (overlayOpen) closeShortcutsHelp(); else showShortcutsHelp();
+    return;
+  }
+
   // Attive solo se: pagina transazioni visibile, nessun modal aperto, nessun input focalizzato
+  if (overlayOpen || modalOpen || inputFocused) return;
   const txPage = document.getElementById('pg-transactions');
   if (!txPage || !txPage.classList.contains('active')) return;
-  if (document.getElementById('modalOverlay')?.classList.contains('open')) return;
-  const tag = document.activeElement?.tagName;
-  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
   if (!_selectedTxId) return;
   if (e.key === 'r' || e.key === 'R') {
     e.preventDefault();
@@ -6055,12 +6078,86 @@ window.maintPurgeLog = async () => {
 
 function applyTheme(theme) {
   document.documentElement.dataset.theme = theme === 'light' ? 'light' : '';
+  _updateThemeBtn();
 }
 
 async function settingsSetTheme(theme) {
   applyTheme(theme);
   await api.setSetting('appearance.theme', theme);
+  _updateThemeBtn();
   renderSettings();
+}
+
+function _updateThemeBtn() {
+  const isLight = document.documentElement.dataset.theme === 'light';
+  const btn = document.getElementById('themeToggleBtn');
+  if (btn) { btn.textContent = isLight ? '☀️' : '🌙'; btn.title = `Tema ${isLight?'chiaro':'scuro'} attivo — clicca per cambiare (Alt+T)`; }
+}
+
+async function _toggleTheme() {
+  const isLight = document.documentElement.dataset.theme === 'light';
+  await settingsSetTheme(isLight ? 'dark' : 'light');
+}
+
+/* ─── Shortcuts overlay ──────────────────────────────────────────────────── */
+const _NAV_SHORTCUTS = [
+  { key:'1', page:'dashboard',    label:'Dashboard' },
+  { key:'2', page:'accounts',     label:'Conti' },
+  { key:'3', page:'transactions', label:'Transazioni' },
+  { key:'4', page:'budgets',      label:'Budget' },
+  { key:'5', page:'scheduled',    label:'Pianificate' },
+  { key:'6', page:'portfolio',    label:'Portfolio' },
+  { key:'7', page:'analytics',    label:'Analisi' },
+  { key:'8', page:'reports',      label:'Report' },
+  { key:'9', page:'settings',     label:'Impostazioni' },
+];
+
+function showShortcutsHelp() {
+  const nav = _NAV_SHORTCUTS.map(s => `
+    <div class="sc-row">
+      <span class="sc-desc">${s.label}</span>
+      <span class="sc-keys"><kbd>Alt</kbd><kbd>${s.key}</kbd></span>
+    </div>`).join('');
+  const overlay = document.getElementById('shortcutsOverlay');
+  overlay.innerHTML = `
+    <div id="shortcutsPanel">
+      <h3>Scorciatoie da tastiera <span>premi <kbd style="background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:0 5px;font-size:10px">Esc</kbd> o <kbd style="background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:0 5px;font-size:10px">?</kbd> per chiudere</span></h3>
+      <div class="sc-group">
+        <div class="sc-group-title">Navigazione</div>
+        ${nav}
+      </div>
+      <div class="sc-group">
+        <div class="sc-group-title">Interfaccia</div>
+        <div class="sc-row">
+          <span class="sc-desc">Cambia tema scuro/chiaro</span>
+          <span class="sc-keys"><kbd>Alt</kbd><kbd>T</kbd></span>
+        </div>
+        <div class="sc-row">
+          <span class="sc-desc">Mostra questa guida</span>
+          <span class="sc-keys"><kbd>?</kbd></span>
+        </div>
+      </div>
+      <div class="sc-group">
+        <div class="sc-group-title">Transazioni (riga selezionata)</div>
+        <div class="sc-row">
+          <span class="sc-desc">Segna come conciliata</span>
+          <span class="sc-keys"><kbd>R</kbd></span>
+        </div>
+        <div class="sc-row">
+          <span class="sc-desc">Segna come "da verificare"</span>
+          <span class="sc-keys"><kbd>V</kbd></span>
+        </div>
+        <div class="sc-row">
+          <span class="sc-desc">Elimina transazione</span>
+          <span class="sc-keys"><kbd>Canc</kbd></span>
+        </div>
+      </div>
+    </div>`;
+  overlay.classList.add('open');
+}
+
+function closeShortcutsHelp() {
+  document.getElementById('shortcutsOverlay').classList.remove('open');
 }
 
 async function settingsSetAccFilter(favOnly) {

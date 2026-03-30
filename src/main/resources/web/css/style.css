@@ -463,6 +463,41 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
   min-width:13px; text-align:center; line-height:13px;
 }
 
+/* ─── Titlebar utility buttons (tema, shortcut) ─────────────────────────── */
+#themeToggleBtn, #shortcutsBtn {
+  width:36px; height:var(--titlebar); display:flex; align-items:center;
+  justify-content:center; cursor:pointer; font-size:15px; position:relative;
+  color:var(--txt3); transition:color .15s; flex-shrink:0; user-select:none;
+}
+#themeToggleBtn:hover, #shortcutsBtn:hover { color:var(--txt1); }
+
+/* ─── Shortcuts overlay ──────────────────────────────────────────────────── */
+#shortcutsOverlay {
+  display:none; position:fixed; inset:0; background:rgba(0,0,0,.45);
+  z-index:9000; align-items:center; justify-content:center;
+}
+#shortcutsOverlay.open { display:flex; }
+#shortcutsPanel {
+  background:var(--bg2); border:1px solid var(--border); border-radius:10px;
+  padding:20px 24px; min-width:360px; max-width:480px; box-shadow:0 8px 32px rgba(0,0,0,.35);
+}
+#shortcutsPanel h3 {
+  margin:0 0 14px; font-size:14px; font-weight:700; color:var(--txt1);
+  display:flex; align-items:center; justify-content:space-between;
+}
+#shortcutsPanel h3 span { font-size:11px; color:var(--txt3); font-weight:400; }
+.sc-group { margin-bottom:14px; }
+.sc-group-title { font-size:10px; font-weight:700; letter-spacing:.07em; text-transform:uppercase; color:var(--txt3); margin-bottom:6px; }
+.sc-row { display:flex; align-items:center; justify-content:space-between; padding:3px 0; }
+.sc-row + .sc-row { border-top:1px solid var(--border); }
+.sc-desc { font-size:12px; color:var(--txt2); }
+.sc-keys { display:flex; gap:4px; }
+.sc-keys kbd {
+  background:var(--bg3); border:1px solid var(--border); border-radius:4px;
+  padding:1px 7px; font-size:11px; font-family:monospace; color:var(--txt1);
+  box-shadow:0 1px 0 var(--border);
+}
+
 /* ─── Overdue notice ─────────────────────────────────────────────────────── */
 #noticeStack {
   position:fixed; bottom:24px; right:24px;

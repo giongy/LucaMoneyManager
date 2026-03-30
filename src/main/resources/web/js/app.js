@@ -1987,28 +1987,48 @@ document.addEventListener('keydown', e => {
   const inputFocused = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
   const modalOpen = document.getElementById('modalOverlay')?.classList.contains('open');
 
-  // Alt+1..9 → navigazione pagine (usa e.code per robustezza con tastiere internazionali)
-  if (e.altKey && !e.ctrlKey && !e.shiftKey && !inputFocused) {
-    const num = e.code.match(/^Digit(\d)$/)?.[1];
-    if (num) {
-      const nav = _NAV_SHORTCUTS.find(s => s.key === num);
-      if (nav) { e.preventDefault(); navigateTo(nav.page); return; }
-    }
-    if (e.code === 'KeyT') { e.preventDefault(); _toggleTheme(); return; }
-  }
-
   // ? → guida shortcut (senza modificatori, no input, no modal)
   if (e.key === '?' && !e.altKey && !e.ctrlKey && !inputFocused && !modalOpen) {
     if (overlayOpen) closeShortcutsHelp(); else showShortcutsHelp();
     return;
   }
 
-  // Attive solo se: pagina transazioni visibile, nessun modal aperto, nessun input focalizzato
+  // Shortcut solo se: nessun modal, nessun input, nessun overlay
   if (overlayOpen || modalOpen || inputFocused) return;
+
   const txPage = document.getElementById('pg-transactions');
-  if (!txPage || !txPage.classList.contains('active')) return;
+  const onTxPage = txPage?.classList.contains('active');
+
+  // N → nuova transazione (da qualsiasi pagina)  -- non attivo se tema editor aperto
+  if ((e.key === 'n' || e.key === 'N') && !document.getElementById('tePanel')?.classList.contains('open')) {
+    if (onTxPage) {
+      e.preventDefault();
+      document.getElementById('btnAddExpense')?.click();
+    }
+    return;
+  }
+
+  // Shortcut che richiedono la pagina transazioni
+  if (!onTxPage) return;
+
+  // F → focus sulla ricerca
+  if (e.key === 'f' || e.key === 'F') {
+    e.preventDefault();
+    const s = document.getElementById('txSearch');
+    if (s) { s.focus(); s.select(); }
+    return;
+  }
+
+  // Le seguenti richiedono una transazione selezionata
   if (!_selectedTxId) return;
-  if (e.key === 'r' || e.key === 'R') {
+
+  if (e.key === 'e' || e.key === 'E') {
+    e.preventDefault();
+    window.editTx(_selectedTxId);
+  } else if (e.key === 'd' || e.key === 'D') {
+    e.preventDefault();
+    window.duplicateTx(_selectedTxId);
+  } else if (e.key === 'r' || e.key === 'R') {
     e.preventDefault();
     toggleReconciled(_selectedTxId, 1);
   } else if (e.key === 'v' || e.key === 'V') {
@@ -6426,32 +6446,32 @@ const _NAV_SHORTCUTS = [
 ];
 
 function showShortcutsHelp() {
-  const nav = _NAV_SHORTCUTS.map(s => `
-    <div class="sc-row">
-      <span class="sc-desc">${s.label}</span>
-      <span class="sc-keys"><kbd>Alt</kbd><kbd>${s.key}</kbd></span>
-    </div>`).join('');
+  const kbdStyle = "background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:0 5px;font-size:10px";
   const overlay = document.getElementById('shortcutsOverlay');
   overlay.innerHTML = `
     <div id="shortcutsPanel">
-      <h3>Scorciatoie da tastiera <span>premi <kbd style="background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:0 5px;font-size:10px">Esc</kbd> o <kbd style="background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:0 5px;font-size:10px">?</kbd> per chiudere</span></h3>
+      <h3>Scorciatoie da tastiera <span>premi <kbd style="${kbdStyle}">Esc</kbd> o <kbd style="${kbdStyle}">?</kbd> per chiudere</span></h3>
       <div class="sc-group">
-        <div class="sc-group-title">Navigazione</div>
-        ${nav}
-      </div>
-      <div class="sc-group">
-        <div class="sc-group-title">Interfaccia</div>
+        <div class="sc-group-title">Pagina Transazioni — generali</div>
         <div class="sc-row">
-          <span class="sc-desc">Cambia tema (ciclo: scuro → chiaro → viola)</span>
-          <span class="sc-keys"><kbd>Alt</kbd><kbd>T</kbd></span>
+          <span class="sc-desc">Nuova transazione (spesa)</span>
+          <span class="sc-keys"><kbd>N</kbd></span>
         </div>
         <div class="sc-row">
-          <span class="sc-desc">Mostra questa guida</span>
-          <span class="sc-keys"><kbd>?</kbd></span>
+          <span class="sc-desc">Focus sulla ricerca</span>
+          <span class="sc-keys"><kbd>F</kbd></span>
         </div>
       </div>
       <div class="sc-group">
-        <div class="sc-group-title">Transazioni (riga selezionata)</div>
+        <div class="sc-group-title">Pagina Transazioni — riga selezionata</div>
+        <div class="sc-row">
+          <span class="sc-desc">Modifica</span>
+          <span class="sc-keys"><kbd>E</kbd></span>
+        </div>
+        <div class="sc-row">
+          <span class="sc-desc">Duplica</span>
+          <span class="sc-keys"><kbd>D</kbd></span>
+        </div>
         <div class="sc-row">
           <span class="sc-desc">Segna come conciliata</span>
           <span class="sc-keys"><kbd>R</kbd></span>
@@ -6461,8 +6481,15 @@ function showShortcutsHelp() {
           <span class="sc-keys"><kbd>V</kbd></span>
         </div>
         <div class="sc-row">
-          <span class="sc-desc">Elimina transazione</span>
+          <span class="sc-desc">Elimina</span>
           <span class="sc-keys"><kbd>Canc</kbd></span>
+        </div>
+      </div>
+      <div class="sc-group">
+        <div class="sc-group-title">Interfaccia</div>
+        <div class="sc-row">
+          <span class="sc-desc">Mostra questa guida</span>
+          <span class="sc-keys"><kbd>?</kbd></span>
         </div>
       </div>
     </div>`;

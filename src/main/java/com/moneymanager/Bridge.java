@@ -7,10 +7,8 @@ import org.cef.callback.CefQueryCallback;
 import org.cef.handler.CefMessageRouterHandlerAdapter;
 
 import javax.swing.*;
-import javax.swing.filechooser.FileNameExtensionFilter;
 import java.awt.*;
 import java.awt.event.WindowEvent;
-import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.Map;
@@ -81,112 +79,94 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
 
     private void handleChooseDbFileAsync(JsonObject p, CefQueryCallback callback) {
         String mode = p.has("mode") ? p.get("mode").getAsString() : "open";
-
-        // invokeLater: pianifica il dialog DOPO che onQuery ritorna → nessun blocco
-        SwingUtilities.invokeLater(() -> {
-            JFileChooser fc = new JFileChooser();
-            fc.setDialogTitle("open".equals(mode) ? "Apri database esistente" : "Crea nuovo database");
-            fc.setFileFilter(new FileNameExtensionFilter(
-                    "Database SQLite (*.db, *.sqlite)", "db", "sqlite", "sqlite3"));
-            String cur = settings.get(Settings.DB_PATH);
-            if (cur != null && !cur.isBlank())
-                fc.setSelectedFile(new File(cur));
-
-            // Frame helper always-on-top per apparire sopra la finestra Chromium
-            JFrame helper = new JFrame();
-            helper.setUndecorated(true);
-            helper.setAlwaysOnTop(true);
-            helper.setSize(0, 0);
-            helper.setLocationRelativeTo(window);
-            helper.setVisible(true);
-
+        Thread.ofVirtual().start(() -> {
             try {
-                int res = "save".equals(mode)
-                        ? fc.showSaveDialog(helper)
-                        : fc.showOpenDialog(helper);
-
-                if (res == JFileChooser.APPROVE_OPTION) {
-                    String path = fc.getSelectedFile().getAbsolutePath();
-                    if ("save".equals(mode) && !path.matches(".*\\.(db|sqlite|sqlite3)$"))
-                        path += ".db";
-                    succeed(callback, Map.of("path", path, "cancelled", false));
-                } else {
-                    succeed(callback, Map.of("path", "", "cancelled", true));
-                }
-            } finally {
-                helper.dispose();
-            }
+                String cur   = settings.get(Settings.DB_PATH);
+                String title = "save".equals(mode) ? "Crea nuovo database" : "Apri database esistente";
+                int    fdMode = "save".equals(mode) ? java.awt.FileDialog.SAVE : java.awt.FileDialog.LOAD;
+                String path  = nativePickFile(title, fdMode, cur, "db");
+                if (path == null) { succeed(callback, Map.of("path", "", "cancelled", true)); return; }
+                if ("save".equals(mode) && !path.matches(".*\\.(db|sqlite|sqlite3)$")) path += ".db";
+                succeed(callback, Map.of("path", path, "cancelled", false));
+            } catch (Exception e) { succeed(callback, Map.of("path", "", "cancelled", true)); }
         });
     }
 
     private void handleChooseBackupDirAsync(CefQueryCallback callback) {
-        SwingUtilities.invokeLater(() -> {
-            JFileChooser fc = new JFileChooser();
-            fc.setDialogTitle("Seleziona cartella backup");
-            fc.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
-            String cur = settings.get(Settings.BACKUP_DIR);
-            if (cur != null && !cur.isBlank()) fc.setSelectedFile(new File(cur));
-
-            JFrame helper = new JFrame();
-            helper.setUndecorated(true);
-            helper.setAlwaysOnTop(true);
-            helper.setSize(0, 0);
-            helper.setLocationRelativeTo(window);
-            helper.setVisible(true);
+        Thread.ofVirtual().start(() -> {
             try {
-                if (fc.showOpenDialog(helper) == JFileChooser.APPROVE_OPTION) {
-                    succeed(callback, Map.of("path", fc.getSelectedFile().getAbsolutePath(), "cancelled", false));
-                } else {
-                    succeed(callback, Map.of("path", "", "cancelled", true));
-                }
-            } finally {
-                helper.dispose();
-            }
+                String cur = settings.get(Settings.BACKUP_DIR);
+                String path = winPickFolder("Seleziona cartella backup", cur);
+                if (path == null) succeed(callback, Map.of("path", "", "cancelled", true));
+                else              succeed(callback, Map.of("path", path, "cancelled", false));
+            } catch (Exception e) { succeed(callback, Map.of("path", "", "cancelled", true)); }
         });
     }
 
     private void handleChooseAttachmentsDirAsync(CefQueryCallback callback) {
-        SwingUtilities.invokeLater(() -> {
-            JFileChooser fc = new JFileChooser();
-            fc.setDialogTitle("Seleziona cartella allegati");
-            fc.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
-            String cur = settings.get(Settings.ATTACHMENTS_DIR);
-            if (cur != null && !cur.isBlank()) fc.setSelectedFile(new File(cur));
-            JFrame helper = new JFrame();
-            helper.setUndecorated(true);
-            helper.setAlwaysOnTop(true);
-            helper.setSize(0, 0);
-            helper.setLocationRelativeTo(window);
-            helper.setVisible(true);
+        Thread.ofVirtual().start(() -> {
             try {
-                if (fc.showOpenDialog(helper) == JFileChooser.APPROVE_OPTION) {
-                    succeed(callback, Map.of("path", fc.getSelectedFile().getAbsolutePath(), "cancelled", false));
-                } else {
-                    succeed(callback, Map.of("path", "", "cancelled", true));
-                }
-            } finally { helper.dispose(); }
+                String cur = settings.get(Settings.ATTACHMENTS_DIR);
+                String path = winPickFolder("Seleziona cartella allegati", cur);
+                if (path == null) succeed(callback, Map.of("path", "", "cancelled", true));
+                else              succeed(callback, Map.of("path", path, "cancelled", false));
+            } catch (Exception e) { succeed(callback, Map.of("path", "", "cancelled", true)); }
         });
     }
 
     private void handleChooseAttachmentFileAsync(CefQueryCallback callback) {
-        SwingUtilities.invokeLater(() -> {
-            JFileChooser fc = new JFileChooser();
-            fc.setDialogTitle("Seleziona file allegato");
-            fc.setFileSelectionMode(JFileChooser.FILES_ONLY);
-            JFrame helper = new JFrame();
-            helper.setUndecorated(true);
-            helper.setAlwaysOnTop(true);
-            helper.setSize(0, 0);
-            helper.setLocationRelativeTo(window);
-            helper.setVisible(true);
+        Thread.ofVirtual().start(() -> {
             try {
-                if (fc.showOpenDialog(helper) == JFileChooser.APPROVE_OPTION) {
-                    succeed(callback, Map.of("path", fc.getSelectedFile().getAbsolutePath(), "cancelled", false));
-                } else {
-                    succeed(callback, Map.of("path", "", "cancelled", true));
-                }
-            } finally { helper.dispose(); }
+                String path = nativePickFile("Seleziona file allegato", java.awt.FileDialog.LOAD, null, null);
+                if (path == null) succeed(callback, Map.of("path", "", "cancelled", true));
+                else              succeed(callback, Map.of("path", path, "cancelled", false));
+            } catch (Exception e) { succeed(callback, Map.of("path", "", "cancelled", true)); }
         });
+    }
+
+    // ── Helper dialog nativi Windows ─────────────────────────────────────────
+
+    /**
+     * Picker file nativo via java.awt.FileDialog (usa Win32 GetOpenFileName/GetSaveFileName).
+     * @param ext  estensione da filtrare, es. "db"; null = tutti i file
+     */
+    private String nativePickFile(String title, int mode, String initialPath, String ext) throws Exception {
+        final String[] result = {null};
+        SwingUtilities.invokeAndWait(() -> {
+            java.awt.FileDialog fd = new java.awt.FileDialog(window, title, mode);
+            if (ext != null) fd.setFilenameFilter((dir, name) -> name.endsWith("." + ext));
+            if (initialPath != null && !initialPath.isBlank()) {
+                java.io.File f = new java.io.File(initialPath);
+                fd.setDirectory(f.getParent());
+                fd.setFile(f.getName());
+            }
+            fd.setVisible(true);
+            if (fd.getFile() != null) result[0] = fd.getDirectory() + fd.getFile();
+        });
+        return result[0];
+    }
+
+    /** Folder picker via PowerShell FolderBrowserDialog (Vista+ style). */
+    private String winPickFolder(String title, String initialPath) throws Exception {
+        String init = (initialPath != null && !initialPath.isBlank())
+                ? "$d.SelectedPath='" + initialPath.replace("'","''") + "';" : "";
+        String ps =
+                "Add-Type -AssemblyName System.Windows.Forms;" +
+                "[System.Windows.Forms.Application]::EnableVisualStyles();" +
+                "$d=New-Object System.Windows.Forms.FolderBrowserDialog;" +
+                "$d.Description='" + title.replace("'","''") + "';" +
+                "$d.UseDescriptionForTitle=$true;" +
+                "$d.ShowNewFolderButton=$true;" +
+                init +
+                "if($d.ShowDialog()-eq'OK'){$d.SelectedPath}";
+        ProcessBuilder pb = new ProcessBuilder(
+                "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+                "-STA", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", ps);
+        pb.redirectErrorStream(false);
+        Process proc = pb.start();
+        String out = new String(proc.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
+        proc.waitFor();
+        return out.isBlank() ? null : out;
     }
 
     private Object dispatch(String method, JsonObject p, CefBrowser browser) throws Exception {

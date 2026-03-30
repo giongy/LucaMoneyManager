@@ -6174,15 +6174,17 @@ const _THEME_VAR_GROUPS = [
 const _ALL_THEME_VARS = _THEME_VAR_GROUPS.flatMap(g => g.vars.map(v => v[0]));
 
 const _FONT_OPTIONS = [
-  ["'Segoe UI', system-ui, sans-serif", 'Segoe UI (default)'],
-  ['system-ui, sans-serif',             'System UI'],
-  ["'Inter', system-ui, sans-serif",    'Inter'],
-  ["'Roboto', sans-serif",              'Roboto'],
-  ["'Ubuntu', sans-serif",              'Ubuntu'],
-  ["'Nunito', sans-serif",              'Nunito'],
-  ["'Lato', sans-serif",                'Lato'],
-  ['Georgia, serif',                    'Georgia (serif)'],
-  ["'Courier New', monospace",          'Courier New (mono)'],
+  ["'Segoe UI', sans-serif",           'Segoe UI (default)'],
+  ['Arial, sans-serif',                'Arial'],
+  ['Verdana, sans-serif',              'Verdana'],
+  ['Tahoma, sans-serif',               'Tahoma'],
+  ['Calibri, sans-serif',              'Calibri'],
+  ["'Trebuchet MS', sans-serif",       'Trebuchet MS'],
+  ["'Gill Sans', sans-serif",          'Gill Sans'],
+  ['Georgia, serif',                   'Georgia (serif)'],
+  ["'Times New Roman', serif",         'Times New Roman (serif)'],
+  ['Consolas, monospace',              'Consolas (mono)'],
+  ["'Courier New', monospace",         'Courier New (mono)'],
 ];
 
 async function _loadCustomThemes() {
@@ -6192,19 +6194,31 @@ async function _loadCustomThemes() {
 async function _saveCustomThemesToDB() {
   await api.setSetting('appearance.custom_themes', JSON.stringify(_customThemes));
 }
+const _FONT_SIZE_VARS = [
+  { key: '--fs-xs',    label: 'XS — etichette, badge',   def: 10, min: 7,  max: 14 },
+  { key: '--fs-sm',    label: 'SM — testo piccolo, hint', def: 11, min: 8,  max: 15 },
+  { key: '--fs-md',    label: 'MD — testo medio',         def: 12, min: 9,  max: 16 },
+  { key: '--font-size',label: 'Base — testo principale',  def: 13, min: 10, max: 17 },
+  { key: '--fs-lg',    label: 'LG — testo grande',        def: 14, min: 11, max: 18 },
+  { key: '--fs-xl',    label: 'XL — titoli sezione',      def: 16, min: 12, max: 22 },
+];
+
 function _applyCustomVars(ct) {
   _ALL_THEME_VARS.forEach(v => {
     if (ct.vars[v]) document.documentElement.style.setProperty(v, ct.vars[v]);
     else document.documentElement.style.removeProperty(v);
   });
   document.documentElement.style.setProperty('--radius', (ct.radius ?? 8) + 'px');
-  document.documentElement.style.setProperty('--font-size', (ct.fontSize || 13) + 'px');
+  const fs = ct.fontSizes || {};
+  _FONT_SIZE_VARS.forEach(({ key, def }) =>
+    document.documentElement.style.setProperty(key, (fs[key] ?? (key === '--font-size' ? ct.fontSize : null) ?? def) + 'px')
+  );
   document.body.style.fontFamily = ct.fontFamily || '';
 }
 function _clearCustomVars() {
   _ALL_THEME_VARS.forEach(v => document.documentElement.style.removeProperty(v));
   document.documentElement.style.removeProperty('--radius');
-  document.documentElement.style.removeProperty('--font-size');
+  _FONT_SIZE_VARS.forEach(({ key }) => document.documentElement.style.removeProperty(key));
   document.body.style.fontFamily = '';
 }
 
@@ -6280,6 +6294,12 @@ function duplicateTheme(sourceKey) {
 
 function showThemeEditor(themeObj) {
   _teWorkingTheme = JSON.parse(JSON.stringify(themeObj));
+  // Inizializza fontSizes con valori di default se mancanti
+  if (!_teWorkingTheme.fontSizes) _teWorkingTheme.fontSizes = {};
+  _FONT_SIZE_VARS.forEach(({ key, def }) => {
+    if (_teWorkingTheme.fontSizes[key] == null)
+      _teWorkingTheme.fontSizes[key] = key === '--font-size' ? (_teWorkingTheme.fontSize || def) : def;
+  });
   _teOriginalTheme = _activeThemeKey;
   // Applica subito per live preview
   document.documentElement.dataset.theme = '';
@@ -6336,13 +6356,24 @@ function showThemeEditor(themeObj) {
       <div class="te-section-hdr">Tipografia</div>
       <div class="te-prop-row">
         <label>Font</label>
-        <select class="form-control" id="teFont" style="flex:1">${fontSel}</select>
+        <select class="form-control" id="teFont" style="flex:1;min-width:0">${fontSel}</select>
       </div>
       <div class="te-prop-row">
-        <label>Dimensione testo</label>
-        <input type="range" id="teFontSize" min="11" max="16" value="${_teWorkingTheme.fontSize||13}" style="flex:1">
-        <span class="te-range-val" id="teFontSizeVal">${_teWorkingTheme.fontSize||13}px</span>
+        <label style="flex:none;margin-right:6px">Font personalizzato</label>
+        <input class="form-control" id="teFontCustom" placeholder="es. Impact, sans-serif"
+               value="${!_FONT_OPTIONS.find(([v])=>v===_teWorkingTheme.fontFamily) && _teWorkingTheme.fontFamily ? _teWorkingTheme.fontFamily : ''}"
+               style="flex:1;font-size:var(--fs-sm,11px)">
       </div>
+      ${_FONT_SIZE_VARS.map(({key, label, def, min, max}) => {
+        const fs = _teWorkingTheme.fontSizes || {};
+        const val = fs[key] ?? (key==='--font-size' ? (_teWorkingTheme.fontSize||def) : def);
+        const safeId = 'teFs_' + key.replace(/[^a-z0-9]/gi,'_');
+        return `<div class="te-prop-row">
+          <label>${label}</label>
+          <input type="range" id="${safeId}" data-fskey="${key}" min="${min}" max="${max}" value="${val}" style="flex:1">
+          <span class="te-range-val" id="${safeId}Val">${val}px</span>
+        </div>`;
+      }).join('')}
       <div class="te-section-hdr">Forma</div>
       <div class="te-prop-row">
         <label>Raggio bordi</label>
@@ -6387,15 +6418,29 @@ function _teWireEvents() {
       e.target.value = (_teWorkingTheme.vars[e.target.dataset.var] || '#888888').toUpperCase();
     });
   });
+  const applyFont = val => {
+    _teWorkingTheme.fontFamily = val;
+    document.body.style.fontFamily = val;
+  };
   document.getElementById('teFont')?.addEventListener('change', e => {
-    _teWorkingTheme.fontFamily = e.target.value;
-    document.body.style.fontFamily = e.target.value;
+    applyFont(e.target.value);
+    document.getElementById('teFontCustom').value = '';
   });
-  document.getElementById('teFontSize')?.addEventListener('input', e => {
-    const v = parseInt(e.target.value);
-    _teWorkingTheme.fontSize = v;
-    document.getElementById('teFontSizeVal').textContent = v + 'px';
-    document.documentElement.style.setProperty('--font-size', v + 'px');
+  document.getElementById('teFontCustom')?.addEventListener('input', e => {
+    const val = e.target.value.trim();
+    if (val) applyFont(val);
+  });
+  // Slider per ogni taglia font
+  document.querySelectorAll('#tePanel input[data-fskey]').forEach(el => {
+    el.addEventListener('input', e => {
+      const key = e.target.dataset.fskey;
+      const v = parseInt(e.target.value);
+      _teWorkingTheme.fontSizes[key] = v;
+      if (key === '--font-size') _teWorkingTheme.fontSize = v;
+      const valEl = document.getElementById(e.target.id + 'Val');
+      if (valEl) valEl.textContent = v + 'px';
+      document.documentElement.style.setProperty(key, v + 'px');
+    });
   });
   document.getElementById('teRadius')?.addEventListener('input', e => {
     const v = parseInt(e.target.value);

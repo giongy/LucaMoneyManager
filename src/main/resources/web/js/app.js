@@ -5651,17 +5651,30 @@ async function renderSettings() {
         <div class="settings-section-title">🎨 Tema</div>
         <div class="settings-row">
           <div class="settings-label">
-            <strong>Modalità colore</strong>
-            <span class="settings-hint">Scegli il tema dell'interfaccia</span>
+            <strong>Tema predefinito</strong>
+            <span class="settings-hint">Scegli o crea un tema personalizzato</span>
           </div>
           <div class="settings-control">
-            <div class="theme-toggle-group">
-              <button class="btn theme-btn ${(s['appearance.theme']||'dark')==='dark'?'theme-btn-active':''}"
-                      onclick="settingsSetTheme('dark')">🌙 Scuro</button>
-              <button class="btn theme-btn ${(s['appearance.theme']||'dark')==='light'?'theme-btn-active':''}"
-                      onclick="settingsSetTheme('light')">☀️ Chiaro</button>
-              <button class="btn theme-btn ${(s['appearance.theme']||'dark')==='viola'?'theme-btn-active':''}"
-                      onclick="settingsSetTheme('viola')">🪻 Viola</button>
+            <div style="display:flex;flex-direction:column;gap:10px">
+              <div style="display:flex;gap:6px;flex-wrap:wrap">
+                ${[['dark','🌙 Scuro'],['light','☀️ Chiaro'],['viola','🪻 Viola']].map(([key,label]) => `
+                  <button class="btn theme-btn ${(s['appearance.theme']||'dark')===key?'theme-btn-active':''}"
+                          onclick="settingsSetTheme('${key}')">${label}</button>
+                  <button class="btn btn-ghost btn-icon" title="Duplica e personalizza" onclick="duplicateTheme('${key}')">⧉</button>`).join('')}
+              </div>
+              ${_customThemes.length ? `
+              <div style="border-top:1px solid var(--border);padding-top:8px">
+                <div style="font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--txt3);margin-bottom:6px">Personalizzati</div>
+                ${_customThemes.map(ct => `
+                  <div style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--border)">
+                    <span style="font-size:13px;flex:1;color:var(--txt)">${ct.name}</span>
+                    <button class="btn theme-btn ${(s['appearance.theme']||'dark')==='c:'+ct.id?'theme-btn-active':''}" style="padding:4px 12px"
+                            onclick="settingsSetTheme('c:${ct.id}')">Attiva</button>
+                    <button class="btn btn-ghost btn-icon" title="Modifica" onclick="showThemeEditor(_customThemes.find(t=>t.id==='${ct.id}'))">✏️</button>
+                    <button class="btn btn-ghost btn-icon" title="Duplica" onclick="duplicateTheme('c:${ct.id}')">⧉</button>
+                    <button class="btn btn-ghost btn-icon" style="color:var(--txt3)" title="Elimina" onclick="_deleteCustomTheme('${ct.id}')">🗑️</button>
+                  </div>`).join('')}
+              </div>` : ''}
             </div>
           </div>
         </div>
@@ -6081,9 +6094,108 @@ window.maintPurgeLog = async () => {
   }
 };
 
+/* ─── Custom themes ──────────────────────────────────────────────────────── */
+let _customThemes  = [];
+let _activeThemeKey = 'dark';
+let _teWorkingTheme = null;
+let _teOriginalTheme = null;
+let _teDragState = null;
+
+const _BUILTIN_VARS = {
+  dark: {
+    '--bg':'#0d1117','--bg2':'#161b22','--bg3':'#1c2128','--bg4':'#21262d',
+    '--border':'#30363d','--accent':'#58a6ff','--accent2':'#00d4aa',
+    '--income':'#3fb950','--expense':'#f85149','--warn':'#d29922',
+    '--purple':'#a371f7','--orange':'#f0883e',
+    '--txt':'#e6edf3','--txt2':'#8b949e','--txt3':'#6e7681',
+  },
+  light: {
+    '--bg':'#dce0e7','--bg2':'#e9ecf2','--bg3':'#d0d5dc','--bg4':'#c5cad2',
+    '--border':'#bac0c9','--accent':'#0969da','--accent2':'#1a7f64',
+    '--income':'#1a7f3c','--expense':'#cf222e','--warn':'#9a6700',
+    '--purple':'#8250df','--orange':'#bc4c00',
+    '--txt':'#1f2328','--txt2':'#555d66','--txt3':'#757e88',
+  },
+  viola: {
+    '--bg':'#1e1e2e','--bg2':'#24273a','--bg3':'#2a2d3e','--bg4':'#313244',
+    '--border':'#45475a','--accent':'#89b4fa','--accent2':'#94e2d5',
+    '--income':'#a6e3a1','--expense':'#f38ba8','--warn':'#f9e2af',
+    '--purple':'#cba6f7','--orange':'#fab387',
+    '--txt':'#cdd6f4','--txt2':'#bac2de','--txt3':'#6c7086',
+  },
+};
+
+const _THEME_VAR_GROUPS = [
+  { title: 'Sfondi', vars: [
+    ['--bg',     'Sfondo principale'],
+    ['--bg2',    'Sidebar / Card'],
+    ['--bg3',    'Input / Tabelle'],
+    ['--bg4',    'Hover'],
+    ['--border', 'Bordi'],
+  ]},
+  { title: 'Testo', vars: [
+    ['--txt',  'Testo principale'],
+    ['--txt2', 'Testo secondario'],
+    ['--txt3', 'Testo tenue'],
+  ]},
+  { title: 'Accenti & Colori', vars: [
+    ['--accent',  'Accent principale'],
+    ['--accent2', 'Accent secondario'],
+    ['--income',  'Entrate'],
+    ['--expense', 'Uscite'],
+    ['--warn',    'Avviso'],
+    ['--purple',  'Viola'],
+    ['--orange',  'Arancio'],
+  ]},
+];
+const _ALL_THEME_VARS = _THEME_VAR_GROUPS.flatMap(g => g.vars.map(v => v[0]));
+
+const _FONT_OPTIONS = [
+  ["'Segoe UI', system-ui, sans-serif", 'Segoe UI (default)'],
+  ['system-ui, sans-serif',             'System UI'],
+  ["'Inter', system-ui, sans-serif",    'Inter'],
+  ["'Roboto', sans-serif",              'Roboto'],
+  ["'Ubuntu', sans-serif",              'Ubuntu'],
+  ["'Nunito', sans-serif",              'Nunito'],
+  ["'Lato', sans-serif",                'Lato'],
+  ['Georgia, serif',                    'Georgia (serif)'],
+  ["'Courier New', monospace",          'Courier New (mono)'],
+];
+
+async function _loadCustomThemes() {
+  const s = await api.getSettings();
+  try { _customThemes = JSON.parse(s['appearance.custom_themes'] || '[]'); } catch { _customThemes = []; }
+}
+async function _saveCustomThemesToDB() {
+  await api.setSetting('appearance.custom_themes', JSON.stringify(_customThemes));
+}
+function _applyCustomVars(ct) {
+  _ALL_THEME_VARS.forEach(v => {
+    if (ct.vars[v]) document.documentElement.style.setProperty(v, ct.vars[v]);
+    else document.documentElement.style.removeProperty(v);
+  });
+  document.documentElement.style.setProperty('--radius', (ct.radius ?? 8) + 'px');
+  document.body.style.fontFamily = ct.fontFamily || '';
+  document.body.style.fontSize   = ct.fontSize ? ct.fontSize + 'px' : '';
+}
+function _clearCustomVars() {
+  _ALL_THEME_VARS.forEach(v => document.documentElement.style.removeProperty(v));
+  document.documentElement.style.removeProperty('--radius');
+  document.body.style.fontFamily = '';
+  document.body.style.fontSize   = '';
+}
+
 function applyTheme(theme) {
-  const valid = ['light', 'viola'];
-  document.documentElement.dataset.theme = valid.includes(theme) ? theme : '';
+  _activeThemeKey = theme || 'dark';
+  _clearCustomVars();
+  if (theme && theme.startsWith('c:')) {
+    const ct = _customThemes.find(t => t.id === theme.slice(2));
+    document.documentElement.dataset.theme = '';
+    if (ct) _applyCustomVars(ct);
+  } else {
+    const valid = ['light', 'viola'];
+    document.documentElement.dataset.theme = valid.includes(theme) ? theme : '';
+  }
   _updateThemeBtn();
 }
 
@@ -6101,18 +6213,200 @@ const _THEME_CYCLE = [
 ];
 
 function _updateThemeBtn() {
-  const t = document.documentElement.dataset.theme;
-  const curr = _THEME_CYCLE.find(x => x.key === t) || _THEME_CYCLE[0];
-  const next = _THEME_CYCLE[(_THEME_CYCLE.indexOf(curr) + 1) % _THEME_CYCLE.length];
   const btn = document.getElementById('themeToggleBtn');
-  if (btn) { btn.textContent = curr.icon; btn.title = `Tema ${curr.label} — clicca per passare a ${next.label} (Alt+T)`; }
+  if (!btn) return;
+  if (_activeThemeKey && _activeThemeKey.startsWith('c:')) {
+    const ct = _customThemes.find(t => t.id === _activeThemeKey.slice(2));
+    btn.textContent = '🎨';
+    btn.title = `Tema: ${ct ? ct.name : 'Personalizzato'} — Alt+T per tornare al ciclo predefinito`;
+  } else {
+    const t = document.documentElement.dataset.theme;
+    const curr = _THEME_CYCLE.find(x => x.key === t) || _THEME_CYCLE[0];
+    const next = _THEME_CYCLE[(_THEME_CYCLE.indexOf(curr) + 1) % _THEME_CYCLE.length];
+    btn.textContent = curr.icon;
+    btn.title = `Tema ${curr.label} — clicca per passare a ${next.label} (Alt+T)`;
+  }
 }
 
 async function _toggleTheme() {
-  const t = document.documentElement.dataset.theme;
-  const curr = _THEME_CYCLE.find(x => x.key === t) || _THEME_CYCLE[0];
+  // Se è attivo un tema custom, torna a scuro; altrimenti cicla i 3 predefiniti
+  const base = _activeThemeKey && _activeThemeKey.startsWith('c:') ? '' : (document.documentElement.dataset.theme || '');
+  const curr = _THEME_CYCLE.find(x => x.key === base) || _THEME_CYCLE[0];
   const next = _THEME_CYCLE[(_THEME_CYCLE.indexOf(curr) + 1) % _THEME_CYCLE.length];
   await settingsSetTheme(next.key || 'dark');
+}
+
+/* ─── Theme editor ───────────────────────────────────────────────────────── */
+function duplicateTheme(sourceKey) {
+  let base;
+  if (sourceKey.startsWith('c:')) {
+    const ct = _customThemes.find(t => t.id === sourceKey.slice(2));
+    if (!ct) return;
+    base = { ...ct, id: Date.now().toString(36), name: ct.name + ' (copia)', vars: { ...ct.vars } };
+  } else {
+    const names = { dark: 'Scuro', light: 'Chiaro', viola: 'Viola' };
+    base = {
+      id: Date.now().toString(36),
+      name: (names[sourceKey] || 'Tema') + ' (copia)',
+      vars: { ...(_BUILTIN_VARS[sourceKey] || _BUILTIN_VARS.dark) },
+      fontFamily: '', fontSize: 13, radius: 8,
+    };
+  }
+  showThemeEditor(base);
+}
+
+function showThemeEditor(themeObj) {
+  _teWorkingTheme = JSON.parse(JSON.stringify(themeObj));
+  _teOriginalTheme = _activeThemeKey;
+  // Applica subito per live preview
+  document.documentElement.dataset.theme = '';
+  _applyCustomVars(_teWorkingTheme);
+
+  let panel = document.getElementById('tePanel');
+  if (!panel) {
+    panel = document.createElement('div');
+    panel.id = 'tePanel';
+    document.body.appendChild(panel);
+    panel.addEventListener('mousedown', e => {
+      if (!e.target.closest('#teHeader') || e.target.tagName === 'BUTTON') return;
+      const r = panel.getBoundingClientRect();
+      _teDragState = { x: e.clientX - r.left, y: e.clientY - r.top };
+      e.preventDefault();
+    });
+    document.addEventListener('mousemove', e => {
+      if (!_teDragState) return;
+      panel.style.left  = Math.max(0, e.clientX - _teDragState.x) + 'px';
+      panel.style.top   = Math.max(0, e.clientY - _teDragState.y) + 'px';
+      panel.style.right = 'auto';
+    });
+    document.addEventListener('mouseup', () => { _teDragState = null; });
+  }
+
+  const isNew = !_customThemes.find(t => t.id === _teWorkingTheme.id);
+  const colorSections = _THEME_VAR_GROUPS.map(g => `
+    <div class="te-section-hdr">${g.title}</div>
+    ${g.vars.map(([v, label]) => {
+      const val = _teWorkingTheme.vars[v] || '#888888';
+      return `<div class="te-color-row">
+        <span class="te-color-label">${label}</span>
+        <div class="te-color-inputs">
+          <input type="color" class="te-swatch" data-var="${v}" value="${val}">
+          <input type="text" class="te-hex" data-var="${v}" value="${val.toUpperCase()}" maxlength="7" spellcheck="false">
+        </div>
+      </div>`;
+    }).join('')}`).join('');
+
+  const fontSel = _FONT_OPTIONS.map(([v, l]) =>
+    `<option value="${v}"${_teWorkingTheme.fontFamily===v?' selected':''}>${l}</option>`).join('');
+
+  panel.innerHTML = `
+    <div id="teHeader">
+      <span>🎨 ${_teWorkingTheme.name}</span>
+      <button class="btn btn-ghost btn-icon" onclick="closeThemeEditor(false)" title="Chiudi senza salvare">✕</button>
+    </div>
+    <div id="teBody">
+      <div class="te-prop-row" style="padding-top:2px">
+        <label>Nome</label>
+        <input class="form-control" id="teName" value="${_teWorkingTheme.name}" placeholder="Nome tema" style="flex:1">
+      </div>
+      ${colorSections}
+      <div class="te-section-hdr">Tipografia</div>
+      <div class="te-prop-row">
+        <label>Font</label>
+        <select class="form-control" id="teFont" style="flex:1">${fontSel}</select>
+      </div>
+      <div class="te-prop-row">
+        <label>Dimensione testo</label>
+        <input type="range" id="teFontSize" min="11" max="16" value="${_teWorkingTheme.fontSize||13}" style="flex:1">
+        <span class="te-range-val" id="teFontSizeVal">${_teWorkingTheme.fontSize||13}px</span>
+      </div>
+      <div class="te-section-hdr">Forma</div>
+      <div class="te-prop-row">
+        <label>Raggio bordi</label>
+        <input type="range" id="teRadius" min="0" max="20" value="${_teWorkingTheme.radius??8}" style="flex:1">
+        <span class="te-range-val" id="teRadiusVal">${_teWorkingTheme.radius??8}px</span>
+      </div>
+    </div>
+    <div id="teFooter">
+      ${!isNew ? `<button class="btn btn-ghost btn-icon" style="color:var(--expense)" title="Elimina tema" onclick="_deleteCustomTheme('${_teWorkingTheme.id}')">🗑️</button>` : ''}
+      <span style="flex:1"></span>
+      <button class="btn btn-secondary" onclick="closeThemeEditor(false)">Annulla</button>
+      <button class="btn btn-primary" onclick="closeThemeEditor(true)">Salva e applica</button>
+    </div>`;
+
+  panel.classList.add('open');
+  _teWireEvents();
+}
+
+function _teWireEvents() {
+  document.querySelectorAll('#tePanel input.te-swatch').forEach(el => {
+    el.addEventListener('input', e => {
+      const v = e.target.dataset.var, val = e.target.value;
+      _teWorkingTheme.vars[v] = val;
+      const hex = document.querySelector(`#tePanel input.te-hex[data-var="${v}"]`);
+      if (hex) hex.value = val.toUpperCase();
+      document.documentElement.style.setProperty(v, val);
+    });
+  });
+  document.querySelectorAll('#tePanel input.te-hex').forEach(el => {
+    el.addEventListener('input', e => {
+      let val = e.target.value.trim();
+      if (!val.startsWith('#')) val = '#' + val;
+      if (/^#[0-9a-fA-F]{6}$/.test(val)) {
+        const v = e.target.dataset.var;
+        _teWorkingTheme.vars[v] = val;
+        const sw = document.querySelector(`#tePanel input.te-swatch[data-var="${v}"]`);
+        if (sw) sw.value = val;
+        document.documentElement.style.setProperty(v, val);
+      }
+    });
+    el.addEventListener('blur', e => {
+      e.target.value = (_teWorkingTheme.vars[e.target.dataset.var] || '#888888').toUpperCase();
+    });
+  });
+  document.getElementById('teFont')?.addEventListener('change', e => {
+    _teWorkingTheme.fontFamily = e.target.value;
+    document.body.style.fontFamily = e.target.value;
+  });
+  document.getElementById('teFontSize')?.addEventListener('input', e => {
+    const v = parseInt(e.target.value);
+    _teWorkingTheme.fontSize = v;
+    document.getElementById('teFontSizeVal').textContent = v + 'px';
+    document.body.style.fontSize = v + 'px';
+  });
+  document.getElementById('teRadius')?.addEventListener('input', e => {
+    const v = parseInt(e.target.value);
+    _teWorkingTheme.radius = v;
+    document.getElementById('teRadiusVal').textContent = v + 'px';
+    document.documentElement.style.setProperty('--radius', v + 'px');
+  });
+}
+
+async function closeThemeEditor(save) {
+  const panel = document.getElementById('tePanel');
+  if (!panel || !panel.classList.contains('open')) return;
+  if (save) {
+    const nameEl = document.getElementById('teName');
+    if (nameEl) _teWorkingTheme.name = nameEl.value.trim() || 'Tema personalizzato';
+    const idx = _customThemes.findIndex(t => t.id === _teWorkingTheme.id);
+    if (idx >= 0) _customThemes[idx] = _teWorkingTheme;
+    else _customThemes.push(_teWorkingTheme);
+    await _saveCustomThemesToDB();
+    await settingsSetTheme('c:' + _teWorkingTheme.id);
+  } else {
+    applyTheme(_teOriginalTheme || 'dark');
+  }
+  panel.classList.remove('open');
+  _teWorkingTheme = null;
+}
+
+async function _deleteCustomTheme(id) {
+  _customThemes = _customThemes.filter(t => t.id !== id);
+  await _saveCustomThemesToDB();
+  if (_activeThemeKey === 'c:' + id) await settingsSetTheme('dark');
+  const panel = document.getElementById('tePanel');
+  if (panel) panel.classList.remove('open');
+  if (currentPage === 'settings') renderSettings();
 }
 
 /* ─── Shortcuts overlay ──────────────────────────────────────────────────── */
@@ -8117,6 +8411,7 @@ async function init() {
   document.querySelectorAll('.rh').forEach(el => el.style.display = maximized ? 'none' : '');
   // Carica preferenze persistenti
   const s = await api.getSettings();
+  await _loadCustomThemes();
   if (s['appearance.theme']) applyTheme(s['appearance.theme']);
   if (s['accounts.favorites_only']) _accFavoritesOnly = s['accounts.favorites_only'] === '1';
   if (s['accounts.type_order']) { try { _accTypeOrder = JSON.parse(s['accounts.type_order']); } catch(e) {} }

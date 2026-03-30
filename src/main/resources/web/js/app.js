@@ -990,7 +990,25 @@ function rangeToFilter(range, from, to) {
     case 'all':       return {};
     case 'custom':    return { date_from: from||'', date_to: to||'' };
     default: {
-      // Range dinamico da preset: Nd (giorni), Nm (mesi), Ny (anni)
+      // ── Formato avanzato preset: '{int}{unit}..{int}{unit}' es. -7D..0D, 0Y..0Y
+      const anchor = (off, unit, side) => {
+        switch(unit) {
+          case 'D': { const d=new Date(today); d.setDate(d.getDate()+off); return fmt(d); }
+          case 'W': { const d=new Date(today); d.setDate(d.getDate()+off*7);
+                      const dow=d.getDay();
+                      if (side==='from') d.setDate(d.getDate()-(dow===0?6:dow-1));
+                      else               d.setDate(d.getDate()+(dow===0?0:7-dow));
+                      return fmt(d); }
+          case 'M': { const r=new Date(today.getFullYear(), today.getMonth()+off, 1);
+                      if (side==='to') r.setMonth(r.getMonth()+1, 0);
+                      return fmt(r); }
+          case 'Y': { const y=today.getFullYear()+off;
+                      return side==='from' ? `${y}-01-01` : `${y}-12-31`; }
+        }
+      };
+      const pa = range && range.match(/^(-?\d+)([DWMY])\.\.(-?\d+)([DWMY])$/);
+      if (pa) return { date_from: anchor(+pa[1],pa[2],'from'), date_to: anchor(+pa[3],pa[4],'to') };
+      // ── Vecchio formato semplice (compatibilità): Nd/Nm/Ny
       const mD = range && range.match(/^(\d+)d$/);
       const mM = range && range.match(/^(\d+)m$/);
       const mY = range && range.match(/^(\d+)y$/);
@@ -6517,43 +6535,65 @@ async function renderRangePresets() {
 
 function showRangePresetModal(preset) {
   const isEdit = !!preset;
-  // Ricava tipo e valore dall'eventuale range_key esistente
-  let initType = 'd', initValue = '';
+
+  // Parse range_key esistente (nuovo formato {int}{unit}..{int}{unit} o vecchio Nd/Nm/Ny)
+  let fromOff = -30, fromUnit = 'D', toOff = 0, toUnit = 'D';
   if (preset) {
-    const mD = preset.range_key.match(/^(\d+)d$/);
-    const mM = preset.range_key.match(/^(\d+)m$/);
-    const mY = preset.range_key.match(/^(\d+)y$/);
-    if (mD) { initType='d'; initValue=mD[1]; }
-    else if (mM) { initType='m'; initValue=mM[1]; }
-    else if (mY) { initType='y'; initValue=mY[1]; }
+    const rk = preset.range_key;
+    const pa = rk.match(/^(-?\d+)([DWMY])\.\.(-?\d+)([DWMY])$/);
+    if (pa) {
+      fromOff=parseInt(pa[1]); fromUnit=pa[2]; toOff=parseInt(pa[3]); toUnit=pa[4];
+    } else {
+      const mD=rk.match(/^(\d+)d$/), mM=rk.match(/^(\d+)m$/), mY=rk.match(/^(\d+)y$/);
+      if (mD)      { fromOff=-parseInt(mD[1]); fromUnit='D'; toOff=0; toUnit='D'; }
+      else if (mM) { fromOff=-parseInt(mM[1]); fromUnit='M'; toOff=0; toUnit='M'; }
+      else if (mY) { fromOff=-parseInt(mY[1]); fromUnit='Y'; toOff=0; toUnit='Y'; }
+    }
   }
+
+  const unitOpts = (sel) => ['D','W','M','Y'].map(v =>
+    `<option value="${v}"${v===sel?' selected':''}>${{D:'Giorno',W:'Settimana',M:'Mese',Y:'Anno'}[v]}</option>`
+  ).join('');
+
   const body = `
     <div class="form-group">
-      <label class="form-label">Etichetta</label>
-      <input class="form-control" id="rp_label" value="${preset?.label||''}" placeholder="es. Ultimi 45 giorni">
+      <label class="form-label">Nome</label>
+      <input class="form-control" id="rp_label" value="${preset?.label||''}" placeholder="es. Ultimi 45 giorni, Anno corrente…">
     </div>
-    <div class="form-group">
-      <label class="form-label">Durata</label>
-      <div style="display:flex;gap:8px;align-items:center">
-        <input type="number" class="form-control" id="rp_value" value="${initValue}" min="1" max="9999" style="width:100px" placeholder="es. 45">
-        <select class="form-control" id="rp_type" style="width:140px">
-          <option value="d"${initType==='d'?' selected':''}>Giorni</option>
-          <option value="m"${initType==='m'?' selected':''}>Mesi</option>
-          <option value="y"${initType==='y'?' selected':''}>Anni</option>
-        </select>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:4px">
+      <div class="form-group">
+        <label class="form-label">Da</label>
+        <div style="display:flex;gap:6px">
+          <input type="number" class="form-control" id="rp_from_off" value="${fromOff}" style="width:76px">
+          <select class="form-control" id="rp_from_unit">${unitOpts(fromUnit)}</select>
+        </div>
       </div>
-      <div style="font-size:11px;color:var(--txt3);margin-top:4px">
-        Chiave generata: <span id="rp_keyPreview" style="font-family:monospace">${initValue?initValue+initType:''}</span>
+      <div class="form-group">
+        <label class="form-label">A</label>
+        <div style="display:flex;gap:6px">
+          <input type="number" class="form-control" id="rp_to_off" value="${toOff}" style="width:76px">
+          <select class="form-control" id="rp_to_unit">${unitOpts(toUnit)}</select>
+        </div>
       </div>
+    </div>
+    <div style="font-size:12px;color:var(--txt3);padding:6px 0 2px;line-height:2">
+      Codice: <code id="rp_code" style="font-family:monospace;color:var(--txt2);background:var(--bg3);padding:2px 6px;border-radius:4px"></code>
+      &nbsp;&nbsp;Anteprima: <span id="rp_preview" style="color:var(--accent)"></span>
+    </div>
+    <div style="font-size:11px;color:var(--txt3)">
+      Offset 0 = periodo corrente. Negativi = passato, positivi = futuro.<br>
+      Per unità Mese/Anno: "Da" prende l'inizio, "A" prende la fine del periodo.
     </div>`;
 
   openModal(isEdit ? 'Modifica periodo' : 'Nuovo periodo', body, async () => {
-    const label = document.getElementById('rp_label').value.trim();
-    const value = document.getElementById('rp_value').value.trim();
-    const type  = document.getElementById('rp_type').value;
-    if (!label)  { toast('Inserisci un\'etichetta', 'error'); return; }
-    if (!value || parseInt(value) < 1) { toast('Inserisci una durata valida', 'error'); return; }
-    const range_key = `${parseInt(value)}${type}`;
+    const label    = document.getElementById('rp_label').value.trim();
+    const fromOffV = parseInt(document.getElementById('rp_from_off').value);
+    const fromUnitV= document.getElementById('rp_from_unit').value;
+    const toOffV   = parseInt(document.getElementById('rp_to_off').value);
+    const toUnitV  = document.getElementById('rp_to_unit').value;
+    if (!label) { toast('Inserisci un nome', 'error'); return; }
+    if (isNaN(fromOffV) || isNaN(toOffV)) { toast('Offset non valido', 'error'); return; }
+    const range_key = `${fromOffV}${fromUnitV}..${toOffV}${toUnitV}`;
     try {
       if (isEdit) await api.updateRangePreset({id: preset.id, label, range_key});
       else        await api.addRangePreset({label, range_key});
@@ -6563,15 +6603,30 @@ function showRangePresetModal(preset) {
     } catch(e) { toast(e.message, 'error'); }
   });
 
-  // Preview chiave live
+  // Preview live
   setTimeout(() => {
-    const vEl = document.getElementById('rp_value');
-    const tEl = document.getElementById('rp_type');
-    const pEl = document.getElementById('rp_keyPreview');
-    if (!vEl || !tEl || !pEl) return;
-    const upd = () => { const v=parseInt(vEl.value)||''; pEl.textContent = v ? `${v}${tEl.value}` : ''; };
-    vEl.oninput  = upd;
-    tEl.onchange = upd;
+    const upd = () => {
+      const fo = parseInt(document.getElementById('rp_from_off')?.value) || 0;
+      const fu = document.getElementById('rp_from_unit')?.value || 'D';
+      const to = parseInt(document.getElementById('rp_to_off')?.value)   || 0;
+      const tu = document.getElementById('rp_to_unit')?.value   || 'D';
+      const key = `${fo}${fu}..${to}${tu}`;
+      const cEl = document.getElementById('rp_code');
+      const pEl = document.getElementById('rp_preview');
+      if (cEl) cEl.textContent = key;
+      if (pEl) {
+        try {
+          const f = rangeToFilter(key);
+          pEl.textContent = f.date_from && f.date_to ? `${f.date_from} → ${f.date_to}`
+                          : f.date_from ? `dal ${f.date_from}` : f.date_to ? `al ${f.date_to}` : '—';
+        } catch { pEl.textContent = '—'; }
+      }
+    };
+    ['rp_from_off','rp_from_unit','rp_to_off','rp_to_unit'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) { el.oninput = upd; el.onchange = upd; }
+    });
+    upd();
   }, 50);
 }
 

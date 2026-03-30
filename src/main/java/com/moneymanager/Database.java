@@ -856,6 +856,13 @@ public class Database {
             sql.append(" AND t.description LIKE ?");
             params.add("%" + str(f,"search") + "%");
         }
+        if (f.has("has_attachment") && !f.get("has_attachment").getAsString().isBlank()) {
+            if ("1".equals(str(f,"has_attachment"))) {
+                sql.append(" AND t.attachment_path IS NOT NULL AND t.attachment_path != ''");
+            } else {
+                sql.append(" AND (t.attachment_path IS NULL OR t.attachment_path = '')");
+            }
+        }
         boolean desc = f.has("sort_desc") && f.get("sort_desc").getAsBoolean();
         sql.append(desc ? " GROUP BY t.id ORDER BY t.date DESC, t.id DESC"
                         : " GROUP BY t.id ORDER BY t.date ASC,  t.id ASC");

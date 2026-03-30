@@ -526,6 +526,10 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 
 .td-reconciled { width:36px; text-align:center; padding:0 2px; }
 .th-reconciled { width:36px; text-align:center; }
+.td-attach     { width:28px; text-align:center; padding:0 2px; }
+.th-attach     { width:28px; text-align:center; font-size:13px; }
+.td-attach .tx-attach-badge { cursor:pointer; font-size:13px; opacity:.75; transition:opacity .1s; }
+.td-attach .tx-attach-badge:hover { opacity:1; }
 .th-balance    { }
 .btn-reconcile {
   background:none; border:none; cursor:pointer; font-size:14px; padding:2px 4px;

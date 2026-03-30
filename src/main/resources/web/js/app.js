@@ -1045,6 +1045,11 @@ async function renderTransactions() {
           <option value="">Tutti i tag</option>
           ${tags.map(t=>`<option value="${t.id}" ${String(t.id)===String(txFilters.tag_id)?'selected':''}>${t.name}</option>`).join('')}
         </select>
+        <select class="form-control" id="txHasAttachment">
+          <option value="">Tutti</option>
+          <option value="1" ${txFilters.has_attachment==='1'?'selected':''}>📎 Con allegato</option>
+          <option value="0" ${txFilters.has_attachment==='0'?'selected':''}>Senza allegato</option>
+        </select>
         <input class="form-control" id="txSearch" value="${txFilters.search||''}" placeholder="🔍 Cerca..." style="min-width:160px">
       </div>
     </div>
@@ -1053,6 +1058,7 @@ async function renderTransactions() {
         <table id="txTable"><thead><tr>
             <th class="th-sort th-sort-active" data-col="date"        onclick="_txSortBy('date')">Data<span class="sort-ind">▲</span></th>
             <th class="th-reconciled" id="thReconciled" title="Stato conciliazione">Stato</th>
+            <th class="th-attach" title="Allegato">📎</th>
             <th class="th-sort" data-col="account"     onclick="_txSortBy('account')">Conto<span class="sort-ind"></span></th>
             <th class="th-sort" data-col="type"        onclick="_txSortBy('type')">Tipo<span class="sort-ind"></span></th>
             <th class="th-tags">Tag</th>
@@ -1080,8 +1086,9 @@ async function renderTransactions() {
       type:        document.getElementById('txType').value,
       account_id:  document.getElementById('txAccount').value   || undefined,
       category_id: document.getElementById('txCategory').value  || undefined,
-      tag_id:      document.getElementById('txTag').value       || undefined,
-      search:      document.getElementById('txSearch').value,
+      tag_id:         document.getElementById('txTag').value            || undefined,
+      has_attachment: document.getElementById('txHasAttachment').value  || undefined,
+      search:         document.getElementById('txSearch').value,
     };
     api.setSetting('tx.range', range);
     loadTxRows(categories, accounts);
@@ -1094,7 +1101,7 @@ async function renderTransactions() {
     applyFilters();
   });
   let _txSearchTimer;
-  ['txType','txAccount','txCategory','txTag'].forEach(id =>
+  ['txType','txAccount','txCategory','txTag','txHasAttachment'].forEach(id =>
     document.getElementById(id).addEventListener('change', applyFilters));
   ['txFrom','txTo'].forEach(id =>
     document.getElementById(id).addEventListener('change', applyFilters));
@@ -1194,7 +1201,7 @@ function renderTxBodyAndHeaders() {
   if (!tbody) return;
   const showBalance = txFilters.account_id && String(txFilters.account_id).trim() !== '';
   const sorted = sortTxs(txCache);
-  const colCount = showBalance ? 10 : 9;
+  const colCount = showBalance ? 11 : 10;
   tbody.innerHTML = sorted.length ? sorted.map(t => {
     const isRec = t.reconciled == 1;
     const isSel = t.id === _selectedTxId;
@@ -1210,6 +1217,7 @@ function renderTxBodyAndHeaders() {
           ${isRec ? '✅' : '🔲'}
         </button>
       </td>
+      <td class="td-attach">${t.attachment_path ? `<span class="tx-attach-badge" title="${t.attachment_path}" data-path="${encodeURIComponent(t.attachment_path)}" onclick="event.stopPropagation();openTxAttachment(this)">📎</span>` : ''}</td>
       <td>${t.account_name||'-'}${t.to_account_name?` → ${t.to_account_name}`:''}</td>
       <td><span class="badge badge-${t.type}">${t.type==='income'?'Entrata':t.type==='expense'?'Uscita':'Trasferimento'}</span></td>
       <td class="td-tags">${(t.tags&&t.tags.length)?t.tags.map(tg=>`<span class="tag-inline" style="--tc:${tg.color}">${tg.name}</span>`).join(''):''}</td>
@@ -1217,7 +1225,7 @@ function renderTxBodyAndHeaders() {
         ? `<span class="cat-chip" style="opacity:.8;font-size:11px" title="${t.splits_summary||''}">÷ ${t.splits_summary||`${t.split_count} voci`}</span>`
         : `${t.category_icon||''} ${t.parent_category_name ? t.parent_category_name + ' : ' + t.category_name : (t.category_name||'-')}`
       }</td>
-      <td class="td-main">${t.description||''}${t.attachment_path?` <span class="tx-attach-badge" title="${t.attachment_path}" data-path="${encodeURIComponent(t.attachment_path)}" onclick="event.stopPropagation();openTxAttachment(this)">📎</span>`:''}</td>
+      <td class="td-main">${t.description||''}</td>
       <td class="text-right amount-${t.type}">${t.type==='expense'?'-':''}${fmt.currency(t.amount)}</td>
       ${balCell}
       <td>

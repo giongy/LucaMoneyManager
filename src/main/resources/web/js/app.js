@@ -1987,11 +1987,14 @@ document.addEventListener('keydown', e => {
   const inputFocused = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
   const modalOpen = document.getElementById('modalOverlay')?.classList.contains('open');
 
-  // Alt+1..9 → navigazione pagine
+  // Alt+1..9 → navigazione pagine (usa e.code per robustezza con tastiere internazionali)
   if (e.altKey && !e.ctrlKey && !e.shiftKey && !inputFocused) {
-    const nav = _NAV_SHORTCUTS.find(s => s.key === e.key);
-    if (nav) { e.preventDefault(); navigateTo(nav.page); return; }
-    if (e.key === 't' || e.key === 'T') { e.preventDefault(); _toggleTheme(); return; }
+    const num = e.code.match(/^Digit(\d)$/)?.[1];
+    if (num) {
+      const nav = _NAV_SHORTCUTS.find(s => s.key === num);
+      if (nav) { e.preventDefault(); navigateTo(nav.page); return; }
+    }
+    if (e.code === 'KeyT') { e.preventDefault(); _toggleTheme(); return; }
   }
 
   // ? → guida shortcut (senza modificatori, no input, no modal)

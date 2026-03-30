@@ -90,6 +90,32 @@
   --shadow:   0 8px 32px rgba(0,0,0,.6);
 }
 
+/* ─── Vinaccia theme ─────────────────────────────────────────────────────── */
+[data-theme="vinaccia"] th { background: var(--bg3); }
+[data-theme="vinaccia"] td { border-bottom-color: #4a2538; }
+[data-theme="vinaccia"] .budget-row-child td { background: var(--bg); }
+[data-theme="vinaccia"] .budget-row-parent td { background: var(--bg2); }
+[data-theme="vinaccia"] .budget-gestione-badge.monthly { background: #1e2a4a; color: #9ab8f0; border-color: #9ab8f044; }
+[data-theme="vinaccia"] .budget-gestione-badge.annual  { background: #1a3028; color: #7cc87a; border-color: #7cc87a44; }
+[data-theme="vinaccia"] {
+  --bg:       #160d11;
+  --bg2:      #1e1118;
+  --bg3:      #261520;
+  --bg4:      #301926;
+  --border:   #4a2538;
+  --accent:   #e8829a;
+  --accent2:  #8eccc4;
+  --income:   #7ac87a;
+  --expense:  #e8826a;
+  --warn:     #d4b464;
+  --purple:   #c09ae0;
+  --orange:   #e0a060;
+  --txt:      #f2e4ec;
+  --txt2:     #c4a0b4;
+  --txt3:     #7a5a6a;
+  --shadow:   0 8px 32px rgba(0,0,0,.7);
+}
+
 /* ─── Reset ──────────────────────────────────────────────────────────────── */
 *,*::before,*::after { box-sizing:border-box; margin:0; padding:0; }
 html,body { height:100%; overflow:hidden; }

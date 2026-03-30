@@ -1051,6 +1051,7 @@ async function renderTransactions() {
           <option value="0" ${txFilters.has_attachment==='0'?'selected':''}>Senza allegato</option>
         </select>
         <input class="form-control" id="txSearch" value="${txFilters.search||''}" placeholder="🔍 Cerca..." style="min-width:160px">
+        <button class="btn btn-ghost" title="Salva filtri correnti come resoconto" onclick="saveTxFiltersAsReport()" style="white-space:nowrap;flex-shrink:0">💾 Salva filtro</button>
       </div>
     </div>
     <div id="txScrollWrap" style="flex:1;overflow:auto;padding:0 16px 16px">
@@ -1127,6 +1128,27 @@ async function renderTransactions() {
   // Scroll to bottom (le tx sono ordinate per data asc, le più recenti sono in fondo)
   const scrollWrap = document.getElementById('txScrollWrap');
   if (scrollWrap) requestAnimationFrame(() => { scrollWrap.scrollTop = scrollWrap.scrollHeight; });
+}
+
+function saveTxFiltersAsReport() {
+  // Mappa txFilters nel formato usato dai resoconti, poi apre il modal già compilato
+  const f = {};
+  // Periodo: salva range dinamico; per custom salva le date statiche
+  if (txFilters.range === 'custom') {
+    if (txFilters.date_from) f.date_from = txFilters.date_from;
+    if (txFilters.date_to)   f.date_to   = txFilters.date_to;
+    f.range = 'custom';
+  } else if (txFilters.range) {
+    f.range = txFilters.range;
+  }
+  if (txFilters.type)         f.type        = txFilters.type;
+  if (txFilters.account_id)   f.account_id  = parseInt(txFilters.account_id);
+  if (txFilters.category_id)  f.category_id = parseInt(txFilters.category_id);
+  if (txFilters.tag_id)        f.tag_ids        = [parseInt(txFilters.tag_id)];
+  if (txFilters.search)        f.search         = txFilters.search;
+  if (txFilters.has_attachment) f.has_attachment = txFilters.has_attachment;
+  _reportFilters = f;
+  showReportModal();
 }
 
 function _renderTxHeaderSummary(summary, accounts) {
@@ -5016,12 +5038,18 @@ async function runReport() {
   const chartType = _reportChartType || 'none';
 
   const filters = {};
-  if (f.date_from)   filters.date_from   = f.date_from;
-  if (f.date_to)     filters.date_to     = f.date_to;
-  if (f.account_id)  filters.account_id  = f.account_id;
-  if (f.type)        filters.type        = f.type;
-  if (f.category_id) filters.category_id = f.category_id;
-  if (f.search)      filters.search      = f.search;
+  // Periodo: range dinamico o date statiche (custom / backward compat)
+  if (f.range && f.range !== 'custom') {
+    Object.assign(filters, rangeToFilter(f.range));
+  } else {
+    if (f.date_from) filters.date_from = f.date_from;
+    if (f.date_to)   filters.date_to   = f.date_to;
+  }
+  if (f.account_id)     filters.account_id     = f.account_id;
+  if (f.type)           filters.type           = f.type;
+  if (f.category_id)    filters.category_id    = f.category_id;
+  if (f.search)         filters.search         = f.search;
+  if (f.has_attachment) filters.has_attachment = f.has_attachment;
 
   const resultsEl = document.getElementById('rResults');
   if (resultsEl) resultsEl.innerHTML = `<div style="text-align:center;padding:40px;color:var(--txt3)">⏳ Caricamento…</div>`;
@@ -5067,6 +5095,8 @@ async function showReportModal(reportId = null) {
   }
 
   const sel = (val, opt) => val == opt ? ' selected' : '';
+  // Se è salvato un range dinamico usalo; se ci sono date statiche = custom; altrimenti vuoto
+  const initRange = f.range || (f.date_from || f.date_to ? 'custom' : '');
   const bodyHtml = `
     <div class="form-group">
       <label class="form-label">Nome del resoconto <span style="color:var(--txt3);font-weight:400">(facoltativo — compila per salvare)</span></label>
@@ -5076,23 +5106,26 @@ async function showReportModal(reportId = null) {
     <hr style="border:none;border-top:1px solid var(--border);margin:8px 0 12px">
     <div class="report-modal-grid">
       <div class="form-group">
-        <label class="form-label">Periodo rapido</label>
-        <select class="form-control" id="rmDatePreset" onchange="rmApplyDatePreset(this.value)">
-          <option value="">Personalizzato</option>
-          <option value="thisMonth">Mese corrente</option>
-          <option value="lastMonth">Mese scorso</option>
-          <option value="thisYear">Anno corrente</option>
-          <option value="lastYear">Anno scorso</option>
-          <option value="last30">Ultimi 30 giorni</option>
-          <option value="last90">Ultimi 90 giorni</option>
+        <label class="form-label">Periodo</label>
+        <select class="form-control" id="rmRange" onchange="rmOnRangeChange(this.value)">
+          <option value="">Nessun filtro data</option>
+          <option value="7d"${sel(initRange,'7d')}>Ultimi 7 giorni</option>
+          <option value="14d"${sel(initRange,'14d')}>Ultime 2 settimane</option>
+          <option value="30d"${sel(initRange,'30d')}>Ultimi 30 giorni</option>
+          <option value="3m"${sel(initRange,'3m')}>Ultimi 3 mesi</option>
+          <option value="6m"${sel(initRange,'6m')}>Ultimi 6 mesi</option>
+          <option value="ytd"${sel(initRange,'ytd')}>Da inizio anno</option>
+          <option value="last_year"${sel(initRange,'last_year')}>Anno scorso</option>
+          <option value="all"${sel(initRange,'all')}>Tutto</option>
+          <option value="custom"${sel(initRange,'custom')}>Personalizzato…</option>
         </select>
       </div>
       <div></div>
-      <div class="form-group">
+      <div class="form-group" id="rmDateFromGroup" style="display:${initRange==='custom'?'':'none'}">
         <label class="form-label">Dal</label>
         <input type="date" class="form-control" id="rmDateFrom" value="${f.date_from||''}">
       </div>
-      <div class="form-group">
+      <div class="form-group" id="rmDateToGroup" style="display:${initRange==='custom'?'':'none'}">
         <label class="form-label">Al</label>
         <input type="date" class="form-control" id="rmDateTo" value="${f.date_to||''}">
       </div>
@@ -5131,6 +5164,14 @@ async function showReportModal(reportId = null) {
       <div class="form-group">
         <label class="form-label">Descrizione</label>
         <input type="text" class="form-control" id="rmSearch" value="${(f.search||'').replace(/"/g,'&quot;')}" placeholder="Cerca…">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Allegato</label>
+        <select class="form-control" id="rmHasAttachment">
+          <option value="">Tutti</option>
+          <option value="1"${f.has_attachment==='1'?' selected':''}>📎 Con allegato</option>
+          <option value="0"${f.has_attachment==='0'?' selected':''}>Senza allegato</option>
+        </select>
       </div>
       <div class="form-group">
         <label class="form-label">Importo</label>
@@ -5188,16 +5229,25 @@ async function showReportModal(reportId = null) {
       const amtVal    = parseFloat(document.getElementById('rmAmtVal')?.value);
       const groupby   = document.getElementById('rmGroupby')?.value   || 'none';
       const chartType = document.getElementById('rmChartType')?.value || 'none';
-      const tagIds    = [...document.querySelectorAll('#rmTagsSelector .tag-chip.selected')]
-                          .map(el => parseInt(el.dataset.tagId));
+      const tagIds        = [...document.querySelectorAll('#rmTagsSelector .tag-chip.selected')]
+                              .map(el => parseInt(el.dataset.tagId));
+      const hasAttachment = document.getElementById('rmHasAttachment')?.value || '';
+      const range         = document.getElementById('rmRange')?.value || '';
 
       const filters = {};
-      if (dateFrom)  filters.date_from   = dateFrom;
-      if (dateTo)    filters.date_to     = dateTo;
-      if (accountId) filters.account_id  = parseInt(accountId);
-      if (type)      filters.type        = type;
-      if (catId)     filters.category_id = parseInt(catId);
-      if (search)    filters.search      = search;
+      // Periodo: salva range dinamico; per custom salva le date statiche
+      if (range === 'custom') {
+        if (dateFrom) filters.date_from = dateFrom;
+        if (dateTo)   filters.date_to   = dateTo;
+        filters.range = 'custom';
+      } else if (range) {
+        filters.range = range;
+      }
+      if (accountId)      filters.account_id     = parseInt(accountId);
+      if (type)           filters.type           = type;
+      if (catId)          filters.category_id    = parseInt(catId);
+      if (search)         filters.search         = search;
+      if (hasAttachment)  filters.has_attachment = hasAttachment;
 
       _reportGroupby   = groupby;
       _reportChartType = chartType;
@@ -5243,18 +5293,12 @@ async function showReportModal(reportId = null) {
   setTimeout(() => { const e = document.getElementById('rmName'); if (e) { e.focus(); e.select(); } }, 60);
 }
 
-function rmApplyDatePreset(preset) {
-  const t = new Date(), y = t.getFullYear(), m = t.getMonth();
-  const iso = d => d.toISOString().slice(0,10);
-  let from = '', to = '';
-  if      (preset==='thisMonth') { from=iso(new Date(y,m,1));    to=iso(new Date(y,m+1,0)); }
-  else if (preset==='lastMonth') { from=iso(new Date(y,m-1,1));  to=iso(new Date(y,m,0));   }
-  else if (preset==='thisYear')  { from=`${y}-01-01`;             to=`${y}-12-31`;           }
-  else if (preset==='lastYear')  { from=`${y-1}-01-01`;           to=`${y-1}-12-31`;         }
-  else if (preset==='last30')    { from=iso(new Date(t-30*864e5));to=iso(t);                 }
-  else if (preset==='last90')    { from=iso(new Date(t-90*864e5));to=iso(t);                 }
-  const df = document.getElementById('rmDateFrom'), dt = document.getElementById('rmDateTo');
-  if (df) df.value = from; if (dt) dt.value = to;
+function rmOnRangeChange(range) {
+  const show = range === 'custom';
+  const fg = document.getElementById('rmDateFromGroup');
+  const tg = document.getElementById('rmDateToGroup');
+  if (fg) fg.style.display = show ? '' : 'none';
+  if (tg) tg.style.display = show ? '' : 'none';
 }
 
 function renderReportResults(txs, groupby, chartType) {

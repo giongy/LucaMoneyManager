@@ -313,11 +313,11 @@ Chart.defaults.animation.easing   = 'linear';
 
 const chartColors = () => {
   const t = document.documentElement.dataset.theme;
-  if (t === 'light')    return { tick: '#636c76', grid: 'rgba(0,0,0,0.07)' };
-  if (t === 'carta')    return { tick: '#8a7860', grid: 'rgba(0,0,0,0.07)' };
-  if (t === 'viola')    return { tick: '#bac2de', grid: '#313244' };
-  if (t === 'vinaccia') return { tick: '#c4a0b4', grid: '#301926' };
-  return { tick: '#8b949e', grid: '#21262d' };
+  if (t === 'light')    return { tick: '#636c76', grid: 'rgba(0,0,0,0.05)' };
+  if (t === 'carta')    return { tick: '#8a7860', grid: 'rgba(0,0,0,0.05)' };
+  if (t === 'viola')    return { tick: '#bac2de', grid: 'rgba(255,255,255,0.06)' };
+  if (t === 'vinaccia') return { tick: '#c4a0b4', grid: 'rgba(255,255,255,0.05)' };
+  return { tick: '#8b949e', grid: 'rgba(255,255,255,0.06)' };
 };
 
 const zoomOpts = () => ({

@@ -314,6 +314,7 @@ Chart.defaults.animation.easing   = 'linear';
 const chartColors = () => {
   const t = document.documentElement.dataset.theme;
   if (t === 'light')    return { tick: '#636c76', grid: 'rgba(0,0,0,0.07)' };
+  if (t === 'carta')    return { tick: '#8a7860', grid: 'rgba(0,0,0,0.07)' };
   if (t === 'viola')    return { tick: '#bac2de', grid: '#313244' };
   if (t === 'vinaccia') return { tick: '#c4a0b4', grid: '#301926' };
   return { tick: '#8b949e', grid: '#21262d' };
@@ -5681,7 +5682,7 @@ async function renderSettings() {
           <div class="settings-control">
             <div style="display:flex;flex-direction:column;gap:10px">
               <div style="display:flex;gap:6px;flex-wrap:wrap">
-                ${[['dark','🌙 Scuro'],['light','☀️ Chiaro'],['viola','🪻 Viola'],['vinaccia','🍷 Vinaccia']].map(([key,label]) => `
+                ${[['dark','🌙 Scuro'],['light','☀️ Chiaro'],['carta','📜 Carta'],['viola','🪻 Viola'],['vinaccia','🍷 Vinaccia']].map(([key,label]) => `
                   <button class="btn theme-btn ${(s['appearance.theme']||'dark')===key?'theme-btn-active':''}"
                           onclick="settingsSetTheme('${key}')">${label}</button>
                   <button class="btn btn-ghost btn-icon" title="Duplica e personalizza" onclick="duplicateTheme('${key}')">⧉</button>`).join('')}
@@ -6147,6 +6148,13 @@ const _BUILTIN_VARS = {
     '--purple':'#cba6f7','--orange':'#fab387',
     '--txt':'#cdd6f4','--txt2':'#bac2de','--txt3':'#6c7086',
   },
+  carta: {
+    '--bg':'#ece5d8','--bg2':'#f4ede0','--bg3':'#e0d8cb','--bg4':'#d4ccbf',
+    '--border':'#c2b8a6','--accent':'#8b5a18','--accent2':'#2e6e58',
+    '--income':'#1e6b2e','--expense':'#b52a1a','--warn':'#7a5600',
+    '--purple':'#5e3a8a','--orange':'#a04810',
+    '--txt':'#241a08','--txt2':'#5c4a2c','--txt3':'#8a7860',
+  },
   vinaccia: {
     '--bg':'#160d11','--bg2':'#1e1118','--bg3':'#261520','--bg4':'#301926',
     '--border':'#4a2538','--accent':'#e8829a','--accent2':'#8eccc4',
@@ -6238,7 +6246,7 @@ function applyTheme(theme) {
     document.documentElement.dataset.theme = '';
     if (ct) _applyCustomVars(ct);
   } else {
-    const valid = ['light', 'viola', 'vinaccia'];
+    const valid = ['light', 'carta', 'viola', 'vinaccia'];
     document.documentElement.dataset.theme = valid.includes(theme) ? theme : '';
   }
   _updateThemeBtn();
@@ -6254,6 +6262,7 @@ async function settingsSetTheme(theme) {
 const _THEME_CYCLE = [
   { key: '',         icon: '🌙', label: 'Scuro' },
   { key: 'light',    icon: '☀️', label: 'Chiaro' },
+  { key: 'carta',    icon: '📜', label: 'Carta' },
   { key: 'viola',    icon: '🪻', label: 'Viola' },
   { key: 'vinaccia', icon: '🍷', label: 'Vinaccia' },
 ];

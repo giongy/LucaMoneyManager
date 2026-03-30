@@ -311,9 +311,12 @@ const api = {
 Chart.defaults.animation.duration = 700;
 Chart.defaults.animation.easing   = 'linear';
 
-const chartColors = () => document.documentElement.dataset.theme === 'light'
-  ? { tick: '#636c76', grid: '#e8ecf0' }
-  : { tick: '#8b949e', grid: '#21262d' };
+const chartColors = () => {
+  const t = document.documentElement.dataset.theme;
+  if (t === 'light') return { tick: '#636c76', grid: 'rgba(0,0,0,0.07)' };
+  if (t === 'viola') return { tick: '#bac2de', grid: '#313244' };
+  return { tick: '#8b949e', grid: '#21262d' };
+};
 
 const zoomOpts = () => ({
   zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' },
@@ -5649,7 +5652,7 @@ async function renderSettings() {
         <div class="settings-row">
           <div class="settings-label">
             <strong>Modalità colore</strong>
-            <span class="settings-hint">Scegli tra tema scuro e chiaro</span>
+            <span class="settings-hint">Scegli il tema dell'interfaccia</span>
           </div>
           <div class="settings-control">
             <div class="theme-toggle-group">
@@ -5657,6 +5660,8 @@ async function renderSettings() {
                       onclick="settingsSetTheme('dark')">🌙 Scuro</button>
               <button class="btn theme-btn ${(s['appearance.theme']||'dark')==='light'?'theme-btn-active':''}"
                       onclick="settingsSetTheme('light')">☀️ Chiaro</button>
+              <button class="btn theme-btn ${(s['appearance.theme']||'dark')==='viola'?'theme-btn-active':''}"
+                      onclick="settingsSetTheme('viola')">🪻 Viola</button>
             </div>
           </div>
         </div>
@@ -6077,7 +6082,8 @@ window.maintPurgeLog = async () => {
 };
 
 function applyTheme(theme) {
-  document.documentElement.dataset.theme = theme === 'light' ? 'light' : '';
+  const valid = ['light', 'viola'];
+  document.documentElement.dataset.theme = valid.includes(theme) ? theme : '';
   _updateThemeBtn();
 }
 
@@ -6088,15 +6094,25 @@ async function settingsSetTheme(theme) {
   renderSettings();
 }
 
+const _THEME_CYCLE = [
+  { key: '',      icon: '🌙', label: 'Scuro' },
+  { key: 'light', icon: '☀️', label: 'Chiaro' },
+  { key: 'viola', icon: '🪻', label: 'Viola' },
+];
+
 function _updateThemeBtn() {
-  const isLight = document.documentElement.dataset.theme === 'light';
+  const t = document.documentElement.dataset.theme;
+  const curr = _THEME_CYCLE.find(x => x.key === t) || _THEME_CYCLE[0];
+  const next = _THEME_CYCLE[(_THEME_CYCLE.indexOf(curr) + 1) % _THEME_CYCLE.length];
   const btn = document.getElementById('themeToggleBtn');
-  if (btn) { btn.textContent = isLight ? '☀️' : '🌙'; btn.title = `Tema ${isLight?'chiaro':'scuro'} attivo — clicca per cambiare (Alt+T)`; }
+  if (btn) { btn.textContent = curr.icon; btn.title = `Tema ${curr.label} — clicca per passare a ${next.label} (Alt+T)`; }
 }
 
 async function _toggleTheme() {
-  const isLight = document.documentElement.dataset.theme === 'light';
-  await settingsSetTheme(isLight ? 'dark' : 'light');
+  const t = document.documentElement.dataset.theme;
+  const curr = _THEME_CYCLE.find(x => x.key === t) || _THEME_CYCLE[0];
+  const next = _THEME_CYCLE[(_THEME_CYCLE.indexOf(curr) + 1) % _THEME_CYCLE.length];
+  await settingsSetTheme(next.key || 'dark');
 }
 
 /* ─── Shortcuts overlay ──────────────────────────────────────────────────── */
@@ -6129,7 +6145,7 @@ function showShortcutsHelp() {
       <div class="sc-group">
         <div class="sc-group-title">Interfaccia</div>
         <div class="sc-row">
-          <span class="sc-desc">Cambia tema scuro/chiaro</span>
+          <span class="sc-desc">Cambia tema (ciclo: scuro → chiaro → viola)</span>
           <span class="sc-keys"><kbd>Alt</kbd><kbd>T</kbd></span>
         </div>
         <div class="sc-row">

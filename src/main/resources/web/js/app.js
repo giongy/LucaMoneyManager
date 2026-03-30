@@ -6175,14 +6175,14 @@ function _applyCustomVars(ct) {
     else document.documentElement.style.removeProperty(v);
   });
   document.documentElement.style.setProperty('--radius', (ct.radius ?? 8) + 'px');
+  document.documentElement.style.setProperty('--font-size', (ct.fontSize || 13) + 'px');
   document.body.style.fontFamily = ct.fontFamily || '';
-  document.body.style.fontSize   = ct.fontSize ? ct.fontSize + 'px' : '';
 }
 function _clearCustomVars() {
   _ALL_THEME_VARS.forEach(v => document.documentElement.style.removeProperty(v));
   document.documentElement.style.removeProperty('--radius');
+  document.documentElement.style.removeProperty('--font-size');
   document.body.style.fontFamily = '';
-  document.body.style.fontSize   = '';
 }
 
 function applyTheme(theme) {
@@ -6372,7 +6372,7 @@ function _teWireEvents() {
     const v = parseInt(e.target.value);
     _teWorkingTheme.fontSize = v;
     document.getElementById('teFontSizeVal').textContent = v + 'px';
-    document.body.style.fontSize = v + 'px';
+    document.documentElement.style.setProperty('--font-size', v + 'px');
   });
   document.getElementById('teRadius')?.addEventListener('input', e => {
     const v = parseInt(e.target.value);

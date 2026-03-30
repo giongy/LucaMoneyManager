@@ -377,7 +377,7 @@ public class Database {
         """);
     }
 
-    private static final int SCHEMA_VERSION = 5;
+    private static final int SCHEMA_VERSION = 6;
 
     private void migrate() throws SQLException {
         // Crea tabella versione se non esiste
@@ -568,6 +568,16 @@ public class Database {
         // ── v5: allegati sulle transazioni ──────────────────────────────────────
         if (currentVersion < 5) {
             try { executePlain("ALTER TABLE transactions ADD COLUMN attachment_path TEXT"); } catch (SQLException ignored) {}
+        }
+        // ── v6: range_presets personalizzati ────────────────────────────────────
+        if (currentVersion < 6) {
+            executePlain("""
+                CREATE TABLE IF NOT EXISTS range_presets (
+                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                    label      TEXT    NOT NULL,
+                    range_key  TEXT    NOT NULL UNIQUE,
+                    sort_order INTEGER DEFAULT 0
+                )""");
         }
 
         // Segna il DB come aggiornato all'ultima versione
@@ -1032,6 +1042,33 @@ public class Database {
             throw new SQLException("Il tag '" + old.get("name") + "' è di sistema e non può essere eliminato.");
         execute("DELETE FROM tags WHERE id=?", id);
         logger.log("TAG ELIMINATO", "id:" + id, "nome:" + DbLogger.s(old != null ? old.get("name") : null));
+        return Map.of("id", id, "deleted", true);
+    }
+
+    // ─── Range Preset ─────────────────────────────────────────────────────────
+
+    public List<Map<String, Object>> getRangePresets() throws SQLException {
+        return queryList("SELECT * FROM range_presets ORDER BY sort_order, label COLLATE NOCASE");
+    }
+
+    public Map<String, Object> addRangePreset(JsonObject p) throws SQLException {
+        long id = execute("INSERT INTO range_presets(label,range_key,sort_order) VALUES(?,?,?)",
+                str(p,"label"), str(p,"range_key"), intVal(p,"sort_order") != null ? intVal(p,"sort_order") : 0);
+        logger.log("RANGE PRESET AGGIUNTO", "id:" + id, "chiave:" + str(p,"range_key"), "etichetta:" + str(p,"label"));
+        return queryOne("SELECT * FROM range_presets WHERE id=?", id);
+    }
+
+    public Map<String, Object> updateRangePreset(int id, JsonObject p) throws SQLException {
+        execute("UPDATE range_presets SET label=?,range_key=?,sort_order=? WHERE id=?",
+                str(p,"label"), str(p,"range_key"), intVal(p,"sort_order") != null ? intVal(p,"sort_order") : 0, id);
+        logger.log("RANGE PRESET MODIFICATO", "id:" + id, "chiave:" + str(p,"range_key"), "etichetta:" + str(p,"label"));
+        return queryOne("SELECT * FROM range_presets WHERE id=?", id);
+    }
+
+    public Map<String, Object> deleteRangePreset(int id) throws SQLException {
+        Map<String, Object> old = queryOne("SELECT label FROM range_presets WHERE id=?", id);
+        execute("DELETE FROM range_presets WHERE id=?", id);
+        logger.log("RANGE PRESET ELIMINATO", "id:" + id, "etichetta:" + DbLogger.s(old != null ? old.get("label") : null));
         return Map.of("id", id, "deleted", true);
     }
 

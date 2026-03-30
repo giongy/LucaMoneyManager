@@ -320,6 +320,12 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             case "updateTag"  -> db.updateTag(p.get("id").getAsInt(), p);
             case "deleteTag"  -> db.deleteTag(p.get("id").getAsInt());
 
+            // ─── Range Preset ──────────────────────────────────────────────────────
+            case "getRangePresets"    -> db.getRangePresets();
+            case "addRangePreset"     -> db.addRangePreset(p);
+            case "updateRangePreset"  -> db.updateRangePreset(p.get("id").getAsInt(), p);
+            case "deleteRangePreset"  -> db.deleteRangePreset(p.get("id").getAsInt());
+
             // ─── Statistiche ───────────────────────────────────────────────
             case "getDashboardStats"    -> db.getDashboardStats(p.get("year").getAsInt());
             case "getMonthlyChartData"  -> db.getMonthlyChartData(p.get("year").getAsInt());

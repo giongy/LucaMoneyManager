@@ -213,6 +213,12 @@ const api = {
   deleteTag:              id     => callJava('deleteTag', {id}),
   getTransactionsWithTag: name   => callJava('getTransactionsWithTag', {name}),
 
+  // Range Preset
+  getRangePresets:    ()     => callJava('getRangePresets'),
+  addRangePreset:     data   => callJava('addRangePreset',    data),
+  updateRangePreset:  data   => callJava('updateRangePreset', data),
+  deleteRangePreset:  data   => callJava('deleteRangePreset', data),
+
   // Transazioni
   getTransactions:             f    => callJava('getTransactions',             f || {}),
   getTransactionSplits:        id   => callJava('getTransactionSplits',        {id}),
@@ -434,7 +440,7 @@ document.getElementById('btnClose').onclick = () => api.close();
 const PAGE_TITLES = {
   dashboard:'Dashboard', transactions:'Transazioni', accounts:'Conti',
   budgets:'Budget', portfolio:'Portafoglio', analytics:'Reports', reports:'Filtri', forecasts:'Previsioni', settings:'Impostazioni',
-  scheduled:'Transazioni Pianificate'
+  scheduled:'Transazioni Pianificate', ranges:'Periodi personalizzati'
 };
 let currentPage = 'dashboard';
 let charts = {};
@@ -470,6 +476,7 @@ function renderPage(page) {
     case 'reports':      renderReports();      break;
     case 'categories':   renderCategories();   break;
     case 'tags':         renderTags();         break;
+    case 'ranges':       renderRangePresets(); break;
     case 'settings':     renderSettings();     break;
     case 'scheduled':    renderScheduled();    break;
     case 'forecasts':    renderForecasts();    break;
@@ -982,9 +989,46 @@ function rangeToFilter(range, from, to) {
                         return { date_from: `${y}-01-01`, date_to: `${y}-12-31` }; }
     case 'all':       return {};
     case 'custom':    return { date_from: from||'', date_to: to||'' };
-    default:          return { date_from: fmt(sub(29)), date_to: fmt(today) };
+    default: {
+      // Range dinamico da preset: Nd (giorni), Nm (mesi), Ny (anni)
+      const mD = range && range.match(/^(\d+)d$/);
+      const mM = range && range.match(/^(\d+)m$/);
+      const mY = range && range.match(/^(\d+)y$/);
+      if (mD) { const n=parseInt(mD[1]); return { date_from: fmt(sub(n-1)), date_to: fmt(today) }; }
+      if (mM) { const d=new Date(today); d.setMonth(d.getMonth()-parseInt(mM[1])); return { date_from: fmt(d), date_to: fmt(today) }; }
+      if (mY) { const d=new Date(today); d.setFullYear(d.getFullYear()-parseInt(mY[1])); return { date_from: fmt(d), date_to: fmt(today) }; }
+      return { date_from: fmt(sub(29)), date_to: fmt(today) };
+    }
   }
 }
+
+// ─── Range centralizzati ──────────────────────────────────────────────────────
+
+const RANGE_DEFAULTS = [
+  {v:'7d',        l:'Ultimi 7 giorni'},
+  {v:'14d',       l:'Ultime 2 settimane'},
+  {v:'30d',       l:'Ultimi 30 giorni'},
+  {v:'3m',        l:'Ultimi 3 mesi'},
+  {v:'6m',        l:'Ultimi 6 mesi'},
+  {v:'ytd',       l:'Da inizio anno'},
+  {v:'last_year', l:'Anno scorso'},
+  {v:'all',       l:'Tutto'},
+  {v:'custom',    l:'Personalizza…'},
+];
+
+// Costruisce le <option> per un select di range.
+// presets: array {range_key, label} dal DB; includeEmpty: aggiunge voce "Nessun filtro"; selected: valore corrente
+function buildRangeOptions(presets, includeEmpty, selected) {
+  const list = [...RANGE_DEFAULTS];
+  if (presets && presets.length) {
+    // Inserisce i preset prima di 'all' e 'custom'
+    const idx = list.findIndex(o => o.v === 'all');
+    list.splice(idx, 0, ...presets.map(p => ({v: p.range_key, l: p.label})));
+  }
+  const opts = list.map(o => `<option value="${o.v}"${selected===o.v?' selected':''}>${o.l}</option>`).join('');
+  return includeEmpty ? `<option value="">Nessun filtro data</option>${opts}` : opts;
+}
+
 let txSort       = { col: 'date', dir: 'asc' };
 let txCache      = [];
 let _selectedTxId = null;
@@ -998,23 +1042,13 @@ function navigateToAccountTx(accountId) {
 async function renderTransactions() {
   _selectedTxId = null;
   const pg = document.getElementById('pg-transactions');
-  const [categories, accounts, tags] = await Promise.all([api.getCategories(), api.getAccounts(), api.getTags()]);
+  const [categories, accounts, tags, rangePresets] = await Promise.all([api.getCategories(), api.getAccounts(), api.getTags(), api.getRangePresets()]);
 
   pg.innerHTML = `
     <div style="flex-shrink:0;padding:16px 16px 0;background:var(--bg)">
       <div class="filter-bar" style="margin-bottom:12px">
         <select class="form-control" id="txRange">
-          ${[
-            {v:'7d',        l:'Ultimi 7 giorni'},
-            {v:'14d',       l:'Ultime 2 settimane'},
-            {v:'30d',       l:'Ultimi 30 giorni'},
-            {v:'3m',        l:'Ultimi 3 mesi'},
-            {v:'6m',        l:'Ultimi 6 mesi'},
-            {v:'ytd',       l:'Da inizio anno'},
-            {v:'last_year', l:'Anno scorso'},
-            {v:'all',       l:'Tutto'},
-            {v:'custom',    l:'Personalizza…'},
-          ].map(o=>`<option value="${o.v}" ${(txFilters.range||'30d')===o.v?'selected':''}>${o.l}</option>`).join('')}
+          ${buildRangeOptions(rangePresets, false, txFilters.range||'30d')}
         </select>
         <input type="date" class="form-control" id="txFrom" value="${txFilters.date_from||''}"
                style="display:${txFilters.range==='custom'?'':'none'}">
@@ -5078,8 +5112,8 @@ async function runReport() {
 }
 
 async function showReportModal(reportId = null) {
-  const [accounts, categories, tags, reports] = await Promise.all([
-    api.getAccounts(), api.getCategories(), api.getTags(), api.getReports(),
+  const [accounts, categories, tags, reports, rangePresets] = await Promise.all([
+    api.getAccounts(), api.getCategories(), api.getTags(), api.getReports(), api.getRangePresets(),
   ]);
 
   const r = reportId != null ? reports.find(x => x.id === reportId) : null;
@@ -5108,16 +5142,7 @@ async function showReportModal(reportId = null) {
       <div class="form-group">
         <label class="form-label">Periodo</label>
         <select class="form-control" id="rmRange" onchange="rmOnRangeChange(this.value)">
-          <option value="">Nessun filtro data</option>
-          <option value="7d"${sel(initRange,'7d')}>Ultimi 7 giorni</option>
-          <option value="14d"${sel(initRange,'14d')}>Ultime 2 settimane</option>
-          <option value="30d"${sel(initRange,'30d')}>Ultimi 30 giorni</option>
-          <option value="3m"${sel(initRange,'3m')}>Ultimi 3 mesi</option>
-          <option value="6m"${sel(initRange,'6m')}>Ultimi 6 mesi</option>
-          <option value="ytd"${sel(initRange,'ytd')}>Da inizio anno</option>
-          <option value="last_year"${sel(initRange,'last_year')}>Anno scorso</option>
-          <option value="all"${sel(initRange,'all')}>Tutto</option>
-          <option value="custom"${sel(initRange,'custom')}>Personalizzato…</option>
+          ${buildRangeOptions(rangePresets, true, initRange)}
         </select>
       </div>
       <div></div>
@@ -6445,6 +6470,123 @@ window.deleteTagMgmt = async id => {
     await api.deleteTag(id);
     toast('Tag eliminato');
     renderTags();
+  } catch(e) { toast(e.message, 'error'); }
+};
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   PERIODI PERSONALIZZATI
+═══════════════════════════════════════════════════════════════════════════ */
+
+async function renderRangePresets() {
+  const pg = document.getElementById('pg-ranges');
+  const presets = await api.getRangePresets();
+  pg.innerHTML = `
+    <div class="section-header">
+      <h2 class="section-title">Periodi personalizzati</h2>
+      <button class="btn btn-primary" id="btnAddRangePreset">+ Nuovo periodo</button>
+    </div>
+    <div class="card" style="margin-bottom:12px">
+      <p class="text-muted" style="font-size:12px;padding:8px 0 4px">
+        I periodi personalizzati vengono aggiunti ai range predefiniti in tutti i filtri per data
+        (transazioni, filtri analitici…). Puoi definire intervalli in giorni, mesi o anni.
+      </p>
+    </div>
+    <div class="card">
+      ${presets.length ? `
+        <div class="tags-mgmt-list">
+          ${presets.map(p => {
+            const preview = (() => { try { const f=rangeToFilter(p.range_key); return f.date_from && f.date_to ? `${f.date_from} → ${f.date_to}` : ''; } catch { return ''; } })();
+            return `
+            <div class="tag-mgmt-row">
+              <span style="font-weight:500">${p.label}</span>
+              <span class="tag-inline" style="--tc:#58a6ff;font-size:11px;padding:2px 8px;margin-left:8px">${p.range_key}</span>
+              ${preview ? `<span class="text-muted" style="font-size:11px;margin-left:8px">${preview}</span>` : ''}
+              <div style="margin-left:auto;display:flex;gap:4px">
+                <button class="btn btn-ghost btn-icon" onclick="editRangePreset(${p.id})">✏️</button>
+                <button class="btn btn-ghost btn-icon" onclick="deleteRangePresetMgmt(${p.id})">🗑️</button>
+              </div>
+            </div>`;
+          }).join('')}
+        </div>` :
+        `<p class="text-muted" style="text-align:center;padding:30px">Nessun periodo personalizzato. Creane uno cliccando "+ Nuovo periodo".</p>`
+      }
+    </div>`;
+
+  document.getElementById('btnAddRangePreset').onclick = () => showRangePresetModal(null);
+}
+
+function showRangePresetModal(preset) {
+  const isEdit = !!preset;
+  // Ricava tipo e valore dall'eventuale range_key esistente
+  let initType = 'd', initValue = '';
+  if (preset) {
+    const mD = preset.range_key.match(/^(\d+)d$/);
+    const mM = preset.range_key.match(/^(\d+)m$/);
+    const mY = preset.range_key.match(/^(\d+)y$/);
+    if (mD) { initType='d'; initValue=mD[1]; }
+    else if (mM) { initType='m'; initValue=mM[1]; }
+    else if (mY) { initType='y'; initValue=mY[1]; }
+  }
+  const body = `
+    <div class="form-group">
+      <label class="form-label">Etichetta</label>
+      <input class="form-control" id="rp_label" value="${preset?.label||''}" placeholder="es. Ultimi 45 giorni">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Durata</label>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input type="number" class="form-control" id="rp_value" value="${initValue}" min="1" max="9999" style="width:100px" placeholder="es. 45">
+        <select class="form-control" id="rp_type" style="width:140px">
+          <option value="d"${initType==='d'?' selected':''}>Giorni</option>
+          <option value="m"${initType==='m'?' selected':''}>Mesi</option>
+          <option value="y"${initType==='y'?' selected':''}>Anni</option>
+        </select>
+      </div>
+      <div style="font-size:11px;color:var(--txt3);margin-top:4px">
+        Chiave generata: <span id="rp_keyPreview" style="font-family:monospace">${initValue?initValue+initType:''}</span>
+      </div>
+    </div>`;
+
+  openModal(isEdit ? 'Modifica periodo' : 'Nuovo periodo', body, async () => {
+    const label = document.getElementById('rp_label').value.trim();
+    const value = document.getElementById('rp_value').value.trim();
+    const type  = document.getElementById('rp_type').value;
+    if (!label)  { toast('Inserisci un\'etichetta', 'error'); return; }
+    if (!value || parseInt(value) < 1) { toast('Inserisci una durata valida', 'error'); return; }
+    const range_key = `${parseInt(value)}${type}`;
+    try {
+      if (isEdit) await api.updateRangePreset({id: preset.id, label, range_key});
+      else        await api.addRangePreset({label, range_key});
+      closeModal();
+      toast(isEdit ? 'Periodo aggiornato' : 'Periodo aggiunto');
+      renderRangePresets();
+    } catch(e) { toast(e.message, 'error'); }
+  });
+
+  // Preview chiave live
+  setTimeout(() => {
+    const vEl = document.getElementById('rp_value');
+    const tEl = document.getElementById('rp_type');
+    const pEl = document.getElementById('rp_keyPreview');
+    if (!vEl || !tEl || !pEl) return;
+    const upd = () => { const v=parseInt(vEl.value)||''; pEl.textContent = v ? `${v}${tEl.value}` : ''; };
+    vEl.oninput  = upd;
+    tEl.onchange = upd;
+  }, 50);
+}
+
+window.editRangePreset = async id => {
+  const presets = await api.getRangePresets();
+  showRangePresetModal(presets.find(p => p.id === id));
+};
+
+window.deleteRangePresetMgmt = async id => {
+  const ok = await confirm('Elimina periodo', 'Eliminare questo periodo personalizzato?');
+  if (!ok) return;
+  try {
+    await api.deleteRangePreset({id});
+    toast('Periodo eliminato');
+    renderRangePresets();
   } catch(e) { toast(e.message, 'error'); }
 };
 

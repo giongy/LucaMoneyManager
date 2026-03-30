@@ -6506,7 +6506,39 @@ async function renderRangePresets() {
     <div class="card" style="margin-bottom:12px">
       <p class="text-muted" style="font-size:12px;padding:8px 0 4px">
         I periodi personalizzati vengono aggiunti ai range predefiniti in tutti i filtri per data
-        (transazioni, filtri analitici…). Puoi definire intervalli in giorni, mesi o anni.
+        (transazioni, filtri analitici…). Puoi definire intervalli in giorni, settimane, mesi o anni.
+      </p>
+    </div>
+    <div class="card" style="margin-bottom:12px;border-left:3px solid var(--accent);background:var(--bg3)">
+      <div style="font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--accent);padding:10px 12px 6px">📖 Guida agli offset</div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead>
+          <tr style="border-bottom:1px solid var(--border)">
+            <th style="text-align:left;padding:4px 12px;color:var(--text-muted);font-weight:600">Da</th>
+            <th style="text-align:left;padding:4px 12px;color:var(--text-muted);font-weight:600">A</th>
+            <th style="text-align:left;padding:4px 12px;color:var(--text-muted);font-weight:600">Risultato</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${[
+            ['-7 D',  '0 D',  'ultimi 7 giorni'],
+            ['0 Y',   '0 Y',  'anno corrente (1 gen → 31 dic)'],
+            ['-1 Y',  '-1 Y', 'anno scorso'],
+            ['-1 Y',  '+2 Y', 'da inizio anno scorso a fine 2028'],
+            ['0 M',   '0 M',  'mese corrente'],
+            ['-3 M',  '0 M',  'ultimi 3 mesi (inizio mese → fine mese corrente)'],
+            ['-1 W',  '0 W',  'settimana scorsa + settimana corrente'],
+          ].map(([da,a,res],i) => `
+            <tr style="${i%2===0?'':'background:color-mix(in srgb,var(--accent) 5%,transparent)'}">
+              <td style="padding:5px 12px"><code style="background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--accent);padding:1px 6px;border-radius:4px;font-size:11.5px">${da}</code></td>
+              <td style="padding:5px 12px"><code style="background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--accent);padding:1px 6px;border-radius:4px;font-size:11.5px">${a}</code></td>
+              <td style="padding:5px 12px;color:var(--text-muted);font-size:12px">${res}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+      <p style="font-size:11px;color:var(--text-muted);padding:8px 12px 10px;margin:0;border-top:1px solid var(--border)">
+        Per <strong>Mese/Anno</strong> la data "Da" prende sempre l'inizio del periodo (1° del mese, 1 gennaio),
+        la data "A" prende la fine (ultimo giorno del mese, 31 dicembre).
       </p>
     </div>
     <div class="card">

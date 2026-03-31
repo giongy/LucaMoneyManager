@@ -2783,10 +2783,10 @@ function renderBudgetAndamento() {
       <table id="budgAndTable" style="width:100%;border-collapse:collapse">
         <thead><tr>
           <th style="text-align:left;padding:7px 12px;border-bottom:2px solid var(--border);color:var(--txt2);font-weight:600">Mese</th>
-          <th style="text-align:right;padding:7px 12px;border-bottom:2px solid var(--border);color:var(--txt2);font-weight:600;background:color-mix(in srgb,var(--accent) 8%,transparent)">Budget mese</th>
-          <th style="text-align:right;padding:7px 12px;border-bottom:2px solid var(--border);color:var(--txt2);font-weight:600;background:color-mix(in srgb,var(--accent) 8%,transparent)">Reale mese</th>
-          <th style="text-align:right;padding:7px 12px;border-bottom:2px solid var(--border);color:var(--txt2);font-weight:600;background:color-mix(in srgb,var(--accent2) 8%,transparent)">Budget prog.</th>
-          <th style="text-align:right;padding:7px 12px;border-bottom:2px solid var(--border);color:var(--txt2);font-weight:600;background:color-mix(in srgb,var(--accent2) 8%,transparent)">Reale prog.</th>
+          <th style="text-align:right;padding:7px 12px;border-bottom:2px solid var(--border);color:var(--txt2);font-weight:600;background:color-mix(in srgb,var(--accent) 14%,var(--bg))">Budget mese</th>
+          <th style="text-align:right;padding:7px 12px;border-bottom:2px solid var(--border);color:var(--txt2);font-weight:600;background:color-mix(in srgb,var(--accent) 14%,var(--bg))">Reale mese</th>
+          <th style="text-align:right;padding:7px 12px;border-bottom:2px solid var(--border);color:var(--txt2);font-weight:600;background:color-mix(in srgb,var(--accent2) 14%,var(--bg))">Budget prog.</th>
+          <th style="text-align:right;padding:7px 12px;border-bottom:2px solid var(--border);color:var(--txt2);font-weight:600;background:color-mix(in srgb,var(--accent2) 14%,var(--bg))">Reale prog.</th>
           <th style="text-align:right;padding:7px 12px;border-bottom:2px solid var(--border);color:var(--txt2);font-weight:600">Δ mese</th>
           <th style="text-align:right;padding:7px 12px;border-bottom:2px solid var(--border);color:var(--txt2);font-weight:600">Δ prog.</th>
         </tr></thead>
@@ -2797,8 +2797,8 @@ function renderBudgetAndamento() {
           const past = isPast(i+1);
           const fmtD = v => v == null ? '—' : (v >= 0 ? '+' : '') + fmt.currency(v);
           const colD  = v => v == null ? '' : v >= 0 ? 'color:var(--income)' : 'color:var(--expense)';
-          const bgM   = 'background:color-mix(in srgb,var(--accent) 5%,transparent)';
-          const bgP   = 'background:color-mix(in srgb,var(--accent2) 5%,transparent)';
+          const bgM   = 'background:color-mix(in srgb,var(--accent) 10%,var(--bg))';
+          const bgP   = 'background:color-mix(in srgb,var(--accent2) 10%,var(--bg))';
           const td  = (v, extra='') => `<td style="text-align:right;padding:7px 12px;border-bottom:1px solid var(--border);${extra}">${v!=null?fmt.currency(v):'—'}</td>`;
           const tdd = (v) => `<td style="text-align:right;padding:7px 12px;border-bottom:1px solid var(--border);${colD(v)}">${fmtD(v)}</td>`;
           const rowBg = past && dm !== null ? (dm > 0 ? 'background:rgba(63,185,80,.04)' : dm < 0 ? 'background:rgba(248,81,73,.04)' : '') : '';
@@ -7014,7 +7014,7 @@ async function renderRangePresets() {
             ['-3 M',  '0 M',  'ultimi 3 mesi (inizio mese → fine mese corrente)'],
             ['-1 W',  '0 W',  'settimana scorsa + settimana corrente'],
           ].map(([da,a,res],i) => `
-            <tr style="${i%2===0?'':'background:color-mix(in srgb,var(--accent) 5%,transparent)'}">
+            <tr style="${i%2===0?'':'background:color-mix(in srgb,var(--accent) 10%,var(--bg))'}">
               <td style="padding:5px 12px"><code style="background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--accent);padding:1px 6px;border-radius:4px;font-size:11.5px">${da}</code></td>
               <td style="padding:5px 12px"><code style="background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--accent);padding:1px 6px;border-radius:4px;font-size:11.5px">${a}</code></td>
               <td style="padding:5px 12px;color:var(--text-muted);font-size:12px">${res}</td>

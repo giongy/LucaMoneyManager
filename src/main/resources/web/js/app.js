@@ -313,9 +313,7 @@ Chart.defaults.animation.easing   = 'linear';
 
 const chartColors = () => {
   const t = document.documentElement.dataset.theme;
-  if (t === 'light')    return { tick: '#636c76', grid: 'rgba(0,0,0,0.05)' };
   if (t === 'carta')    return { tick: '#8a7860', grid: 'rgba(0,0,0,0.05)' };
-  if (t === 'viola')    return { tick: '#bac2de', grid: 'rgba(255,255,255,0.06)' };
   if (t === 'vinaccia') return { tick: '#c4a0b4', grid: 'rgba(255,255,255,0.05)' };
   return { tick: '#8b949e', grid: 'rgba(255,255,255,0.06)' };
 };
@@ -5682,7 +5680,7 @@ async function renderSettings() {
           <div class="settings-control">
             <div style="display:flex;flex-direction:column;gap:10px">
               <div style="display:flex;gap:6px;flex-wrap:wrap">
-                ${[['dark','🌙 Scuro'],['light','☀️ Chiaro'],['carta','📜 Carta'],['viola','🪻 Viola'],['vinaccia','🍷 Vinaccia']].map(([key,label]) => `
+                ${[['dark','🌙 Scuro'],['carta','📜 Carta'],['vinaccia','🍷 Vinaccia']].map(([key,label]) => `
                   <button class="btn theme-btn ${(s['appearance.theme']||'dark')===key?'theme-btn-active':''}"
                           onclick="settingsSetTheme('${key}')">${label}</button>
                   <button class="btn btn-ghost btn-icon" title="Duplica e personalizza" onclick="duplicateTheme('${key}')">⧉</button>`).join('')}
@@ -6134,20 +6132,6 @@ const _BUILTIN_VARS = {
     '--purple':'#a371f7','--orange':'#f0883e',
     '--txt':'#e6edf3','--txt2':'#8b949e','--txt3':'#6e7681',
   },
-  light: {
-    '--bg':'#dce0e7','--bg2':'#e9ecf2','--bg3':'#d0d5dc','--bg4':'#c5cad2',
-    '--border':'#bac0c9','--accent':'#0969da','--accent2':'#1a7f64',
-    '--income':'#1a7f3c','--expense':'#cf222e','--warn':'#9a6700',
-    '--purple':'#8250df','--orange':'#bc4c00',
-    '--txt':'#1f2328','--txt2':'#555d66','--txt3':'#757e88',
-  },
-  viola: {
-    '--bg':'#1e1e2e','--bg2':'#24273a','--bg3':'#2a2d3e','--bg4':'#313244',
-    '--border':'#45475a','--accent':'#89b4fa','--accent2':'#94e2d5',
-    '--income':'#a6e3a1','--expense':'#f38ba8','--warn':'#f9e2af',
-    '--purple':'#cba6f7','--orange':'#fab387',
-    '--txt':'#cdd6f4','--txt2':'#bac2de','--txt3':'#6c7086',
-  },
   carta: {
     '--bg':'#ece5d8','--bg2':'#f4ede0','--bg3':'#e0d8cb','--bg4':'#d4ccbf',
     '--border':'#c2b8a6','--accent':'#8b5a18','--accent2':'#2e6e58',
@@ -6246,7 +6230,7 @@ function applyTheme(theme) {
     document.documentElement.dataset.theme = '';
     if (ct) _applyCustomVars(ct);
   } else {
-    const valid = ['light', 'carta', 'viola', 'vinaccia'];
+    const valid = ['carta', 'vinaccia'];
     document.documentElement.dataset.theme = valid.includes(theme) ? theme : '';
   }
   _updateThemeBtn();
@@ -6261,9 +6245,7 @@ async function settingsSetTheme(theme) {
 
 const _THEME_CYCLE = [
   { key: '',         icon: '🌙', label: 'Scuro' },
-  { key: 'light',    icon: '☀️', label: 'Chiaro' },
   { key: 'carta',    icon: '📜', label: 'Carta' },
-  { key: 'viola',    icon: '🪻', label: 'Viola' },
   { key: 'vinaccia', icon: '🍷', label: 'Vinaccia' },
 ];
 

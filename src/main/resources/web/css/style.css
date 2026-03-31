@@ -38,57 +38,6 @@
   --titlebar:  44px;
 }
 
-/* ─── Light theme ────────────────────────────────────────────────────────── */
-[data-theme="light"] th { background: var(--bg3); }
-[data-theme="light"] td { border-bottom-color: #bac0c9; }
-[data-theme="light"] .budget-row-child td { background: var(--bg); }
-[data-theme="light"] .budget-row-parent td { background: var(--bg2); }
-[data-theme="light"] .budget-gestione-badge.monthly { background: #cce0ff; color: #0550ae; border-color: #0969da66; }
-[data-theme="light"] .budget-gestione-badge.annual  { background: #ccefcc; color: #116329; border-color: #1a7f3c66; }
-[data-theme="light"] {
-  --bg:       #dce0e7;
-  --bg2:      #e9ecf2;
-  --bg3:      #d0d5dc;
-  --bg4:      #c5cad2;
-  --border:   #bac0c9;
-  --accent:   #0969da;
-  --accent2:  #1a7f64;
-  --income:   #1a7f3c;
-  --expense:  #cf222e;
-  --warn:     #9a6700;
-  --purple:   #8250df;
-  --orange:   #bc4c00;
-  --txt:      #1f2328;
-  --txt2:     #555d66;
-  --txt3:     #757e88;
-  --shadow:   0 8px 32px rgba(0,0,0,.12);
-}
-
-/* ─── Viola theme (Catppuccin Mocha) ────────────────────────────────────── */
-[data-theme="viola"] th { background: var(--bg3); }
-[data-theme="viola"] td { border-bottom-color: #45475a; }
-[data-theme="viola"] .budget-row-child td { background: var(--bg); }
-[data-theme="viola"] .budget-row-parent td { background: var(--bg2); }
-[data-theme="viola"] .budget-gestione-badge.monthly { background: #1e3a5f; color: #89b4fa; border-color: #89b4fa44; }
-[data-theme="viola"] .budget-gestione-badge.annual  { background: #1e3d2f; color: #a6e3a1; border-color: #a6e3a144; }
-[data-theme="viola"] {
-  --bg:       #1e1e2e;
-  --bg2:      #24273a;
-  --bg3:      #2a2d3e;
-  --bg4:      #313244;
-  --border:   #45475a;
-  --accent:   #89b4fa;
-  --accent2:  #94e2d5;
-  --income:   #a6e3a1;
-  --expense:  #f38ba8;
-  --warn:     #f9e2af;
-  --purple:   #cba6f7;
-  --orange:   #fab387;
-  --txt:      #cdd6f4;
-  --txt2:     #bac2de;
-  --txt3:     #6c7086;
-  --shadow:   0 8px 32px rgba(0,0,0,.6);
-}
 
 /* ─── Carta theme (carta calda, beige pergamena) ─────────────────────────── */
 [data-theme="carta"] th { background: var(--bg3); }

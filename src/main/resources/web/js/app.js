@@ -2783,12 +2783,12 @@ function renderBudgetAndamento() {
       <table id="budgAndTable" style="width:100%;border-collapse:collapse">
         <thead><tr>
           <th style="text-align:left;padding:7px 12px;border-bottom:2px solid var(--border);color:var(--txt2);font-weight:600">Mese</th>
-          <th data-col="bm" style="text-align:right;padding:7px 12px;border-bottom:2px solid var(--border);border-left:2px solid var(--accent);color:var(--txt2);font-weight:600;cursor:grab">Budget mese</th>
-          <th data-col="rm" style="text-align:right;padding:7px 12px;border-bottom:2px solid var(--border);color:var(--txt2);font-weight:600;cursor:grab">Reale mese</th>
-          <th data-col="bp" style="text-align:right;padding:7px 12px;border-bottom:2px solid var(--border);border-left:2px solid var(--accent2);color:var(--txt2);font-weight:600;cursor:grab">Budget prog.</th>
-          <th data-col="rp" style="text-align:right;padding:7px 12px;border-bottom:2px solid var(--border);color:var(--txt2);font-weight:600;cursor:grab">Reale prog.</th>
-          <th data-col="dm" style="text-align:right;padding:7px 12px;border-bottom:2px solid var(--border);border-left:2px solid var(--border);color:var(--txt2);font-weight:600;cursor:grab">Δ mese</th>
-          <th data-col="dp" style="text-align:right;padding:7px 12px;border-bottom:2px solid var(--border);color:var(--txt2);font-weight:600;cursor:grab">Δ prog.</th>
+          <th data-col="bm" style="text-align:right;padding:7px 12px;border-bottom:2px solid var(--border);border-left:2px solid var(--accent);color:var(--txt2);font-weight:600;cursor:grab">Budget mese (A)</th>
+          <th data-col="rm" style="text-align:right;padding:7px 12px;border-bottom:2px solid var(--border);border-left:1px solid var(--border);color:var(--txt2);font-weight:600;cursor:grab">Reale mese (B)</th>
+          <th data-col="dm" style="text-align:right;padding:7px 12px;border-bottom:2px solid var(--border);border-left:1px solid var(--border);color:var(--txt2);font-weight:600;cursor:grab">Δ mese (B−A)</th>
+          <th data-col="bp" style="text-align:right;padding:7px 12px;border-bottom:2px solid var(--border);border-left:2px solid var(--accent2);color:var(--txt2);font-weight:600;cursor:grab">Budget prog. (AA)</th>
+          <th data-col="rp" style="text-align:right;padding:7px 12px;border-bottom:2px solid var(--border);border-left:1px solid var(--border);color:var(--txt2);font-weight:600;cursor:grab">Reale prog. (BB)</th>
+          <th data-col="dp" style="text-align:right;padding:7px 12px;border-bottom:2px solid var(--border);border-left:1px solid var(--border);color:var(--txt2);font-weight:600;cursor:grab">Δ prog. (BB−AA)</th>
         </tr></thead>
         <tbody>${MONTHS_SHORT.map((mName, i) => {
           const bm = budgetMese[i], bp = budgetProg[i];
@@ -2798,18 +2798,19 @@ function renderBudgetAndamento() {
           const fmtD = v => v == null ? '—' : (v >= 0 ? '+' : '') + fmt.currency(v);
           const colD  = v => v == null ? '' : v >= 0 ? 'color:var(--income)' : 'color:var(--expense)';
           const sep   = s => s ? `border-left:2px solid ${s};` : '';
-          const td  = (v, s='') => `<td data-col="${s}" style="text-align:right;padding:7px 12px;border-bottom:1px solid var(--border)">${v!=null?fmt.currency(v):'—'}</td>`;
-          const tdd = (v, s='') => `<td data-col="${s}" style="text-align:right;padding:7px 12px;border-bottom:1px solid var(--border);${colD(v)}">${fmtD(v)}</td>`;
-          const dash = (s='') => `<td data-col="${s}" style="text-align:right;padding:7px 12px;border-bottom:1px solid var(--border);color:var(--txt3)">—</td>`;
+          const _cbl  = s => s==='bm'?'border-left:2px solid var(--accent);':s==='bp'?'border-left:2px solid var(--accent2);':s==='rm'||s==='dm'||s==='rp'||s==='dp'?'border-left:1px solid var(--border);':'';
+          const td  = (v, s='') => `<td data-col="${s}" style="text-align:right;padding:7px 12px;border-bottom:1px solid var(--border);${_cbl(s)}">${v!=null?fmt.currency(v):'—'}</td>`;
+          const tdd = (v, s='') => `<td data-col="${s}" style="text-align:right;padding:7px 12px;border-bottom:1px solid var(--border);${_cbl(s)}${colD(v)}">${fmtD(v)}</td>`;
+          const dash = (s='') => `<td data-col="${s}" style="text-align:right;padding:7px 12px;border-bottom:1px solid var(--border);${_cbl(s)}color:var(--txt3)">—</td>`;
           const rowBg = past && dm !== null ? (dm > 0 ? 'background:rgba(63,185,80,.04)' : dm < 0 ? 'background:rgba(248,81,73,.04)' : '') : '';
           return `<tr style="${rowBg}">
             <td style="padding:7px 12px;border-bottom:1px solid var(--border);font-weight:500">${mName} ${budgetYear}</td>
             ${td(bm,'bm')}
             ${past ? td(rm,'rm') : dash('rm')}
+            ${past ? tdd(dm,'dm') : '<td data-col="dm" style="padding:7px 12px;border-bottom:1px solid var(--border);border-left:1px solid var(--border)"></td>'}
             ${td(bp,'bp')}
             ${past ? td(rp,'rp') : dash('rp')}
-            ${past ? tdd(dm,'dm') : '<td data-col="dm" style="padding:7px 12px;border-bottom:1px solid var(--border)"></td>'}
-            ${past ? tdd(dp,'dp') : '<td data-col="dp" style="padding:7px 12px;border-bottom:1px solid var(--border)"></td>'}
+            ${past ? tdd(dp,'dp') : '<td data-col="dp" style="padding:7px 12px;border-bottom:1px solid var(--border);border-left:1px solid var(--border)"></td>'}
           </tr>`;
         }).join('')}</tbody>
       </table>

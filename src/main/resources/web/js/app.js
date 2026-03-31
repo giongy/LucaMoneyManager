@@ -2783,12 +2783,12 @@ function renderBudgetAndamento() {
       <table id="budgAndTable" style="width:100%;border-collapse:collapse">
         <thead><tr>
           <th style="text-align:left;padding:7px 12px;border-bottom:2px solid var(--border);color:var(--txt2);font-weight:600">Mese</th>
-          <th style="text-align:right;padding:7px 12px;border-bottom:2px solid var(--border);color:var(--txt2);font-weight:600;background:color-mix(in srgb,var(--accent) 14%,var(--bg))">Budget mese</th>
-          <th style="text-align:right;padding:7px 12px;border-bottom:2px solid var(--border);color:var(--txt2);font-weight:600;background:color-mix(in srgb,var(--accent) 14%,var(--bg))">Reale mese</th>
-          <th style="text-align:right;padding:7px 12px;border-bottom:2px solid var(--border);color:var(--txt2);font-weight:600;background:color-mix(in srgb,var(--accent2) 14%,var(--bg))">Budget prog.</th>
-          <th style="text-align:right;padding:7px 12px;border-bottom:2px solid var(--border);color:var(--txt2);font-weight:600;background:color-mix(in srgb,var(--accent2) 14%,var(--bg))">Reale prog.</th>
-          <th style="text-align:right;padding:7px 12px;border-bottom:2px solid var(--border);color:var(--txt2);font-weight:600">Δ mese</th>
-          <th style="text-align:right;padding:7px 12px;border-bottom:2px solid var(--border);color:var(--txt2);font-weight:600">Δ prog.</th>
+          <th data-col="bm" style="text-align:right;padding:7px 12px;border-bottom:2px solid var(--border);border-left:2px solid var(--accent);color:var(--txt2);font-weight:600;cursor:grab">Budget mese</th>
+          <th data-col="rm" style="text-align:right;padding:7px 12px;border-bottom:2px solid var(--border);color:var(--txt2);font-weight:600;cursor:grab">Reale mese</th>
+          <th data-col="bp" style="text-align:right;padding:7px 12px;border-bottom:2px solid var(--border);border-left:2px solid var(--accent2);color:var(--txt2);font-weight:600;cursor:grab">Budget prog.</th>
+          <th data-col="rp" style="text-align:right;padding:7px 12px;border-bottom:2px solid var(--border);color:var(--txt2);font-weight:600;cursor:grab">Reale prog.</th>
+          <th data-col="dm" style="text-align:right;padding:7px 12px;border-bottom:2px solid var(--border);border-left:2px solid var(--border);color:var(--txt2);font-weight:600;cursor:grab">Δ mese</th>
+          <th data-col="dp" style="text-align:right;padding:7px 12px;border-bottom:2px solid var(--border);color:var(--txt2);font-weight:600;cursor:grab">Δ prog.</th>
         </tr></thead>
         <tbody>${MONTHS_SHORT.map((mName, i) => {
           const bm = budgetMese[i], bp = budgetProg[i];
@@ -2797,24 +2797,26 @@ function renderBudgetAndamento() {
           const past = isPast(i+1);
           const fmtD = v => v == null ? '—' : (v >= 0 ? '+' : '') + fmt.currency(v);
           const colD  = v => v == null ? '' : v >= 0 ? 'color:var(--income)' : 'color:var(--expense)';
-          const bgM   = 'background:color-mix(in srgb,var(--accent) 10%,var(--bg))';
-          const bgP   = 'background:color-mix(in srgb,var(--accent2) 10%,var(--bg))';
-          const td  = (v, extra='') => `<td style="text-align:right;padding:7px 12px;border-bottom:1px solid var(--border);${extra}">${v!=null?fmt.currency(v):'—'}</td>`;
-          const tdd = (v) => `<td style="text-align:right;padding:7px 12px;border-bottom:1px solid var(--border);${colD(v)}">${fmtD(v)}</td>`;
+          const sep   = s => s ? `border-left:2px solid ${s};` : '';
+          const td  = (v, s='') => `<td data-col="${s}" style="text-align:right;padding:7px 12px;border-bottom:1px solid var(--border)">${v!=null?fmt.currency(v):'—'}</td>`;
+          const tdd = (v, s='') => `<td data-col="${s}" style="text-align:right;padding:7px 12px;border-bottom:1px solid var(--border);${colD(v)}">${fmtD(v)}</td>`;
+          const dash = (s='') => `<td data-col="${s}" style="text-align:right;padding:7px 12px;border-bottom:1px solid var(--border);color:var(--txt3)">—</td>`;
           const rowBg = past && dm !== null ? (dm > 0 ? 'background:rgba(63,185,80,.04)' : dm < 0 ? 'background:rgba(248,81,73,.04)' : '') : '';
-          const dash = (extra='') => `<td style="text-align:right;padding:7px 12px;border-bottom:1px solid var(--border);color:var(--txt3);${extra}">—</td>`;
           return `<tr style="${rowBg}">
             <td style="padding:7px 12px;border-bottom:1px solid var(--border);font-weight:500">${mName} ${budgetYear}</td>
-            ${td(bm, bgM)}
-            ${past ? td(rm, bgM) : dash(bgM)}
-            ${td(bp, bgP)}
-            ${past ? td(rp, bgP) : dash(bgP)}
-            ${past ? tdd(dm) : '<td style="padding:7px 12px;border-bottom:1px solid var(--border)"></td>'}
-            ${past ? tdd(dp) : '<td style="padding:7px 12px;border-bottom:1px solid var(--border)"></td>'}
+            ${td(bm,'bm')}
+            ${past ? td(rm,'rm') : dash('rm')}
+            ${td(bp,'bp')}
+            ${past ? td(rp,'rp') : dash('rp')}
+            ${past ? tdd(dm,'dm') : '<td data-col="dm" style="padding:7px 12px;border-bottom:1px solid var(--border)"></td>'}
+            ${past ? tdd(dp,'dp') : '<td data-col="dp" style="padding:7px 12px;border-bottom:1px solid var(--border)"></td>'}
           </tr>`;
         }).join('')}</tbody>
       </table>
     </div>`;
+
+  // ── Drag colonne ─────────────────────────────────────────────────────────
+  _wireBudgetAndDrag();
 
   // ── Grafico ───────────────────────────────────────────────────────────────
   if (_budgetAndamentoChart) { _budgetAndamentoChart.destroy(); _budgetAndamentoChart = null; }
@@ -2902,6 +2904,55 @@ function renderBudgetAndamento() {
         }
       }
     }
+  });
+}
+
+let _budgAndDragFrom = null;
+
+function _wireBudgetAndDrag() {
+  const table = document.getElementById('budgAndTable');
+  if (!table) return;
+  const headers = [...table.querySelectorAll('thead th[data-col]')];
+
+  headers.forEach(th => {
+    th.addEventListener('dragstart', e => {
+      _budgAndDragFrom = th.dataset.col;
+      e.dataTransfer.effectAllowed = 'move';
+      th.style.opacity = '0.4';
+    });
+    th.addEventListener('dragend', () => {
+      th.style.opacity = '';
+      table.querySelectorAll('th[data-col]').forEach(h => h.style.outline = '');
+    });
+    th.addEventListener('dragover', e => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      table.querySelectorAll('th[data-col]').forEach(h => h.style.outline = '');
+      if (th.dataset.col !== _budgAndDragFrom)
+        th.style.outline = '2px dashed var(--accent)';
+    });
+    th.addEventListener('dragleave', () => { th.style.outline = ''; });
+    th.addEventListener('drop', e => {
+      e.preventDefault();
+      th.style.outline = '';
+      const toCol = th.dataset.col;
+      if (!_budgAndDragFrom || _budgAndDragFrom === toCol) return;
+      // Sposta la colonna in ogni riga
+      table.querySelectorAll('tr').forEach(row => {
+        const from = row.querySelector(`[data-col="${_budgAndDragFrom}"]`);
+        const to   = row.querySelector(`[data-col="${toCol}"]`);
+        if (!from || !to) return;
+        const fromIdx = [...row.children].indexOf(from);
+        const toIdx   = [...row.children].indexOf(to);
+        if (fromIdx < toIdx) row.insertBefore(from, to.nextSibling);
+        else                 row.insertBefore(from, to);
+      });
+      _budgAndDragFrom = null;
+      // Ri-agganicia drag sui nuovi header
+      _wireBudgetAndDrag();
+    });
+    // Abilita drag (l'attributo draggable deve essere settato via JS per evitare problemi con Chrome)
+    th.setAttribute('draggable', 'true');
   });
 }
 

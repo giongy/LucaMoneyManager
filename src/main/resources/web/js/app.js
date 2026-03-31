@@ -531,8 +531,10 @@ async function updateSidebar() {
   const accounts = await api.getAccounts();
   const el = document.getElementById('sidebarAccounts');
   el.innerHTML = accounts.filter(isAccountVisible).map(a => `
-    <div class="sidebar-account-item" style="${a.is_closed ? 'opacity:.55' : ''}cursor:pointer" onclick="navigateToAccountTx(${a.id})">
-      <span style="flex:1;text-align:right">${a.name}</span><span style="margin-left:6px">${a.icon}</span>
+    <div class="sidebar-account-item" style="--acc-color:${a.color||'var(--border)'};${a.is_closed?'opacity:.55':''}"
+         onclick="navigateToAccountTx(${a.id})" title="${a.name}">
+      <div class="acc-tile-icon">${a.icon}</div>
+      <div class="acc-tile-name">${a.name}</div>
     </div>`).join('');
   if (_reportsGroupOpen) renderSidebarReports();
 }

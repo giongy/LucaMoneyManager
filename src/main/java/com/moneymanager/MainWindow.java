@@ -48,6 +48,15 @@ public class MainWindow {
         router.addHandler(bridge, true);
         client.addMessageRouter(router);
 
+        // HTTP server sulla LAN (porta 7890) — accesso da browser Android
+        int httpPort = 7890;
+        try {
+            WebServer.start(dataDir.resolve("web"), bridge, httpPort);
+            System.out.println("WebServer avviato su http://0.0.0.0:" + httpPort);
+        } catch (Exception e) {
+            System.err.println("WebServer non avviato: " + e.getMessage());
+        }
+
         // Crea browser Chromium
         browser = client.createBrowser(htmlUrl, false, false);
         Component browserUI = browser.getUIComponent();

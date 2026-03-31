@@ -164,13 +164,20 @@ function _fromB64(b64) {
 }
 
 function callJava(method, params = {}) {
-  return new Promise((resolve, reject) => {
-    window.cefQuery({
-      request: _toB64(JSON.stringify({ method, params })),
-      onSuccess: r => resolve(JSON.parse(_fromB64(r))),
-      onFailure: (_code, msg) => reject(new Error(msg))
+  const payload = _toB64(JSON.stringify({ method, params }));
+  if (typeof window.cefQuery === 'function') {
+    return new Promise((resolve, reject) => {
+      window.cefQuery({
+        request: payload,
+        onSuccess: r => resolve(JSON.parse(_fromB64(r))),
+        onFailure: (_code, msg) => reject(new Error(msg))
+      });
     });
-  });
+  }
+  // Modalità browser: usa HTTP bridge
+  return fetch('/bridge', { method: 'POST', body: payload })
+    .then(r => r.text())
+    .then(b64 => JSON.parse(_fromB64(b64)));
 }
 
 const api = {
@@ -8538,6 +8545,11 @@ Chart.defaults.font.family = "'Segoe UI', system-ui, sans-serif";
 Chart.defaults.font.size   = 13;
 
 async function init() {
+  // Modalità browser (non JCEF): nascondi titlebar desktop
+  if (typeof window.cefQuery !== 'function') {
+    const tb = document.getElementById('titlebar');
+    if (tb) tb.style.display = 'none';
+  }
   // Nascondo gli handle se si parte massimizzato
   const {maximized} = await api.isMaximized();
   document.querySelectorAll('.rh').forEach(el => el.style.display = maximized ? 'none' : '');

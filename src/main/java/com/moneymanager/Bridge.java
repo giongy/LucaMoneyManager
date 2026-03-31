@@ -169,7 +169,7 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
         return out.isBlank() ? null : out;
     }
 
-    private Object dispatch(String method, JsonObject p, CefBrowser browser) throws Exception {
+    public Object dispatch(String method, JsonObject p, CefBrowser browser) throws Exception {
         return switch (method) {
 
             // ─── Finestra ──────────────────────────────────────────────────

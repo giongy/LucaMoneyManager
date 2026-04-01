@@ -48,19 +48,23 @@ public class MainWindow {
         router.addHandler(bridge, true);
         client.addMessageRouter(router);
 
-        // HTTP server sulla LAN — avviato in background per non bloccare l'EDT
-        int httpPort;
-        try { httpPort = Integer.parseInt(settings.get(Settings.HTTP_PORT, "7890")); }
-        catch (NumberFormatException e) { httpPort = 7890; }
-        final int finalPort = httpPort;
-        Thread.ofVirtual().start(() -> {
-            try {
-                WebServer.start(dataDir.resolve("web"), bridge, finalPort);
-                System.out.println("WebServer avviato su http://0.0.0.0:" + finalPort);
-            } catch (Exception e) {
-                System.err.println("WebServer non avviato: " + e.getMessage());
-            }
-        });
+        // HTTP server sulla LAN — avviato in background solo se abilitato
+        if (!"0".equals(settings.get(Settings.HTTP_ENABLED, "1"))) {
+            System.out.println("WebServer disabilitato dalle impostazioni.");
+        } else {
+            int httpPort;
+            try { httpPort = Integer.parseInt(settings.get(Settings.HTTP_PORT, "7890")); }
+            catch (NumberFormatException e) { httpPort = 7890; }
+            final int finalPort = httpPort;
+            Thread.ofVirtual().start(() -> {
+                try {
+                    WebServer.start(dataDir.resolve("web"), bridge, finalPort);
+                    System.out.println("WebServer avviato su http://0.0.0.0:" + finalPort);
+                } catch (Exception e) {
+                    System.err.println("WebServer non avviato: " + e.getMessage());
+                }
+            });
+        }
 
         // Crea browser Chromium
         browser = client.createBrowser(htmlUrl, false, false);

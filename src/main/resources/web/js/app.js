@@ -5731,6 +5731,40 @@ async function renderSettings() {
             </div>
           </div>
         </div>
+      </div>
+
+      <div class="settings-section">
+        <div class="settings-section-title">📡 Accesso da browser (LAN)</div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <strong>Server HTTP</strong>
+            <span class="settings-hint">Permette di accedere all'app dal browser di un altro dispositivo sulla stessa rete</span>
+          </div>
+          <div class="settings-control">
+            <div class="theme-toggle-group">
+              <button class="btn theme-btn ${s['http.enabled']!=='0'?'theme-btn-active':''}"
+                      onclick="settingsSetHttp('enabled','1')">Attivo</button>
+              <button class="btn theme-btn ${s['http.enabled']==='0'?'theme-btn-active':''}"
+                      onclick="settingsSetHttp('enabled','0')">Disattivo</button>
+            </div>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <strong>Porta</strong>
+            <span class="settings-hint">Porta TCP su cui risponde il server (default: 7890)</span>
+          </div>
+          <div class="settings-control">
+            <input type="number" class="form-control" style="width:100px" min="1024" max="65535"
+                   value="${s['http.port']||'7890'}"
+                   onchange="settingsSetHttp('port', this.value)">
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <span class="settings-hint">Le modifiche hanno effetto al prossimo avvio dell'app</span>
+          </div>
+        </div>
       </div>`,
 
     prefs: `
@@ -6618,6 +6652,11 @@ async function settingsSetAccFilter(favOnly) {
 
 async function settingsSetBackup(key, value) {
   await api.setSetting('backup.' + key, value);
+  renderSettings();
+}
+
+async function settingsSetHttp(key, value) {
+  await api.setSetting('http.' + key, value);
   renderSettings();
 }
 

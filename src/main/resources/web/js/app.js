@@ -8943,8 +8943,11 @@ async function _archiveForecast(id, refresh) {
   } catch(e) { toast(e.message, 'error'); }
 }
 
-// Aspetta che il bridge JCEF sia pronto
+// Aspetta che il bridge JCEF sia pronto (in browser mode parte subito)
 if (typeof window.cefQuery === 'function') {
+  init();
+} else if (typeof fetch === 'function') {
+  // Modalità browser: bridge HTTP disponibile subito
   init();
 } else {
   // cefQuery viene iniettato da JCEF dopo il caricamento della pagina

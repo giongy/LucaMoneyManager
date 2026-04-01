@@ -49,7 +49,7 @@ public class MainWindow {
         client.addMessageRouter(router);
 
         // HTTP server sulla LAN — avviato in background solo se abilitato
-        if (!"0".equals(settings.get(Settings.HTTP_ENABLED, "1"))) {
+        if ("0".equals(settings.get(Settings.HTTP_ENABLED, "1"))) {
             System.out.println("WebServer disabilitato dalle impostazioni.");
         } else {
             int httpPort;

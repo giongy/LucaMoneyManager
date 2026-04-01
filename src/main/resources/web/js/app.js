@@ -869,7 +869,7 @@ async function renderDashboard() {
           },
           scales: {
             x: { ticks: { color: chartColors().tick }, grid: { color: chartColors().grid } },
-            y: { ticks: { color: chartColors().tick, callback: v => fmt.currency(v) }, grid: { color: chartColors().grid } }
+            y: { beginAtZero: true, ticks: { color: chartColors().tick, callback: v => fmt.currency(v) }, grid: { color: chartColors().grid } }
           }
         }
       });

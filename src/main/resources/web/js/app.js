@@ -5953,6 +5953,8 @@ async function renderSettings() {
         <div class="settings-info-grid">
           <span class="settings-info-label">Versione app</span>
           <span class="settings-info-value">${s['_app_version'] || '—'}</span>
+          <span class="settings-info-label">Java</span>
+          <span class="settings-info-value">${s['_java_version'] || '—'}</span>
           <span class="settings-info-label">Browser engine</span>
           <span class="settings-info-value">Chromium ${s['_chromium'] || '(JCEF)'}</span>
           <span class="settings-info-label">Database</span>

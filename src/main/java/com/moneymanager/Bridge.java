@@ -356,6 +356,8 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                 try {
                     all.put("_sqlite_version", db.getSQLiteVersion());
                 } catch (Exception ignored) {}
+                all.put("_java_version", System.getProperty("java.version")
+                        + " (" + System.getProperty("java.vm.name") + ")");
                 all.put("_dep_jcef",   mavenVersion("me.friwi",              "jcefmaven"));
                 all.put("_dep_sqlite", mavenVersion("org.xerial",             "sqlite-jdbc"));
                 all.put("_dep_gson",   mavenVersion("com.google.code.gson",  "gson"));

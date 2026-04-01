@@ -4910,6 +4910,7 @@ window.deleteStock = async id => {
 /* ─── Analytics ──────────────────────────────────────────────────────────── */
 
 let _analyticsMonths = 12;
+let _analyticsExcludeCurrent = true;
 
 async function renderAnalytics() {
   const pg = document.getElementById('pg-analytics');
@@ -4925,6 +4926,11 @@ async function renderAnalytics() {
           <input type="range" id="analyticsPeriod" min="2" max="24" value="${_analyticsMonths}"
             style="width:120px;accent-color:var(--accent)">
           <span id="analyticsPeriodLabel" style="font-size:13px;min-width:60px">${_analyticsMonths} mesi</span>
+          <label style="font-size:13px;color:var(--text2);display:flex;align-items:center;gap:5px;cursor:pointer;margin-left:8px">
+            <input type="checkbox" id="analyticsExcludeCurrent" ${_analyticsExcludeCurrent?'checked':''}
+              onchange="_setAnalyticsExcludeCurrent(this.checked)">
+            Escludi mese corrente
+          </label>
         </div>
       </div>
       <div id="analyticsContent" style="flex:1;overflow:auto;padding-bottom:16px"></div>
@@ -4943,6 +4949,11 @@ async function renderAnalytics() {
 }
 
 let _analyticsTab = 'catmonth';
+window._setAnalyticsExcludeCurrent = checked => {
+  _analyticsExcludeCurrent = checked;
+  api.setSetting('analytics.excludeCurrent', checked ? '1' : '0');
+  if (_analyticsTab === 'balance') renderAnalyticsBalance(); else renderAnalyticsCatMonth();
+};
 window._setAnalyticsTab = (tab, btn) => {
   _analyticsTab = tab;
   document.querySelectorAll('[data-atab]').forEach(b => b.classList.remove('active'));
@@ -4960,16 +4971,17 @@ async function renderAnalyticsCatMonth() {
   el.innerHTML = '<p style="padding:20px;color:var(--text2)">Caricamento…</p>';
 
   const months = _analyticsMonths;
-  const rows = await api.getCategoryMonthTable(months);
+  const fetchMonths = _analyticsExcludeCurrent ? months + 1 : months;
+  const rows = await api.getCategoryMonthTable(fetchMonths);
 
   const now = new Date();
+  const currentYm = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
   const monthCols = [];
-  for (let i = months - 1; i >= 0; i--) {
+  for (let i = fetchMonths - 1; i >= 0; i--) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    monthCols.push({
-      ym:    `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`,
-      label: d.toLocaleDateString('it-IT', { month: 'short', year: '2-digit' })
-    });
+    const ym = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    if (_analyticsExcludeCurrent && ym === currentYm) continue;
+    monthCols.push({ ym, label: d.toLocaleDateString('it-IT', { month: 'short', year: '2-digit' }) });
   }
 
   const catMap = {};
@@ -5065,14 +5077,17 @@ async function renderAnalyticsBalance() {
   if (!el) return;
   el.innerHTML = '<p style="padding:20px;color:var(--text2)">Caricamento…</p>';
 
-  const rows = await api.getMonthlyBalance(_analyticsMonths);
+  const fetchMonths = _analyticsExcludeCurrent ? _analyticsMonths + 1 : _analyticsMonths;
+  const rows = await api.getMonthlyBalance(fetchMonths);
 
   // Build full month grid
   const now = new Date();
+  const currentYm = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
   const monthCols = [];
-  for (let i = _analyticsMonths - 1; i >= 0; i--) {
+  for (let i = fetchMonths - 1; i >= 0; i--) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
     const ym = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    if (_analyticsExcludeCurrent && ym === currentYm) continue;
     monthCols.push({ ym, label: d.toLocaleDateString('it-IT', { month: 'short', year: '2-digit' }) });
   }
 
@@ -8605,7 +8620,8 @@ async function init() {
   if (s['proj.mode'])    _projMode   = s['proj.mode'];
   if (s['cf.range'])     _cfRange    = s['cf.range'];
   if (s['cf.months'])    _cfMonths   = parseInt(s['cf.months'])   || 6;
-  if (s['analytics.months'])      _analyticsMonths    = parseInt(s['analytics.months']) || 12;
+  if (s['analytics.months'])        _analyticsMonths        = parseInt(s['analytics.months']) || 12;
+  if (s['analytics.excludeCurrent'] !== undefined) _analyticsExcludeCurrent = s['analytics.excludeCurrent'] !== '0';
   if (s['tx.range'])              txFilters           = { range: s['tx.range'], ...rangeToFilter(s['tx.range']) };
   if (s['portfolio.active_only']) _portfolioActiveOnly = s['portfolio.active_only'] !== '0';
   await updateSidebar();

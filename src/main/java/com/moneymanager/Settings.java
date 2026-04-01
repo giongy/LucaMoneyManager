@@ -18,13 +18,15 @@ public class Settings {
     public static final String BACKUP_DIR      = "backup.dir";
     public static final String BACKUP_MAX      = "backup.max";
     public static final String ATTACHMENTS_DIR = "attachments.dir";
+    public static final String HTTP_PORT       = "http.port";
 
     private static final Map<String, String> DEFAULTS = Map.of(
         DB_PATH,         "",
         BACKUP_ENABLED,  "0",
         BACKUP_DIR,      "",
         BACKUP_MAX,      "10",
-        ATTACHMENTS_DIR, ""
+        ATTACHMENTS_DIR, "",
+        HTTP_PORT,       "7890"
     );
 
     // ──────────────────────────────────────────────────────────────────────────

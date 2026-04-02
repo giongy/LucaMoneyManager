@@ -2488,6 +2488,8 @@ let _budgetData = null;
 let _budgetCollapsed = new Set();
 let _budgetOnlyRed = false;
 let _budgetOnlyCurrentMonth = false;
+let _budgetDetailNavList = [];
+let _budgetDetailNavIdx  = 0;
 let _budgetScostTab  = 'uscite';
 let _budgetScostSort = 'pct';
 
@@ -3228,6 +3230,27 @@ window._budgetToggle = catId => {
 
 window._budgetShowDetail = (catId, catName) => {
   if (!_budgetData) return;
+  const { categories } = _budgetData;
+  const parentIds = new Set(categories.filter(c => c.parent_id).map(c => c.parent_id));
+  _budgetDetailNavList = categories.filter(c => parentIds.has(c.id) || !c.parent_id);
+  _budgetDetailNavIdx  = _budgetDetailNavList.findIndex(c => c.id === catId);
+  if (_budgetDetailNavIdx < 0) {
+    _budgetDetailNavList = [...categories];
+    _budgetDetailNavIdx  = _budgetDetailNavList.findIndex(c => c.id === catId);
+  }
+  _openBudgetDetail(catId, catName, true);
+};
+
+window._budgetNavDetail = dir => {
+  const newIdx = _budgetDetailNavIdx + dir;
+  if (newIdx < 0 || newIdx >= _budgetDetailNavList.length) return;
+  _budgetDetailNavIdx = newIdx;
+  const cat = _budgetDetailNavList[newIdx];
+  _openBudgetDetail(cat.id, cat.name, false);
+};
+
+function _openBudgetDetail(catId, catName, isFirstOpen) {
+  if (!_budgetData) return;
   const { budgets, actuals, categories, configs } = _budgetData;
 
   // Rebuild maps (same logic as renderBudgetTable)
@@ -3304,7 +3327,15 @@ window._budgetShowDetail = (catId, catName) => {
   const totD = totA - totB;  // Reale − Budget
   const totDc = (totB||totA) ? diffColor(totD) : '';
 
-  const body = `
+  const hasPrev = _budgetDetailNavIdx > 0;
+  const hasNext = _budgetDetailNavIdx < _budgetDetailNavList.length - 1;
+  const navBar = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+    <button class="btn btn-ghost" onclick="_budgetNavDetail(-1)" ${hasPrev ? '' : 'disabled style="opacity:.35;pointer-events:none"'}>‹ ${hasPrev ? _budgetDetailNavList[_budgetDetailNavIdx-1].name : 'Inizio'}</button>
+    <span style="font-size:12px;color:var(--txt2)">${_budgetDetailNavIdx+1} / ${_budgetDetailNavList.length}</span>
+    <button class="btn btn-ghost" onclick="_budgetNavDetail(1)" ${hasNext ? '' : 'disabled style="opacity:.35;pointer-events:none"'}>${hasNext ? _budgetDetailNavList[_budgetDetailNavIdx+1].name : 'Fine'} ›</button>
+  </div>`;
+
+  const body = navBar + `
     <div style="display:flex;gap:20px;align-items:flex-start">
       <div class="table-wrap" style="flex:0 0 auto">
         <table>
@@ -3342,7 +3373,12 @@ window._budgetShowDetail = (catId, catName) => {
       </div>
     </div>`;
 
-  openModal(`📊 ${catName} — ${budgetYear}`, body, null);
+  if (isFirstOpen) {
+    openModal(`📊 ${catName} — ${budgetYear}`, body, null);
+  } else {
+    document.getElementById('modalTitle').textContent = `📊 ${catName} — ${budgetYear}`;
+    document.getElementById('modalBody').innerHTML = body;
+  }
 
   // Widen modal and draw chart after modal renders
   setTimeout(() => {
@@ -3425,7 +3461,7 @@ window._budgetShowDetail = (catId, catName) => {
     });
 
   }, 50);
-};
+}
 
 window._budgetClearRow = async catId => {
   await api.setBudgetBulk({category_id:catId, year:budgetYear, amounts:Array(12).fill(0)});

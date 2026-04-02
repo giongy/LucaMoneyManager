@@ -2404,11 +2404,16 @@ async function renderBudgets() {
           <span id="budgYearLabel"></span>
           <button id="budgNext">›</button>
         </div>
-        <div id="budgGridActions" style="display:${_budgetTab==='grid'?'flex':'none'};gap:8px;margin-left:auto">
-          <button class="btn btn-ghost" id="btnBudgOnlyRed">Solo rossi</button>
-          <button class="btn btn-ghost" id="btnBudgToggleAll">Comprimi tutto</button>
-          <button class="btn btn-ghost" id="btnDelBudgetYear" style="color:var(--expense)">Cancella anno</button>
-          <button class="btn btn-primary" id="btnGenBudget">Genera budget</button>
+        <div id="budgGridActions" style="display:${_budgetTab==='grid'?'flex':'none'};align-items:center;gap:8px;flex:1;margin-left:16px">
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-ghost" id="btnBudgToggleAll">Comprimi tutto</button>
+            <button class="btn btn-ghost" id="btnBudgOnlyRed">Solo rossi</button>
+            <button class="btn btn-ghost" id="btnBudgOnlyCurMonth">Solo mese corrente</button>
+          </div>
+          <div style="display:flex;gap:8px;margin-left:auto">
+            <button class="btn btn-ghost" id="btnDelBudgetYear" style="color:var(--expense)">Cancella anno</button>
+            <button class="btn btn-primary" id="btnGenBudget">Genera budget</button>
+          </div>
         </div>
       </div>
       <div class="scheduled-tabs">
@@ -2446,6 +2451,11 @@ async function renderBudgets() {
     document.getElementById('btnBudgOnlyRed').classList.toggle('btn-active-red', _budgetOnlyRed);
     document.getElementById('budgGridWrap')?.classList.toggle('budget-only-red', _budgetOnlyRed);
   };
+  document.getElementById('btnBudgOnlyCurMonth').onclick = () => {
+    _budgetOnlyCurrentMonth = !_budgetOnlyCurrentMonth;
+    document.getElementById('btnBudgOnlyCurMonth').classList.toggle('btn-active-red', _budgetOnlyCurrentMonth);
+    document.getElementById('budgGridWrap')?.classList.toggle('budget-only-current-month', _budgetOnlyCurrentMonth);
+  };
   document.getElementById('btnBudgToggleAll').onclick = () => {
     const parentIds = new Set((_budgetData?.categories||[]).filter(c=>c.parent_id).map(c=>c.parent_id));
     const allCollapsed = [...parentIds].every(id => _budgetCollapsed.has(id));
@@ -2477,6 +2487,7 @@ let _accFavoritesOnly = false;
 let _budgetData = null;
 let _budgetCollapsed = new Set();
 let _budgetOnlyRed = false;
+let _budgetOnlyCurrentMonth = false;
 let _budgetScostTab  = 'uscite';
 let _budgetScostSort = 'pct';
 
@@ -2673,14 +2684,15 @@ function renderBudgetTable() {
   const numCell = (v, show, colorize, bold, month=0) => {
     const col = colorize ? (v>0?'color:var(--income)':v<0?'color:var(--expense)':'') : '';
     const curCls = isCurMonthCol(month) ? ' budget-cur-month' : '';
-    return `<td class="${curCls.trim()}" style="${s};text-align:right;${bold?'font-weight:700;':''}${col}">${show?fmt.currency(v):''}</td>`;
+    const mCls = month > 0 ? ' budget-month-col' : '';
+    return `<td class="${(curCls+mCls).trim()}" style="${s};text-align:right;${bold?'font-weight:700;':''}${col}">${show?fmt.currency(v):''}</td>`;
   };
 
   document.getElementById('budgetThead').innerHTML = `
     <tr class="budget-thead-months">
       <th style="${s};min-width:160px">Categoria</th>
       <th style="${s};min-width:110px">Gestione</th>
-      ${MONTHS_SHORT.map((m,i)=>`<th class="${isCurMonthCol(i+1)?'budget-cur-month':''}" style="${s};text-align:right">${m}</th>`).join('')}
+      ${MONTHS_SHORT.map((m,i)=>`<th class="budget-month-col${isCurMonthCol(i+1)?' budget-cur-month':''}" style="${s};text-align:right">${m}</th>`).join('')}
       <th style="${s};text-align:right">Totale</th>
       <th style="${s}"></th>
     </tr>

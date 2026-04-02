@@ -1027,6 +1027,8 @@ tr.tx-selected td { background:rgba(88,166,255,.07); }
 }
 .budget-only-red tr[data-row-over="0"] td { opacity: 0.12; pointer-events: none; }
 .budget-only-red tr[data-row-over="1"] .budget-cell[data-over="0"] { opacity: 0.15; }
+.budget-only-current-month .budget-cell:not(.budget-cur-month) { opacity: 0.12; pointer-events: none; }
+.budget-only-current-month .budget-month-col:not(.budget-cur-month) { opacity: 0.12; pointer-events: none; }
 
 /* ── Budget: pulsante dettaglio categoria ───────────────────────────────── */
 .btn-budget-detail {

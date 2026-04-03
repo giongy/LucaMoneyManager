@@ -312,9 +312,6 @@ const api = {
   readLog:    (lines) => callJava('readLog', {lines: lines || 1000}),
   getLogInfo: ()      => callJava('getLogInfo'),
   purgeLog:   (p)     => callJava('purgeLog', p),
-
-  // AI
-  aiQuery: (question) => callJava('aiQuery', { question }),
 };
 
 /* ─── Chart theme helpers ─────────────────────────────────────────────────── */
@@ -5860,21 +5857,6 @@ async function renderSettings() {
 
     prefs: `
       <div class="settings-section">
-        <div class="settings-section-title">🤖 AI Assistant</div>
-        <div class="settings-row">
-          <div class="settings-label">
-            <strong>Chiave API Anthropic</strong>
-            <span class="settings-hint">Necessaria per usare l'AI Assistant. Ottienila su console.anthropic.com</span>
-          </div>
-          <div class="settings-control">
-            <input type="password" class="form-control" id="aiApiKeyInput"
-                   value="${s['ai.api_key']||''}" placeholder="sk-ant-…"
-                   onchange="api.setSetting('ai.api_key',this.value).then(()=>toast('Chiave API salvata'))">
-          </div>
-        </div>
-      </div>
-
-      <div class="settings-section">
         <div class="settings-section-title">🎨 Tema</div>
         <div class="settings-row">
           <div class="settings-label">
@@ -9106,49 +9088,3 @@ if (typeof window.cefQuery === 'function') {
     }
   }, 50);
 }
-
-/* ─── AI Panel ────────────────────────────────────────────────────────────── */
-
-let _aiPanelOpen = false;
-
-window.toggleAiPanel = () => {
-  _aiPanelOpen = !_aiPanelOpen;
-  document.getElementById('aiPanel').classList.toggle('open', _aiPanelOpen);
-  document.getElementById('aiPanelBtn').classList.toggle('active', _aiPanelOpen);
-  if (_aiPanelOpen) setTimeout(() => document.getElementById('aiInput')?.focus(), 250);
-};
-
-window.sendAiQuery = async () => {
-  const input = document.getElementById('aiInput');
-  const question = input?.value.trim();
-  if (!question) return;
-
-  const msgs = document.getElementById('aiMessages');
-  const btn  = document.getElementById('aiSendBtn');
-
-  // Aggiunge messaggio utente
-  msgs.insertAdjacentHTML('beforeend', `<div class="ai-msg-user">${question.replace(/</g,'&lt;')}</div>`);
-  input.value = '';
-  input.disabled = true;
-  btn.disabled   = true;
-
-  // Indicatore di caricamento
-  const thinkId = 'ai-think-' + Date.now();
-  msgs.insertAdjacentHTML('beforeend', `<div class="ai-thinking" id="${thinkId}">⏳ Elaborazione…</div>`);
-  msgs.scrollTop = msgs.scrollHeight;
-
-  try {
-    const res = await api.aiQuery(question);
-    document.getElementById(thinkId)?.remove();
-    msgs.insertAdjacentHTML('beforeend', `<div class="ai-msg-ai">${res.answer.replace(/</g,'&lt;')}</div>`);
-  } catch (err) {
-    document.getElementById(thinkId)?.remove();
-    const msg = typeof err === 'string' ? err : (err?.message || 'Errore sconosciuto');
-    msgs.insertAdjacentHTML('beforeend', `<div class="ai-msg-err">⚠️ ${msg.replace(/</g,'&lt;')}</div>`);
-  } finally {
-    input.disabled = false;
-    btn.disabled   = false;
-    msgs.scrollTop = msgs.scrollHeight;
-    input.focus();
-  }
-};

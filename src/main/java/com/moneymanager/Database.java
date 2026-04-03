@@ -850,7 +850,15 @@ public class Database {
         if (f.has("type") && !f.get("type").getAsString().isBlank()) {
             sql.append(" AND t.type=?"); params.add(str(f,"type"));
         }
-        if (f.has("account_id") && !f.get("account_id").isJsonNull()) {
+        if (f.has("account_ids") && f.get("account_ids").isJsonArray()
+                && f.getAsJsonArray("account_ids").size() > 0) {
+            com.google.gson.JsonArray ids = f.getAsJsonArray("account_ids");
+            String placeholders = "?,".repeat(ids.size()).replaceAll(",$", "");
+            sql.append(" AND (t.account_id IN (").append(placeholders)
+               .append(") OR t.to_account_id IN (").append(placeholders).append("))");
+            ids.forEach(e -> params.add(e.getAsInt()));
+            ids.forEach(e -> params.add(e.getAsInt()));
+        } else if (f.has("account_id") && !f.get("account_id").isJsonNull()) {
             sql.append(" AND (t.account_id=? OR t.to_account_id=?)");
             int aid = f.get("account_id").getAsInt();
             params.add(aid); params.add(aid);

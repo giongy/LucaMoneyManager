@@ -5297,7 +5297,8 @@ async function runReport() {
     if (f.date_from) filters.date_from = f.date_from;
     if (f.date_to)   filters.date_to   = f.date_to;
   }
-  if (f.account_id)     filters.account_id     = f.account_id;
+  if (f.account_ids?.length) filters.account_ids = f.account_ids;
+  else if (f.account_id)    filters.account_id  = f.account_id; // backward compat
   if (f.type)           filters.type           = f.type;
   if (f.category_id)    filters.category_id    = f.category_id;
   if (f.search)         filters.search         = f.search;
@@ -5372,12 +5373,11 @@ async function showReportModal(reportId = null) {
         <label class="form-label">Al</label>
         <input type="date" class="form-control" id="rmDateTo" value="${f.date_to||''}">
       </div>
-      <div class="form-group">
-        <label class="form-label">Conto</label>
-        <select class="form-control" id="rmAccount">
-          <option value="">Tutti i conti</option>
-          ${accounts.filter(a=>!a.is_closed).map(a=>`<option value="${a.id}"${sel(f.account_id,a.id)}>${a.icon} ${a.name}</option>`).join('')}
-        </select>
+      <div class="form-group" style="grid-column:span 2">
+        <label class="form-label">Conti</label>
+        <div style="display:flex;flex-wrap:wrap;gap:5px;margin-top:3px" id="rmAccountsSelector">
+          ${accounts.filter(a=>!a.is_closed).map(a=>`<span class="tag-chip${(f.account_ids||[]).includes(a.id)?' selected':''}" style="--tc:${a.color||'var(--accent)'}" data-acc-id="${a.id}" onclick="this.classList.toggle('selected')">${a.icon||''} ${a.name}</span>`).join('')}
+        </div>
       </div>
       <div class="form-group">
         <label class="form-label">Tipo</label>
@@ -5463,7 +5463,8 @@ async function showReportModal(reportId = null) {
       const name      = document.getElementById('rmName')?.value.trim() || '';
       const dateFrom  = document.getElementById('rmDateFrom')?.value  || '';
       const dateTo    = document.getElementById('rmDateTo')?.value    || '';
-      const accountId = document.getElementById('rmAccount')?.value   || '';
+      const accountIds = [...document.querySelectorAll('#rmAccountsSelector .tag-chip.selected')]
+                           .map(el => parseInt(el.dataset.accId));
       const type      = document.getElementById('rmType')?.value      || '';
       const reconc    = document.getElementById('rmReconciled')?.value;
       const catId     = document.getElementById('rmCategory')?.value  || '';
@@ -5486,7 +5487,7 @@ async function showReportModal(reportId = null) {
       } else if (range) {
         filters.range = range;
       }
-      if (accountId)      filters.account_id     = parseInt(accountId);
+      if (accountIds.length) filters.account_ids = accountIds;
       if (type)           filters.type           = type;
       if (catId)          filters.category_id    = parseInt(catId);
       if (search)         filters.search         = search;

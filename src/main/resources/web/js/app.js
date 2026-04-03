@@ -4992,6 +4992,7 @@ async function renderAnalytics() {
         <div style="display:flex;gap:6px">
           <button class="sched-tab${_analyticsTab==='catmonth'?' active':''}" data-atab="catmonth" onclick="_setAnalyticsTab('catmonth',this)">Categorie / Mese</button>
           <button class="sched-tab${_analyticsTab==='balance'?' active':''}" data-atab="balance" onclick="_setAnalyticsTab('balance',this)">Bilancio Mensile</button>
+          <button class="sched-tab${_analyticsTab==='trend'?' active':''}" data-atab="trend" onclick="_setAnalyticsTab('trend',this)">Andamento Categoria</button>
         </div>
         <div style="margin-left:auto;display:flex;gap:10px;align-items:center">
           <label style="font-size:13px;color:var(--text2)">Periodo:</label>
@@ -5017,14 +5018,18 @@ async function renderAnalytics() {
     api.setSetting('analytics.months', String(_analyticsMonths));
     if (_analyticsTab === 'balance') renderAnalyticsBalance(); else renderAnalyticsCatMonth();
   };
-  if (_analyticsTab === 'balance') renderAnalyticsBalance(); else renderAnalyticsCatMonth();
+  if (_analyticsTab === 'balance') renderAnalyticsBalance();
+  else if (_analyticsTab === 'trend') renderAnalyticsTrend();
+  else renderAnalyticsCatMonth();
 }
 
 let _analyticsTab = 'catmonth';
 window._setAnalyticsExcludeCurrent = checked => {
   _analyticsExcludeCurrent = checked;
   api.setSetting('analytics.excludeCurrent', checked ? '1' : '0');
-  if (_analyticsTab === 'balance') renderAnalyticsBalance(); else renderAnalyticsCatMonth();
+  if (_analyticsTab === 'balance') renderAnalyticsBalance();
+  else if (_analyticsTab === 'trend') renderAnalyticsTrend();
+  else renderAnalyticsCatMonth();
 };
 window._setAnalyticsTab = (tab, btn) => {
   _analyticsTab = tab;
@@ -5032,6 +5037,7 @@ window._setAnalyticsTab = (tab, btn) => {
   btn.classList.add('active');
   if (tab === 'catmonth') renderAnalyticsCatMonth();
   if (tab === 'balance')  renderAnalyticsBalance();
+  if (tab === 'trend')    renderAnalyticsTrend();
 };
 
 let _analyticsCatSort = { col: null, dir: -1 };
@@ -5241,6 +5247,129 @@ async function renderAnalyticsBalance() {
       scales:{
         x:{ ticks:{color:cc.tick}, grid:{color:cc.grid} },
         y:{ ticks:{color:cc.tick, callback:v=>fmt.currency(v)}, grid:{color:cc.grid} }
+      }
+    }
+  });
+}
+
+/* ─── Analytics: Andamento Categoria ─────────────────────────────────────── */
+let _analyticsTrendCatId  = null;
+let _analyticsTrendChart  = null;
+let _analyticsTrendCache  = null; // { monthCols, catMap }
+
+async function renderAnalyticsTrend() {
+  const el = document.getElementById('analyticsContent');
+  if (!el) return;
+  el.innerHTML = '<p style="padding:20px;color:var(--txt2)">Caricamento…</p>';
+
+  const fetchMonths = _analyticsExcludeCurrent ? _analyticsMonths + 1 : _analyticsMonths;
+  const rows = await api.getCategoryMonthTable(fetchMonths);
+
+  const now = new Date();
+  const currentYm = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  const monthCols = [];
+  for (let i = fetchMonths - 1; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const ym = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    if (_analyticsExcludeCurrent && ym === currentYm) continue;
+    monthCols.push({ ym, label: d.toLocaleDateString('it-IT', { month: 'short', year: '2-digit' }) });
+  }
+
+  const catMap = {};
+  for (const r of rows) {
+    if (!catMap[r.id]) catMap[r.id] = { id: r.id, name: r.name, type: r.type, color: r.color, icon: r.icon, parent_name: r.parent_name || null, m: {} };
+    catMap[r.id].m[r.ym] = r.total;
+  }
+  _analyticsTrendCache = { monthCols, catMap };
+
+  const cats = Object.values(catMap).sort((a, b) => {
+    if (a.type !== b.type) return a.type === 'expense' ? -1 : 1;
+    const pa = a.parent_name || a.name, pb = b.parent_name || b.name;
+    return pa.localeCompare(pb) || a.name.localeCompare(b.name);
+  });
+
+  if (!_analyticsTrendCatId || !catMap[_analyticsTrendCatId]) {
+    _analyticsTrendCatId = cats[0]?.id || null;
+  }
+
+  const optLabel = c => `${c.type === 'expense' ? '↑' : '↓'} ${c.parent_name ? c.parent_name + ' › ' : ''}${c.icon || ''} ${c.name}`;
+
+  el.innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+      <label style="font-size:13px;color:var(--txt2)">Categoria:</label>
+      <select id="trendCatSelect" class="form-control" style="min-width:240px;max-width:360px">
+        ${cats.map(c => `<option value="${c.id}"${c.id === _analyticsTrendCatId ? ' selected' : ''}>${optLabel(c)}</option>`).join('')}
+      </select>
+    </div>
+    <div style="position:relative;height:380px"><canvas id="trendChart"></canvas></div>`;
+
+  document.getElementById('trendCatSelect').onchange = function() {
+    _analyticsTrendCatId = parseInt(this.value);
+    _renderAnalyticsTrendChart();
+  };
+
+  _renderAnalyticsTrendChart();
+}
+
+function _renderAnalyticsTrendChart() {
+  if (!_analyticsTrendCache) return;
+  const { monthCols, catMap } = _analyticsTrendCache;
+  const cat = catMap[_analyticsTrendCatId];
+  if (!cat) return;
+
+  const values = monthCols.map(m => cat.m[m.ym] || 0);
+  const labels  = monthCols.map(m => m.label);
+  const n = values.length;
+
+  // Media (linea piatta)
+  const sum = values.reduce((a, b) => a + b, 0);
+  const avg = n ? sum / n : 0;
+  const avgData = values.map(() => avg);
+
+  // Media mobile a 3 mesi
+  const maData = values.map((_, i) => {
+    const slice = values.slice(Math.max(0, i - 2), i + 1);
+    return slice.reduce((a, b) => a + b, 0) / slice.length;
+  });
+
+  // Trend (regressione lineare)
+  const xMean = (n - 1) / 2;
+  let num = 0, den = 0;
+  for (let i = 0; i < n; i++) {
+    num += (i - xMean) * (values[i] - avg);
+    den += (i - xMean) ** 2;
+  }
+  const slope = den ? num / den : 0;
+  const intercept = avg - slope * xMean;
+  const trendData = values.map((_, i) => Math.max(0, intercept + slope * i));
+
+  const cc = chartColors();
+  const barColor = (cat.color && cat.color.startsWith('#') && cat.color.length === 7)
+    ? cat.color + 'bb'
+    : 'rgba(88,166,255,.7)';
+
+  if (_analyticsTrendChart) { _analyticsTrendChart.destroy(); _analyticsTrendChart = null; }
+  _analyticsTrendChart = new Chart(document.getElementById('trendChart'), {
+    data: {
+      labels,
+      datasets: [
+        { type: 'bar',  label: 'Importo',             data: values,   backgroundColor: barColor, order: 2 },
+        { type: 'line', label: 'Media',                data: avgData,  borderColor: 'rgba(255,200,50,.9)',  borderWidth: 2, borderDash: [6, 4], pointRadius: 0, tension: 0, order: 1 },
+        { type: 'line', label: 'Media mobile (3m)',    data: maData,   borderColor: 'rgba(88,200,255,.9)',  borderWidth: 2, pointRadius: 2, tension: 0.4, order: 1 },
+        { type: 'line', label: 'Trend',                data: trendData,borderColor: 'rgba(248,81,73,.85)',  borderWidth: 2, borderDash: [4, 3], pointRadius: 0, tension: 0, order: 1 },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${fmt.currency(ctx.parsed.y)}` } },
+        legend:  { labels: { color: cc.tick, boxWidth: 12 } },
+        zoom: zoomOpts()
+      },
+      scales: {
+        x: { ticks: { color: cc.tick }, grid: { color: cc.grid } },
+        y: { beginAtZero: true, ticks: { color: cc.tick, callback: v => fmt.currency(v) }, grid: { color: cc.grid } }
       }
     }
   });

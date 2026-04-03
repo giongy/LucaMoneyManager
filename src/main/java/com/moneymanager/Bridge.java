@@ -68,6 +68,10 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                 handleChooseAttachmentFileAsync(callback);
                 return true;
             }
+            if ("aiQuery".equals(method)) {
+                handleAiQueryAsync(params, callback);
+                return true;
+            }
 
             succeed(callback, dispatch(method, params, browser));
 
@@ -510,6 +514,175 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
 
             default -> throw new Exception("Metodo sconosciuto: " + method);
         };
+    }
+
+    private void handleAiQueryAsync(JsonObject p, CefQueryCallback callback) {
+        new Thread(() -> {
+            try {
+                String question = p.get("question").getAsString();
+                String apiKey   = settings.get("ai.api_key");
+                if (apiKey == null || apiKey.isBlank()) {
+                    callback.failure(400, "Chiave API non configurata. Aggiungila in Impostazioni > Preferenze.");
+                    return;
+                }
+
+                String context = buildAiContext();
+
+                JsonObject body = new JsonObject();
+                body.addProperty("model", "claude-haiku-4-5-20251001");
+                body.addProperty("max_tokens", 1024);
+                body.addProperty("system",
+                    "Sei un assistente finanziario personale. Hai accesso ai dati finanziari dell'utente. " +
+                    "Rispondi in italiano, in modo conciso e pratico. " +
+                    "Usa i dati forniti per rispondere con numeri precisi. " +
+                    "Per gli importi usa il formato €X.XXX,XX.");
+
+                JsonArray messages = new JsonArray();
+                JsonObject msg = new JsonObject();
+                msg.addProperty("role", "user");
+                msg.addProperty("content", "Dati finanziari aggiornati:\n" + context + "\n\nDomanda: " + question);
+                messages.add(msg);
+                body.add("messages", messages);
+
+                var client  = java.net.http.HttpClient.newHttpClient();
+                var request = java.net.http.HttpRequest.newBuilder()
+                    .uri(java.net.URI.create("https://api.anthropic.com/v1/messages"))
+                    .header("Content-Type", "application/json")
+                    .header("x-api-key", apiKey)
+                    .header("anthropic-version", "2023-06-01")
+                    .POST(java.net.http.HttpRequest.BodyPublishers.ofString(gson.toJson(body)))
+                    .build();
+
+                var response = client.send(request, java.net.http.HttpResponse.BodyHandlers.ofString());
+                if (response.statusCode() != 200) {
+                    String errMsg = "Errore API (" + response.statusCode() + ")";
+                    try {
+                        JsonObject err = JsonParser.parseString(response.body()).getAsJsonObject();
+                        if (err.has("error") && err.getAsJsonObject("error").has("message"))
+                            errMsg = err.getAsJsonObject("error").get("message").getAsString();
+                    } catch (Exception ignored) {}
+                    callback.failure(response.statusCode(), errMsg);
+                    return;
+                }
+
+                JsonObject resp = JsonParser.parseString(response.body()).getAsJsonObject();
+                String answer = resp.getAsJsonArray("content")
+                    .get(0).getAsJsonObject()
+                    .get("text").getAsString();
+
+                succeed(callback, Map.of("answer", answer));
+
+            } catch (Exception e) {
+                callback.failure(500, e.getMessage() != null ? e.getMessage() : "Errore interno");
+            }
+        }, "ai-query").start();
+    }
+
+    private String buildAiContext() {
+        int year = java.time.LocalDate.now().getYear();
+        int month = java.time.LocalDate.now().getMonthValue();
+        var sb = new StringBuilder();
+        sb.append("Data: ").append(java.time.LocalDate.now()).append("\n\n");
+
+        // Conti
+        try {
+            var accounts = db.getAccounts();
+            sb.append("Conti:\n");
+            for (var a : accounts) {
+                if (Boolean.TRUE.equals(a.get("is_closed"))) continue;
+                sb.append("  - ").append(a.get("name"))
+                  .append(" [").append(a.get("type")).append("]")
+                  .append(": ").append(a.get("balance")).append("€\n");
+            }
+        } catch (Exception ignored) {}
+
+        // Statistiche anno corrente
+        try {
+            var stats = db.getDashboardStats(year);
+            sb.append("\nAnno ").append(year).append(":\n");
+            sb.append("  Entrate: ").append(stats.get("income")).append("€\n");
+            sb.append("  Uscite:  ").append(stats.get("expenses")).append("€\n");
+            sb.append("  Netto:   ").append(stats.get("net")).append("€\n");
+        } catch (Exception ignored) {}
+
+        // Andamento mensile anno corrente
+        try {
+            var monthly = db.getMonthlyChartData(year);
+            sb.append("\nMensile ").append(year).append(":\n");
+            for (var m : monthly) {
+                int mn = ((Number) m.get("month")).intValue();
+                sb.append("  Mese ").append(mn)
+                  .append(": entrate=").append(m.get("income"))
+                  .append("€ uscite=").append(m.get("expenses")).append("€\n");
+            }
+        } catch (Exception ignored) {}
+
+        // Top categorie per spesa ultimi 6 mesi
+        try {
+            var catRows = db.getCategoryMonthTable(6);
+            // Aggrega per categoria (tipo expense)
+            var totByCat = new java.util.LinkedHashMap<String, double[]>();
+            for (var r : catRows) {
+                if (!"expense".equals(r.get("type"))) continue;
+                String name = r.get("parent_name") != null
+                    ? r.get("parent_name") + " / " + r.get("name")
+                    : (String) r.get("name");
+                double amt = ((Number) r.get("total")).doubleValue();
+                totByCat.computeIfAbsent(name, k -> new double[]{0})[0] += amt;
+            }
+            // Ordina per totale decrescente, top 10
+            sb.append("\nTop spese ultimi 6 mesi per categoria:\n");
+            totByCat.entrySet().stream()
+                .sorted((a, b) -> Double.compare(b.getValue()[0], a.getValue()[0]))
+                .limit(10)
+                .forEach(e -> sb.append("  - ").append(e.getKey())
+                    .append(": ").append(String.format("%.2f", e.getValue()[0])).append("€\n"));
+        } catch (Exception ignored) {}
+
+        // Budget anno corrente: budget vs reale per categoria
+        try {
+            var bdata = db.getBudgetYear(year);
+            @SuppressWarnings("unchecked")
+            var budgets  = (java.util.List<java.util.Map<String,Object>>) bdata.get("budgets");
+            @SuppressWarnings("unchecked")
+            var actuals  = (java.util.List<java.util.Map<String,Object>>) bdata.get("actuals");
+            @SuppressWarnings("unchecked")
+            var cats     = (java.util.List<java.util.Map<String,Object>>) bdata.get("categories");
+
+            // Aggrega budget e reale per categoria fino al mese corrente
+            var budgSum = new java.util.HashMap<Object, Double>();
+            for (var b : budgets) {
+                int m2 = ((Number) b.get("month")).intValue();
+                if (m2 > month) continue;
+                Object cid = b.get("category_id");
+                budgSum.merge(cid, ((Number) b.get("amount")).doubleValue(), Double::sum);
+            }
+            var actSum = new java.util.HashMap<Object, Double>();
+            for (var a : actuals) {
+                int m2 = ((Number) a.get("month")).intValue();
+                if (m2 > month) continue;
+                Object cid = a.get("category_id");
+                actSum.merge(cid, ((Number) a.get("total")).doubleValue(), Double::sum);
+            }
+
+            if (!budgSum.isEmpty()) {
+                sb.append("\nBudget vs Reale (mesi 1-").append(month).append(" del ").append(year).append("):\n");
+                for (var c : cats) {
+                    Object cid = c.get("id");
+                    double budg = budgSum.getOrDefault(cid, 0.0);
+                    double act  = actSum.getOrDefault(cid, 0.0);
+                    if (budg == 0 && act == 0) continue;
+                    String cname = c.get("parent_name") != null
+                        ? c.get("parent_name") + " / " + c.get("name")
+                        : (String) c.get("name");
+                    sb.append("  - ").append(cname)
+                      .append(": budget=").append(String.format("%.2f", budg))
+                      .append("€ reale=").append(String.format("%.2f", act)).append("€\n");
+                }
+            }
+        } catch (Exception ignored) {}
+
+        return sb.toString();
     }
 
     private static String mavenVersion(String groupId, String artifactId) {

@@ -88,6 +88,9 @@
     </nav>
 
     <div class="sidebar-bottom">
+      <a class="nav-item" id="aiPanelBtn" onclick="toggleAiPanel()" style="cursor:pointer">
+        <span class="nav-icon">🤖</span><span>AI Assistant</span>
+      </a>
       <a class="nav-item" data-page="settings">
         <span class="nav-icon">⚙️</span><span>Impostazioni</span>
       </a>
@@ -143,6 +146,22 @@
     <div class="modal-footer">
       <button class="btn btn-ghost" id="modalCancel">Annulla</button>
       <button class="btn btn-primary" id="modalConfirm">Salva</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── AI PANEL ── -->
+<div id="aiPanel" class="ai-panel">
+  <div class="ai-panel-header">
+    <span>🤖 AI Assistant</span>
+    <button class="btn btn-ghost btn-icon" onclick="toggleAiPanel()">✕</button>
+  </div>
+  <div class="ai-panel-body">
+    <div id="aiMessages" class="ai-messages"></div>
+    <div class="ai-input-row">
+      <input id="aiInput" class="form-control" placeholder="es. quale categoria sta crescendo come spesa?"
+             onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendAiQuery()}">
+      <button class="btn btn-primary" id="aiSendBtn" onclick="sendAiQuery()">Invia</button>
     </div>
   </div>
 </div>

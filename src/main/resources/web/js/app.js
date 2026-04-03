@@ -624,6 +624,7 @@ function _renderDashAccountsWidget(accounts) {
               </td>
               <td class="acc-bal ${a.balance<0?'neg':''}" style="color:${a.balance<0?'var(--expense)':(a.color||'var(--accent)')}">
                 ${fmt.currency(a.balance)}
+                ${a.type==='credit'?`<span id="cc-cur-${a.id}" style="display:block;font-size:11px;color:var(--txt2);font-weight:400"></span>`:''}
               </td>
               <td onclick="event.stopPropagation()">
                 <div class="acc-quick-btns">
@@ -659,7 +660,9 @@ window._dashQuickTx = async (accountId, type) => {
   const [cats, accs, tags] = await Promise.all([api.getCategories(), api.getAccounts(), api.getTags()]);
   showTxModal({account_id: accountId, type}, cats, accs, type, tags, async () => {
     api._invalidateAccounts();
-    _renderDashAccountsWidget(await api.getAccounts());
+    const _freshAccs = await api.getAccounts();
+    _renderDashAccountsWidget(_freshAccs);
+    _fillCreditMonthDash(_freshAccs);
   });
 };
 
@@ -757,6 +760,7 @@ async function renderDashboard() {
     </div>`;
 
   _renderDashAccountsWidget(accounts);
+  _fillCreditMonthDash(accounts);
 
   // Bar chart
   const months = Array.from({length:12},(_,i)=>new Date(0,i).toLocaleString('it-IT',{month:'short'}));
@@ -998,6 +1002,11 @@ function rangeToFilter(range, from, to) {
                         return { date_from: fmt(d), date_to: fmt(today) }; }
     case '6m':        { const d=new Date(today); d.setMonth(d.getMonth()-6);
                         return { date_from: fmt(d), date_to: fmt(today) }; }
+    case 'cur_month': { const d=new Date(today.getFullYear(), today.getMonth(), 1);
+                        return { date_from: fmt(d), date_to: fmt(today) }; }
+    case 'prev_month':{ const d=new Date(today.getFullYear(), today.getMonth()-1, 1);
+                        const e=new Date(today.getFullYear(), today.getMonth(), 0);
+                        return { date_from: fmt(d), date_to: fmt(e) }; }
     case 'ytd':       return { date_from: `${today.getFullYear()}-01-01`, date_to: fmt(today) };
     case 'last_year': { const y=today.getFullYear()-1;
                         return { date_from: `${y}-01-01`, date_to: `${y}-12-31` }; }
@@ -1040,6 +1049,8 @@ const RANGE_DEFAULTS = [
   {v:'7d',        l:'Ultimi 7 giorni'},
   {v:'14d',       l:'Ultime 2 settimane'},
   {v:'30d',       l:'Ultimi 30 giorni'},
+  {v:'cur_month', l:'Mese corrente a oggi'},
+  {v:'prev_month',l:'Mese precedente'},
   {v:'3m',        l:'Ultimi 3 mesi'},
   {v:'6m',        l:'Ultimi 6 mesi'},
   {v:'ytd',       l:'Da inizio anno'},
@@ -1120,6 +1131,7 @@ async function renderTransactions() {
         <button class="btn btn-ghost" title="Salva filtri correnti come resoconto" onclick="saveTxFiltersAsReport()" style="white-space:nowrap;flex-shrink:0">💾 Salva filtro</button>
       </div>
     </div>
+    <div id="txSummaryBar" style="flex-shrink:0;padding:4px 16px 10px;background:var(--bg);display:flex;align-items:center;gap:12px;font-size:13px;color:var(--txt2)"></div>
     <div id="txScrollWrap" style="flex:1;overflow:auto;padding:0 16px 16px">
       <div class="card">
         <table id="txTable"><thead><tr>
@@ -1217,21 +1229,23 @@ function saveTxFiltersAsReport() {
   showReportModal();
 }
 
-function _renderTxHeaderSummary(summary, accounts) {
-  const el = document.getElementById('txHeaderSummary');
+function _renderTxSummaryBar(rows, summary) {
+  const el = document.getElementById('txSummaryBar');
   if (!el) return;
-  if (!summary) { el.innerHTML = ''; return; }
-  const acc = accounts.find(a => String(a.id) === String(txFilters.account_id));
-  el.innerHTML = `
-    <span class="txhs-item txhs-account">${acc ? acc.icon + ' ' + acc.name : ''}</span>
-    <span class="txhs-sep">·</span>
-    <span class="txhs-item"><span class="txhs-label">Saldo</span>
-      <span class="txhs-val ${summary.balance >= 0 ? 'positive' : 'negative'}" id="txhsBal">${fmt.currency(summary.balance)}</span>
-    </span>
-    <span class="txhs-sep">·</span>
-    <span class="txhs-item"><span class="txhs-label">Conciliato</span>
-      <span class="txhs-val ${summary.reconciled_balance >= 0 ? 'positive' : 'negative'}" id="txhsRec">${fmt.currency(summary.reconciled_balance)}</span>
-    </span>`;
+  const income  = rows.filter(t => t.type === 'income').reduce((s,t) => s + t.amount, 0);
+  const expense = rows.filter(t => t.type === 'expense').reduce((s,t) => s + t.amount, 0);
+  const net     = income - expense;
+  const sep     = `<span style="color:var(--txt3);margin:0 4px">|</span>`;
+  const val     = (v, id='') => `<span ${id?`id="${id}"`:''} style="color:${v>=0?'var(--income)':'var(--expense)'}">${fmt.currency(v)}</span>`;
+  const accPart = summary
+    ? `<span>Saldo <span id="txhsBal" style="color:${summary.balance>=0?'var(--income)':'var(--expense)'}">${fmt.currency(summary.balance)}</span></span>
+       <span style="color:var(--txt3);font-size:11px">✅ ${fmt.currency(summary.reconciled_balance)}</span>${sep}`
+    : '';
+  el.innerHTML = `${accPart}
+    <span style="color:var(--txt3)">Saldo filtrato:</span>
+    <span>Entrate ${val(income)}</span>${sep}
+    <span>Uscite <span style="color:var(--expense)">${fmt.currency(expense)}</span></span>${sep}
+    <span>Netto ${val(net)}</span>`;
 }
 
 async function loadTxRows(categories, accounts) {
@@ -1244,8 +1258,7 @@ async function loadTxRows(categories, accounts) {
   // Mostra/nascondi colonna Saldo
   const thBal = document.getElementById('thBalance');
   if (thBal) thBal.style.display = hasAccount ? '' : 'none';
-  // Aggiorna riepilogo nell'header
-  _renderTxHeaderSummary(summary, accounts);
+  _renderTxSummaryBar(rows, summary);
   renderTxBodyAndHeaders();
 }
 
@@ -1335,10 +1348,7 @@ window.toggleReconciled = async (id, newVal) => {
   const hasAccount = txFilters.account_id && String(txFilters.account_id).trim() !== '';
   if (hasAccount) {
     const summary = await api.getAccountSummary(parseInt(txFilters.account_id));
-    const balEl = document.getElementById('txhsBal');
-    const recEl = document.getElementById('txhsRec');
-    if (balEl) { balEl.textContent = fmt.currency(summary.balance); balEl.className = `txhs-val ${summary.balance >= 0 ? 'positive' : 'negative'}`; }
-    if (recEl) { recEl.textContent = fmt.currency(summary.reconciled_balance); recEl.className = `txhs-val ${summary.reconciled_balance >= 0 ? 'positive' : 'negative'}`; }
+    _renderTxSummaryBar(txCache, summary);
   }
 };
 
@@ -2198,6 +2208,24 @@ async function loadAccountCards() {
   });
 }
 
+async function _creditCardMonthTotal(cardId, y, m) {
+  const from = `${y}-${String(m).padStart(2,'0')}-01`;
+  const to   = `${y}-${String(m).padStart(2,'0')}-${new Date(y, m, 0).getDate()}`;
+  const txs  = await api.getTransactions({ account_id: cardId, date_from: from, date_to: to, limit: 5000 });
+  return txs.filter(t => t.type !== 'transfer').reduce((s,t) => s + t.amount, 0);
+}
+
+async function _fillCreditMonthDash(accounts) {
+  const now = new Date();
+  const y = now.getFullYear(), m = now.getMonth() + 1;
+  const monthName = now.toLocaleString('it-IT', { month: 'long' });
+  for (const a of accounts.filter(a => a.type === 'credit')) {
+    const total = await _creditCardMonthTotal(a.id, y, m);
+    const el = document.getElementById(`cc-cur-${a.id}`);
+    if (el) el.textContent = `${monthName}: ${fmt.currency(total)}`;
+  }
+}
+
 window.closeCreditMonth = async (cardId, cardName) => {
   const accounts = await api.getAccounts();
   const sources  = accounts.filter(a => a.type !== 'credit' && a.type !== 'investment' && !a.is_closed);
@@ -2242,11 +2270,7 @@ window.closeCreditMonth = async (cardId, cardName) => {
     const monthVal = document.getElementById('cc_month')?.value;
     if (!monthVal) return;
     const [y, m] = monthVal.split('-').map(Number);
-    const from = `${y}-${String(m).padStart(2,'0')}-01`;
-    const lastDay = new Date(y, m, 0).getDate();
-    const to   = `${y}-${String(m).padStart(2,'0')}-${lastDay}`;
-    const txs  = await api.getTransactions({ account_id: cardId, date_from: from, date_to: to, limit: 5000 });
-    const total = txs.filter(t => t.type !== 'transfer').reduce((s,t) => s + t.amount, 0);
+    const total = await _creditCardMonthTotal(cardId, y, m);
     const el = document.getElementById('cc_amount_display');
     const inp = document.getElementById('cc_amount');
     if (el)  el.textContent  = fmt.currency(total);

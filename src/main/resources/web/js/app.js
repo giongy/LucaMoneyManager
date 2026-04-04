@@ -4984,7 +4984,7 @@ window.deleteStock = async id => {
 
 let _analyticsStartYm       = null;  // "YYYY-MM" — null = default (primo mese DB)
 let _analyticsEndYm         = null;  // "YYYY-MM" — null = default (mese prec. o corrente)
-let _analyticsOldestYm      = null;  // cache primo mese disponibile in DB
+let _analyticsOldestYm      = undefined; // cache primo mese disponibile in DB (undefined = non ancora caricato)
 
 /* Restituisce { fetchMonths, monthCols } pronti per i render function.
    fetchMonths = quanti mesi chiedere al DB (da startYm a oggi).
@@ -4992,8 +4992,7 @@ let _analyticsOldestYm      = null;  // cache primo mese disponibile in DB
 function _analyticsMonthRange() {
   const now = new Date();
   const toYm = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
-  const currentYm = toYm(now);
-  const prevYm    = toYm(new Date(now.getFullYear(), now.getMonth()-1, 1));
+  const prevYm = toYm(new Date(now.getFullYear(), now.getMonth()-1, 1));
 
   const startYm = _analyticsStartYm || _analyticsOldestYm || prevYm;
   const endYm   = _analyticsEndYm   || prevYm;
@@ -5013,7 +5012,7 @@ function _analyticsMonthRange() {
     monthCols.push({ ym, label: d.toLocaleDateString('it-IT', { month:'short', year:'2-digit' }) });
     d = new Date(d.getFullYear(), d.getMonth()+1, 1);
   }
-  return { fetchMonths, monthCols, currentYm };
+  return { fetchMonths, monthCols };
 }
 
 /* Helper: popola un <select> con opzioni mese/anno nell'intervallo [fromYm, toYm] */
@@ -5040,7 +5039,7 @@ function _renderCurrentAnalyticsTab() {
 
 async function renderAnalytics() {
   // Carica il primo mese disponibile in DB (una sola volta per sessione)
-  if (!_analyticsOldestYm) {
+  if (_analyticsOldestYm === undefined) {
     _analyticsOldestYm = await api.getOldestTransactionMonth() || null;
   }
   // Default startYm: primo mese con dati; default endYm: mese precedente

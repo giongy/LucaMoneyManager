@@ -5342,8 +5342,33 @@ function _renderAnalyticsTrendChart() {
     ? cat.color + '66'
     : 'rgba(88,166,255,.4)';
 
+  // Plugin inline: etichette sui punti di media e trend
+  const trendLabelPlugin = {
+    id: 'trendLabels',
+    afterDatasetsDraw(chart) {
+      const ctx = chart.ctx;
+      chart.data.datasets.forEach((ds, i) => {
+        if (ds.type !== 'line') return;
+        const meta = chart.getDatasetMeta(i);
+        if (!meta.visible) return;
+        ctx.save();
+        ctx.font = 'bold 10px sans-serif';
+        ctx.fillStyle = ds.borderColor;
+        ctx.textAlign = 'center';
+        meta.data.forEach((pt, j) => {
+          const val = ds.data[j];
+          if (val == null) return;
+          const text = fmt.currency(val);
+          ctx.fillText(text, pt.x, pt.y - 7);
+        });
+        ctx.restore();
+      });
+    }
+  };
+
   if (_analyticsTrendChart) { _analyticsTrendChart.destroy(); _analyticsTrendChart = null; }
   _analyticsTrendChart = new Chart(document.getElementById('trendChart'), {
+    plugins: [trendLabelPlugin],
     data: {
       labels,
       datasets: [
@@ -5355,6 +5380,7 @@ function _renderAnalyticsTrendChart() {
     options: {
       responsive: true, maintainAspectRatio: false,
       interaction: { mode: 'index', intersect: false },
+      layout: { padding: { top: 20 } },
       plugins: {
         tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${fmt.currency(ctx.parsed.y)}` } },
         legend:  { labels: { color: cc.tick, boxWidth: 12 } },

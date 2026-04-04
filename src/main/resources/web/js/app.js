@@ -4993,6 +4993,7 @@ async function renderAnalytics() {
           <button class="sched-tab${_analyticsTab==='catmonth'?' active':''}" data-atab="catmonth" onclick="_setAnalyticsTab('catmonth',this)">Categorie / Mese</button>
           <button class="sched-tab${_analyticsTab==='balance'?' active':''}" data-atab="balance" onclick="_setAnalyticsTab('balance',this)">Bilancio Mensile</button>
           <button class="sched-tab${_analyticsTab==='trend'?' active':''}" data-atab="trend" onclick="_setAnalyticsTab('trend',this)">Andamento Categoria</button>
+          <button class="sched-tab${_analyticsTab==='health'?' active':''}" data-atab="health" onclick="_setAnalyticsTab('health',this)">Salute Finanziaria</button>
         </div>
         <div style="margin-left:auto;display:flex;gap:10px;align-items:center">
           <label style="font-size:13px;color:var(--text2)">Periodo:</label>
@@ -5016,10 +5017,14 @@ async function renderAnalytics() {
   slider.onchange = () => {
     _analyticsMonths = parseInt(slider.value);
     api.setSetting('analytics.months', String(_analyticsMonths));
-    if (_analyticsTab === 'balance') renderAnalyticsBalance(); else renderAnalyticsCatMonth();
+    if (_analyticsTab === 'balance') renderAnalyticsBalance();
+    else if (_analyticsTab === 'trend') renderAnalyticsTrend();
+    else if (_analyticsTab === 'health') renderAnalyticsHealth();
+    else renderAnalyticsCatMonth();
   };
   if (_analyticsTab === 'balance') renderAnalyticsBalance();
   else if (_analyticsTab === 'trend') renderAnalyticsTrend();
+  else if (_analyticsTab === 'health') renderAnalyticsHealth();
   else renderAnalyticsCatMonth();
 }
 
@@ -5029,6 +5034,7 @@ window._setAnalyticsExcludeCurrent = checked => {
   api.setSetting('analytics.excludeCurrent', checked ? '1' : '0');
   if (_analyticsTab === 'balance') renderAnalyticsBalance();
   else if (_analyticsTab === 'trend') renderAnalyticsTrend();
+  else if (_analyticsTab === 'health') renderAnalyticsHealth();
   else renderAnalyticsCatMonth();
 };
 window._setAnalyticsTab = (tab, btn) => {
@@ -5038,6 +5044,7 @@ window._setAnalyticsTab = (tab, btn) => {
   if (tab === 'catmonth') renderAnalyticsCatMonth();
   if (tab === 'balance')  renderAnalyticsBalance();
   if (tab === 'trend')    renderAnalyticsTrend();
+  if (tab === 'health')   renderAnalyticsHealth();
 };
 
 let _analyticsCatSort = { col: null, dir: -1 };
@@ -5248,6 +5255,231 @@ async function renderAnalyticsBalance() {
         x:{ ticks:{color:cc.tick}, grid:{color:cc.grid} },
         y:{ ticks:{color:cc.tick, callback:v=>fmt.currency(v)}, grid:{color:cc.grid} }
       }
+    }
+  });
+}
+
+/* ─── Analytics: Salute Finanziaria ──────────────────────────────────────── */
+let _healthSavingsChart = null;
+let _healthCatChart     = null;
+
+async function renderAnalyticsHealth() {
+  const el = document.getElementById('analyticsContent');
+  if (!el) return;
+  el.innerHTML = '<p style="padding:20px;color:var(--txt2)">Caricamento…</p>';
+
+  const fetchMonths = _analyticsExcludeCurrent ? _analyticsMonths + 1 : _analyticsMonths;
+  const now = new Date();
+  const currentYm = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+
+  const [balRows, catRows, budgets] = await Promise.all([
+    api.getMonthlyBalance(fetchMonths),
+    api.getCategoryMonthTable(fetchMonths),
+    api.getBudgets(now.getMonth() + 1, now.getFullYear()),
+  ]);
+
+  // ── Mesi validi (escludi corrente se richiesto) ───────────────────────────
+  const monthCols = [];
+  for (let i = fetchMonths - 1; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const ym = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    if (_analyticsExcludeCurrent && ym === currentYm) continue;
+    monthCols.push({ ym, label: d.toLocaleDateString('it-IT', { month: 'short', year: '2-digit' }) });
+  }
+  const n = monthCols.length;
+
+  // ── Dati bilancio per mese ────────────────────────────────────────────────
+  const byYm = {};
+  for (const r of balRows) byYm[r.ym] = r;
+  const incomes  = monthCols.map(m => byYm[m.ym]?.income  || 0);
+  const expenses = monthCols.map(m => byYm[m.ym]?.expense || 0);
+  const savings  = monthCols.map((_, i) => incomes[i] - expenses[i]);
+
+  const totalIncome  = incomes.reduce((a,b)=>a+b,0);
+  const totalExpense = expenses.reduce((a,b)=>a+b,0);
+  const totalSavings = totalIncome - totalExpense;
+  const avgSavingsRate = totalIncome > 0 ? (totalSavings / totalIncome) * 100 : 0;
+
+  // ── Mesi migliori / peggiori (per risparmio) ──────────────────────────────
+  const monthsSorted = monthCols.map((m,i) => ({ label:m.label, saving:savings[i], income:incomes[i], expense:expenses[i] }))
+    .sort((a,b) => b.saving - a.saving);
+  const top3 = monthsSorted.slice(0, 3);
+  const bot3 = [...monthsSorted].reverse().slice(0, 3);
+
+  // ── Top categorie di spesa ────────────────────────────────────────────────
+  const catMap = {};
+  for (const r of catRows) {
+    if (!catMap[r.id]) catMap[r.id] = { name: r.name, color: r.color, icon: r.icon, parent_name: r.parent_name, type: r.type, total: 0 };
+    catMap[r.id].total += r.total || 0;
+  }
+  const topCats = Object.values(catMap)
+    .filter(c => c.type === 'expense')
+    .sort((a,b) => b.total - a.total)
+    .slice(0, 6);
+
+  // ── Budget vs effettivo (mese corrente) ───────────────────────────────────
+  const budgetRows = (budgets || []).filter(b => b.amount > 0);
+
+  // ── Score salute (0–100) ──────────────────────────────────────────────────
+  // Tasso risparmio (0–40 pt)
+  const scoreSavings = avgSavingsRate >= 25 ? 40 : avgSavingsRate >= 15 ? 30 : avgSavingsRate >= 5 ? 18 : avgSavingsRate > 0 ? 8 : 0;
+  // Mesi in positivo (0–30 pt)
+  const posMonths = savings.filter(s => s > 0).length;
+  const scorePos = n > 0 ? Math.round((posMonths / n) * 30) : 0;
+  // Trend spese (calante = bene, 0–30 pt)
+  const expXMean = (n-1)/2, expAvg = expenses.reduce((a,b)=>a+b,0)/(n||1);
+  let expNum=0, expDen=0;
+  expenses.forEach((v,i)=>{ expNum+=(i-expXMean)*(v-expAvg); expDen+=(i-expXMean)**2; });
+  const expSlope = expDen ? expNum/expDen : 0;
+  const scoreTrend = expSlope <= 0 ? 30 : expSlope < expAvg * 0.02 ? 20 : expSlope < expAvg * 0.05 ? 10 : 0;
+  const score = Math.min(100, scoreSavings + scorePos + scoreTrend);
+  const scoreColor = score >= 70 ? 'var(--income)' : score >= 40 ? '#e8a838' : 'var(--expense)';
+  const scoreLabel = score >= 70 ? 'Buona' : score >= 40 ? 'Discreta' : 'Attenzione';
+
+  const cc = chartColors();
+
+  // ── HTML ──────────────────────────────────────────────────────────────────
+  el.innerHTML = `
+    <div id="healthReport" style="padding-bottom:24px">
+
+      <!-- Toolbar stampa -->
+      <div style="display:flex;justify-content:flex-end;margin-bottom:12px" class="no-print">
+        <button class="btn btn-ghost" onclick="window.print()" style="gap:6px">🖨️ Esporta PDF</button>
+      </div>
+
+      <!-- Score + KPI -->
+      <div style="display:grid;grid-template-columns:auto 1fr 1fr 1fr 1fr;gap:12px;align-items:center;margin-bottom:20px">
+        <div style="text-align:center;padding:16px 24px;background:var(--bg3);border-radius:12px;min-width:110px">
+          <div style="font-size:42px;font-weight:700;color:${scoreColor};line-height:1">${score}</div>
+          <div style="font-size:11px;color:var(--txt3);margin-top:2px">/ 100</div>
+          <div style="font-size:13px;font-weight:600;color:${scoreColor};margin-top:4px">${scoreLabel}</div>
+        </div>
+        ${[
+          ['Entrate totali',  fmt.currency(totalIncome),  'var(--income)'],
+          ['Uscite totali',   fmt.currency(totalExpense), 'var(--expense)'],
+          ['Risparmio netto', fmt.currency(totalSavings), totalSavings>=0?'var(--income)':'var(--expense)'],
+          ['Tasso risparmio', avgSavingsRate.toFixed(1)+'%', avgSavingsRate>=15?'var(--income)':avgSavingsRate>=0?'#e8a838':'var(--expense)'],
+        ].map(([label,val,col])=>`
+          <div style="padding:16px;background:var(--bg3);border-radius:12px">
+            <div style="font-size:11px;color:var(--txt3);margin-bottom:4px">${label}</div>
+            <div style="font-size:22px;font-weight:700;color:${col}">${val}</div>
+            <div style="font-size:11px;color:var(--txt3);margin-top:2px">ultimi ${n} mesi</div>
+          </div>`).join('')}
+      </div>
+
+      <!-- Grafici affiancati -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
+        <div style="background:var(--bg3);border-radius:12px;padding:16px">
+          <div style="font-size:13px;font-weight:600;margin-bottom:10px;color:var(--txt2)">Risparmio mensile</div>
+          <div style="height:220px"><canvas id="healthSavingsChart"></canvas></div>
+        </div>
+        <div style="background:var(--bg3);border-radius:12px;padding:16px">
+          <div style="font-size:13px;font-weight:600;margin-bottom:10px;color:var(--txt2)">Top categorie di spesa</div>
+          <div style="height:220px"><canvas id="healthCatChart"></canvas></div>
+        </div>
+      </div>
+
+      <!-- Mesi migliori / peggiori -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
+        ${[['🏆 Mesi migliori', top3], ['⚠️ Mesi peggiori', bot3]].map(([title, list]) => `
+          <div style="background:var(--bg3);border-radius:12px;padding:16px">
+            <div style="font-size:13px;font-weight:600;margin-bottom:10px;color:var(--txt2)">${title}</div>
+            <table style="width:100%;font-size:12px;border-collapse:collapse">
+              <thead><tr style="color:var(--txt3)"><th style="text-align:left;padding:3px 0">Mese</th><th style="text-align:right">Entrate</th><th style="text-align:right">Uscite</th><th style="text-align:right">Risparmio</th></tr></thead>
+              <tbody>
+                ${list.map(m=>{
+                  const col = m.saving>=0?'var(--income)':'var(--expense)';
+                  return `<tr style="border-top:1px solid var(--border)">
+                    <td style="padding:4px 0">${m.label}</td>
+                    <td style="text-align:right;color:var(--income)">${fmt.currency(m.income)}</td>
+                    <td style="text-align:right;color:var(--expense)">${fmt.currency(m.expense)}</td>
+                    <td style="text-align:right;color:${col};font-weight:600">${fmt.currency(m.saving)}</td>
+                  </tr>`;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>`).join('')}
+      </div>
+
+      <!-- Budget vs effettivo -->
+      ${budgetRows.length ? `
+      <div style="background:var(--bg3);border-radius:12px;padding:16px;margin-bottom:20px">
+        <div style="font-size:13px;font-weight:600;margin-bottom:12px;color:var(--txt2)">Budget vs Effettivo — ${now.toLocaleString('it-IT',{month:'long',year:'numeric'})}</div>
+        <table style="width:100%;font-size:12px;border-collapse:collapse">
+          <thead><tr style="color:var(--txt3)">
+            <th style="text-align:left;padding:4px 0">Categoria</th>
+            <th style="text-align:right">Budget</th>
+            <th style="text-align:right">Speso</th>
+            <th style="text-align:right">Restante</th>
+            <th style="min-width:120px;padding-left:12px">Utilizzo</th>
+          </tr></thead>
+          <tbody>
+            ${budgetRows.map(b => {
+              const pct = b.amount > 0 ? Math.min(100, (b.spent / b.amount) * 100) : 0;
+              const barCol = pct >= 100 ? 'var(--expense)' : pct >= 80 ? '#e8a838' : 'var(--income)';
+              const remaining = b.amount - b.spent;
+              return `<tr style="border-top:1px solid var(--border)">
+                <td style="padding:6px 0"><span style="color:${b.category_color}">${b.category_icon||''}</span> ${b.category_name}</td>
+                <td style="text-align:right">${fmt.currency(b.amount)}</td>
+                <td style="text-align:right;color:var(--expense)">${fmt.currency(b.spent)}</td>
+                <td style="text-align:right;color:${remaining>=0?'var(--income)':'var(--expense)'}">${fmt.currency(remaining)}</td>
+                <td style="padding-left:12px">
+                  <div style="display:flex;align-items:center;gap:6px">
+                    <div style="flex:1;height:6px;background:var(--border);border-radius:3px">
+                      <div style="width:${pct.toFixed(1)}%;height:100%;background:${barCol};border-radius:3px"></div>
+                    </div>
+                    <span style="font-size:11px;color:${barCol};min-width:38px;text-align:right">${pct.toFixed(0)}%</span>
+                  </div>
+                </td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>` : ''}
+
+      <!-- Nota score -->
+      <div style="font-size:11px;color:var(--txt3);text-align:right" class="no-print">
+        Score: tasso risparmio (0–40) + mesi in positivo (0–30) + trend spese (0–30)
+      </div>
+    </div>`;
+
+  // ── Grafico risparmio mensile ─────────────────────────────────────────────
+  if (_healthSavingsChart) { _healthSavingsChart.destroy(); _healthSavingsChart = null; }
+  _healthSavingsChart = new Chart(document.getElementById('healthSavingsChart'), {
+    data: {
+      labels: monthCols.map(m => m.label),
+      datasets: [
+        { type:'bar',  label:'Entrate',  data:incomes,  backgroundColor:'rgba(63,185,80,.55)', order:2 },
+        { type:'bar',  label:'Uscite',   data:expenses, backgroundColor:'rgba(248,81,73,.55)',  order:2 },
+        { type:'line', label:'Risparmio',data:savings,
+          borderColor: savings.map(s => s>=0?'rgba(63,185,80,1)':'rgba(248,81,73,1)'),
+          backgroundColor:'transparent', pointRadius:3, tension:.3, borderWidth:2, order:1,
+          segment:{ borderColor: ctx => ((ctx.p0.parsed.y+ctx.p1.parsed.y)/2)>=0?'rgba(63,185,80,.9)':'rgba(248,81,73,.9)' } },
+      ]
+    },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      interaction:{ mode:'index', intersect:false },
+      plugins:{ tooltip:{ callbacks:{ label:ctx=>` ${ctx.dataset.label}: ${fmt.currency(ctx.parsed.y)}` } }, legend:{ labels:{ color:cc.tick, boxWidth:12 } } },
+      scales:{ x:{ ticks:{color:cc.tick,font:{size:10}}, grid:{color:cc.grid} }, y:{ ticks:{color:cc.tick, callback:v=>fmt.currency(v)}, grid:{color:cc.grid} } }
+    }
+  });
+
+  // ── Grafico top categorie ─────────────────────────────────────────────────
+  if (_healthCatChart) { _healthCatChart.destroy(); _healthCatChart = null; }
+  _healthCatChart = new Chart(document.getElementById('healthCatChart'), {
+    type:'bar',
+    data:{
+      labels: topCats.map(c => (c.icon||'') + ' ' + (c.parent_name ? c.parent_name+' › '+c.name : c.name)),
+      datasets:[{
+        data: topCats.map(c=>c.total),
+        backgroundColor: topCats.map(c => (c.color&&c.color.startsWith('#')&&c.color.length===7)?c.color+'aa':'rgba(88,166,255,.65)'),
+      }]
+    },
+    options:{
+      indexAxis:'y', responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:ctx=>` ${fmt.currency(ctx.parsed.x)}` } } },
+      scales:{ x:{ ticks:{color:cc.tick, callback:v=>fmt.currency(v)}, grid:{color:cc.grid} }, y:{ ticks:{color:cc.tick,font:{size:11}} , grid:{color:cc.grid} } }
     }
   });
 }

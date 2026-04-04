@@ -5344,7 +5344,7 @@ async function renderAnalyticsHealth() {
   // 5. Volatilità entrate (0–15 pt) — coefficiente di variazione, basso = stabile = bene
   const incStddev = n > 1 ? Math.sqrt(incomes.reduce((a,v)=>a+(v-incAvg)**2, 0) / (n-1)) : 0;
   const incCV = incAvg > 0 ? incStddev / incAvg * 100 : 100;
-  const scoreVol = incCV < 5 ? 15 : incCV < 10 ? 13 : incCV < 20 ? 10 : incCV < 35 ? 6 : incCV < 50 ? 2 : 0;
+  const scoreVol = n < 2 ? 0 : incCV < 5 ? 15 : incCV < 10 ? 13 : incCV < 20 ? 10 : incCV < 35 ? 6 : incCV < 50 ? 2 : 0;
   const score = Math.min(100, scoreSavings + scorePos + scoreTrend + scoreIncTrend + scoreVol);
   const scoreColor = score >= 75 ? 'var(--income)' : score >= 50 ? '#e8a838' : score >= 30 ? '#e07020' : 'var(--expense)';
   const scoreLabel = score >= 75 ? 'Ottima' : score >= 60 ? 'Buona' : score >= 45 ? 'Discreta' : score >= 30 ? 'Sufficiente' : 'Attenzione';
@@ -5394,7 +5394,7 @@ async function renderAnalyticsHealth() {
             },
             {
               label: 'Trend delle entrate',
-              desc:  `Direzione della regressione lineare sulle entrate. Entrate crescenti >+3%/mese = ottimo · stabili = sufficiente · calanti >−3%/mese = critico.`,
+              desc:  `Direzione della regressione lineare sulle entrate. Entrate crescenti oltre +3%/mese = ottimo · stabili = sufficiente · calo oltre −3%/mese = critico.`,
               got: scoreIncTrend, max: 20,
               detail: `${incSlopePct>=0?'+':''}${incSlopePct.toFixed(1)}%/mese (${incSlope>=0?'+':''}${fmt.currency(incSlope)}) → ${scoreIncTrend}/20 pt`,
               col: scoreIncTrend>=16?'var(--income)':scoreIncTrend>=7?'#e8a838':'var(--expense)'

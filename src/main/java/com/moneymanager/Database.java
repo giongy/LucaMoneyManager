@@ -870,6 +870,9 @@ public class Database {
             sql.append(" AND t.id IN (SELECT transaction_id FROM transaction_tags WHERE tag_id=?)");
             params.add(f.get("tag_id").getAsInt());
         }
+        if (f.has("id") && !f.get("id").isJsonNull()) {
+            sql.append(" AND t.id=?"); params.add(f.get("id").getAsLong());
+        }
         if (f.has("search") && !f.get("search").getAsString().isBlank()) {
             sql.append(" AND t.description LIKE ?");
             params.add("%" + str(f,"search") + "%");

@@ -1891,9 +1891,9 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
 
 window.editTx = async id => {
   const [txs, cats, accs, tgs] = await Promise.all([
-    api.getTransactions({limit:1000}), api.getCategories(), api.getAccounts(), api.getTags()
+    api.getTransactions({id}), api.getCategories(), api.getAccounts(), api.getTags()
   ]);
-  const tx = txs.find(t=>t.id===id);
+  const tx = txs[0];
   if (tx) showTxModal(tx, cats, accs, tx.type, tgs);
 };
 

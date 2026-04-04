@@ -5300,7 +5300,7 @@ async function renderAnalyticsHealth() {
 
   // ── Score salute (0–100) ──────────────────────────────────────────────────
   // 1. Tasso risparmio (0–30 pt) — 8 soglie
-  const scoreSavings = avgSavingsRate >= 20 ? 30 : avgSavingsRate >= 15 ? 26 : avgSavingsRate >= 10 ? 22 : avgSavingsRate >= 7 ? 17 : avgSavingsRate >= 5 ? 12 : avgSavingsRate >= 3 ? 7 : avgSavingsRate > 0 ? 3 : avgSavingsRate === 0 ? 0 : avgSavingsRate >= -5 ? -5 : avgSavingsRate >= -10 ? -10 : -15;
+  const scoreSavings = avgSavingsRate >= 20 ? 40 : avgSavingsRate >= 15 ? 35 : avgSavingsRate >= 10 ? 29 : avgSavingsRate >= 7 ? 23 : avgSavingsRate >= 5 ? 16 : avgSavingsRate >= 3 ? 9 : avgSavingsRate > 0 ? 4 : avgSavingsRate === 0 ? 0 : avgSavingsRate >= -5 ? -7 : avgSavingsRate >= -10 ? -13 : -20;
   // 2. Stabilità mensile (0–20 pt) — 7 soglie %
   const posMonths = savings.filter(s => s > 0).length;
   const posPct = n > 0 ? posMonths / n : 0;
@@ -5311,9 +5311,9 @@ async function renderAnalyticsHealth() {
   expenses.forEach((v,i)=>{ expNum+=(i-expXMean)*(v-expAvg); expDen+=(i-expXMean)**2; });
   const expSlope = expDen ? expNum/expDen : 0;
   const expSlopePct = expAvg ? expSlope / expAvg * 100 : 0;
-  const scoreTrendRaw = expSlopePct <= -3 ? 15 : expSlopePct <= -1 ? 13 : expSlopePct <= 0 ? 11 : expSlopePct < 1 ? 8 : expSlopePct < 3 ? 5 : expSlopePct < 5 ? 2 : 0;
+  const scoreTrendRaw = expSlopePct <= -3 ? 10 : expSlopePct <= -1 ? 9 : expSlopePct <= 0 ? 7 : expSlopePct < 1 ? 5 : expSlopePct < 3 ? 3 : expSlopePct < 5 ? 1 : 0;
   // Attenuazione: spese crescenti sono meno allarmanti se stai risparmiando bene
-  const scoreTrend = avgSavingsRate >= 10 ? Math.max(scoreTrendRaw, 5) : avgSavingsRate >= 5 ? Math.max(scoreTrendRaw, 2) : scoreTrendRaw;
+  const scoreTrend = avgSavingsRate >= 10 ? Math.max(scoreTrendRaw, 3) : avgSavingsRate >= 5 ? Math.max(scoreTrendRaw, 1) : scoreTrendRaw;
   // 4. Trend del risparmio (0–20 pt) — risparmio crescente = entrate/uscite in miglioramento
   // Usa la mediana delle entrate come denominatore per normalizzare la pendenza in %:
   // evita divisione per risparmi vicini a zero, e non è distorta dai mesi con bonus.
@@ -5336,7 +5336,7 @@ async function renderAnalyticsHealth() {
   const incSemiVar = n > 1 ? incomes.reduce((a,v) => a + (v < incMedian ? (v-incMedian)**2 : 0), 0) / n : 0;
   const incStddev  = Math.sqrt(incSemiVar);
   const incCV      = incMedian > 0 ? incStddev / incMedian * 100 : 100;
-  const scoreVol   = n < 2 ? 0 : incCV < 3 ? 15 : incCV < 6 ? 13 : incCV < 12 ? 10 : incCV < 20 ? 6 : incCV < 30 ? 2 : 0;
+  const scoreVol   = n < 2 ? 0 : incCV < 3 ? 10 : incCV < 6 ? 9 : incCV < 12 ? 7 : incCV < 20 ? 4 : incCV < 30 ? 1 : 0;
   const score = Math.min(100, scoreSavings + scorePos + scoreTrend + scoreIncTrend + scoreVol);
   const scoreColor = score >= 75 ? 'var(--income)' : score >= 50 ? '#e8a838' : score >= 30 ? '#e07020' : 'var(--expense)';
   const scoreLabel = score >= 75 ? 'Ottima' : score >= 60 ? 'Buona' : score >= 45 ? 'Discreta' : score >= 30 ? 'Sufficiente' : score >= 0 ? 'Attenzione' : 'Critica';
@@ -5344,11 +5344,11 @@ async function renderAnalyticsHealth() {
   const cc = chartColors();
 
   // ── Colori badge componenti ───────────────────────────────────────────────
-  const colS = scoreSavings >= 22 ? 'var(--income)' : scoreSavings >= 12 ? '#e8a838' : 'var(--expense)';
+  const colS = scoreSavings >= 29 ? 'var(--income)' : scoreSavings >= 16 ? '#e8a838' : 'var(--expense)';
   const colP = scorePos >= 15 ? 'var(--income)' : scorePos >= 7 ? '#e8a838' : 'var(--expense)';
-  const colT = scoreTrend >= 11 ? 'var(--income)' : scoreTrend >= 5 ? '#e8a838' : 'var(--expense)';
+  const colT = scoreTrend >= 7 ? 'var(--income)' : scoreTrend >= 3 ? '#e8a838' : 'var(--expense)';
   const colI = scoreIncTrend >= 16 ? 'var(--income)' : scoreIncTrend >= 7 ? '#e8a838' : 'var(--expense)';
-  const colV = scoreVol >= 10 ? 'var(--income)' : scoreVol >= 6 ? '#e8a838' : 'var(--expense)';
+  const colV = scoreVol >= 7 ? 'var(--income)' : scoreVol >= 4 ? '#e8a838' : 'var(--expense)';
 
   // ── Dati grafici dettaglio ────────────────────────────────────────────────
   const monthlyRates = monthCols.map((_,i) => incomes[i] > 0 ? +(savings[i] / incomes[i] * 100).toFixed(2) : 0);
@@ -5378,10 +5378,10 @@ async function renderAnalyticsHealth() {
           ${[
             {
               label: 'Tasso di risparmio',
-              desc:  `Quota media di entrate risparmiata negli ultimi ${n} mesi. ≥20% = eccellente · ≥15% = ottimo · ≥10% = buono · ≥5% = sufficiente · ≤3% = scarso · =0% = nullo · <0% = penalità (fino a −15 pt).`,
-              got: scoreSavings, max: 30,
-              detail: `${avgSavingsRate.toFixed(1)}% medio → ${scoreSavings}/30 pt`,
-              col: scoreSavings>=22?'var(--income)':scoreSavings>=12?'#e8a838':'var(--expense)'
+              desc:  `Quota media di entrate risparmiata negli ultimi ${n} mesi. ≥20% = eccellente (40 pt) · ≥15% = ottimo · ≥10% = buono · ≥5% = sufficiente · ≤3% = scarso · =0% = nullo · <0% = penalità (fino a −20 pt).`,
+              got: scoreSavings, max: 40,
+              detail: `${avgSavingsRate.toFixed(1)}% medio → ${scoreSavings}/40 pt`,
+              col: scoreSavings>=29?'var(--income)':scoreSavings>=16?'#e8a838':'var(--expense)'
             },
             {
               label: 'Stabilità mensile',
@@ -5392,10 +5392,10 @@ async function renderAnalyticsHealth() {
             },
             {
               label: 'Trend delle spese',
-              desc:  `Direzione della regressione lineare sulle uscite. Calanti ≤−3%/mese = ottimo · stabili = sufficiente · crescenti >+5%/mese = critico. Se stai risparmiando bene (≥10%) il punteggio minimo è 5 — spese crescenti sono meno allarmanti quando il margine è ampio.`,
-              got: scoreTrend, max: 15,
-              detail: `${expSlopePct>=0?'+':''}${expSlopePct.toFixed(1)}%/mese (${expSlope>=0?'+':''}${fmt.currency(expSlope)}) → ${scoreTrend}/15 pt`,
-              col: scoreTrend>=11?'var(--income)':scoreTrend>=5?'#e8a838':'var(--expense)'
+              desc:  `Direzione della regressione lineare sulle uscite. Calanti ≤−3%/mese = ottimo (10 pt) · stabili = sufficiente · crescenti >+5%/mese = critico. Se stai risparmiando bene (≥10%) il punteggio minimo è 3 — spese crescenti sono meno allarmanti quando il margine è ampio.`,
+              got: scoreTrend, max: 10,
+              detail: `${expSlopePct>=0?'+':''}${expSlopePct.toFixed(1)}%/mese (${expSlope>=0?'+':''}${fmt.currency(expSlope)}) → ${scoreTrend}/10 pt`,
+              col: scoreTrend>=7?'var(--income)':scoreTrend>=3?'#e8a838':'var(--expense)'
             },
             {
               label: 'Trend del risparmio',
@@ -5406,10 +5406,10 @@ async function renderAnalyticsHealth() {
             },
             {
               label: 'Stabilità delle entrate',
-              desc:  `Semi-deviazione rispetto alla mediana (solo mesi sotto il reddito tipico — i bonus non spostano il riferimento). Semi-CV &lt; 3% = ottimo · &lt; 12% = buono · ≥ 30% = variabile.`,
-              got: scoreVol, max: 15,
-              detail: `Semi-CV ${incCV.toFixed(1)}% → ${scoreVol}/15 pt`,
-              col: scoreVol>=10?'var(--income)':scoreVol>=6?'#e8a838':'var(--expense)'
+              desc:  `Semi-deviazione rispetto alla mediana (solo mesi sotto il reddito tipico — i bonus non spostano il riferimento). Semi-CV &lt; 3% = ottimo (10 pt) · &lt; 12% = buono · ≥ 30% = variabile.`,
+              got: scoreVol, max: 10,
+              detail: `Semi-CV ${incCV.toFixed(1)}% → ${scoreVol}/10 pt`,
+              col: scoreVol>=7?'var(--income)':scoreVol>=4?'#e8a838':'var(--expense)'
             },
           ].map(c=>`
             <div>
@@ -5448,7 +5448,7 @@ async function renderAnalyticsHealth() {
         <div style="background:var(--bg3);border-radius:12px;padding:16px">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
             <div style="font-size:13px;font-weight:600">Tasso di risparmio</div>
-            <div style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;border:1px solid ${colS};color:${colS}">${scoreSavings > 0 ? '+' : ''}${scoreSavings} / 30 pt</div>
+            <div style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;border:1px solid ${colS};color:${colS}">${scoreSavings > 0 ? '+' : ''}${scoreSavings} / 40 pt</div>
           </div>
           <div style="font-size:11px;color:var(--txt3);margin-bottom:10px">
             Percentuale di entrate risparmiata ogni mese. Media: <strong style="color:${avgSavingsRate>=10?'var(--income)':avgSavingsRate>=0?'#e8a838':'var(--expense)'}">${avgSavingsRate.toFixed(1)}%</strong>.
@@ -5490,7 +5490,7 @@ async function renderAnalyticsHealth() {
         <div style="background:var(--bg3);border-radius:12px;padding:16px">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
             <div style="font-size:13px;font-weight:600">Trend delle spese</div>
-            <div style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;border:1px solid ${colT};color:${colT}">${scoreTrend} / 15 pt</div>
+            <div style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;border:1px solid ${colT};color:${colT}">${scoreTrend} / 10 pt</div>
           </div>
           <div style="font-size:11px;color:var(--txt3);margin-bottom:10px">
             Regressione lineare sulle uscite mensili. Pendenza: <strong style="color:${expSlopePct<=0?'var(--income)':'var(--expense)'}">${expSlopePct>=0?'+':''}${expSlopePct.toFixed(1)}%/mese</strong>
@@ -5521,7 +5521,7 @@ async function renderAnalyticsHealth() {
       <div style="background:var(--bg3);border-radius:12px;padding:16px;margin-bottom:16px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
           <div style="font-size:13px;font-weight:600">Stabilità delle entrate</div>
-          <div style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;border:1px solid ${colV};color:${colV}">${scoreVol} / 15 pt</div>
+          <div style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;border:1px solid ${colV};color:${colV}">${scoreVol} / 10 pt</div>
         </div>
         <div style="display:grid;grid-template-columns:auto auto auto 1fr;gap:16px;align-items:center;margin-bottom:12px">
           <div>

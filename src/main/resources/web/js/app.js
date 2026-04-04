@@ -5320,9 +5320,11 @@ async function renderAnalyticsHealth() {
   const incSlopePct = incAvg ? incSlope / incAvg * 100 : 0;
   const scoreIncTrend = incSlopePct > 3 ? 20 : incSlopePct > 1 ? 16 : incSlopePct >= 0 ? 11 : incSlopePct > -1 ? 7 : incSlopePct > -3 ? 3 : 0;
   // 5. Volatilità entrate (0–15 pt) — coefficiente di variazione, basso = stabile = bene
-  const incStddev = n > 1 ? Math.sqrt(incomes.reduce((a,v)=>a+(v-incAvg)**2, 0) / (n-1)) : 0;
-  const incCV = incAvg > 0 ? incStddev / incAvg * 100 : 100;
-  const scoreVol = n < 2 ? 0 : incCV < 5 ? 15 : incCV < 10 ? 13 : incCV < 20 ? 10 : incCV < 35 ? 6 : incCV < 50 ? 2 : 0;
+  // Semi-deviazione (downside): conta solo i mesi sotto la media → i bonus non penalizzano
+  const incSemiVar = n > 1 ? incomes.reduce((a,v) => a + (v < incAvg ? (v-incAvg)**2 : 0), 0) / n : 0;
+  const incStddev  = Math.sqrt(incSemiVar);
+  const incCV      = incAvg > 0 ? incStddev / incAvg * 100 : 100;
+  const scoreVol   = n < 2 ? 0 : incCV < 3 ? 15 : incCV < 6 ? 13 : incCV < 12 ? 10 : incCV < 20 ? 6 : incCV < 30 ? 2 : 0;
   const score = Math.min(100, scoreSavings + scorePos + scoreTrend + scoreIncTrend + scoreVol);
   const scoreColor = score >= 75 ? 'var(--income)' : score >= 50 ? '#e8a838' : score >= 30 ? '#e07020' : 'var(--expense)';
   const scoreLabel = score >= 75 ? 'Ottima' : score >= 60 ? 'Buona' : score >= 45 ? 'Discreta' : score >= 30 ? 'Sufficiente' : score >= 0 ? 'Attenzione' : 'Critica';
@@ -5392,9 +5394,9 @@ async function renderAnalyticsHealth() {
             },
             {
               label: 'Stabilità delle entrate',
-              desc:  `Coefficiente di variazione delle entrate mensili. CV basso = reddito prevedibile. CV<5% = ottimo · <20% = buono · ≥50% = molto variabile.`,
+              desc:  `Semi-deviazione delle entrate (solo mesi sotto la media — i bonus non penalizzano). CV &lt; 3% = ottimo · &lt; 12% = buono · ≥ 30% = molto variabile.`,
               got: scoreVol, max: 15,
-              detail: `CV ${incCV.toFixed(1)}% → ${scoreVol}/15 pt`,
+              detail: `Semi-CV ${incCV.toFixed(1)}% → ${scoreVol}/15 pt`,
               col: scoreVol>=10?'var(--income)':scoreVol>=6?'#e8a838':'var(--expense)'
             },
           ].map(c=>`
@@ -5508,16 +5510,17 @@ async function renderAnalyticsHealth() {
         <div style="display:grid;grid-template-columns:auto auto auto 1fr;gap:16px;align-items:center;margin-bottom:12px">
           <div>
             <div style="font-size:26px;font-weight:700;color:${colV}">${incCV.toFixed(1)}%</div>
-            <div style="font-size:10px;color:var(--txt3)">Coeff. variazione (CV)</div>
+            <div style="font-size:10px;color:var(--txt3)">Semi-CV (downside)</div>
           </div>
           <div style="width:1px;height:40px;background:var(--border)"></div>
           <div>
-            <div style="font-size:20px;font-weight:600;color:var(--txt2)">± ${fmt.currency(incStddev)}</div>
-            <div style="font-size:10px;color:var(--txt3)">Deviazione standard</div>
+            <div style="font-size:20px;font-weight:600;color:var(--txt2)">− ${fmt.currency(incStddev)}</div>
+            <div style="font-size:10px;color:var(--txt3)">Semi-deviazione</div>
           </div>
           <div style="font-size:11px;color:var(--txt3);padding-left:8px">
-            Quanto oscillano le entrate attorno alla media di <strong>${fmt.currency(incAvg)}/mese</strong>.
-            CV &lt; 5% = ottimo · &lt; 10% = buono · &lt; 20% = discreto · &lt; 35% = sufficiente · ≥ 50% = molto variabile.
+            Variabilità delle entrate <em>al ribasso</em> rispetto alla media di <strong>${fmt.currency(incAvg)}/mese</strong>.
+            I mesi con bonus o entrate extra non penalizzano — conta solo quanto scendi sotto la media.
+            Semi-CV &lt; 3% = ottimo · &lt; 12% = buono · &lt; 20% = discreto · ≥ 30% = variabile.
             ${n < 2 ? ' &nbsp;<em style="color:var(--expense)">Dati insufficienti: servono almeno 2 mesi.</em>' : ''}
           </div>
         </div>
@@ -5616,18 +5619,15 @@ async function renderAnalyticsHealth() {
         { type:'line', label:'Media', data:Array(n).fill(incAvg),
           borderColor:'rgba(232,168,56,.85)', borderDash:[5,3],
           pointRadius:0, fill:false, borderWidth:2 },
-        { type:'line', label:'+1σ', data:Array(n).fill(incAvg+incStddev),
-          borderColor:'rgba(232,168,56,.3)', borderDash:[3,4],
-          pointRadius:0, fill:false, borderWidth:1 },
-        { type:'line', label:'−1σ', data:Array(n).fill(Math.max(0, incAvg-incStddev)),
-          borderColor:'rgba(232,168,56,.3)', borderDash:[3,4],
+        { type:'line', label:'Soglia −1σ', data:Array(n).fill(Math.max(0, incAvg-incStddev)),
+          borderColor:'rgba(248,81,73,.4)', borderDash:[3,4],
           pointRadius:0, fill:false, borderWidth:1 },
       ]
     },
     options:{
       responsive:true, maintainAspectRatio:false,
       plugins:{
-        legend:{ labels:{ color:cc.tick, boxWidth:12, filter: item => item.text !== '+1σ' && item.text !== '−1σ' } },
+        legend:{ labels:{ color:cc.tick, boxWidth:12 } },
         tooltip:{ callbacks:{ label:ctx=>` ${ctx.dataset.label}: ${fmt.currency(ctx.parsed.y)}` } }
       },
       scales:{ x:{ticks:{color:cc.tick,font:{size:10}},grid:{color:cc.grid}}, y:{ticks:{color:cc.tick,callback:v=>fmt.currency(v)},grid:{color:cc.grid}} }

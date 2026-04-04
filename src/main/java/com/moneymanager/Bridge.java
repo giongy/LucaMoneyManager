@@ -494,8 +494,9 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             // ─── Analytics ─────────────────────────────────────────────────────────
             case "getCategoryMonthTable" -> db.getCategoryMonthTable(
                 p.has("months") ? p.get("months").getAsInt() : 12);
-            case "getMonthlyBalance"     -> db.getMonthlyBalance(
+            case "getMonthlyBalance"          -> db.getMonthlyBalance(
                 p.has("months") ? p.get("months").getAsInt() : 12);
+            case "getOldestTransactionMonth"  -> db.getOldestTransactionMonth();
 
             // ─── Resoconti ─────────────────────────────────────────────────────────
             case "getReports"    -> db.getReports();

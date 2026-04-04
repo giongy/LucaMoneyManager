@@ -2356,6 +2356,13 @@ public class Database {
         }
     }
 
+    public String getOldestTransactionMonth() throws SQLException {
+        String sql = "SELECT strftime('%Y-%m', MIN(date)) AS ym FROM transactions WHERE type IN ('income','expense')";
+        try (Statement s = conn.createStatement(); ResultSet rs = s.executeQuery(sql)) {
+            return rs.next() ? rs.getString("ym") : null;
+        }
+    }
+
     // ─── Previsioni ──────────────────────────────────────────────────────────
 
     /** Somma le transazioni pianificate per categoria nel periodo fromDate..toDate */

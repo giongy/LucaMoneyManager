@@ -301,7 +301,8 @@ const api = {
 
   // Analytics
   getCategoryMonthTable: (months) => callJava('getCategoryMonthTable', { months }),
-  getMonthlyBalance:     (months) => callJava('getMonthlyBalance',     { months }),
+  getMonthlyBalance:          (months) => callJava('getMonthlyBalance',         { months }),
+  getOldestTransactionMonth: ()       => callJava('getOldestTransactionMonth',  {}),
 
   // Resoconti
   getReports:   ()     => callJava('getReports'),
@@ -4981,26 +4982,98 @@ window.deleteStock = async id => {
 ═══════════════════════════════════════════════════════════════════════════ */
 /* ─── Analytics ──────────────────────────────────────────────────────────── */
 
-let _analyticsMonths = 12;
+let _analyticsStartYm       = null;  // "YYYY-MM" — null = default (primo mese DB)
+let _analyticsEndYm         = null;  // "YYYY-MM" — null = default (mese prec. o corrente)
+let _analyticsOldestYm      = null;  // cache primo mese disponibile in DB
 let _analyticsExcludeCurrent = true;
 
+/* Restituisce { fetchMonths, monthCols } pronti per i render function.
+   fetchMonths = quanti mesi chiedere al DB (da startYm a oggi).
+   monthCols   = array { ym, label } filtrato su [startYm, endYm]. */
+function _analyticsMonthRange() {
+  const now = new Date();
+  const toYm = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+  const currentYm = toYm(now);
+  const prevYm    = toYm(new Date(now.getFullYear(), now.getMonth()-1, 1));
+
+  const startYm = _analyticsStartYm || _analyticsOldestYm || prevYm;
+  const endYm   = _analyticsEndYm   || (_analyticsExcludeCurrent ? prevYm : currentYm);
+
+  // quanti mesi dal startYm a oggi (per la query DB che parte sempre da oggi)
+  const startDate = new Date(startYm + '-01');
+  const fetchMonths = Math.max(1,
+    (now.getFullYear() - startDate.getFullYear()) * 12 +
+    (now.getMonth()    - startDate.getMonth())    + 1);
+
+  // monthCols: tutti i mesi da startYm a endYm inclusi
+  const monthCols = [];
+  let d = new Date(startYm + '-01');
+  const endDate = new Date(endYm + '-01');
+  while (d <= endDate) {
+    const ym = toYm(d);
+    monthCols.push({ ym, label: d.toLocaleDateString('it-IT', { month:'short', year:'2-digit' }) });
+    d = new Date(d.getFullYear(), d.getMonth()+1, 1);
+  }
+  return { fetchMonths, monthCols, currentYm };
+}
+
+/* Helper: popola un <select> con opzioni mese/anno nell'intervallo [fromYm, toYm] */
+function _buildMonthOptions(fromYm, toYm, selectedYm) {
+  const toYmStr = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+  let d = new Date(fromYm + '-01');
+  const end = new Date(toYm + '-01');
+  let html = '';
+  while (d <= end) {
+    const ym = toYmStr(d);
+    const label = d.toLocaleDateString('it-IT', { month:'short', year:'2-digit' });
+    html += `<option value="${ym}"${ym===selectedYm?' selected':''}>${label}</option>`;
+    d = new Date(d.getFullYear(), d.getMonth()+1, 1);
+  }
+  return html;
+}
+
+function _renderCurrentAnalyticsTab() {
+  if (_analyticsTab === 'balance')  renderAnalyticsBalance();
+  else if (_analyticsTab === 'trend')  renderAnalyticsTrend();
+  else if (_analyticsTab === 'health') renderAnalyticsHealth();
+  else renderAnalyticsCatMonth();
+}
+
 async function renderAnalytics() {
+  // Carica il primo mese disponibile in DB (una sola volta per sessione)
+  if (!_analyticsOldestYm) {
+    _analyticsOldestYm = await api.getOldestTransactionMonth() || null;
+  }
+  // Default startYm: primo mese con dati; default endYm: mese precedente
+  const now    = new Date();
+  const toYm   = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+  const prevYm = toYm(new Date(now.getFullYear(), now.getMonth()-1, 1));
+  const curYm  = toYm(now);
+  const oldestYm = _analyticsOldestYm || prevYm;
+  if (!_analyticsStartYm) _analyticsStartYm = oldestYm;
+  if (!_analyticsEndYm)   _analyticsEndYm   = _analyticsExcludeCurrent ? prevYm : curYm;
+  const maxYm = _analyticsExcludeCurrent ? prevYm : curYm;
+
   const pg = document.getElementById('pg-analytics');
   pg.innerHTML = `
     <div style="padding:16px 24px 0;display:flex;flex-direction:column;height:100%;overflow:hidden;box-sizing:border-box">
-      <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-shrink:0">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-shrink:0;flex-wrap:wrap">
         <div style="display:flex;gap:6px">
           <button class="sched-tab${_analyticsTab==='health'?' active':''}" data-atab="health" onclick="_setAnalyticsTab('health',this)">Salute Finanziaria</button>
           <button class="sched-tab${_analyticsTab==='catmonth'?' active':''}" data-atab="catmonth" onclick="_setAnalyticsTab('catmonth',this)">Categorie / Mese</button>
           <button class="sched-tab${_analyticsTab==='balance'?' active':''}" data-atab="balance" onclick="_setAnalyticsTab('balance',this)">Bilancio Mensile</button>
           <button class="sched-tab${_analyticsTab==='trend'?' active':''}" data-atab="trend" onclick="_setAnalyticsTab('trend',this)">Andamento Categoria</button>
         </div>
-        <div style="margin-left:auto;display:flex;gap:10px;align-items:center">
-          <label style="font-size:13px;color:var(--text2)">Periodo:</label>
-          <input type="range" id="analyticsPeriod" min="2" max="24" value="${_analyticsMonths}"
-            style="width:120px;accent-color:var(--accent)">
-          <span id="analyticsPeriodLabel" style="font-size:13px;min-width:60px">${_analyticsMonths} mesi</span>
-          <label style="font-size:13px;color:var(--text2);display:flex;align-items:center;gap:5px;cursor:pointer;margin-left:8px">
+        <div style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <label style="font-size:13px;color:var(--txt2)">Da:</label>
+          <select id="analyticsStartYm" class="form-control" style="font-size:12px;padding:3px 6px">
+            ${_buildMonthOptions(oldestYm, maxYm, _analyticsStartYm)}
+          </select>
+          <label style="font-size:13px;color:var(--txt2)">A:</label>
+          <select id="analyticsEndYm" class="form-control" style="font-size:12px;padding:3px 6px">
+            ${_buildMonthOptions(_analyticsStartYm, maxYm, _analyticsEndYm)}
+          </select>
+          <label style="font-size:13px;color:var(--txt2);display:flex;align-items:center;gap:5px;cursor:pointer;margin-left:4px">
             <input type="checkbox" id="analyticsExcludeCurrent" ${_analyticsExcludeCurrent?'checked':''}
               onchange="_setAnalyticsExcludeCurrent(this.checked)">
             Escludi mese corrente
@@ -5009,33 +5082,39 @@ async function renderAnalytics() {
       </div>
       <div id="analyticsContent" style="flex:1;overflow:auto;padding-bottom:16px"></div>
     </div>`;
-  const slider = document.getElementById('analyticsPeriod');
-  slider.oninput = () => {
-    _analyticsMonths = parseInt(slider.value);
-    document.getElementById('analyticsPeriodLabel').textContent = _analyticsMonths + ' mesi';
+
+  document.getElementById('analyticsStartYm').onchange = function() {
+    _analyticsStartYm = this.value;
+    // Assicura che endYm non sia prima di startYm
+    if (_analyticsEndYm < _analyticsStartYm) _analyticsEndYm = _analyticsStartYm;
+    api.setSetting('analytics.startYm', _analyticsStartYm);
+    api.setSetting('analytics.endYm',   _analyticsEndYm);
+    // Aggiorna opzioni del select fine
+    const endSel = document.getElementById('analyticsEndYm');
+    endSel.innerHTML = _buildMonthOptions(_analyticsStartYm, maxYm, _analyticsEndYm);
+    _renderCurrentAnalyticsTab();
   };
-  slider.onchange = () => {
-    _analyticsMonths = parseInt(slider.value);
-    api.setSetting('analytics.months', String(_analyticsMonths));
-    if (_analyticsTab === 'balance') renderAnalyticsBalance();
-    else if (_analyticsTab === 'trend') renderAnalyticsTrend();
-    else if (_analyticsTab === 'health') renderAnalyticsHealth();
-    else renderAnalyticsCatMonth();
+  document.getElementById('analyticsEndYm').onchange = function() {
+    _analyticsEndYm = this.value;
+    api.setSetting('analytics.endYm', _analyticsEndYm);
+    _renderCurrentAnalyticsTab();
   };
-  if (_analyticsTab === 'balance') renderAnalyticsBalance();
-  else if (_analyticsTab === 'trend') renderAnalyticsTrend();
-  else if (_analyticsTab === 'health') renderAnalyticsHealth();
-  else renderAnalyticsCatMonth();
+
+  _renderCurrentAnalyticsTab();
 }
 
 let _analyticsTab = 'health';
 window._setAnalyticsExcludeCurrent = checked => {
   _analyticsExcludeCurrent = checked;
   api.setSetting('analytics.excludeCurrent', checked ? '1' : '0');
-  if (_analyticsTab === 'balance') renderAnalyticsBalance();
-  else if (_analyticsTab === 'trend') renderAnalyticsTrend();
-  else if (_analyticsTab === 'health') renderAnalyticsHealth();
-  else renderAnalyticsCatMonth();
+  // Se si esclude il mese corrente e la fine era il mese corrente, arretra
+  const now    = new Date();
+  const toYm   = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+  const curYm  = toYm(now);
+  const prevYm = toYm(new Date(now.getFullYear(), now.getMonth()-1, 1));
+  if (checked && _analyticsEndYm === curYm) _analyticsEndYm = prevYm;
+  api.setSetting('analytics.endYm', _analyticsEndYm);
+  renderAnalytics(); // ricostruisce toolbar con maxYm aggiornato
 };
 window._setAnalyticsTab = (tab, btn) => {
   _analyticsTab = tab;
@@ -5055,19 +5134,8 @@ async function renderAnalyticsCatMonth() {
   if (!el) return;
   el.innerHTML = '<p style="padding:20px;color:var(--text2)">Caricamento…</p>';
 
-  const months = _analyticsMonths;
-  const fetchMonths = _analyticsExcludeCurrent ? months + 1 : months;
+  const { fetchMonths, monthCols } = _analyticsMonthRange();
   const rows = await api.getCategoryMonthTable(fetchMonths);
-
-  const now = new Date();
-  const currentYm = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
-  const monthCols = [];
-  for (let i = fetchMonths - 1; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const ym = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
-    if (_analyticsExcludeCurrent && ym === currentYm) continue;
-    monthCols.push({ ym, label: d.toLocaleDateString('it-IT', { month: 'short', year: '2-digit' }) });
-  }
 
   const catMap = {};
   for (const r of rows) {
@@ -5162,19 +5230,8 @@ async function renderAnalyticsBalance() {
   if (!el) return;
   el.innerHTML = '<p style="padding:20px;color:var(--text2)">Caricamento…</p>';
 
-  const fetchMonths = _analyticsExcludeCurrent ? _analyticsMonths + 1 : _analyticsMonths;
+  const { fetchMonths, monthCols } = _analyticsMonthRange();
   const rows = await api.getMonthlyBalance(fetchMonths);
-
-  // Build full month grid
-  const now = new Date();
-  const currentYm = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
-  const monthCols = [];
-  for (let i = fetchMonths - 1; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const ym = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
-    if (_analyticsExcludeCurrent && ym === currentYm) continue;
-    monthCols.push({ ym, label: d.toLocaleDateString('it-IT', { month: 'short', year: '2-digit' }) });
-  }
 
   const byYm = {};
   for (const r of rows) byYm[r.ym] = r;
@@ -5270,20 +5327,8 @@ async function renderAnalyticsHealth() {
   if (!el) return;
   el.innerHTML = '<p style="padding:20px;color:var(--txt2)">Caricamento…</p>';
 
-  const fetchMonths = _analyticsExcludeCurrent ? _analyticsMonths + 1 : _analyticsMonths;
-  const now = new Date();
-  const currentYm = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
-
+  const { fetchMonths, monthCols } = _analyticsMonthRange();
   const balRows = await api.getMonthlyBalance(fetchMonths);
-
-  // ── Mesi validi (escludi corrente se richiesto) ───────────────────────────
-  const monthCols = [];
-  for (let i = fetchMonths - 1; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const ym = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
-    if (_analyticsExcludeCurrent && ym === currentYm) continue;
-    monthCols.push({ ym, label: d.toLocaleDateString('it-IT', { month: 'short', year: '2-digit' }) });
-  }
   const n = monthCols.length;
 
   // ── Dati bilancio per mese ────────────────────────────────────────────────
@@ -5663,18 +5708,8 @@ async function renderAnalyticsTrend() {
   if (!el) return;
   el.innerHTML = '<p style="padding:20px;color:var(--txt2)">Caricamento…</p>';
 
-  const fetchMonths = _analyticsExcludeCurrent ? _analyticsMonths + 1 : _analyticsMonths;
+  const { fetchMonths, monthCols } = _analyticsMonthRange();
   const rows = await api.getCategoryMonthTable(fetchMonths);
-
-  const now = new Date();
-  const currentYm = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
-  const monthCols = [];
-  for (let i = fetchMonths - 1; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const ym = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
-    if (_analyticsExcludeCurrent && ym === currentYm) continue;
-    monthCols.push({ ym, label: d.toLocaleDateString('it-IT', { month: 'short', year: '2-digit' }) });
-  }
 
   const catMap = {};
   for (const r of rows) {
@@ -9259,7 +9294,8 @@ async function init() {
   if (s['proj.mode'])    _projMode   = s['proj.mode'];
   if (s['cf.range'])     _cfRange    = s['cf.range'];
   if (s['cf.months'])    _cfMonths   = parseInt(s['cf.months'])   || 6;
-  if (s['analytics.months'])        _analyticsMonths        = parseInt(s['analytics.months']) || 12;
+  if (s['analytics.startYm'])        _analyticsStartYm        = s['analytics.startYm'];
+  if (s['analytics.endYm'])          _analyticsEndYm          = s['analytics.endYm'];
   if (s['analytics.excludeCurrent'] !== undefined) _analyticsExcludeCurrent = s['analytics.excludeCurrent'] !== '0';
   if (s['tx.range'])              txFilters           = { range: s['tx.range'], ...rangeToFilter(s['tx.range']) };
   if (s['portfolio.active_only']) _portfolioActiveOnly = s['portfolio.active_only'] !== '0';

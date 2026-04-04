@@ -5347,20 +5347,62 @@ async function renderAnalyticsHealth() {
         <button class="btn btn-ghost" onclick="window.print()" style="gap:6px">🖨️ Esporta PDF</button>
       </div>
 
-      <!-- Score + KPI -->
-      <div style="display:grid;grid-template-columns:auto 1fr 1fr 1fr 1fr;gap:12px;align-items:center;margin-bottom:20px">
-        <div style="text-align:center;padding:16px 24px;background:var(--bg3);border-radius:12px;min-width:110px">
-          <div style="font-size:42px;font-weight:700;color:${scoreColor};line-height:1">${score}</div>
-          <div style="font-size:11px;color:var(--txt3);margin-top:2px">/ 100</div>
-          <div style="font-size:13px;font-weight:600;color:${scoreColor};margin-top:4px">${scoreLabel}</div>
+      <!-- Score principale -->
+      <div style="display:grid;grid-template-columns:auto 1fr;gap:16px;margin-bottom:16px;align-items:stretch">
+        <div style="text-align:center;padding:20px 28px;background:var(--bg3);border-radius:12px;min-width:120px;display:flex;flex-direction:column;justify-content:center">
+          <div style="font-size:52px;font-weight:700;color:${scoreColor};line-height:1">${score}</div>
+          <div style="font-size:12px;color:var(--txt3);margin-top:2px">/ 100</div>
+          <div style="font-size:15px;font-weight:700;color:${scoreColor};margin-top:6px">${scoreLabel}</div>
         </div>
+        <!-- Scomposizione score -->
+        <div style="background:var(--bg3);border-radius:12px;padding:16px 20px;display:flex;flex-direction:column;gap:10px">
+          <div style="font-size:12px;font-weight:600;color:var(--txt2);margin-bottom:2px">Come è calcolato il punteggio</div>
+          ${[
+            {
+              label: 'Tasso di risparmio',
+              desc:  `Percentuale media di entrate risparmiata negli ultimi ${n} mesi. ≥25% = ottimo, ≥15% = buono, ≥5% = sufficiente.`,
+              got: scoreSavings, max: 40,
+              detail: `${avgSavingsRate.toFixed(1)}% medio → ${scoreSavings}/40 pt`,
+              col: scoreSavings>=30?'var(--income)':scoreSavings>=18?'#e8a838':'var(--expense)'
+            },
+            {
+              label: 'Stabilità mensile',
+              desc:  `Quanti mesi su ${n} hai chiuso in positivo (entrate > uscite).`,
+              got: scorePos, max: 30,
+              detail: `${posMonths}/${n} mesi positivi → ${scorePos}/30 pt`,
+              col: scorePos>=24?'var(--income)':scorePos>=15?'#e8a838':'var(--expense)'
+            },
+            {
+              label: 'Trend delle spese',
+              desc:  'Direzione della regressione lineare sulle uscite mensili. Spese calanti = buon segno, crescenti = attenzione.',
+              got: scoreTrend, max: 30,
+              detail: `${expSlope>0?'+':''}${fmt.currency(expSlope)}/mese → ${scoreTrend}/30 pt`,
+              col: scoreTrend>=25?'var(--income)':scoreTrend>=15?'#e8a838':'var(--expense)'
+            },
+          ].map(c=>`
+            <div>
+              <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:3px">
+                <span style="font-size:12px;font-weight:600">${c.label}</span>
+                <span style="font-size:12px;font-weight:700;color:${c.col}">${c.got}<span style="color:var(--txt3);font-weight:400">/${c.max}</span></span>
+              </div>
+              <div style="height:5px;background:var(--border);border-radius:3px;margin-bottom:4px">
+                <div style="width:${(c.got/c.max*100).toFixed(0)}%;height:100%;background:${c.col};border-radius:3px"></div>
+              </div>
+              <div style="font-size:11px;color:var(--txt3)">${c.desc}</div>
+              <div style="font-size:11px;color:var(--txt2);margin-top:1px">${c.detail}</div>
+            </div>`).join('')}
+        </div>
+      </div>
+
+      <!-- KPI cards -->
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px">
         ${[
           ['Entrate totali',  fmt.currency(totalIncome),  'var(--income)'],
           ['Uscite totali',   fmt.currency(totalExpense), 'var(--expense)'],
           ['Risparmio netto', fmt.currency(totalSavings), totalSavings>=0?'var(--income)':'var(--expense)'],
           ['Tasso risparmio', avgSavingsRate.toFixed(1)+'%', avgSavingsRate>=15?'var(--income)':avgSavingsRate>=0?'#e8a838':'var(--expense)'],
         ].map(([label,val,col])=>`
-          <div style="padding:16px;background:var(--bg3);border-radius:12px">
+          <div style="padding:14px 16px;background:var(--bg3);border-radius:12px">
             <div style="font-size:11px;color:var(--txt3);margin-bottom:4px">${label}</div>
             <div style="font-size:22px;font-weight:700;color:${col}">${val}</div>
             <div style="font-size:11px;color:var(--txt3);margin-top:2px">ultimi ${n} mesi</div>
@@ -5437,10 +5479,6 @@ async function renderAnalyticsHealth() {
         </table>
       </div>` : ''}
 
-      <!-- Nota score -->
-      <div style="font-size:11px;color:var(--txt3);text-align:right" class="no-print">
-        Score: tasso risparmio (0–40) + mesi in positivo (0–30) + trend spese (0–30)
-      </div>
     </div>`;
 
   // ── Grafico risparmio mensile ─────────────────────────────────────────────

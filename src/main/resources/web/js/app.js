@@ -5339,8 +5339,8 @@ function _renderAnalyticsTrendChart() {
 
   const cc = chartColors();
   const barColor = (cat.color && cat.color.startsWith('#') && cat.color.length === 7)
-    ? cat.color + 'dd'
-    : 'rgba(88,166,255,.87)';
+    ? cat.color + '66'
+    : 'rgba(88,166,255,.4)';
 
   if (_analyticsTrendChart) { _analyticsTrendChart.destroy(); _analyticsTrendChart = null; }
   _analyticsTrendChart = new Chart(document.getElementById('trendChart'), {
@@ -5348,8 +5348,8 @@ function _renderAnalyticsTrendChart() {
       labels,
       datasets: [
         { type: 'bar',  label: 'Importo',  data: values,    backgroundColor: barColor, order: 2 },
-        { type: 'line', label: 'Media',    data: avgData,   borderColor: 'rgba(255,200,50,.9)', borderWidth: 2, borderDash: [6, 4], pointRadius: 0, tension: 0, order: 1 },
-        { type: 'line', label: 'Trend',    data: trendData, borderColor: 'rgba(248,81,73,.85)', borderWidth: 2, borderDash: [4, 3], pointRadius: 0, tension: 0, order: 1 },
+        { type: 'line', label: 'Media',    data: avgData,   borderColor: 'rgba(255,200,50,1)',  borderWidth: 3, borderDash: [8, 4], pointRadius: 0, tension: 0, order: 1 },
+        { type: 'line', label: 'Trend',    data: trendData, borderColor: 'rgba(248,81,73,1)',   borderWidth: 3, borderDash: [5, 3], pointRadius: 0, tension: 0, order: 1 },
       ]
     },
     options: {

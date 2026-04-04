@@ -5322,7 +5322,7 @@ async function renderAnalyticsHealth() {
 
   // ── Score salute (0–100) ──────────────────────────────────────────────────
   // 1. Tasso risparmio (0–30 pt) — 8 soglie
-  const scoreSavings = avgSavingsRate >= 30 ? 30 : avgSavingsRate >= 25 ? 26 : avgSavingsRate >= 20 ? 22 : avgSavingsRate >= 15 ? 17 : avgSavingsRate >= 10 ? 12 : avgSavingsRate >= 5 ? 7 : avgSavingsRate > 0 ? 3 : 0;
+  const scoreSavings = avgSavingsRate >= 20 ? 30 : avgSavingsRate >= 15 ? 26 : avgSavingsRate >= 10 ? 22 : avgSavingsRate >= 7 ? 17 : avgSavingsRate >= 5 ? 12 : avgSavingsRate >= 3 ? 7 : avgSavingsRate > 0 ? 3 : 0;
   // 2. Stabilità mensile (0–20 pt) — 7 soglie %
   const posMonths = savings.filter(s => s > 0).length;
   const posPct = n > 0 ? posMonths / n : 0;
@@ -5373,7 +5373,7 @@ async function renderAnalyticsHealth() {
           ${[
             {
               label: 'Tasso di risparmio',
-              desc:  `Quota media di entrate risparmiata negli ultimi ${n} mesi. ≥30% = eccellente · ≥20% = buono · ≥10% = sufficiente · <5% = critico.`,
+              desc:  `Quota media di entrate risparmiata negli ultimi ${n} mesi. ≥20% = eccellente · ≥10% = buono · ≥5% = sufficiente · <3% = critico.`,
               got: scoreSavings, max: 30,
               detail: `${avgSavingsRate.toFixed(1)}% medio → ${scoreSavings}/30 pt`,
               col: scoreSavings>=22?'var(--income)':scoreSavings>=12?'#e8a838':'var(--expense)'

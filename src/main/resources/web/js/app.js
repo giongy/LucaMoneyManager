@@ -5442,8 +5442,8 @@ async function renderAnalyticsHealth() {
               <div style="height:5px;background:var(--border);border-radius:3px;margin-bottom:4px">
                 <div style="width:${Math.max(0,c.got/c.max*100).toFixed(0)}%;height:100%;background:${c.col};border-radius:3px"></div>
               </div>
-              <div style="font-size:11px;color:var(--txt3)">${c.desc}</div>
-              <div style="font-size:11px;color:var(--txt2);margin-top:1px">${c.detail}</div>
+              <div class="health-desc">${c.desc}</div>
+              <div class="health-desc" style="color:var(--txt2);margin-top:1px">${c.detail}</div>
             </div>`).join('')}
         </div>
       </div>
@@ -5472,7 +5472,7 @@ async function renderAnalyticsHealth() {
             <div style="font-size:13px;font-weight:600">Tasso di risparmio</div>
             <div style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;border:1px solid ${colS};color:${colS}">${scoreSavings > 0 ? '+' : ''}${scoreSavings} / 40 pt</div>
           </div>
-          <div style="font-size:11px;color:var(--txt3);margin-bottom:10px">
+          <div class="health-desc" style="margin-bottom:10px">
             Percentuale di entrate risparmiata ogni mese. Media: <strong style="color:${avgSavingsRate>=10?'var(--income)':avgSavingsRate>=0?'#e8a838':'var(--expense)'}">${avgSavingsRate.toFixed(1)}%</strong>.
             Soglie: ≥20% ottimo · ≥10% buono · ≥5% sufficiente · &lt;0% penalizza il punteggio.
           </div>
@@ -5485,7 +5485,7 @@ async function renderAnalyticsHealth() {
             <div style="font-size:13px;font-weight:600">Stabilità mensile</div>
             <div style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;border:1px solid ${colP};color:${colP}">${scorePos} / 20 pt</div>
           </div>
-          <div style="font-size:11px;color:var(--txt3);margin-bottom:12px">
+          <div class="health-desc" style="margin-bottom:12px">
             Mesi chiusi con entrate &gt; uscite: <strong style="color:${colP}">${posMonths} su ${n}</strong> (${(posPct*100).toFixed(0)}%).
             Tutti i mesi positivi = 20 pt.
           </div>
@@ -5514,7 +5514,7 @@ async function renderAnalyticsHealth() {
             <div style="font-size:13px;font-weight:600">Trend delle spese</div>
             <div style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;border:1px solid ${colT};color:${colT}">${scoreTrend} / 10 pt</div>
           </div>
-          <div style="font-size:11px;color:var(--txt3);margin-bottom:10px">
+          <div class="health-desc" style="margin-bottom:10px">
             Regressione lineare sulle uscite mensili. Pendenza: <strong style="color:${expSlopePct<=0?'var(--income)':'var(--expense)'}">${expSlopePct>=0?'+':''}${expSlopePct.toFixed(1)}%/mese</strong>
             (${expSlope>=0?'+':''}${fmt.currency(expSlope)}/mese). Spese calanti = migliore punteggio. La linea tratteggiata indica la tendenza.
             ${avgSavingsRate>=10?'<em style="color:var(--income)">Stai risparmiando ≥10%: punteggio minimo garantito a 5 — le spese crescenti sono meno allarmanti con un margine di risparmio ampio.</em>':avgSavingsRate>=5?'<em style="color:#e8a838">Risparmio ≥5%: punteggio minimo garantito a 2.</em>':''}
@@ -5528,7 +5528,7 @@ async function renderAnalyticsHealth() {
             <div style="font-size:13px;font-weight:600">Trend del risparmio</div>
             <div style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;border:1px solid ${colI};color:${colI}">${scoreIncTrend} / 20 pt</div>
           </div>
-          <div style="font-size:11px;color:var(--txt3);margin-bottom:10px">
+          <div class="health-desc" style="margin-bottom:10px">
             Regressione lineare sul <strong>risparmio mensile</strong> (entrate − uscite).
             Cattura insieme l'effetto di entrate e uscite: se le spese crescono mentre le entrate restano stabili, il risparmio scende e il punteggio peggiora.
             Pendenza attuale: <strong style="color:${savSlopePct>=0?'var(--income)':'var(--expense)'}">${savSlopePct>=0?'+':''}${savSlopePct.toFixed(1)}% del reddito/mese</strong>
@@ -5555,7 +5555,7 @@ async function renderAnalyticsHealth() {
             <div style="font-size:20px;font-weight:600;color:var(--txt2)">− ${fmt.currency(incStddev)}</div>
             <div style="font-size:10px;color:var(--txt3)">Semi-deviazione</div>
           </div>
-          <div style="font-size:11px;color:var(--txt3);padding-left:8px">
+          <div class="health-desc" style="padding-left:8px">
             Variabilità delle entrate <em>al ribasso</em> rispetto alla mediana di <strong>${fmt.currency(incMedian)}/mese</strong> (reddito tipico).
             I mesi con bonus non spostano il riferimento e non penalizzano — conta solo quanto scendi sotto il tuo reddito abituale.
             Semi-CV &lt; 3% = ottimo · &lt; 12% = buono · &lt; 20% = discreto · ≥ 30% = variabile.

@@ -4985,7 +4985,6 @@ window.deleteStock = async id => {
 let _analyticsStartYm       = null;  // "YYYY-MM" — null = default (primo mese DB)
 let _analyticsEndYm         = null;  // "YYYY-MM" — null = default (mese prec. o corrente)
 let _analyticsOldestYm      = null;  // cache primo mese disponibile in DB
-let _analyticsExcludeCurrent = true;
 
 /* Restituisce { fetchMonths, monthCols } pronti per i render function.
    fetchMonths = quanti mesi chiedere al DB (da startYm a oggi).
@@ -4997,7 +4996,7 @@ function _analyticsMonthRange() {
   const prevYm    = toYm(new Date(now.getFullYear(), now.getMonth()-1, 1));
 
   const startYm = _analyticsStartYm || _analyticsOldestYm || prevYm;
-  const endYm   = _analyticsEndYm   || (_analyticsExcludeCurrent ? prevYm : currentYm);
+  const endYm   = _analyticsEndYm   || prevYm;
 
   // quanti mesi dal startYm a oggi (per la query DB che parte sempre da oggi)
   const startDate = new Date(startYm + '-01');
@@ -5051,8 +5050,8 @@ async function renderAnalytics() {
   const curYm  = toYm(now);
   const oldestYm = _analyticsOldestYm || prevYm;
   if (!_analyticsStartYm) _analyticsStartYm = oldestYm;
-  if (!_analyticsEndYm)   _analyticsEndYm   = _analyticsExcludeCurrent ? prevYm : curYm;
-  const maxYm = _analyticsExcludeCurrent ? prevYm : curYm;
+  if (!_analyticsEndYm)   _analyticsEndYm   = prevYm;
+  const maxYm = curYm;
 
   const pg = document.getElementById('pg-analytics');
   pg.innerHTML = `
@@ -5073,11 +5072,6 @@ async function renderAnalytics() {
           <select id="analyticsEndYm" class="form-control" style="font-size:12px;padding:3px 6px">
             ${_buildMonthOptions(_analyticsStartYm, maxYm, _analyticsEndYm)}
           </select>
-          <label style="font-size:13px;color:var(--txt2);display:flex;align-items:center;gap:5px;cursor:pointer;margin-left:4px">
-            <input type="checkbox" id="analyticsExcludeCurrent" ${_analyticsExcludeCurrent?'checked':''}
-              onchange="_setAnalyticsExcludeCurrent(this.checked)">
-            Escludi mese corrente
-          </label>
         </div>
       </div>
       <div id="analyticsContent" style="flex:1;overflow:auto;padding-bottom:16px"></div>
@@ -5104,18 +5098,6 @@ async function renderAnalytics() {
 }
 
 let _analyticsTab = 'health';
-window._setAnalyticsExcludeCurrent = checked => {
-  _analyticsExcludeCurrent = checked;
-  api.setSetting('analytics.excludeCurrent', checked ? '1' : '0');
-  // Se si esclude il mese corrente e la fine era il mese corrente, arretra
-  const now    = new Date();
-  const toYm   = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
-  const curYm  = toYm(now);
-  const prevYm = toYm(new Date(now.getFullYear(), now.getMonth()-1, 1));
-  if (checked && _analyticsEndYm === curYm) _analyticsEndYm = prevYm;
-  api.setSetting('analytics.endYm', _analyticsEndYm);
-  renderAnalytics(); // ricostruisce toolbar con maxYm aggiornato
-};
 window._setAnalyticsTab = (tab, btn) => {
   _analyticsTab = tab;
   document.querySelectorAll('[data-atab]').forEach(b => b.classList.remove('active'));
@@ -9296,7 +9278,6 @@ async function init() {
   if (s['cf.months'])    _cfMonths   = parseInt(s['cf.months'])   || 6;
   if (s['analytics.startYm'])        _analyticsStartYm        = s['analytics.startYm'];
   if (s['analytics.endYm'])          _analyticsEndYm          = s['analytics.endYm'];
-  if (s['analytics.excludeCurrent'] !== undefined) _analyticsExcludeCurrent = s['analytics.excludeCurrent'] !== '0';
   if (s['tx.range'])              txFilters           = { range: s['tx.range'], ...rangeToFilter(s['tx.range']) };
   if (s['portfolio.active_only']) _portfolioActiveOnly = s['portfolio.active_only'] !== '0';
   await updateSidebar();

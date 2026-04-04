@@ -5388,10 +5388,6 @@ async function renderAnalyticsHealth() {
     <div id="healthReport" style="padding-bottom:24px">
 
       <!-- Toolbar stampa -->
-      <div style="display:flex;justify-content:flex-end;margin-bottom:12px" class="no-print">
-        <button class="btn btn-ghost" onclick="window.print()" style="gap:6px">🖨️ Esporta PDF</button>
-      </div>
-
       <!-- Score principale -->
       <div style="display:grid;grid-template-columns:auto 1fr;gap:16px;margin-bottom:16px;align-items:stretch">
         <div style="text-align:center;padding:20px 28px;background:var(--bg3);border-radius:12px;min-width:120px;display:flex;flex-direction:column;justify-content:center">

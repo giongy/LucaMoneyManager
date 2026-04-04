@@ -5312,21 +5312,21 @@ async function renderAnalyticsHealth() {
   const expSlope = expDen ? expNum/expDen : 0;
   const expSlopePct = expAvg ? expSlope / expAvg * 100 : 0;
   const scoreTrend = expSlopePct <= -3 ? 15 : expSlopePct <= -1 ? 13 : expSlopePct <= 0 ? 11 : expSlopePct < 1 ? 8 : expSlopePct < 3 ? 5 : expSlopePct < 5 ? 2 : 0;
-  // 4. Trend entrate (0–20 pt) — entrate crescenti = positivo
-  const incXMean = (n-1)/2, incAvg = incomes.reduce((a,b)=>a+b,0)/(n||1);
-  let incNum=0, incDen=0;
-  incomes.forEach((v,i)=>{ incNum+=(i-incXMean)*(v-incAvg); incDen+=(i-incXMean)**2; });
-  const incSlope = incDen ? incNum/incDen : 0;
-  const incSlopePct = incAvg ? incSlope / incAvg * 100 : 0;
-  const scoreIncTrend = incSlopePct > 3 ? 20 : incSlopePct > 1 ? 16 : incSlopePct >= 0 ? 11 : incSlopePct > -1 ? 7 : incSlopePct > -3 ? 3 : 0;
-  // 5. Volatilità entrate (0–15 pt) — coefficiente di variazione, basso = stabile = bene
-  // Semi-deviazione (downside) rispetto alla mediana:
-  // la mediana rappresenta il mese "tipico" → i bonus non distorcono il riferimento,
-  // e i mesi normali non risultano mai "sotto media" per colpa dei mesi ricchi.
+  // 4. Trend del risparmio (0–20 pt) — risparmio crescente = entrate/uscite in miglioramento
+  // Usa la mediana delle entrate come denominatore per normalizzare la pendenza in %:
+  // evita divisione per risparmi vicini a zero, e non è distorta dai mesi con bonus.
   const incSorted = [...incomes].sort((a,b) => a-b);
   const incMedian = n % 2 === 0
     ? (incSorted[n/2-1] + incSorted[n/2]) / 2
     : incSorted[Math.floor(n/2)];
+  const savXMean = (n-1)/2, savAvg = savings.reduce((a,b)=>a+b,0)/(n||1);
+  let savNum=0, savDen=0;
+  savings.forEach((v,i)=>{ savNum+=(i-savXMean)*(v-savAvg); savDen+=(i-savXMean)**2; });
+  const savSlope    = savDen ? savNum/savDen : 0;
+  const savSlopePct = incMedian > 0 ? savSlope / incMedian * 100 : 0;
+  const scoreIncTrend = savSlopePct > 3 ? 20 : savSlopePct > 1 ? 16 : savSlopePct >= 0 ? 11 : savSlopePct > -1 ? 7 : savSlopePct > -3 ? 3 : 0;
+  // 5. Volatilità entrate (0–15 pt) — coefficiente di variazione, basso = stabile = bene
+  // Semi-deviazione (downside) rispetto alla mediana:
   const incSemiVar = n > 1 ? incomes.reduce((a,v) => a + (v < incMedian ? (v-incMedian)**2 : 0), 0) / n : 0;
   const incStddev  = Math.sqrt(incSemiVar);
   const incCV      = incMedian > 0 ? incStddev / incMedian * 100 : 100;
@@ -5347,7 +5347,7 @@ async function renderAnalyticsHealth() {
   // ── Dati grafici dettaglio ────────────────────────────────────────────────
   const monthlyRates = monthCols.map((_,i) => incomes[i] > 0 ? +(savings[i] / incomes[i] * 100).toFixed(2) : 0);
   const expRegLine   = monthCols.map((_,i) => expAvg + expSlope * (i - expXMean));
-  const incRegLine   = monthCols.map((_,i) => incAvg + incSlope * (i - incXMean));
+  const savRegLine   = monthCols.map((_,i) => savAvg + savSlope * (i - savXMean));
   const labels       = monthCols.map(m => m.label);
 
   // ── HTML ──────────────────────────────────────────────────────────────────
@@ -5392,10 +5392,10 @@ async function renderAnalyticsHealth() {
               col: scoreTrend>=11?'var(--income)':scoreTrend>=5?'#e8a838':'var(--expense)'
             },
             {
-              label: 'Trend delle entrate',
-              desc:  `Direzione della regressione lineare sulle entrate. Entrate crescenti oltre +3%/mese = ottimo · stabili = sufficiente · calo oltre −3%/mese = critico.`,
+              label: 'Trend del risparmio',
+              desc:  `Direzione della regressione lineare sul risparmio mensile (entrate − uscite). Cattura insieme l'effetto di entrate e uscite: se le spese crescono e le entrate restano stabili, il risparmio scende. Pendenza normalizzata sul reddito mediano. Crescita &gt;+3%/mese = ottimo · stabile = sufficiente · calo &gt;−3%/mese = critico.`,
               got: scoreIncTrend, max: 20,
-              detail: `${incSlopePct>=0?'+':''}${incSlopePct.toFixed(1)}%/mese (${incSlope>=0?'+':''}${fmt.currency(incSlope)}) → ${scoreIncTrend}/20 pt`,
+              detail: `${savSlopePct>=0?'+':''}${savSlopePct.toFixed(1)}%/mese del reddito (${savSlope>=0?'+':''}${fmt.currency(savSlope)}/mese) → ${scoreIncTrend}/20 pt`,
               col: scoreIncTrend>=16?'var(--income)':scoreIncTrend>=7?'#e8a838':'var(--expense)'
             },
             {
@@ -5493,15 +5493,17 @@ async function renderAnalyticsHealth() {
           <div style="height:150px"><canvas id="healthExpChart"></canvas></div>
         </div>
 
-        <!-- Trend delle entrate -->
+        <!-- Trend del risparmio -->
         <div style="background:var(--bg3);border-radius:12px;padding:16px">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-            <div style="font-size:13px;font-weight:600">Trend delle entrate</div>
+            <div style="font-size:13px;font-weight:600">Trend del risparmio</div>
             <div style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;border:1px solid ${colI};color:${colI}">${scoreIncTrend} / 20 pt</div>
           </div>
           <div style="font-size:11px;color:var(--txt3);margin-bottom:10px">
-            Regressione lineare sulle entrate mensili. Pendenza: <strong style="color:${incSlopePct>=0?'var(--income)':'var(--expense)'}">${incSlopePct>=0?'+':''}${incSlopePct.toFixed(1)}%/mese</strong>
-            (${incSlope>=0?'+':''}${fmt.currency(incSlope)}/mese). Entrate crescenti = migliore punteggio. La linea tratteggiata indica la tendenza.
+            Regressione lineare sul <strong>risparmio mensile</strong> (entrate − uscite).
+            Cattura insieme l'effetto di entrate e uscite: se le spese crescono mentre le entrate restano stabili, il risparmio scende e il punteggio peggiora.
+            Pendenza attuale: <strong style="color:${savSlopePct>=0?'var(--income)':'var(--expense)'}">${savSlopePct>=0?'+':''}${savSlopePct.toFixed(1)}% del reddito/mese</strong>
+            (${savSlope>=0?'+':''}${fmt.currency(savSlope)}/mese). La linea tratteggiata indica la tendenza.
           </div>
           <div style="height:150px"><canvas id="healthIncChart"></canvas></div>
         </div>
@@ -5593,16 +5595,17 @@ async function renderAnalyticsHealth() {
     }
   });
 
-  // Trend entrate — linea reale + regressione tratteggiata
+  // Trend risparmio — barre colorate + regressione tratteggiata
   _healthIncChart = new Chart(document.getElementById('healthIncChart'), {
-    type:'line',
+    type:'bar',
     data:{
       labels,
       datasets:[
-        { label:'Entrate', data:incomes,
-          borderColor:'rgba(63,185,80,.8)', backgroundColor:'rgba(63,185,80,.1)',
-          pointRadius:3, tension:.3, fill:true, borderWidth:2 },
-        { label:'Tendenza', data:incRegLine,
+        { label:'Risparmio', data:savings,
+          backgroundColor: savings.map(s => s>=0?'rgba(63,185,80,.5)':'rgba(248,81,73,.5)'),
+          borderColor:      savings.map(s => s>=0?'rgba(63,185,80,.9)':'rgba(248,81,73,.9)'),
+          borderWidth:1 },
+        { type:'line', label:'Tendenza', data:savRegLine,
           borderColor:'rgba(255,200,80,.75)', borderDash:[6,3],
           pointRadius:0, tension:0, fill:false, borderWidth:2 }
       ]

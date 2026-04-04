@@ -5057,14 +5057,14 @@ async function renderAnalytics() {
   const pg = document.getElementById('pg-analytics');
   pg.innerHTML = `
     <div style="padding:16px 24px 0;display:flex;flex-direction:column;height:100%;overflow:hidden;box-sizing:border-box">
-      <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-shrink:0;flex-wrap:wrap">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-shrink:0">
         <div style="display:flex;gap:6px">
           <button class="sched-tab${_analyticsTab==='health'?' active':''}" data-atab="health" onclick="_setAnalyticsTab('health',this)">Salute Finanziaria</button>
           <button class="sched-tab${_analyticsTab==='catmonth'?' active':''}" data-atab="catmonth" onclick="_setAnalyticsTab('catmonth',this)">Categorie / Mese</button>
           <button class="sched-tab${_analyticsTab==='balance'?' active':''}" data-atab="balance" onclick="_setAnalyticsTab('balance',this)">Bilancio Mensile</button>
           <button class="sched-tab${_analyticsTab==='trend'?' active':''}" data-atab="trend" onclick="_setAnalyticsTab('trend',this)">Andamento Categoria</button>
         </div>
-        <div style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <div style="margin-left:auto;display:flex;gap:8px;align-items:center;white-space:nowrap">
           <label style="font-size:13px;color:var(--txt2)">Da:</label>
           <select id="analyticsStartYm" class="form-control" style="font-size:12px;padding:3px 6px">
             ${_buildMonthOptions(oldestYm, maxYm, _analyticsStartYm)}

@@ -5320,10 +5320,16 @@ async function renderAnalyticsHealth() {
   const incSlopePct = incAvg ? incSlope / incAvg * 100 : 0;
   const scoreIncTrend = incSlopePct > 3 ? 20 : incSlopePct > 1 ? 16 : incSlopePct >= 0 ? 11 : incSlopePct > -1 ? 7 : incSlopePct > -3 ? 3 : 0;
   // 5. Volatilità entrate (0–15 pt) — coefficiente di variazione, basso = stabile = bene
-  // Semi-deviazione (downside): conta solo i mesi sotto la media → i bonus non penalizzano
-  const incSemiVar = n > 1 ? incomes.reduce((a,v) => a + (v < incAvg ? (v-incAvg)**2 : 0), 0) / n : 0;
+  // Semi-deviazione (downside) rispetto alla mediana:
+  // la mediana rappresenta il mese "tipico" → i bonus non distorcono il riferimento,
+  // e i mesi normali non risultano mai "sotto media" per colpa dei mesi ricchi.
+  const incSorted = [...incomes].sort((a,b) => a-b);
+  const incMedian = n % 2 === 0
+    ? (incSorted[n/2-1] + incSorted[n/2]) / 2
+    : incSorted[Math.floor(n/2)];
+  const incSemiVar = n > 1 ? incomes.reduce((a,v) => a + (v < incMedian ? (v-incMedian)**2 : 0), 0) / n : 0;
   const incStddev  = Math.sqrt(incSemiVar);
-  const incCV      = incAvg > 0 ? incStddev / incAvg * 100 : 100;
+  const incCV      = incMedian > 0 ? incStddev / incMedian * 100 : 100;
   const scoreVol   = n < 2 ? 0 : incCV < 3 ? 15 : incCV < 6 ? 13 : incCV < 12 ? 10 : incCV < 20 ? 6 : incCV < 30 ? 2 : 0;
   const score = Math.min(100, scoreSavings + scorePos + scoreTrend + scoreIncTrend + scoreVol);
   const scoreColor = score >= 75 ? 'var(--income)' : score >= 50 ? '#e8a838' : score >= 30 ? '#e07020' : 'var(--expense)';
@@ -5394,7 +5400,7 @@ async function renderAnalyticsHealth() {
             },
             {
               label: 'Stabilità delle entrate',
-              desc:  `Semi-deviazione delle entrate (solo mesi sotto la media — i bonus non penalizzano). CV &lt; 3% = ottimo · &lt; 12% = buono · ≥ 30% = molto variabile.`,
+              desc:  `Semi-deviazione rispetto alla mediana (solo mesi sotto il reddito tipico — i bonus non spostano il riferimento). Semi-CV &lt; 3% = ottimo · &lt; 12% = buono · ≥ 30% = variabile.`,
               got: scoreVol, max: 15,
               detail: `Semi-CV ${incCV.toFixed(1)}% → ${scoreVol}/15 pt`,
               col: scoreVol>=10?'var(--income)':scoreVol>=6?'#e8a838':'var(--expense)'
@@ -5518,8 +5524,8 @@ async function renderAnalyticsHealth() {
             <div style="font-size:10px;color:var(--txt3)">Semi-deviazione</div>
           </div>
           <div style="font-size:11px;color:var(--txt3);padding-left:8px">
-            Variabilità delle entrate <em>al ribasso</em> rispetto alla media di <strong>${fmt.currency(incAvg)}/mese</strong>.
-            I mesi con bonus o entrate extra non penalizzano — conta solo quanto scendi sotto la media.
+            Variabilità delle entrate <em>al ribasso</em> rispetto alla mediana di <strong>${fmt.currency(incMedian)}/mese</strong> (reddito tipico).
+            I mesi con bonus non spostano il riferimento e non penalizzano — conta solo quanto scendi sotto il tuo reddito abituale.
             Semi-CV &lt; 3% = ottimo · &lt; 12% = buono · &lt; 20% = discreto · ≥ 30% = variabile.
             ${n < 2 ? ' &nbsp;<em style="color:var(--expense)">Dati insufficienti: servono almeno 2 mesi.</em>' : ''}
           </div>
@@ -5616,10 +5622,10 @@ async function renderAnalyticsHealth() {
       datasets:[
         { label:'Entrate', data:incomes,
           backgroundColor:'rgba(63,185,80,.4)', borderColor:'rgba(63,185,80,.7)', borderWidth:1 },
-        { type:'line', label:'Media', data:Array(n).fill(incAvg),
+        { type:'line', label:'Mediana', data:Array(n).fill(incMedian),
           borderColor:'rgba(232,168,56,.85)', borderDash:[5,3],
           pointRadius:0, fill:false, borderWidth:2 },
-        { type:'line', label:'Soglia −1σ', data:Array(n).fill(Math.max(0, incAvg-incStddev)),
+        { type:'line', label:'Soglia −1σ', data:Array(n).fill(Math.max(0, incMedian-incStddev)),
           borderColor:'rgba(248,81,73,.4)', borderDash:[3,4],
           pointRadius:0, fill:false, borderWidth:1 },
       ]

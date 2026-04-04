@@ -5338,6 +5338,9 @@ function _renderAnalyticsTrendChart() {
   const trendData = values.map((_, i) => Math.max(0, intercept + slope * i));
 
   const cc = chartColors();
+  const t = document.documentElement.dataset.theme;
+  const lineBlue   = t === 'carta' ? 'rgba(20,70,190,1)'  : t === 'vinaccia' ? 'rgba(110,155,255,1)' : 'rgba(100,160,255,1)';
+  const linePurple = t === 'carta' ? 'rgba(100,30,190,1)' : t === 'vinaccia' ? 'rgba(195,130,255,1)' : 'rgba(185,120,255,1)';
   const barColor = (cat.color && cat.color.startsWith('#') && cat.color.length === 7)
     ? cat.color + '66'
     : 'rgba(88,166,255,.4)';
@@ -5352,7 +5355,7 @@ function _renderAnalyticsTrendChart() {
         const meta = chart.getDatasetMeta(i);
         if (!meta.visible) return;
         ctx.save();
-        ctx.font = 'bold 10px sans-serif';
+        ctx.font = 'bold 12px sans-serif';
         ctx.fillStyle = ds.borderColor;
         ctx.textAlign = 'center';
         meta.data.forEach((pt, j) => {
@@ -5373,8 +5376,8 @@ function _renderAnalyticsTrendChart() {
       labels,
       datasets: [
         { type: 'bar',  label: 'Importo',  data: values,    backgroundColor: barColor, order: 2 },
-        { type: 'line', label: 'Media',    data: avgData,   borderColor: 'rgba(60,120,255,1)',  borderWidth: 3, borderDash: [8, 4], pointRadius: 0, tension: 0, order: 1 },
-        { type: 'line', label: 'Trend',    data: trendData, borderColor: 'rgba(180,100,255,1)', borderWidth: 3, pointRadius: 0, tension: 0, order: 1 },
+        { type: 'line', label: 'Media',    data: avgData,   borderColor: lineBlue,   borderWidth: 3, borderDash: [8, 4], pointRadius: 0, tension: 0, order: 1 },
+        { type: 'line', label: 'Trend',    data: trendData, borderColor: linePurple, borderWidth: 3, pointRadius: 0, tension: 0, order: 1 },
       ]
     },
     options: {

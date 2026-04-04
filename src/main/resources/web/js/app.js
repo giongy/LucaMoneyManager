@@ -5300,6 +5300,7 @@ async function renderAnalyticsTrend() {
       <select id="trendCatSelect" class="form-control" style="min-width:240px;max-width:360px">
         ${cats.map(c => `<option value="${c.id}"${c.id === _analyticsTrendCatId ? ' selected' : ''}>${optLabel(c)}</option>`).join('')}
       </select>
+      <div id="trendSlopeInfo" style="margin-left:8px;font-size:13px"></div>
     </div>
     <div style="position:relative;height:380px"><canvas id="trendChart"></canvas></div>`;
 
@@ -5336,6 +5337,19 @@ function _renderAnalyticsTrendChart() {
   const slope = den ? num / den : 0;
   const intercept = avg - slope * xMean;
   const trendData = values.map((_, i) => Math.max(0, intercept + slope * i));
+
+  // Mostra pendenza leggibile
+  const slopeEl = document.getElementById('trendSlopeInfo');
+  if (slopeEl && n >= 2) {
+    const sign = slope >= 0 ? '+' : '';
+    const pctYear = avg ? (slope * 12 / avg * 100) : 0;
+    const pctSign = pctYear >= 0 ? '+' : '';
+    const color = slope >= 0 ? 'var(--expense)' : 'var(--income)';
+    slopeEl.innerHTML = `<span style="color:${color};font-weight:600">${sign}${fmt.currency(slope)}/mese</span>`
+      + `<span style="color:var(--txt3);margin-left:8px">(${pctSign}${pctYear.toFixed(1)}%/anno)</span>`;
+  } else if (slopeEl) {
+    slopeEl.innerHTML = '';
+  }
 
   const cc = chartColors();
   const t = document.documentElement.dataset.theme;

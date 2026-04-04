@@ -5311,7 +5311,9 @@ async function renderAnalyticsHealth() {
   expenses.forEach((v,i)=>{ expNum+=(i-expXMean)*(v-expAvg); expDen+=(i-expXMean)**2; });
   const expSlope = expDen ? expNum/expDen : 0;
   const expSlopePct = expAvg ? expSlope / expAvg * 100 : 0;
-  const scoreTrend = expSlopePct <= -3 ? 15 : expSlopePct <= -1 ? 13 : expSlopePct <= 0 ? 11 : expSlopePct < 1 ? 8 : expSlopePct < 3 ? 5 : expSlopePct < 5 ? 2 : 0;
+  const scoreTrendRaw = expSlopePct <= -3 ? 15 : expSlopePct <= -1 ? 13 : expSlopePct <= 0 ? 11 : expSlopePct < 1 ? 8 : expSlopePct < 3 ? 5 : expSlopePct < 5 ? 2 : 0;
+  // Attenuazione: spese crescenti sono meno allarmanti se stai risparmiando bene
+  const scoreTrend = avgSavingsRate >= 10 ? Math.max(scoreTrendRaw, 5) : avgSavingsRate >= 5 ? Math.max(scoreTrendRaw, 2) : scoreTrendRaw;
   // 4. Trend del risparmio (0–20 pt) — risparmio crescente = entrate/uscite in miglioramento
   // Usa la mediana delle entrate come denominatore per normalizzare la pendenza in %:
   // evita divisione per risparmi vicini a zero, e non è distorta dai mesi con bonus.
@@ -5324,7 +5326,11 @@ async function renderAnalyticsHealth() {
   savings.forEach((v,i)=>{ savNum+=(i-savXMean)*(v-savAvg); savDen+=(i-savXMean)**2; });
   const savSlope    = savDen ? savNum/savDen : 0;
   const savSlopePct = incMedian > 0 ? savSlope / incMedian * 100 : 0;
-  const scoreIncTrend = savSlopePct > 3 ? 20 : savSlopePct > 1 ? 16 : savSlopePct >= 0 ? 11 : savSlopePct > -1 ? 7 : savSlopePct > -3 ? 3 : 0;
+  const scoreIncTrendRaw = savSlopePct > 3 ? 20 : savSlopePct > 1 ? 16 : savSlopePct >= 0 ? 11 : savSlopePct > -1 ? 7 : savSlopePct > -3 ? 3 : 0;
+  // Attenuazione: calo di tendenza è meno grave se tutti i mesi sono positivi e risparmi bene
+  const scoreIncTrend = (posPct === 1 && avgSavingsRate >= 10) ? Math.max(scoreIncTrendRaw, 8)
+    : (posPct >= 0.75 && avgSavingsRate >= 5) ? Math.max(scoreIncTrendRaw, 4)
+    : scoreIncTrendRaw;
   // 5. Volatilità entrate (0–15 pt) — coefficiente di variazione, basso = stabile = bene
   // Semi-deviazione (downside) rispetto alla mediana:
   const incSemiVar = n > 1 ? incomes.reduce((a,v) => a + (v < incMedian ? (v-incMedian)**2 : 0), 0) / n : 0;
@@ -5386,14 +5392,14 @@ async function renderAnalyticsHealth() {
             },
             {
               label: 'Trend delle spese',
-              desc:  `Direzione della regressione lineare sulle uscite. Calanti ≤−3%/mese = ottimo · stabili = sufficiente · crescenti >+5%/mese = critico.`,
+              desc:  `Direzione della regressione lineare sulle uscite. Calanti ≤−3%/mese = ottimo · stabili = sufficiente · crescenti >+5%/mese = critico. Se stai risparmiando bene (≥10%) il punteggio minimo è 5 — spese crescenti sono meno allarmanti quando il margine è ampio.`,
               got: scoreTrend, max: 15,
               detail: `${expSlopePct>=0?'+':''}${expSlopePct.toFixed(1)}%/mese (${expSlope>=0?'+':''}${fmt.currency(expSlope)}) → ${scoreTrend}/15 pt`,
               col: scoreTrend>=11?'var(--income)':scoreTrend>=5?'#e8a838':'var(--expense)'
             },
             {
               label: 'Trend del risparmio',
-              desc:  `Direzione della regressione lineare sul risparmio mensile (entrate − uscite). Cattura insieme l'effetto di entrate e uscite: se le spese crescono e le entrate restano stabili, il risparmio scende. Pendenza normalizzata sul reddito mediano. Crescita &gt;+3%/mese = ottimo · stabile = sufficiente · calo &gt;−3%/mese = critico.`,
+              desc:  `Direzione della regressione lineare sul risparmio mensile (entrate − uscite). Cattura insieme l'effetto di entrate e uscite: se le spese crescono e le entrate restano stabili, il risparmio scende. Pendenza normalizzata sul reddito mediano. Crescita &gt;+3%/mese = ottimo · stabile = sufficiente · calo &gt;−3%/mese = critico. Se tutti i mesi sono positivi e risparmi ≥10%, il punteggio minimo è 8 — un calo di tendenza conta meno quando sei sempre in attivo.`,
               got: scoreIncTrend, max: 20,
               detail: `${savSlopePct>=0?'+':''}${savSlopePct.toFixed(1)}%/mese del reddito (${savSlope>=0?'+':''}${fmt.currency(savSlope)}/mese) → ${scoreIncTrend}/20 pt`,
               col: scoreIncTrend>=16?'var(--income)':scoreIncTrend>=7?'#e8a838':'var(--expense)'
@@ -5489,6 +5495,7 @@ async function renderAnalyticsHealth() {
           <div style="font-size:11px;color:var(--txt3);margin-bottom:10px">
             Regressione lineare sulle uscite mensili. Pendenza: <strong style="color:${expSlopePct<=0?'var(--income)':'var(--expense)'}">${expSlopePct>=0?'+':''}${expSlopePct.toFixed(1)}%/mese</strong>
             (${expSlope>=0?'+':''}${fmt.currency(expSlope)}/mese). Spese calanti = migliore punteggio. La linea tratteggiata indica la tendenza.
+            ${avgSavingsRate>=10?'<em style="color:var(--income)">Stai risparmiando ≥10%: punteggio minimo garantito a 5 — le spese crescenti sono meno allarmanti con un margine di risparmio ampio.</em>':avgSavingsRate>=5?'<em style="color:#e8a838">Risparmio ≥5%: punteggio minimo garantito a 2.</em>':''}
           </div>
           <div style="height:150px"><canvas id="healthExpChart"></canvas></div>
         </div>
@@ -5504,6 +5511,7 @@ async function renderAnalyticsHealth() {
             Cattura insieme l'effetto di entrate e uscite: se le spese crescono mentre le entrate restano stabili, il risparmio scende e il punteggio peggiora.
             Pendenza attuale: <strong style="color:${savSlopePct>=0?'var(--income)':'var(--expense)'}">${savSlopePct>=0?'+':''}${savSlopePct.toFixed(1)}% del reddito/mese</strong>
             (${savSlope>=0?'+':''}${fmt.currency(savSlope)}/mese). La linea tratteggiata indica la tendenza.
+            ${(posPct===1&&avgSavingsRate>=10)?'<em style="color:var(--income)">Tutti i mesi in attivo con risparmio ≥10%: punteggio minimo garantito a 8.</em>':(posPct>=0.75&&avgSavingsRate>=5)?'<em style="color:#e8a838">Situazione complessivamente positiva: punteggio minimo garantito a 4.</em>':''}
           </div>
           <div style="height:150px"><canvas id="healthIncChart"></canvas></div>
         </div>

@@ -640,7 +640,7 @@ function _renderDashAccountsWidget(accounts) {
         <tr class="acc-total-row">
           <td colspan="3">
             <div style="display:flex;align-items:center;gap:0">
-              <span style="flex:1;display:flex;align-items:center;gap:8px">
+              <span class="flex-center-8" style="flex:1">
                 <span>Totale Conti:</span>
                 <span class="acc-bal" style="color:${contiBalance<0?'var(--expense)':'var(--income)'}">${fmt.currency(contiBalance)}</span>
               </span>
@@ -1533,7 +1533,7 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
     <div class="form-row">
       <div class="form-group">
         <label class="form-label">Colore riga <span class="settings-hint">(opzionale)</span></label>
-        <div style="display:flex;align-items:center;gap:8px">
+        <div class="flex-center-8">
           <input type="color" id="f_color" class="form-color-tx" value="${tx?.color||'#ffffff'}">
           <label class="settings-hint" style="display:flex;align-items:center;gap:6px;cursor:pointer">
             <input type="checkbox" id="f_color_use" ${tx?.color?'checked':''} style="margin:0">
@@ -1574,7 +1574,7 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
         <label class="form-label">Allegato</label>
         <div id="attachDisplay">
           ${tx.attachment_path
-            ? `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            ? `<div class="flex-center-8" style="flex-wrap:wrap">
                  <span class="settings-hint" style="word-break:break-all">${tx.attachment_path}</span>
                  <button type="button" class="btn btn-ghost btn-sm" onclick="modalOpenAttachment()">📂 Apri</button>
                  <button type="button" class="btn btn-ghost btn-sm" onclick="modalRemoveAttachment()">🗑️ Rimuovi</button>
@@ -1630,7 +1630,7 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
       const el = document.getElementById('attachDisplay');
       if (!el) return;
       if (path) {
-        el.innerHTML = `<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+        el.innerHTML = `<div class="flex-center-8" style="flex-wrap:wrap">
           <span class="settings-hint" style="word-break:break-all">${path}</span>
           <button type="button" class="btn btn-ghost btn-sm" onclick="modalOpenAttachment()">📂 Apri</button>
           <button type="button" class="btn btn-ghost btn-sm" onclick="modalRemoveAttachment()">🗑️ Rimuovi</button>
@@ -3151,7 +3151,7 @@ function renderBudgetScostamenti() {
             <td style="${tdS};text-align:right;font-variant-numeric:tabular-nums;color:${pctCol}">${diffStr}</td>
             <td style="${tdS};text-align:right;font-weight:600;color:${pctCol}">${pctStr}</td>
             <td style="${tdS}">
-              <div style="display:flex;align-items:center;gap:8px">
+              <div class="flex-center-8">
                 <div style="flex:1;height:14px;background:var(--bg3);border-radius:3px;overflow:hidden;position:relative">
                   ${hasActual?`<div style="position:absolute;right:0;top:0;height:100%;width:${barW}%;background:${barBg};border-radius:3px"></div>`:''}
                 </div>
@@ -3502,16 +3502,16 @@ async function showGenerateBudgetModal() {
   openModal(`Genera budget ${budgetYear}`,
     `<div class="form-group">
        <label class="form-label">Basare i valori su:</label>
-       <label style="display:flex;align-items:center;gap:8px;margin:8px 0;cursor:pointer">
+       <label class="flex-center-8" style="margin:8px 0;cursor:pointer">
          <input type="radio" name="bg_source" value="history" checked>
          Storico ${prevYear} — copia le entrate/uscite effettive per categoria
        </label>
-       <label style="display:flex;align-items:center;gap:8px;margin:8px 0;cursor:pointer">
+       <label class="flex-center-8" style="margin:8px 0;cursor:pointer">
          <input type="radio" name="bg_source" value="copy">
          Copia da budget anno
          <select id="bg_copy_year" style="margin-left:4px">${yearOpts}</select>
        </label>
-       <label style="display:flex;align-items:center;gap:8px;margin:8px 0;cursor:pointer">
+       <label class="flex-center-8" style="margin:8px 0;cursor:pointer">
          <input type="radio" name="bg_source" value="zero">
          Valori a zero — compila manualmente le celle
        </label>
@@ -3583,7 +3583,7 @@ async function renderPortfolio() {
                color:${_portfolioTab==='analisi'?'var(--accent)':'var(--txt2)'};font-weight:${_portfolioTab==='analisi'?'600':'400'};
                padding:8px 18px;background:none">📊 Analisi</button>
       ${investAccounts.length && _portfolioTab==='portfolio' ? `
-        <div style="margin-left:auto;display:flex;align-items:center;gap:8px;padding-bottom:2px">
+        <div class="flex-center-8" style="margin-left:auto;padding-bottom:2px">
           <div class="theme-toggle-group">
             <button class="btn theme-btn ${_portfolioActiveOnly?'theme-btn-active':''}"  onclick="_setPortfolioFilter(true)">Solo attivi</button>
             <button class="btn theme-btn ${!_portfolioActiveOnly?'theme-btn-active':''}" onclick="_setPortfolioFilter(false)">Tutti</button>
@@ -5395,7 +5395,7 @@ async function renderAnalyticsHealth() {
           <div style="font-size:15px;font-weight:700;color:${scoreColor};margin-top:6px">${scoreLabel}</div>
         </div>
         <!-- Scomposizione score -->
-        <div style="background:var(--bg3);border-radius:12px;padding:16px 20px;display:flex;flex-direction:column;gap:10px">
+        <div class="card-section" style="padding:16px 20px;display:flex;flex-direction:column;gap:10px">
           <div style="font-size:12px;font-weight:600;color:var(--txt2);margin-bottom:2px">Come è calcolato il punteggio</div>
           ${[
             {
@@ -5467,10 +5467,10 @@ async function renderAnalyticsHealth() {
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
 
         <!-- Tasso di risparmio -->
-        <div style="background:var(--bg3);border-radius:12px;padding:16px">
+        <div class="card-section">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
             <div style="font-size:13px;font-weight:600">Tasso di risparmio</div>
-            <div style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;border:1px solid ${colS};color:${colS}">${scoreSavings > 0 ? '+' : ''}${scoreSavings} / 40 pt</div>
+            <div class="score-badge" style="color:${colS}">${scoreSavings > 0 ? '+' : ''}${scoreSavings} / 40 pt</div>
           </div>
           <div class="health-desc" style="margin-bottom:10px">
             Percentuale di entrate risparmiata ogni mese. Media: <strong style="color:${avgSavingsRate>=10?'var(--income)':avgSavingsRate>=0?'#e8a838':'var(--expense)'}">${avgSavingsRate.toFixed(1)}%</strong>.
@@ -5480,10 +5480,10 @@ async function renderAnalyticsHealth() {
         </div>
 
         <!-- Stabilità mensile -->
-        <div style="background:var(--bg3);border-radius:12px;padding:16px">
+        <div class="card-section">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
             <div style="font-size:13px;font-weight:600">Stabilità mensile</div>
-            <div style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;border:1px solid ${colP};color:${colP}">${scorePos} / 20 pt</div>
+            <div class="score-badge" style="color:${colP}">${scorePos} / 20 pt</div>
           </div>
           <div class="health-desc" style="margin-bottom:12px">
             Mesi chiusi con entrate &gt; uscite: <strong style="color:${colP}">${posMonths} su ${n}</strong> (${(posPct*100).toFixed(0)}%).
@@ -5509,10 +5509,10 @@ async function renderAnalyticsHealth() {
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
 
         <!-- Trend delle spese -->
-        <div style="background:var(--bg3);border-radius:12px;padding:16px">
+        <div class="card-section">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
             <div style="font-size:13px;font-weight:600">Trend delle spese</div>
-            <div style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;border:1px solid ${colT};color:${colT}">${scoreTrend} / 10 pt</div>
+            <div class="score-badge" style="color:${colT}">${scoreTrend} / 10 pt</div>
           </div>
           <div class="health-desc" style="margin-bottom:10px">
             Regressione lineare sulle uscite mensili. Pendenza: <strong style="color:${expSlopePct<=0?'var(--income)':'var(--expense)'}">${expSlopePct>=0?'+':''}${expSlopePct.toFixed(1)}%/mese</strong>
@@ -5523,10 +5523,10 @@ async function renderAnalyticsHealth() {
         </div>
 
         <!-- Trend del risparmio -->
-        <div style="background:var(--bg3);border-radius:12px;padding:16px">
+        <div class="card-section">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
             <div style="font-size:13px;font-weight:600">Trend del risparmio</div>
-            <div style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;border:1px solid ${colI};color:${colI}">${scoreIncTrend} / 20 pt</div>
+            <div class="score-badge" style="color:${colI}">${scoreIncTrend} / 20 pt</div>
           </div>
           <div class="health-desc" style="margin-bottom:10px">
             Regressione lineare sul <strong>risparmio mensile</strong> (entrate − uscite).
@@ -5540,10 +5540,10 @@ async function renderAnalyticsHealth() {
       </div>
 
       <!-- Riga 3: Stabilità entrate (full width) -->
-      <div style="background:var(--bg3);border-radius:12px;padding:16px;margin-bottom:16px">
+      <div class="card-section" style="margin-bottom:16px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
           <div style="font-size:13px;font-weight:600">Stabilità delle entrate</div>
-          <div style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px;border:1px solid ${colV};color:${colV}">${scoreVol} / 10 pt</div>
+          <div class="score-badge" style="color:${colV}">${scoreVol} / 10 pt</div>
         </div>
         <div style="display:grid;grid-template-columns:auto auto auto 1fr;gap:16px;align-items:center;margin-bottom:12px">
           <div>
@@ -5829,7 +5829,7 @@ async function renderReports() {
   pg.innerHTML = `
     <div class="page-header">
       <h2 class="page-title">Resoconti</h2>
-      <div style="display:flex;align-items:center;gap:8px">
+      <div class="flex-center-8">
         <span id="rCurrentLabel" style="font-size:12px;color:var(--txt3)"></span>
         <button class="btn btn-primary" onclick="showReportModal()">＋ Nuovo resoconto</button>
       </div>
@@ -6567,7 +6567,7 @@ async function renderSettings() {
           </div>
           <div class="settings-control" style="display:flex;flex-direction:column;gap:4px">
             <span class="settings-hint" id="logPathText" style="word-break:break-all;font-family:monospace">—</span>
-            <div style="display:flex;align-items:center;gap:8px">
+            <div class="flex-center-8">
               <span class="settings-hint" id="logSizeText">—</span>
               <button class="btn btn-ghost" style="white-space:nowrap;padding:2px 8px;font-size:11px"
                       onclick="callJava('openLogFolder')">Apri cartella ↗</button>
@@ -6626,7 +6626,7 @@ async function renderSettings() {
           <span class="settings-info-label">Database</span>
           <span class="settings-info-value">${s['db.path'] || '—'}</span>
           <span class="settings-info-label">Impostazioni</span>
-          <span class="settings-info-value" style="display:flex;align-items:center;gap:8px">
+          <span class="settings-info-value flex-center-8">
             <span style="word-break:break-all">${s['_settings_path'] || '—'}</span>
             <button class="btn btn-ghost" style="white-space:nowrap;padding:2px 8px;font-size:11px"
                     onclick="api.openSettingsFile()">Apri ↗</button>
@@ -9000,7 +9000,7 @@ function showScheduledModal(sched, accounts, categories, tags = []) {
     <div class="form-row">
       <div class="form-group">
         <label class="form-label">Colore riga <span class="settings-hint">(opzionale)</span></label>
-        <div style="display:flex;align-items:center;gap:8px">
+        <div class="flex-center-8">
           <input type="color" id="sc_color" class="form-color-tx" value="${sched?.color||'#ffffff'}">
           <label class="settings-hint" style="display:flex;align-items:center;gap:6px;cursor:pointer">
             <input type="checkbox" id="sc_color_use" ${sched?.color?'checked':''} style="margin:0">
@@ -9010,7 +9010,7 @@ function showScheduledModal(sched, accounts, categories, tags = []) {
       </div>
       <div class="form-group">
         <label class="form-label">Attivo</label>
-        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-top:6px">
+        <label class="flex-center-8" style="cursor:pointer;margin-top:6px">
           <input type="checkbox" id="sc_active" ${sched?.is_active!==0?'checked':''} style="margin:0">
           Transazione attiva
         </label>

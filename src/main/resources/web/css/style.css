@@ -1077,6 +1077,9 @@ tr.tx-selected td { background:rgba(88,166,255,.07); }
 .analytics-section-header td { background:var(--bg3); color:var(--txt2); font-size:var(--fs-xs,10px); font-weight:700; text-transform:uppercase; letter-spacing:.06em; padding:5px 10px; }
 .analytics-subtotal td { font-weight:700; background:var(--bg2); border-top:2px solid var(--border); }
 .health-desc { font-size:13px; color:var(--txt3); }
+.score-badge { font-size:11px; font-weight:700; padding:2px 8px; border-radius:20px; border:1px solid currentColor; }
+.card-section { background:var(--bg3); border-radius:12px; padding:16px; }
+.flex-center-8 { display:flex; align-items:center; gap:8px; }
 
 /* ─── Reports layout ─────────────────────────────────────────────────────── */
 .report-amt-row { display:flex; gap:6px; }

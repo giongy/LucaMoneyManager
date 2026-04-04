@@ -5326,12 +5326,6 @@ function _renderAnalyticsTrendChart() {
   const avg = n ? sum / n : 0;
   const avgData = values.map(() => avg);
 
-  // Media mobile a 3 mesi
-  const maData = values.map((_, i) => {
-    const slice = values.slice(Math.max(0, i - 2), i + 1);
-    return slice.reduce((a, b) => a + b, 0) / slice.length;
-  });
-
   // Trend (regressione lineare)
   const xMean = (n - 1) / 2;
   let num = 0, den = 0;
@@ -5345,18 +5339,17 @@ function _renderAnalyticsTrendChart() {
 
   const cc = chartColors();
   const barColor = (cat.color && cat.color.startsWith('#') && cat.color.length === 7)
-    ? cat.color + 'bb'
-    : 'rgba(88,166,255,.7)';
+    ? cat.color + 'dd'
+    : 'rgba(88,166,255,.87)';
 
   if (_analyticsTrendChart) { _analyticsTrendChart.destroy(); _analyticsTrendChart = null; }
   _analyticsTrendChart = new Chart(document.getElementById('trendChart'), {
     data: {
       labels,
       datasets: [
-        { type: 'bar',  label: 'Importo',             data: values,   backgroundColor: barColor, order: 2 },
-        { type: 'line', label: 'Media',                data: avgData,  borderColor: 'rgba(255,200,50,.9)',  borderWidth: 2, borderDash: [6, 4], pointRadius: 0, tension: 0, order: 1 },
-        { type: 'line', label: 'Media mobile (3m)',    data: maData,   borderColor: 'rgba(88,200,255,.9)',  borderWidth: 2, pointRadius: 2, tension: 0.4, order: 1 },
-        { type: 'line', label: 'Trend',                data: trendData,borderColor: 'rgba(248,81,73,.85)',  borderWidth: 2, borderDash: [4, 3], pointRadius: 0, tension: 0, order: 1 },
+        { type: 'bar',  label: 'Importo',  data: values,    backgroundColor: barColor, order: 2 },
+        { type: 'line', label: 'Media',    data: avgData,   borderColor: 'rgba(255,200,50,.9)', borderWidth: 2, borderDash: [6, 4], pointRadius: 0, tension: 0, order: 1 },
+        { type: 'line', label: 'Trend',    data: trendData, borderColor: 'rgba(248,81,73,.85)', borderWidth: 2, borderDash: [4, 3], pointRadius: 0, tension: 0, order: 1 },
       ]
     },
     options: {

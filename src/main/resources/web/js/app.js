@@ -5348,8 +5348,8 @@ function _renderAnalyticsTrendChart() {
       labels,
       datasets: [
         { type: 'bar',  label: 'Importo',  data: values,    backgroundColor: barColor, order: 2 },
-        { type: 'line', label: 'Media',    data: avgData,   borderColor: 'rgba(255,200,50,1)',  borderWidth: 3, borderDash: [8, 4], pointRadius: 0, tension: 0, order: 1 },
-        { type: 'line', label: 'Trend',    data: trendData, borderColor: 'rgba(248,81,73,1)',   borderWidth: 3, borderDash: [5, 3], pointRadius: 0, tension: 0, order: 1 },
+        { type: 'line', label: 'Media',    data: avgData,   borderColor: 'rgba(88,200,255,1)',  borderWidth: 3, borderDash: [8, 4], pointRadius: 0, tension: 0, order: 1 },
+        { type: 'line', label: 'Trend',    data: trendData, borderColor: 'rgba(180,100,255,1)', borderWidth: 3, pointRadius: 0, tension: 0, order: 1 },
       ]
     },
     options: {

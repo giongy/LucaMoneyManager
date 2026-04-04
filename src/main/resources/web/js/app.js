@@ -5321,20 +5321,33 @@ async function renderAnalyticsHealth() {
   const budgetRows = (budgets || []).filter(b => b.amount > 0);
 
   // ── Score salute (0–100) ──────────────────────────────────────────────────
-  // Tasso risparmio (0–40 pt)
-  const scoreSavings = avgSavingsRate >= 25 ? 40 : avgSavingsRate >= 15 ? 30 : avgSavingsRate >= 5 ? 18 : avgSavingsRate > 0 ? 8 : 0;
-  // Mesi in positivo (0–30 pt)
+  // 1. Tasso risparmio (0–30 pt) — 8 soglie
+  const scoreSavings = avgSavingsRate >= 30 ? 30 : avgSavingsRate >= 25 ? 26 : avgSavingsRate >= 20 ? 22 : avgSavingsRate >= 15 ? 17 : avgSavingsRate >= 10 ? 12 : avgSavingsRate >= 5 ? 7 : avgSavingsRate > 0 ? 3 : 0;
+  // 2. Stabilità mensile (0–20 pt) — 7 soglie %
   const posMonths = savings.filter(s => s > 0).length;
-  const scorePos = n > 0 ? Math.round((posMonths / n) * 30) : 0;
-  // Trend spese (calante = bene, 0–30 pt)
+  const posPct = n > 0 ? posMonths / n : 0;
+  const scorePos = posPct === 1 ? 20 : posPct >= 0.9 ? 18 : posPct >= 0.75 ? 15 : posPct >= 0.6 ? 11 : posPct >= 0.4 ? 7 : posPct >= 0.2 ? 3 : 0;
+  // 3. Trend spese (0–15 pt) — slope % su media mensile
   const expXMean = (n-1)/2, expAvg = expenses.reduce((a,b)=>a+b,0)/(n||1);
   let expNum=0, expDen=0;
   expenses.forEach((v,i)=>{ expNum+=(i-expXMean)*(v-expAvg); expDen+=(i-expXMean)**2; });
   const expSlope = expDen ? expNum/expDen : 0;
-  const scoreTrend = expSlope <= 0 ? 30 : expSlope < expAvg * 0.02 ? 20 : expSlope < expAvg * 0.05 ? 10 : 0;
-  const score = Math.min(100, scoreSavings + scorePos + scoreTrend);
-  const scoreColor = score >= 70 ? 'var(--income)' : score >= 40 ? '#e8a838' : 'var(--expense)';
-  const scoreLabel = score >= 70 ? 'Buona' : score >= 40 ? 'Discreta' : 'Attenzione';
+  const expSlopePct = expAvg ? expSlope / expAvg * 100 : 0;
+  const scoreTrend = expSlopePct <= -3 ? 15 : expSlopePct <= -1 ? 13 : expSlopePct <= 0 ? 11 : expSlopePct < 1 ? 8 : expSlopePct < 3 ? 5 : expSlopePct < 5 ? 2 : 0;
+  // 4. Trend entrate (0–20 pt) — entrate crescenti = positivo
+  const incXMean = (n-1)/2, incAvg = incomes.reduce((a,b)=>a+b,0)/(n||1);
+  let incNum=0, incDen=0;
+  incomes.forEach((v,i)=>{ incNum+=(i-incXMean)*(v-incAvg); incDen+=(i-incXMean)**2; });
+  const incSlope = incDen ? incNum/incDen : 0;
+  const incSlopePct = incAvg ? incSlope / incAvg * 100 : 0;
+  const scoreIncTrend = incSlopePct > 3 ? 20 : incSlopePct > 1 ? 16 : incSlopePct >= 0 ? 11 : incSlopePct > -1 ? 7 : incSlopePct > -3 ? 3 : 0;
+  // 5. Volatilità entrate (0–15 pt) — coefficiente di variazione, basso = stabile = bene
+  const incStddev = n > 1 ? Math.sqrt(incomes.reduce((a,v)=>a+(v-incAvg)**2, 0) / (n-1)) : 0;
+  const incCV = incAvg > 0 ? incStddev / incAvg * 100 : 100;
+  const scoreVol = incCV < 5 ? 15 : incCV < 10 ? 13 : incCV < 20 ? 10 : incCV < 35 ? 6 : incCV < 50 ? 2 : 0;
+  const score = Math.min(100, scoreSavings + scorePos + scoreTrend + scoreIncTrend + scoreVol);
+  const scoreColor = score >= 75 ? 'var(--income)' : score >= 50 ? '#e8a838' : score >= 30 ? '#e07020' : 'var(--expense)';
+  const scoreLabel = score >= 75 ? 'Ottima' : score >= 60 ? 'Buona' : score >= 45 ? 'Discreta' : score >= 30 ? 'Sufficiente' : 'Attenzione';
 
   const cc = chartColors();
 
@@ -5360,24 +5373,38 @@ async function renderAnalyticsHealth() {
           ${[
             {
               label: 'Tasso di risparmio',
-              desc:  `Percentuale media di entrate risparmiata negli ultimi ${n} mesi. ≥25% = ottimo, ≥15% = buono, ≥5% = sufficiente.`,
-              got: scoreSavings, max: 40,
-              detail: `${avgSavingsRate.toFixed(1)}% medio → ${scoreSavings}/40 pt`,
-              col: scoreSavings>=30?'var(--income)':scoreSavings>=18?'#e8a838':'var(--expense)'
+              desc:  `Quota media di entrate risparmiata negli ultimi ${n} mesi. ≥30% = eccellente · ≥20% = buono · ≥10% = sufficiente · <5% = critico.`,
+              got: scoreSavings, max: 30,
+              detail: `${avgSavingsRate.toFixed(1)}% medio → ${scoreSavings}/30 pt`,
+              col: scoreSavings>=22?'var(--income)':scoreSavings>=12?'#e8a838':'var(--expense)'
             },
             {
               label: 'Stabilità mensile',
-              desc:  `Quanti mesi su ${n} hai chiuso in positivo (entrate > uscite).`,
-              got: scorePos, max: 30,
-              detail: `${posMonths}/${n} mesi positivi → ${scorePos}/30 pt`,
-              col: scorePos>=24?'var(--income)':scorePos>=15?'#e8a838':'var(--expense)'
+              desc:  `Percentuale di mesi su ${n} chiusi in positivo (entrate > uscite). 100% = ottimo · ≥75% = buono · <40% = attenzione.`,
+              got: scorePos, max: 20,
+              detail: `${posMonths}/${n} mesi positivi (${(posPct*100).toFixed(0)}%) → ${scorePos}/20 pt`,
+              col: scorePos>=15?'var(--income)':scorePos>=7?'#e8a838':'var(--expense)'
             },
             {
               label: 'Trend delle spese',
-              desc:  'Direzione della regressione lineare sulle uscite mensili. Spese calanti = buon segno, crescenti = attenzione.',
-              got: scoreTrend, max: 30,
-              detail: `${expSlope>0?'+':''}${fmt.currency(expSlope)}/mese → ${scoreTrend}/30 pt`,
-              col: scoreTrend>=25?'var(--income)':scoreTrend>=15?'#e8a838':'var(--expense)'
+              desc:  `Direzione della regressione lineare sulle uscite. Calanti ≤−3%/mese = ottimo · stabili = sufficiente · crescenti >+5%/mese = critico.`,
+              got: scoreTrend, max: 15,
+              detail: `${expSlopePct>=0?'+':''}${expSlopePct.toFixed(1)}%/mese (${expSlope>=0?'+':''}${fmt.currency(expSlope)}) → ${scoreTrend}/15 pt`,
+              col: scoreTrend>=11?'var(--income)':scoreTrend>=5?'#e8a838':'var(--expense)'
+            },
+            {
+              label: 'Trend delle entrate',
+              desc:  `Direzione della regressione lineare sulle entrate. Entrate crescenti >+3%/mese = ottimo · stabili = sufficiente · calanti >−3%/mese = critico.`,
+              got: scoreIncTrend, max: 20,
+              detail: `${incSlopePct>=0?'+':''}${incSlopePct.toFixed(1)}%/mese (${incSlope>=0?'+':''}${fmt.currency(incSlope)}) → ${scoreIncTrend}/20 pt`,
+              col: scoreIncTrend>=16?'var(--income)':scoreIncTrend>=7?'#e8a838':'var(--expense)'
+            },
+            {
+              label: 'Stabilità delle entrate',
+              desc:  `Coefficiente di variazione delle entrate mensili. CV basso = reddito prevedibile. CV<5% = ottimo · <20% = buono · ≥50% = molto variabile.`,
+              got: scoreVol, max: 15,
+              detail: `CV ${incCV.toFixed(1)}% → ${scoreVol}/15 pt`,
+              col: scoreVol>=10?'var(--income)':scoreVol>=6?'#e8a838':'var(--expense)'
             },
           ].map(c=>`
             <div>

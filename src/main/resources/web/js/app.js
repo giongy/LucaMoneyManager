@@ -5260,8 +5260,10 @@ async function renderAnalyticsBalance() {
 }
 
 /* ─── Analytics: Salute Finanziaria ──────────────────────────────────────── */
-let _healthSavingsChart = null;
-let _healthCatChart     = null;
+let _healthSavingsChart     = null;
+let _healthCatChart         = null;
+let _healthPlannedIncChart  = null;
+let _healthPlannedExpChart  = null;
 
 async function renderAnalyticsHealth() {
   const el = document.getElementById('analyticsContent');
@@ -5272,10 +5274,11 @@ async function renderAnalyticsHealth() {
   const now = new Date();
   const currentYm = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
 
-  const [balRows, catRows, budgets] = await Promise.all([
+  const [balRows, catRows, budgets, schedRows] = await Promise.all([
     api.getMonthlyBalance(fetchMonths),
     api.getCategoryMonthTable(fetchMonths),
     api.getBudgets(now.getMonth() + 1, now.getFullYear()),
+    api.getScheduled(),
   ]);
 
   // ── Mesi validi (escludi corrente se richiesto) ───────────────────────────
@@ -5319,6 +5322,137 @@ async function renderAnalyticsHealth() {
 
   // ── Budget vs effettivo (mese corrente) ───────────────────────────────────
   const budgetRows = (budgets || []).filter(b => b.amount > 0);
+
+  // ── Pianificate vs Reale ──────────────────────────────────────────────────
+  // Avanza / retrocede una pianificata di un periodo (usato per ricostruire occorrenze passate)
+  const _advPl = (d, freq) => {
+    const nd = new Date(d);
+    switch(freq) {
+      case 'daily':       nd.setDate(nd.getDate() + 1); break;
+      case 'weekly':      nd.setDate(nd.getDate() + 7); break;
+      case 'biweekly':    nd.setDate(nd.getDate() + 14); break;
+      case 'monthly':     nd.setMonth(nd.getMonth() + 1); break;
+      case 'monthly_last':nd.setMonth(nd.getMonth() + 2, 0); break;
+      case 'bimonthly':   nd.setMonth(nd.getMonth() + 2); break;
+      case 'quarterly':   nd.setMonth(nd.getMonth() + 3); break;
+      case 'semiannual':  nd.setMonth(nd.getMonth() + 6); break;
+      case 'yearly':      nd.setFullYear(nd.getFullYear() + 1); break;
+      default: return null;
+    }
+    return nd;
+  };
+  const _subPl = (d, freq) => {
+    const nd = new Date(d);
+    switch(freq) {
+      case 'daily':       nd.setDate(nd.getDate() - 1); break;
+      case 'weekly':      nd.setDate(nd.getDate() - 7); break;
+      case 'biweekly':    nd.setDate(nd.getDate() - 14); break;
+      case 'monthly':     nd.setMonth(nd.getMonth() - 1); break;
+      case 'monthly_last':nd.setMonth(nd.getMonth(), 0); break; // ultimo giorno del mese precedente
+      case 'bimonthly':   nd.setMonth(nd.getMonth() - 2); break;
+      case 'quarterly':   nd.setMonth(nd.getMonth() - 3); break;
+      case 'semiannual':  nd.setMonth(nd.getMonth() - 6); break;
+      case 'yearly':      nd.setFullYear(nd.getFullYear() - 1); break;
+      default: return null;
+    }
+    return nd;
+  };
+
+  const plannedByYm = {};
+  for (const mc of monthCols) plannedByYm[mc.ym] = { pi: 0, pe: 0 };
+
+  if (n > 0) {
+    const pStart = new Date(monthCols[0].ym + '-01');
+    const pEndTmp = new Date(monthCols[n-1].ym + '-01');
+    pEndTmp.setMonth(pEndTmp.getMonth() + 1, 0); // ultimo giorno dell'ultimo mese
+    const today0 = new Date(); today0.setHours(23, 59, 59, 999);
+    const pEnd = today0 < pEndTmp ? today0 : pEndTmp;
+
+    for (const s of (schedRows || [])) {
+      if (s.type === 'transfer') continue;
+      const amount = s.amount || 0;
+      if (amount <= 0) continue;
+      const freq = s.frequency || 'monthly';
+      const createdAt = new Date(((s.created_at || s.start_date) + '').substring(0, 10));
+      const startDate = new Date(s.start_date);
+
+      // Limite superiore: rispetta end_date e oggi
+      let iterEnd = new Date(pEnd);
+      if (s.end_date) { const ed = new Date(s.end_date); if (ed < iterEnd) iterEnd = ed; }
+
+      if (freq === 'once') {
+        if (startDate >= pStart && startDate <= iterEnd) {
+          const ym = `${startDate.getFullYear()}-${String(startDate.getMonth()+1).padStart(2,'0')}`;
+          if (plannedByYm[ym]) {
+            if (s.type === 'income') plannedByYm[ym].pi += amount;
+            else plannedByYm[ym].pe += amount;
+          }
+        }
+        continue;
+      }
+
+      // Ricostruisce la prima occorrenza storica andando a ritroso da startDate fino a createdAt.
+      // Per le pianificate attive start_date = prossima occorrenza futura; il ciclo indietro
+      // riporta all'origine. Per quelle inattive startDate potrebbe già essere nel passato.
+      let firstOcc = new Date(startDate);
+      for (let safe = 0; safe < 5000; safe++) {
+        const prev = _subPl(firstOcc, freq);
+        if (!prev || prev < createdAt) break;
+        firstOcc = prev;
+      }
+
+      // Fast-forward fino a pStart (evita iterazioni inutili per vecchie pianificate)
+      let cur = new Date(firstOcc);
+      if (cur < pStart) {
+        // Stima approssimativa di quanti periodi saltare
+        const approxMs = { daily:864e5, weekly:6048e5, biweekly:1210e6, monthly:2629746e3,
+          monthly_last:2629746e3, bimonthly:5259492e3, quarterly:7889238e3,
+          semiannual:15778476e3, yearly:31556952e3 };
+        const skip = Math.max(0, Math.floor((pStart - cur) / (approxMs[freq] || 2629746e3)) - 2);
+        for (let k = 0; k < skip; k++) {
+          const nx = _advPl(cur, freq);
+          if (!nx || nx <= cur) break;
+          cur = nx;
+        }
+        for (let safe = 0; safe < 200; safe++) {
+          const nx = _advPl(cur, freq);
+          if (!nx || nx <= cur) break;
+          if (nx >= pStart) { cur = nx; break; }
+          cur = nx;
+        }
+      }
+
+      // Itera nel periodo contando le occorrenze mese per mese
+      for (let safe = 0; safe < 5000 && cur <= iterEnd; safe++) {
+        const ym = `${cur.getFullYear()}-${String(cur.getMonth()+1).padStart(2,'0')}`;
+        if (plannedByYm[ym]) {
+          if (s.type === 'income') plannedByYm[ym].pi += amount;
+          else plannedByYm[ym].pe += amount;
+        }
+        const nx = _advPl(cur, freq);
+        if (!nx || nx <= cur) break;
+        cur = nx;
+      }
+    }
+  }
+
+  const plannedIncomes  = monthCols.map(m => plannedByYm[m.ym].pi);
+  const plannedExpenses = monthCols.map(m => plannedByYm[m.ym].pe);
+  const totalPlannedInc = plannedIncomes.reduce((a,b)=>a+b,0);
+  const totalPlannedExp = plannedExpenses.reduce((a,b)=>a+b,0);
+  const diffInc = totalIncome - totalPlannedInc;
+  const diffExp = totalExpense - totalPlannedExp;
+  // Deviazione % media mensile (solo sui mesi con pianificato > 0)
+  const _avgDev = (actual, planned) => {
+    let sum = 0, cnt = 0;
+    for (let i = 0; i < actual.length; i++) {
+      if (planned[i] > 0) { sum += Math.abs(actual[i] - planned[i]) / planned[i] * 100; cnt++; }
+    }
+    return cnt ? sum / cnt : 0;
+  };
+  const avgDevInc = _avgDev(incomes, plannedIncomes);
+  const avgDevExp = _avgDev(expenses, plannedExpenses);
+  const hasPlanned = totalPlannedInc > 0 || totalPlannedExp > 0;
 
   // ── Score salute (0–100) ──────────────────────────────────────────────────
   // 1. Tasso risparmio (0–30 pt) — 8 soglie
@@ -5470,40 +5604,48 @@ async function renderAnalyticsHealth() {
           </div>`).join('')}
       </div>
 
-      <!-- Budget vs effettivo -->
-      ${budgetRows.length ? `
+      <!-- Pianificate vs Reale -->
+      ${hasPlanned ? `
       <div style="background:var(--bg3);border-radius:12px;padding:16px;margin-bottom:20px">
-        <div style="font-size:13px;font-weight:600;margin-bottom:12px;color:var(--txt2)">Budget vs Effettivo — ${now.toLocaleString('it-IT',{month:'long',year:'numeric'})}</div>
-        <table style="width:100%;font-size:12px;border-collapse:collapse">
-          <thead><tr style="color:var(--txt3)">
-            <th style="text-align:left;padding:4px 0">Categoria</th>
-            <th style="text-align:right">Budget</th>
-            <th style="text-align:right">Speso</th>
-            <th style="text-align:right">Restante</th>
-            <th style="min-width:120px;padding-left:12px">Utilizzo</th>
-          </tr></thead>
-          <tbody>
-            ${budgetRows.map(b => {
-              const pct = b.amount > 0 ? Math.min(100, (b.spent / b.amount) * 100) : 0;
-              const barCol = pct >= 100 ? 'var(--expense)' : pct >= 80 ? '#e8a838' : 'var(--income)';
-              const remaining = b.amount - b.spent;
-              return `<tr style="border-top:1px solid var(--border)">
-                <td style="padding:6px 0"><span style="color:${b.category_color}">${b.category_icon||''}</span> ${b.category_name}</td>
-                <td style="text-align:right">${fmt.currency(b.amount)}</td>
-                <td style="text-align:right;color:var(--expense)">${fmt.currency(b.spent)}</td>
-                <td style="text-align:right;color:${remaining>=0?'var(--income)':'var(--expense)'}">${fmt.currency(remaining)}</td>
-                <td style="padding-left:12px">
-                  <div style="display:flex;align-items:center;gap:6px">
-                    <div style="flex:1;height:6px;background:var(--border);border-radius:3px">
-                      <div style="width:${pct.toFixed(1)}%;height:100%;background:${barCol};border-radius:3px"></div>
-                    </div>
-                    <span style="font-size:11px;color:${barCol};min-width:38px;text-align:right">${pct.toFixed(0)}%</span>
-                  </div>
-                </td>
-              </tr>`;
-            }).join('')}
-          </tbody>
-        </table>
+        <div style="font-size:13px;font-weight:600;margin-bottom:12px;color:var(--txt2)">Pianificate vs Reale — ultimi ${n} mesi</div>
+
+        <!-- KPI summary -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px">
+          ${[
+            ['Entrate', totalPlannedInc, totalIncome, diffInc, avgDevInc, true],
+            ['Uscite',  totalPlannedExp, totalExpense, diffExp, avgDevExp, false],
+          ].map(([lbl, planned, actual, diff, dev, isInc]) => {
+            const diffCol = isInc ? (diff >= 0 ? 'var(--income)' : 'var(--expense)') : (diff <= 0 ? 'var(--income)' : 'var(--expense)');
+            const diffSign = diff >= 0 ? '+' : '';
+            return `<div style="background:var(--bg2);border-radius:8px;padding:10px 12px">
+              <div style="font-size:11px;font-weight:600;color:var(--txt2);margin-bottom:6px">${lbl}</div>
+              <div style="display:flex;justify-content:space-between;margin-bottom:2px">
+                <span style="font-size:11px;color:var(--txt3)">Pianificato</span>
+                <span style="font-size:12px;font-weight:600">${fmt.currency(planned)}</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;margin-bottom:4px">
+                <span style="font-size:11px;color:var(--txt3)">Reale</span>
+                <span style="font-size:12px;font-weight:600">${fmt.currency(actual)}</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;border-top:1px solid var(--border);padding-top:4px">
+                <span style="font-size:11px;color:var(--txt3)">Scostamento</span>
+                <span style="font-size:11px;font-weight:700;color:${diffCol}">${diffSign}${fmt.currency(diff)}&ensp;<span style="font-weight:400;color:var(--txt3)">dev. ${dev.toFixed(0)}%/mese</span></span>
+              </div>
+            </div>`;
+          }).join('')}
+        </div>
+
+        <!-- Grafici affiancati -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div>
+            <div style="font-size:11px;color:var(--txt3);margin-bottom:6px">Entrate: pianificate vs reali</div>
+            <div style="height:190px"><canvas id="healthPlannedIncChart"></canvas></div>
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--txt3);margin-bottom:6px">Uscite: pianificate vs reali</div>
+            <div style="height:190px"><canvas id="healthPlannedExpChart"></canvas></div>
+          </div>
+        </div>
       </div>` : ''}
 
     </div>`;
@@ -5547,6 +5689,37 @@ async function renderAnalyticsHealth() {
       scales:{ x:{ ticks:{color:cc.tick, callback:v=>fmt.currency(v)}, grid:{color:cc.grid} }, y:{ ticks:{color:cc.tick,font:{size:11}} , grid:{color:cc.grid} } }
     }
   });
+
+  // ── Grafici Pianificate vs Reale ──────────────────────────────────────────
+  if (_healthPlannedIncChart) { _healthPlannedIncChart.destroy(); _healthPlannedIncChart = null; }
+  if (_healthPlannedExpChart) { _healthPlannedExpChart.destroy(); _healthPlannedExpChart = null; }
+  if (hasPlanned) {
+    const plLabels = monthCols.map(m => m.label);
+    const _plOpts = (datasets) => ({
+      type:'bar',
+      data:{ labels:plLabels, datasets },
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        interaction:{ mode:'index', intersect:false },
+        plugins:{
+          legend:{ labels:{ color:cc.tick, boxWidth:10, font:{size:10} } },
+          tooltip:{ callbacks:{ label:ctx=>` ${ctx.dataset.label}: ${fmt.currency(ctx.parsed.y)}` } }
+        },
+        scales:{
+          x:{ ticks:{color:cc.tick,font:{size:10}}, grid:{color:cc.grid} },
+          y:{ ticks:{color:cc.tick, callback:v=>fmt.currency(v), font:{size:10}}, grid:{color:cc.grid} }
+        }
+      }
+    });
+    _healthPlannedIncChart = new Chart(document.getElementById('healthPlannedIncChart'), _plOpts([
+      { label:'Pianificate', data:plannedIncomes,  backgroundColor:'rgba(63,185,80,.30)', borderColor:'rgba(63,185,80,.55)', borderWidth:1 },
+      { label:'Reali',       data:incomes,         backgroundColor:'rgba(63,185,80,.80)' },
+    ]));
+    _healthPlannedExpChart = new Chart(document.getElementById('healthPlannedExpChart'), _plOpts([
+      { label:'Pianificate', data:plannedExpenses, backgroundColor:'rgba(248,81,73,.30)', borderColor:'rgba(248,81,73,.55)', borderWidth:1 },
+      { label:'Reali',       data:expenses,        backgroundColor:'rgba(248,81,73,.80)' },
+    ]));
+  }
 }
 
 /* ─── Analytics: Andamento Categoria ─────────────────────────────────────── */

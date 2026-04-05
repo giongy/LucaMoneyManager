@@ -5752,6 +5752,7 @@ async function renderAnalyticsHealth() {
 let _analyticsTrendCatId  = null;
 let _analyticsTrendChart  = null;
 let _analyticsTrendCache  = null; // { monthCols, catMap }
+let _trendIncludeZero     = true;
 
 async function renderAnalyticsTrend() {
   const el = document.getElementById('analyticsContent');
@@ -5787,11 +5788,22 @@ async function renderAnalyticsTrend() {
         ${cats.map(c => `<option value="${c.id}"${c.id === _analyticsTrendCatId ? ' selected' : ''}>${optLabel(c)}</option>`).join('')}
       </select>
       <div id="trendSlopeInfo" style="margin-left:8px;font-size:13px"></div>
+      <label style="margin-left:auto;display:flex;align-items:center;gap:6px;font-size:12px;color:var(--txt2);cursor:pointer;white-space:nowrap">
+        <input type="checkbox" id="trendIncludeZero" ${_trendIncludeZero ? 'checked' : ''}>
+        Includi mesi a zero nel trend
+      </label>
+    </div>
+    <div style="font-size:11px;color:var(--txt3);margin-bottom:10px">
+      La linea <span style="color:rgba(185,120,255,1);font-weight:600">Trend</span> usa il metodo Theil-Sen: mediana delle pendenze tra tutte le coppie di mesi. Più robusto della regressione lineare classica — i mesi anomali (es. spese straordinarie) non distorcono la tendenza.
     </div>
     <div style="position:relative;height:380px"><canvas id="trendChart"></canvas></div>`;
 
   document.getElementById('trendCatSelect').onchange = function() {
     _analyticsTrendCatId = parseInt(this.value);
+    _renderAnalyticsTrendChart();
+  };
+  document.getElementById('trendIncludeZero').onchange = function() {
+    _trendIncludeZero = this.checked;
     _renderAnalyticsTrendChart();
   };
 
@@ -5813,15 +5825,26 @@ function _renderAnalyticsTrendChart() {
   const avg = n ? sum / n : 0;
   const avgData = values.map(() => avg);
 
-  // Trend (regressione lineare)
-  const xMean = (n - 1) / 2;
-  let num = 0, den = 0;
-  for (let i = 0; i < n; i++) {
-    num += (i - xMean) * (values[i] - avg);
-    den += (i - xMean) ** 2;
-  }
-  const slope = den ? num / den : 0;
-  const intercept = avg - slope * xMean;
+  // Trend (Theil-Sen: mediana delle pendenze tra tutte le coppie di punti — robusto agli outlier)
+  const tsPoints = _trendIncludeZero
+    ? values.map((v, i) => ({ v, i }))
+    : values.map((v, i) => ({ v, i })).filter(p => p.v > 0);
+  const tsPts = tsPoints.length >= 2 ? tsPoints : values.map((v, i) => ({ v, i }));
+  const slopes = [];
+  for (let a = 0; a < tsPts.length; a++)
+    for (let b = a + 1; b < tsPts.length; b++)
+      slopes.push((tsPts[b].v - tsPts[a].v) / (tsPts[b].i - tsPts[a].i));
+  slopes.sort((a, b) => a - b);
+  const slope = slopes.length === 0 ? 0 : slopes.length % 2 === 0
+    ? (slopes[slopes.length/2-1] + slopes[slopes.length/2]) / 2
+    : slopes[Math.floor(slopes.length/2)];
+  // Intercetta: mediana(y) - slope * mediana(x) sui punti usati
+  const tsXs = tsPts.map(p => p.i).sort((a,b) => a-b);
+  const tsVs = [...tsPts.map(p => p.v)].sort((a,b) => a-b);
+  const m = tsPts.length;
+  const xMedian = m%2===0 ? (tsXs[m/2-1]+tsXs[m/2])/2 : tsXs[Math.floor(m/2)];
+  const vMedian = m%2===0 ? (tsVs[m/2-1]+tsVs[m/2])/2 : tsVs[Math.floor(m/2)];
+  const intercept = vMedian - slope * xMedian;
   const trendData = values.map((_, i) => Math.max(0, intercept + slope * i));
 
   // Mostra pendenza leggibile
@@ -5831,7 +5854,9 @@ function _renderAnalyticsTrendChart() {
     const pctYear = avg ? (slope * 12 / avg * 100) : 0;
     const pctSign = pctYear >= 0 ? '+' : '';
     const color = slope >= 0 ? 'var(--expense)' : 'var(--income)';
-    slopeEl.innerHTML = `<span style="color:${color};font-weight:600">${sign}${fmt.currency(slope)}/mese</span>`
+    slopeEl.innerHTML = `<span style="color:rgba(100,160,255,1);font-weight:600">${fmt.currency(avg)}/mese</span>`
+      + `<span style="color:var(--txt3);margin-left:6px;margin-right:12px">media</span>`
+      + `<span style="color:${color};font-weight:600">${sign}${fmt.currency(slope)}/mese</span>`
       + `<span style="color:var(--txt3);margin-left:8px">(${pctSign}${pctYear.toFixed(1)}%/anno)</span>`;
   } else if (slopeEl) {
     slopeEl.innerHTML = '';

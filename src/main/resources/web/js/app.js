@@ -5042,13 +5042,16 @@ async function renderAnalytics() {
   if (_analyticsOldestYm === undefined) {
     _analyticsOldestYm = await api.getOldestTransactionMonth() || null;
   }
-  // Default startYm: primo mese con dati; default endYm: mese precedente
+  // Default startYm: ultimi 12 mesi escluso corrente; default endYm: mese precedente
   const now    = new Date();
   const toYm   = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
   const prevYm = toYm(new Date(now.getFullYear(), now.getMonth()-1, 1));
   const curYm  = toYm(now);
   const oldestYm = _analyticsOldestYm || prevYm;
-  if (!_analyticsStartYm) _analyticsStartYm = oldestYm;
+  if (!_analyticsStartYm) {
+    const last12 = toYm(new Date(now.getFullYear(), now.getMonth()-12, 1));
+    _analyticsStartYm = last12 > oldestYm ? last12 : oldestYm;
+  }
   if (!_analyticsEndYm)   _analyticsEndYm   = prevYm;
   const maxYm = curYm;
 

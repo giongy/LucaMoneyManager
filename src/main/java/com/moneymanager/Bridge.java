@@ -545,7 +545,16 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
         // Step 1: cerca su Borsa Italiana search engine
         String q = URLEncoder.encode(ticker, StandardCharsets.UTF_8);
         String searchUrl = "https://www.borsaitaliana.it/borsa/searchengine/search.html?q=" + q + "&Cerca=Search&lang=it";
+        System.out.println("[FetchPrice] Cerco: " + ticker + " → " + searchUrl);
         String searchHtml = httpGet(client, ua, searchUrl);
+        System.out.println("[FetchPrice] Search HTML length: " + searchHtml.length());
+
+        // Log primi 500 char utili (senza script/style)
+        String searchPreview = searchHtml.replaceAll("(?s)<script[^>]*>.*?</script>", "")
+                .replaceAll("(?s)<style[^>]*>.*?</style>", "")
+                .replaceAll("<[^>]+>", " ").replaceAll("\\s+", " ").trim();
+        System.out.println("[FetchPrice] Search text preview: " +
+                searchPreview.substring(0, Math.min(500, searchPreview.length())));
 
         // Step 2: estrai scheda URL dal risultato.
         // La search engine restituisce href del tipo:
@@ -562,6 +571,7 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             schedaPath = m1.group(1).replace("&amp;", "&");
             Matcher micM = Pattern.compile("[?&]mic=([A-Z0-9]+)").matcher(schedaPath);
             if (micM.find()) mic = micM.group(1);
+            System.out.println("[FetchPrice] Scheda (formato 1): " + schedaPath + " mic=" + mic);
         }
 
         // Formato 2: /borsa/<categoria>/scheda/<ISIN>-<MIC>.html
@@ -571,25 +581,36 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             if (m2.find()) {
                 schedaPath = m2.group(1);
                 mic = m2.group(2);
+                System.out.println("[FetchPrice] Scheda (formato 2): " + schedaPath + " mic=" + mic);
             }
         }
 
-        if (schedaPath == null)
+        if (schedaPath == null) {
+            System.out.println("[FetchPrice] Nessun link scheda trovato per: " + ticker);
             throw new Exception("Titolo non trovato su Borsa Italiana: " + ticker);
+        }
 
         // Step 3: carica la scheda e ne legge il prezzo direttamente
-        String schedaHtml = httpGet(client, ua, "https://www.borsaitaliana.it" + schedaPath);
+        String fullSchedaUrl = "https://www.borsaitaliana.it" + schedaPath;
+        System.out.println("[FetchPrice] Carico scheda: " + fullSchedaUrl);
+        String schedaHtml = httpGet(client, ua, fullSchedaUrl);
         String text = schedaHtml.replaceAll("<[^>]+>", " ").replaceAll("\\s+", " ");
+        System.out.println("[FetchPrice] Scheda HTML length: " + schedaHtml.length());
 
         // Cerca numero in formato italiano (virgola decimale) dopo parola "prezzo"
         Pattern pricePat = Pattern.compile(
                 "(?i)(?:prezzo|price|ultimo|last)[^0-9]{0,80}" +
                 "([1-9][0-9]{0,4}(?:[.][0-9]{3})*[,][0-9]{1,4})");
         Matcher priceMat = pricePat.matcher(text);
-        if (!priceMat.find())
+        if (!priceMat.find()) {
+            // Log primi 300 char del testo per debug
+            System.out.println("[FetchPrice] Testo scheda (primi 300): " +
+                    text.substring(0, Math.min(300, text.length())));
             throw new Exception("Prezzo non trovato su Borsa Italiana per: " + ticker);
+        }
 
         String raw = priceMat.group(1);
+        System.out.println("[FetchPrice] Prezzo raw trovato: " + raw);
         double price = Double.parseDouble(raw.replace(".", "").replace(",", "."));
 
         Map<String, Object> result = new HashMap<>();

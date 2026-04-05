@@ -904,7 +904,8 @@ tr.tx-selected td { background:rgba(88,166,255,.07); }
 
 .sched-toolbar { display:flex; align-items:center; gap:10px; margin-bottom:12px; position:sticky; top:0; background:var(--bg); z-index:5; padding-top:12px; margin-top:-12px; }.sched-th-sort { cursor:pointer; user-select:none; white-space:nowrap; }
 .sched-th-sort:hover { color:var(--txt); }
-.sched-actions { white-space:nowrap; display:flex; gap:4px; align-items:center; }
+.sched-actions { white-space:nowrap; vertical-align:middle; }
+.sched-actions-wrap { display:flex; gap:4px; align-items:center; }
 
 .sched-days-badge {
   display:inline-block; padding:2px 8px; border-radius:20px;

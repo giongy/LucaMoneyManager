@@ -5785,6 +5785,7 @@ function _renderAnalyticsTrendChart() {
         ctx.font = 'bold 12px sans-serif';
         ctx.fillStyle = ds.borderColor;
         ctx.textAlign = 'center';
+        if (ds.noLabels) { ctx.restore(); return; }
         meta.data.forEach((pt, j) => {
           const val = ds.data[j];
           if (val == null) return;
@@ -5803,7 +5804,7 @@ function _renderAnalyticsTrendChart() {
       labels,
       datasets: [
         { type: 'bar',  label: 'Importo',  data: values,    backgroundColor: barColor, order: 2 },
-        { type: 'line', label: 'Media',    data: avgData,   borderColor: lineBlue,   borderWidth: 3, borderDash: [8, 4], pointRadius: 0, tension: 0, order: 1 },
+        { type: 'line', label: 'Media',    data: avgData,   borderColor: lineBlue,   borderWidth: 3, borderDash: [8, 4], pointRadius: 0, tension: 0, order: 1, noLabels: true },
         { type: 'line', label: 'Trend',    data: trendData, borderColor: linePurple, borderWidth: 3, pointRadius: 0, tension: 0, order: 1 },
       ]
     },
@@ -8430,9 +8431,11 @@ function _renderSchedRows(scheds) {
       <td class="text-right amount-${s.type}">${s.type==='expense'?'-':''}${fmt.currency(s.amount)}</td>
       <td>${s._next ? fmt.date(s._next) : '—'}</td>
       <td>${daysLabel(s)}</td>
-      <td class="sched-actions" style="white-space:nowrap">
-        ${s.is_active && s._next ? `<button class="btn btn-xs btn-success" onclick="registerSched(${s.id})" title="Inserisci transazione">✔ Inserisci</button>
-        <button class="btn btn-xs btn-ghost" onclick="skipSched(${s.id})" title="Salta questa occorrenza">⏭ Salta</button>` : ''}
+      <td class="sched-actions">
+        <div class="sched-actions-wrap">
+          ${s.is_active && s._next ? `<button class="btn btn-xs btn-success" onclick="registerSched(${s.id})" title="Inserisci transazione">✔ Inserisci</button>
+          <button class="btn btn-xs btn-ghost" onclick="skipSched(${s.id})" title="Salta questa occorrenza">⏭ Salta</button>` : ''}
+        </div>
       </td>
     </tr>`).join('');
 }

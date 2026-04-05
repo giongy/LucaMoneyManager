@@ -5487,7 +5487,7 @@ async function renderAnalyticsHealth() {
           </div>
           <div class="health-desc" style="margin-bottom:12px">
             Mesi chiusi con entrate &gt; uscite: <strong style="color:${colP}">${posMonths} su ${n}</strong> (${(posPct*100).toFixed(0)}%).
-            Tutti i mesi positivi = 20 pt.
+            100% = 20 pt · ≥90% = 18 pt · ≥75% = 15 pt · ≥60% = 11 pt · ≥40% = 7 pt · ≥20% = 3 pt · &lt;20% = 0 pt.
           </div>
           <div style="display:flex;flex-wrap:wrap;gap:6px">
             ${monthCols.map((m,i) => {

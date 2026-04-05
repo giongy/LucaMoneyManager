@@ -5325,13 +5325,13 @@ async function renderAnalyticsHealth() {
   const avgSavingsRate = totalIncome > 0 ? (totalSavings / totalIncome) * 100 : 0;
 
   // ── Score salute (0–100) ──────────────────────────────────────────────────
-  // 1. Tasso risparmio (0–30 pt) — 8 soglie
+  // 1. Tasso risparmio (0–40 pt) — 8 soglie
   const scoreSavings = avgSavingsRate >= 20 ? 40 : avgSavingsRate >= 15 ? 35 : avgSavingsRate >= 10 ? 29 : avgSavingsRate >= 7 ? 23 : avgSavingsRate >= 5 ? 16 : avgSavingsRate >= 3 ? 9 : avgSavingsRate > 0 ? 4 : avgSavingsRate === 0 ? 0 : avgSavingsRate >= -5 ? -7 : avgSavingsRate >= -10 ? -13 : -20;
   // 2. Stabilità mensile (0–20 pt) — 7 soglie %
   const posMonths = savings.filter(s => s > 0).length;
   const posPct = n > 0 ? posMonths / n : 0;
   const scorePos = posPct === 1 ? 20 : posPct >= 0.9 ? 18 : posPct >= 0.75 ? 15 : posPct >= 0.6 ? 11 : posPct >= 0.4 ? 7 : posPct >= 0.2 ? 3 : 0;
-  // 3. Trend spese (0–15 pt) — slope % su media mensile
+  // 3. Trend spese (0–10 pt) — slope % su media mensile
   const expXMean = (n-1)/2, expAvg = expenses.reduce((a,b)=>a+b,0)/(n||1);
   let expNum=0, expDen=0;
   expenses.forEach((v,i)=>{ expNum+=(i-expXMean)*(v-expAvg); expDen+=(i-expXMean)**2; });
@@ -5339,7 +5339,7 @@ async function renderAnalyticsHealth() {
   const expSlopePct = expAvg ? expSlope / expAvg * 100 : 0;
   const scoreTrendRaw = expSlopePct <= -3 ? 10 : expSlopePct <= -1 ? 9 : expSlopePct <= 0 ? 7 : expSlopePct < 1 ? 5 : expSlopePct < 3 ? 3 : expSlopePct < 5 ? 1 : 0;
   // Attenuazione: spese crescenti sono meno allarmanti se stai risparmiando bene
-  const scoreTrend = avgSavingsRate >= 10 ? Math.max(scoreTrendRaw, 5) : avgSavingsRate >= 5 ? Math.max(scoreTrendRaw, 1) : scoreTrendRaw;
+  const scoreTrend = avgSavingsRate >= 10 ? Math.max(scoreTrendRaw, 5) : avgSavingsRate >= 5 ? Math.max(scoreTrendRaw, 2) : scoreTrendRaw;
   // 4. Trend del risparmio (0–20 pt) — risparmio crescente = entrate/uscite in miglioramento
   // Usa la mediana delle entrate come denominatore per normalizzare la pendenza in %:
   // evita divisione per risparmi vicini a zero, e non è distorta dai mesi con bonus.
@@ -5357,7 +5357,7 @@ async function renderAnalyticsHealth() {
   const scoreIncTrend = (posPct === 1 && avgSavingsRate >= 10) ? Math.max(scoreIncTrendRaw, 8)
     : (posPct >= 0.75 && avgSavingsRate >= 5) ? Math.max(scoreIncTrendRaw, 4)
     : scoreIncTrendRaw;
-  // 5. Volatilità entrate (0–15 pt) — coefficiente di variazione, basso = stabile = bene
+  // 5. Volatilità entrate (0–10 pt) — coefficiente di variazione, basso = stabile = bene
   // Semi-deviazione (downside) rispetto alla mediana:
   const incSemiVar = n > 1 ? incomes.reduce((a,v) => a + (v < incMedian ? (v-incMedian)**2 : 0), 0) / n : 0;
   const incStddev  = Math.sqrt(incSemiVar);
@@ -5414,7 +5414,7 @@ async function renderAnalyticsHealth() {
             },
             {
               label: 'Trend delle spese',
-              desc:  `Direzione della regressione lineare sulle uscite. Calanti ≤−3%/mese = ottimo (10 pt) · stabili = sufficiente · crescenti >+5%/mese = critico. Se stai risparmiando bene (≥10%) il punteggio minimo è 3 — spese crescenti sono meno allarmanti quando il margine è ampio.`,
+              desc:  `Direzione della regressione lineare sulle uscite. Calanti ≤−3%/mese = ottimo (10 pt) · stabili = sufficiente · crescenti >+5%/mese = critico. Se stai risparmiando bene (≥10%) il punteggio minimo è 5 — spese crescenti sono meno allarmanti quando il margine è ampio.`,
               got: scoreTrend, max: 10,
               detail: `${expSlopePct>=0?'+':''}${expSlopePct.toFixed(1)}%/mese (${expSlope>=0?'+':''}${fmt.currency(expSlope)}) → ${scoreTrend}/10 pt`,
               col: scoreTrend>=7?'var(--income)':scoreTrend>=3?'#e8a838':'var(--expense)'

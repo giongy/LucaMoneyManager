@@ -3626,6 +3626,7 @@ async function renderPortfolio() {
         <table><thead><tr>
           ${[
             ['tipo',     'Tipo',          ''],
+            ['acquisto', 'Acquisto',      ''],
             ['ticker',   'Ticker',        ''],
             ['nome',     'Nome',          ''],
             ['paese',    'Paese',         ''],
@@ -3656,6 +3657,7 @@ async function renderPortfolio() {
             let va, vb;
             switch (col) {
               case 'tipo':     va = a.asset_type || ''; vb = b.asset_type || ''; break;
+              case 'acquisto': va = a.first_buy_date||'9999'; vb = b.first_buy_date||'9999'; break;
               case 'ticker':   va = a.ticker || '';     vb = b.ticker || '';     break;
               case 'nome':     va = a.name || '';       vb = b.name || '';       break;
               case 'paese':    va = a.country || '';    vb = b.country || '';    break;
@@ -3672,7 +3674,7 @@ async function renderPortfolio() {
             if (typeof va === 'string') return dir * va.localeCompare(vb);
             return dir * (va - vb);
           });
-          if (!rows.length) return '<tr><td colspan="12" style="text-align:center;padding:40px;color:var(--txt3)">Nessun titolo in portafoglio. Clicca "+ Acquista" per iniziare.<br><small style="color:var(--txt3)">Tasto destro su una riga per le azioni</small></td></tr>';
+          if (!rows.length) return '<tr><td colspan="13" style="text-align:center;padding:40px;color:var(--txt3)">Nessun titolo in portafoglio. Clicca "+ Acquista" per iniziare.<br><small style="color:var(--txt3)">Tasto destro su una riga per le azioni</small></td></tr>';
           return rows.map(i => {
             const isBond = i.asset_type === 'bond';
             const val = i._val, cost = i._cost, pnl = i._pnl, comm = i._comm;
@@ -3692,8 +3694,12 @@ async function renderPortfolio() {
             const countryDisplay = i.country
               ? `<span style="font-size:12px">${i.country}</span>`
               : `<span style="color:var(--txt3)">—</span>`;
+            const firstBuyDisplay = i.first_buy_date
+              ? `<span style="font-size:12px;white-space:nowrap">${i.first_buy_date}</span>`
+              : `<span style="color:var(--txt3)">—</span>`;
             return `<tr oncontextmenu="_showPortfolioCtx(${i.id},event)" style="cursor:context-menu" title="Tasto destro per le azioni">
               <td>${typeBadge}</td>
+              <td>${firstBuyDisplay}</td>
               <td class="td-main" style="font-weight:700">${i.ticker}</td>
               <td>${i.name}${couponInfo}</td>
               <td>${countryDisplay}</td>

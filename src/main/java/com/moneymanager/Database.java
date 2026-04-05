@@ -1858,7 +1858,8 @@ public class Database {
 
     public List<Map<String, Object>> getPortfolio() throws SQLException {
         return queryList("""
-            SELECT p.*, a.name AS account_name, a.icon AS account_icon, a.color AS account_color
+            SELECT p.*, a.name AS account_name, a.icon AS account_icon, a.color AS account_color,
+                   (SELECT MIN(pt.date) FROM portfolio_transactions pt WHERE pt.portfolio_id = p.id AND pt.type = 'buy') AS first_buy_date
             FROM portfolio p
             JOIN accounts a ON p.account_id = a.id
             ORDER BY a.name, p.ticker

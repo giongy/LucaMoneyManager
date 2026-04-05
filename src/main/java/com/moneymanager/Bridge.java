@@ -586,7 +586,17 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
         }
 
         if (schedaPath == null) {
-            System.out.println("[FetchPrice] Nessun link scheda trovato per: " + ticker);
+            // Log contesto attorno a "scheda" per capire il formato reale
+            int idx = searchHtml.indexOf("scheda");
+            if (idx >= 0) {
+                int from = Math.max(0, idx - 80);
+                int to   = Math.min(searchHtml.length(), idx + 200);
+                System.out.println("[FetchPrice] Raw attorno a 'scheda': " + searchHtml.substring(from, to));
+            } else {
+                // Nessuna occorrenza di "scheda" — log prime 1000 char di HTML raw
+                System.out.println("[FetchPrice] 'scheda' non trovato nell'HTML. Raw (1000): "
+                        + searchHtml.substring(0, Math.min(1000, searchHtml.length())));
+            }
             throw new Exception("Titolo non trovato su Borsa Italiana: " + ticker);
         }
 

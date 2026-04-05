@@ -545,20 +545,11 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
         // Step 1: cerca su Borsa Italiana search engine
         String q = URLEncoder.encode(ticker, StandardCharsets.UTF_8);
         String searchUrl = "https://www.borsaitaliana.it/borsa/searchengine/search.html?q=" + q + "&Cerca=Search&lang=it";
-        System.out.println("[FetchPrice] Cerco: " + ticker + " → " + searchUrl);
         String searchHtml = httpGet(client, ua, searchUrl);
-        System.out.println("[FetchPrice] Search HTML length: " + searchHtml.length());
-
-        // Log primi 500 char utili (senza script/style)
-        String searchPreview = searchHtml.replaceAll("(?s)<script[^>]*>.*?</script>", "")
-                .replaceAll("(?s)<style[^>]*>.*?</style>", "")
-                .replaceAll("<[^>]+>", " ").replaceAll("\\s+", " ").trim();
-        System.out.println("[FetchPrice] Search text preview: " +
-                searchPreview.substring(0, Math.min(500, searchPreview.length())));
 
         // Step 2: estrai scheda URL dal risultato.
         // La search engine restituisce href del tipo:
-        //   /borsa/search/scheda.html?code=IT0005672024&amp;mic=MOTX&amp;lang=it
+        //   https://www.borsaitaliana.it/borsa/search/scheda.html?code=IT0005672024&mic=MOTX&lang=it
         // oppure (meno comune):
         //   /borsa/obbligazioni/mot/btp/scheda/IT0005672024-MOTX.html
         String schedaPath = null;
@@ -568,10 +559,9 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
         Matcher m1 = Pattern.compile(
                 "href=\"(https://www\\.borsaitaliana\\.it/borsa/search/scheda\\.html\\?[^\"]+)\"").matcher(searchHtml);
         if (m1.find()) {
-            schedaPath = m1.group(1);  // già URL completo
+            schedaPath = m1.group(1);
             Matcher micM = Pattern.compile("[?&]mic=([A-Z0-9]+)").matcher(schedaPath);
             if (micM.find()) mic = micM.group(1);
-            System.out.println("[FetchPrice] Scheda (formato 1): " + schedaPath + " mic=" + mic);
         }
 
         // Formato 2: path relativo /borsa/<categoria>/scheda/<ISIN>-<MIC>.html
@@ -581,45 +571,25 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             if (m2.find()) {
                 schedaPath = "https://www.borsaitaliana.it" + m2.group(1);
                 mic = m2.group(2);
-                System.out.println("[FetchPrice] Scheda (formato 2): " + schedaPath + " mic=" + mic);
             }
         }
 
-        if (schedaPath == null) {
-            // Log contesto attorno a "scheda" per capire il formato reale
-            int idx = searchHtml.indexOf("scheda");
-            if (idx >= 0) {
-                int from = Math.max(0, idx - 80);
-                int to   = Math.min(searchHtml.length(), idx + 200);
-                System.out.println("[FetchPrice] Raw attorno a 'scheda': " + searchHtml.substring(from, to));
-            } else {
-                // Nessuna occorrenza di "scheda" — log prime 1000 char di HTML raw
-                System.out.println("[FetchPrice] 'scheda' non trovato nell'HTML. Raw (1000): "
-                        + searchHtml.substring(0, Math.min(1000, searchHtml.length())));
-            }
+        if (schedaPath == null)
             throw new Exception("Titolo non trovato su Borsa Italiana: " + ticker);
-        }
 
         // Step 3: carica la scheda e ne legge il prezzo direttamente
-        System.out.println("[FetchPrice] Carico scheda: " + schedaPath);
         String schedaHtml = httpGet(client, ua, schedaPath);
         String text = schedaHtml.replaceAll("<[^>]+>", " ").replaceAll("\\s+", " ");
-        System.out.println("[FetchPrice] Scheda HTML length: " + schedaHtml.length());
 
         // Cerca numero in formato italiano (virgola decimale) dopo parola "prezzo"
         Pattern pricePat = Pattern.compile(
                 "(?i)(?:prezzo|price|ultimo|last)[^0-9]{0,80}" +
                 "([1-9][0-9]{0,4}(?:[.][0-9]{3})*[,][0-9]{1,4})");
         Matcher priceMat = pricePat.matcher(text);
-        if (!priceMat.find()) {
-            // Log primi 300 char del testo per debug
-            System.out.println("[FetchPrice] Testo scheda (primi 300): " +
-                    text.substring(0, Math.min(300, text.length())));
+        if (!priceMat.find())
             throw new Exception("Prezzo non trovato su Borsa Italiana per: " + ticker);
-        }
 
         String raw = priceMat.group(1);
-        System.out.println("[FetchPrice] Prezzo raw trovato: " + raw);
         double price = Double.parseDouble(raw.replace(".", "").replace(",", "."));
 
         Map<String, Object> result = new HashMap<>();

@@ -654,7 +654,7 @@ public class Database {
             SELECT a.*,
                 CASE WHEN a.type = 'investment' THEN
                     COALESCE((SELECT SUM(CASE WHEN p.asset_type='bond'
-                              THEN p.quantity * COALESCE(NULLIF(p.current_price,0), p.avg_price) / 100.0
+                              THEN p.quantity
                               ELSE p.quantity * COALESCE(NULLIF(p.current_price,0), p.avg_price) END)
                               FROM portfolio p WHERE p.account_id = a.id), 0)
                 ELSE
@@ -2213,7 +2213,7 @@ public class Database {
             SELECT COALESCE(SUM(CASE
                 WHEN a.type = 'investment' THEN
                     COALESCE((SELECT SUM(CASE WHEN p.asset_type='bond'
-                              THEN p.quantity * COALESCE(NULLIF(p.current_price,0), p.avg_price) / 100.0
+                              THEN p.quantity
                               ELSE p.quantity * COALESCE(NULLIF(p.current_price,0), p.avg_price) END)
                               FROM portfolio p WHERE p.account_id = a.id), 0)
                 ELSE

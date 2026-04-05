@@ -5659,8 +5659,8 @@ async function renderAnalyticsHealth() {
           borderColor:'rgba(232,168,56,.85)', borderDash:[5,3],
           pointRadius:0, fill:false, borderWidth:2 },
         { type:'line', label:'Soglia −1σ', data:Array(n).fill(Math.max(0, incMedian-incStddev)),
-          borderColor:'rgba(248,81,73,.4)', borderDash:[3,4],
-          pointRadius:0, fill:false, borderWidth:1 },
+          borderColor:'rgba(248,81,73,.85)', borderDash:[3,4],
+          pointRadius:0, fill:'origin', backgroundColor:'rgba(248,81,73,.08)', borderWidth:2 },
       ]
     },
     options:{

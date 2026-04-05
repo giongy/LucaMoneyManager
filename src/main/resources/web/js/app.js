@@ -5631,8 +5631,26 @@ async function renderAnalyticsHealth() {
   _healthRateChart = _healthExpChart = _healthIncChart = _healthVolChart = null;
 
   // Tasso risparmio per mese — barre colorate + linee soglia
+  const rateAvgLabelPlugin = {
+    id: 'rateAvgLabel',
+    afterDraw(chart) {
+      const ctx = chart.ctx, area = chart.chartArea, yScale = chart.scales.y;
+      const avg = chart.data.datasets[1].data[0];
+      if (avg == null) return;
+      const y = yScale.getPixelForValue(avg);
+      const color = avg >= 10 ? 'rgba(63,185,80,.95)' : avg >= 5 ? 'rgba(232,168,56,.95)' : 'rgba(248,81,73,.95)';
+      ctx.save();
+      ctx.font = 'bold 10px sans-serif';
+      ctx.fillStyle = color;
+      ctx.textAlign = 'left';
+      ctx.fillText('media ' + avg.toFixed(1) + '%', area.right + 4, y + 4);
+      ctx.restore();
+    }
+  };
+
   _healthRateChart = new Chart(document.getElementById('healthRateChart'), {
     type: 'bar',
+    plugins: [rateAvgLabelPlugin],
     data: {
       labels,
       datasets: [
@@ -5640,14 +5658,14 @@ async function renderAnalyticsHealth() {
           backgroundColor: monthlyRates.map(r => r>=0?'rgba(63,185,80,.55)':'rgba(248,81,73,.55)'),
           borderColor:      monthlyRates.map(r => r>=0?'rgba(63,185,80,1)' :'rgba(248,81,73,1)'),
           borderWidth:1, order:1 },
-        { type:'line', label:'20%', data:Array(n).fill(20), borderColor:'rgba(63,185,80,.55)', borderDash:[4,3], pointRadius:0, borderWidth:1, order:0 },
-        { type:'line', label:'10%', data:Array(n).fill(10), borderColor:'rgba(63,185,80,.35)', borderDash:[4,3], pointRadius:0, borderWidth:1, order:0 },
-        { type:'line', label:'5%',  data:Array(n).fill(5),  borderColor:'rgba(232,168,56,.45)', borderDash:[4,3], pointRadius:0, borderWidth:1, order:0 },
-        { type:'line', label:'0%',  data:Array(n).fill(0),  borderColor:'rgba(150,150,150,.4)', pointRadius:0, borderWidth:1, order:0 },
+        { type:'line', label:'Media', data:Array(n).fill(+avgSavingsRate.toFixed(1)),
+          borderColor: avgSavingsRate>=10?'rgba(63,185,80,.85)':avgSavingsRate>=5?'rgba(232,168,56,.85)':'rgba(248,81,73,.85)',
+          borderDash:[6,3], pointRadius:0, borderWidth:2, order:0, noLabels:true },
       ]
     },
     options:{
       responsive:true, maintainAspectRatio:false,
+      layout:{ padding:{ right:80 } },
       plugins:{
         legend:{ display:false },
         tooltip:{ filter: item => item.datasetIndex === 0, callbacks:{ label: ctx => ` ${ctx.parsed.y.toFixed(1)}%` } }

@@ -5339,7 +5339,7 @@ async function renderAnalyticsHealth() {
   const expSlopePct = expAvg ? expSlope / expAvg * 100 : 0;
   const scoreTrendRaw = expSlopePct <= -3 ? 10 : expSlopePct <= -1 ? 9 : expSlopePct <= 0 ? 7 : expSlopePct < 1 ? 5 : expSlopePct < 3 ? 3 : expSlopePct < 5 ? 1 : 0;
   // Attenuazione: spese crescenti sono meno allarmanti se stai risparmiando bene
-  const scoreTrend = avgSavingsRate >= 10 ? Math.max(scoreTrendRaw, 3) : avgSavingsRate >= 5 ? Math.max(scoreTrendRaw, 1) : scoreTrendRaw;
+  const scoreTrend = avgSavingsRate >= 10 ? Math.max(scoreTrendRaw, 5) : avgSavingsRate >= 5 ? Math.max(scoreTrendRaw, 1) : scoreTrendRaw;
   // 4. Trend del risparmio (0–20 pt) — risparmio crescente = entrate/uscite in miglioramento
   // Usa la mediana delle entrate come denominatore per normalizzare la pendenza in %:
   // evita divisione per risparmi vicini a zero, e non è distorta dai mesi con bonus.

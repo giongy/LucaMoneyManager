@@ -3567,9 +3567,13 @@ async function renderPortfolio() {
   _portfolioItems = items;
   const investAccounts = accounts.filter(a => a.type === 'investment' && !a.is_closed);
 
-  const totalInvested    = items.reduce((s,i) => s + portfolioItemValue(i, true), 0);
-  const totalCurrent     = items.reduce((s,i) => s + portfolioItemValue(i, false), 0);
-  const totalCommissions = items.reduce((s,i) => s + (i.total_commissions || 0), 0);
+  const visibleItems = items
+    .filter(i => _portfolioActiveOnly ? i.quantity > 0 : true)
+    .filter(i => _portfolioTypeFilter === 'all' ? true : (i.asset_type || 'equity') === _portfolioTypeFilter);
+
+  const totalInvested    = visibleItems.reduce((s,i) => s + portfolioItemValue(i, true), 0);
+  const totalCurrent     = visibleItems.reduce((s,i) => s + portfolioItemValue(i, false), 0);
+  const totalCommissions = visibleItems.reduce((s,i) => s + (i.total_commissions || 0), 0);
   const totalPnL         = totalCurrent - totalInvested;
   const pnlPct           = totalInvested ? (totalPnL/totalInvested)*100 : 0;
 
@@ -3588,6 +3592,11 @@ async function renderPortfolio() {
           <div class="theme-toggle-group">
             <button class="btn theme-btn ${_portfolioActiveOnly?'theme-btn-active':''}"  onclick="_setPortfolioFilter(true)">Solo attivi</button>
             <button class="btn theme-btn ${!_portfolioActiveOnly?'theme-btn-active':''}" onclick="_setPortfolioFilter(false)">Tutti</button>
+          </div>
+          <div class="theme-toggle-group">
+            <button class="btn theme-btn ${_portfolioTypeFilter==='all'?'theme-btn-active':''}"    onclick="_setPortfolioTypeFilter('all')">Tutti</button>
+            <button class="btn theme-btn ${_portfolioTypeFilter==='equity'?'theme-btn-active':''}" onclick="_setPortfolioTypeFilter('equity')">Azioni</button>
+            <button class="btn theme-btn ${_portfolioTypeFilter==='bond'?'theme-btn-active':''}"   onclick="_setPortfolioTypeFilter('bond')">Obbligazioni</button>
           </div>
           <button class="btn btn-secondary" id="btnRefreshPrices">🌐 Aggiorna valori online</button>
           <button class="btn btn-secondary" id="btnImportPos">📥 Carica esistente</button>
@@ -3647,7 +3656,7 @@ async function renderPortfolio() {
           }).join('')}
         </tr></thead><tbody>
         ${(() => {
-          let rows = items.filter(i => _portfolioActiveOnly ? i.quantity > 0 : true);
+          let rows = visibleItems.slice();
           // Calcola valori per il sort
           rows = rows.map(i => {
             const val  = portfolioItemValue(i, false);
@@ -4963,6 +4972,10 @@ window._setPortfolioFilter = async (activeOnly) => {
   await api.setSetting('portfolio.active_only', activeOnly ? '1' : '0');
   renderPortfolio();
 };
+window._setPortfolioTypeFilter = type => {
+  _portfolioTypeFilter = type;
+  renderPortfolio();
+};
 window._portfolioSortBy = col => {
   if (_portfolioSort.col === col) _portfolioSort.dir *= -1;
   else _portfolioSort = { col, dir: 1 };
@@ -4974,7 +4987,9 @@ window.showCouponModal      = showCouponModal;
 window.showPortfolioHistory = showPortfolioHistory;
 async function refreshPortfolioPrices() {
   const btn = document.getElementById('btnRefreshPrices');
-  const items = (_portfolioItems || []).filter(i => _portfolioActiveOnly ? i.quantity > 0 : true);
+  const items = (_portfolioItems || [])
+    .filter(i => _portfolioActiveOnly ? i.quantity > 0 : true)
+    .filter(i => _portfolioTypeFilter === 'all' ? true : (i.asset_type || 'equity') === _portfolioTypeFilter);
   if (!items.length) { toast('Nessun titolo da aggiornare', 'info'); return; }
 
   if (btn) btn.disabled = true;
@@ -8438,6 +8453,7 @@ function computeSchedNext(startDate, _freq, endDate) {
 
 let _settingsTab = 'data';
 let _portfolioActiveOnly = true;
+let _portfolioTypeFilter = 'all'; // 'all' | 'equity' | 'bond'
 let _portfolioSort = { col: 'ticker', dir: 1 };
 let _portfolioTab = 'portfolio';
 let _portfolioItems = [];

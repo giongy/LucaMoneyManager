@@ -542,36 +542,53 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                 .build();
         String ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
 
-        // Step 1: cerca il ticker/ISIN su Borsa Italiana → ottieni scheda URL con MIC
+        // Step 1: cerca su Borsa Italiana search engine
         String q = URLEncoder.encode(ticker, StandardCharsets.UTF_8);
         String searchUrl = "https://www.borsaitaliana.it/borsa/searchengine/search.html?q=" + q + "&Cerca=Search&lang=it";
         String searchHtml = httpGet(client, ua, searchUrl);
 
-        // Estrai path scheda: /borsa/<categoria>/scheda/<ISIN>-<MIC>.html
-        Pattern linkPat = Pattern.compile("href=\"(/borsa/[^\"]+/scheda/[^\"]*-([A-Z0-9]+)\\.html)\"");
-        Matcher linkMat = linkPat.matcher(searchHtml);
-        if (!linkMat.find())
+        // Step 2: estrai scheda URL dal risultato.
+        // La search engine restituisce href del tipo:
+        //   /borsa/search/scheda.html?code=IT0005672024&amp;mic=MOTX&amp;lang=it
+        // oppure (meno comune):
+        //   /borsa/obbligazioni/mot/btp/scheda/IT0005672024-MOTX.html
+        String schedaPath = null;
+        String mic = "";
+
+        // Formato 1: search/scheda.html?code=...&mic=...
+        Matcher m1 = Pattern.compile(
+                "href=\"(/borsa/search/scheda\\.html\\?[^\"]+)\"").matcher(searchHtml);
+        if (m1.find()) {
+            schedaPath = m1.group(1).replace("&amp;", "&");
+            Matcher micM = Pattern.compile("[?&]mic=([A-Z0-9]+)").matcher(schedaPath);
+            if (micM.find()) mic = micM.group(1);
+        }
+
+        // Formato 2: /borsa/<categoria>/scheda/<ISIN>-<MIC>.html
+        if (schedaPath == null) {
+            Matcher m2 = Pattern.compile(
+                    "href=\"(/borsa/[^\"]+/scheda/[^\"]*-([A-Z0-9]+)\\.html)\"").matcher(searchHtml);
+            if (m2.find()) {
+                schedaPath = m2.group(1);
+                mic = m2.group(2);
+            }
+        }
+
+        if (schedaPath == null)
             throw new Exception("Titolo non trovato su Borsa Italiana: " + ticker);
 
-        String schedaPath = linkMat.group(1);  // es. /borsa/obbligazioni/mot/btp/scheda/IT0005672024-MOTX.html
-        String mic        = linkMat.group(2);  // es. MOTX, MTAA
+        // Step 3: carica la scheda e ne legge il prezzo direttamente
+        String schedaHtml = httpGet(client, ua, "https://www.borsaitaliana.it" + schedaPath);
+        String text = schedaHtml.replaceAll("<[^>]+>", " ").replaceAll("\\s+", " ");
 
-        // Step 2: costruisce URL dati-completi nella stessa categoria
-        String basePath = schedaPath.replaceAll("/scheda/.*", "");
-        String dataUrl  = "https://www.borsaitaliana.it" + basePath
-                + "/dati-completi.html?isin=" + URLEncoder.encode(ticker, StandardCharsets.UTF_8)
-                + "&mic=" + mic + "&lang=it";
-        String dataHtml = httpGet(client, ua, dataUrl);
-
-        // Step 3: estrai prezzo — rimuovi tag HTML e cerca numero dopo "prezzo"
-        String text = dataHtml.replaceAll("<[^>]+>", " ").replaceAll("\\s+", " ");
+        // Cerca numero in formato italiano (virgola decimale) dopo parola "prezzo"
         Pattern pricePat = Pattern.compile(
-                "(?i)prezzo[^0-9]{0,80}([1-9][0-9]{0,4}(?:[.][0-9]{3})*[,][0-9]{1,4})");
+                "(?i)(?:prezzo|price|ultimo|last)[^0-9]{0,80}" +
+                "([1-9][0-9]{0,4}(?:[.][0-9]{3})*[,][0-9]{1,4})");
         Matcher priceMat = pricePat.matcher(text);
         if (!priceMat.find())
             throw new Exception("Prezzo non trovato su Borsa Italiana per: " + ticker);
 
-        // Converti formato italiano (punto = migliaia, virgola = decimale) → double
         String raw = priceMat.group(1);
         double price = Double.parseDouble(raw.replace(".", "").replace(",", "."));
 

@@ -544,8 +544,12 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
     private static final Pattern PAT_SCHEDA2 = Pattern.compile(
             "href=\"(/borsa/[^\"]+/scheda/[^\"]*-([A-Z0-9]+)\\.html)\"");
     private static final Pattern PAT_MIC     = Pattern.compile("[?&]mic=([A-Z0-9]+)");
+    // Prezzo dopo keyword "prezzo/price" — funziona per obbligazioni
     private static final Pattern PAT_PRICE   = Pattern.compile(
-            "(?i)(?:prezzo|price|ultimo|last)[^0-9]{0,80}([1-9][0-9]{0,4}(?:[.][0-9]{3})*[,][0-9]{1,4})");
+            "(?i)(?:prezzo|price)[^0-9]{0,80}((?:0|[1-9][0-9]{0,4})(?:[.][0-9]{3})*[,][0-9]{1,4})");
+    // Fallback: numero seguito da variazione percentuale — funziona per azioni (es. "0,1376 -1,01%")
+    private static final Pattern PAT_PRICE_PCT = Pattern.compile(
+            "((?:0|[1-9][0-9]{0,4})(?:[.][0-9]{3})*[,][0-9]{1,4})\\s{0,5}[+-][0-9]");
 
     private Map<String, Object> doFetchOnlinePrice(String ticker) throws Exception {
         // Step 1: cerca su Borsa Italiana search engine
@@ -577,8 +581,11 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
         // Step 3: carica la scheda e legge il prezzo in formato italiano (virgola decimale)
         String text = httpGet(schedaUrl).replaceAll("<[^>]+>", " ").replaceAll("\\s+", " ");
         Matcher priceMat = PAT_PRICE.matcher(text);
-        if (!priceMat.find())
-            throw new Exception("Prezzo non trovato su Borsa Italiana per: " + ticker);
+        if (!priceMat.find()) {
+            priceMat = PAT_PRICE_PCT.matcher(text);
+            if (!priceMat.find())
+                throw new Exception("Prezzo non trovato su Borsa Italiana per: " + ticker);
+        }
 
         double price = Double.parseDouble(priceMat.group(1).replace(".", "").replace(",", "."));
         return Map.of("ticker", ticker, "price", price, "mic", mic);

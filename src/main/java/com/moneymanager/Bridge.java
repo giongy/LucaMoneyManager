@@ -564,22 +564,22 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
         String schedaPath = null;
         String mic = "";
 
-        // Formato 1: search/scheda.html?code=...&mic=...
+        // Formato 1: URL assoluto https://...borsaitaliana.it/borsa/search/scheda.html?code=...&mic=...
         Matcher m1 = Pattern.compile(
-                "href=\"(/borsa/search/scheda\\.html\\?[^\"]+)\"").matcher(searchHtml);
+                "href=\"(https://www\\.borsaitaliana\\.it/borsa/search/scheda\\.html\\?[^\"]+)\"").matcher(searchHtml);
         if (m1.find()) {
-            schedaPath = m1.group(1).replace("&amp;", "&");
+            schedaPath = m1.group(1);  // già URL completo
             Matcher micM = Pattern.compile("[?&]mic=([A-Z0-9]+)").matcher(schedaPath);
             if (micM.find()) mic = micM.group(1);
             System.out.println("[FetchPrice] Scheda (formato 1): " + schedaPath + " mic=" + mic);
         }
 
-        // Formato 2: /borsa/<categoria>/scheda/<ISIN>-<MIC>.html
+        // Formato 2: path relativo /borsa/<categoria>/scheda/<ISIN>-<MIC>.html
         if (schedaPath == null) {
             Matcher m2 = Pattern.compile(
                     "href=\"(/borsa/[^\"]+/scheda/[^\"]*-([A-Z0-9]+)\\.html)\"").matcher(searchHtml);
             if (m2.find()) {
-                schedaPath = m2.group(1);
+                schedaPath = "https://www.borsaitaliana.it" + m2.group(1);
                 mic = m2.group(2);
                 System.out.println("[FetchPrice] Scheda (formato 2): " + schedaPath + " mic=" + mic);
             }
@@ -601,9 +601,8 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
         }
 
         // Step 3: carica la scheda e ne legge il prezzo direttamente
-        String fullSchedaUrl = "https://www.borsaitaliana.it" + schedaPath;
-        System.out.println("[FetchPrice] Carico scheda: " + fullSchedaUrl);
-        String schedaHtml = httpGet(client, ua, fullSchedaUrl);
+        System.out.println("[FetchPrice] Carico scheda: " + schedaPath);
+        String schedaHtml = httpGet(client, ua, schedaPath);
         String text = schedaHtml.replaceAll("<[^>]+>", " ").replaceAll("\\s+", " ");
         System.out.println("[FetchPrice] Scheda HTML length: " + schedaHtml.length());
 

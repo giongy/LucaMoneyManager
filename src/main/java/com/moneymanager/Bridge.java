@@ -9,9 +9,18 @@ import org.cef.handler.CefMessageRouterHandlerAdapter;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.WindowEvent;
+import java.net.URI;
+import java.net.URLEncoder;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.Base64;
+import java.util.HashMap;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Bridge tra JavaScript e Java.
@@ -66,6 +75,17 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             }
             if ("chooseAttachmentFile".equals(method)) {
                 handleChooseAttachmentFileAsync(callback);
+                return true;
+            }
+            if ("fetchOnlinePrice".equals(method)) {
+                final String isin = params.get("isin").getAsString();
+                Thread.ofVirtual().start(() -> {
+                    try {
+                        succeed(callback, doFetchOnlinePrice(isin));
+                    } catch (Exception e) {
+                        callback.failure(500, e.getMessage() != null ? e.getMessage() : "Errore fetch prezzo");
+                    }
+                });
                 return true;
             }
 
@@ -511,6 +531,64 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
 
             default -> throw new Exception("Metodo sconosciuto: " + method);
         };
+    }
+
+    // ── Fetch prezzo online da Borsa Italiana ────────────────────────────────
+
+    private Map<String, Object> doFetchOnlinePrice(String ticker) throws Exception {
+        HttpClient client = HttpClient.newBuilder()
+                .followRedirects(HttpClient.Redirect.NORMAL)
+                .connectTimeout(Duration.ofSeconds(15))
+                .build();
+        String ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
+
+        // Step 1: cerca il ticker/ISIN su Borsa Italiana → ottieni scheda URL con MIC
+        String q = URLEncoder.encode(ticker, StandardCharsets.UTF_8);
+        String searchUrl = "https://www.borsaitaliana.it/borsa/searchengine/search.html?q=" + q + "&Cerca=Search&lang=it";
+        String searchHtml = httpGet(client, ua, searchUrl);
+
+        // Estrai path scheda: /borsa/<categoria>/scheda/<ISIN>-<MIC>.html
+        Pattern linkPat = Pattern.compile("href=\"(/borsa/[^\"]+/scheda/[^\"]*-([A-Z0-9]+)\\.html)\"");
+        Matcher linkMat = linkPat.matcher(searchHtml);
+        if (!linkMat.find())
+            throw new Exception("Titolo non trovato su Borsa Italiana: " + ticker);
+
+        String schedaPath = linkMat.group(1);  // es. /borsa/obbligazioni/mot/btp/scheda/IT0005672024-MOTX.html
+        String mic        = linkMat.group(2);  // es. MOTX, MTAA
+
+        // Step 2: costruisce URL dati-completi nella stessa categoria
+        String basePath = schedaPath.replaceAll("/scheda/.*", "");
+        String dataUrl  = "https://www.borsaitaliana.it" + basePath
+                + "/dati-completi.html?isin=" + URLEncoder.encode(ticker, StandardCharsets.UTF_8)
+                + "&mic=" + mic + "&lang=it";
+        String dataHtml = httpGet(client, ua, dataUrl);
+
+        // Step 3: estrai prezzo — rimuovi tag HTML e cerca numero dopo "prezzo"
+        String text = dataHtml.replaceAll("<[^>]+>", " ").replaceAll("\\s+", " ");
+        Pattern pricePat = Pattern.compile(
+                "(?i)prezzo[^0-9]{0,80}([1-9][0-9]{0,4}(?:[.][0-9]{3})*[,][0-9]{1,4})");
+        Matcher priceMat = pricePat.matcher(text);
+        if (!priceMat.find())
+            throw new Exception("Prezzo non trovato su Borsa Italiana per: " + ticker);
+
+        // Converti formato italiano (punto = migliaia, virgola = decimale) → double
+        String raw = priceMat.group(1);
+        double price = Double.parseDouble(raw.replace(".", "").replace(",", "."));
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("ticker", ticker);
+        result.put("price", price);
+        result.put("mic", mic);
+        return result;
+    }
+
+    private String httpGet(HttpClient client, String ua, String url) throws Exception {
+        HttpRequest req = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .header("User-Agent", ua)
+                .header("Accept-Language", "it-IT,it;q=0.9")
+                .GET().build();
+        return client.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8)).body();
     }
 
     private static String mavenVersion(String groupId, String artifactId) {

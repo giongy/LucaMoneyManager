@@ -253,6 +253,7 @@ const api = {
   buyStock:                 (data)  => callJava('buyStock', data),
   sellStock:                (data)  => callJava('sellStock', data),
   updateStockPrice:         (id, p) => callJava('updateStockPrice', {id, price: p}),
+  fetchOnlinePrice:         (isin)  => callJava('fetchOnlinePrice', {isin}),
   importPosition:           (data)  => callJava('importPosition', data),
   registerCoupon:           (data)  => callJava('registerCoupon', data),
   updatePortfolioItem:      (data)  => callJava('updatePortfolioItem', data),
@@ -3588,6 +3589,7 @@ async function renderPortfolio() {
             <button class="btn theme-btn ${_portfolioActiveOnly?'theme-btn-active':''}"  onclick="_setPortfolioFilter(true)">Solo attivi</button>
             <button class="btn theme-btn ${!_portfolioActiveOnly?'theme-btn-active':''}" onclick="_setPortfolioFilter(false)">Tutti</button>
           </div>
+          <button class="btn btn-secondary" id="btnRefreshPrices">🌐 Aggiorna valori online</button>
           <button class="btn btn-secondary" id="btnImportPos">📥 Carica esistente</button>
           <button class="btn btn-primary" id="btnBuyStock">+ Acquista</button>
         </div>` : ''}
@@ -3728,8 +3730,9 @@ async function renderPortfolio() {
     </div>`}`;
 
   if (investAccounts.length && _portfolioTab === 'portfolio') {
-    document.getElementById('btnBuyStock').onclick  = () => showBuyModal(null, investAccounts, accounts).catch(e => toast(e.message,'error'));
-    document.getElementById('btnImportPos').onclick = () => showImportModal(investAccounts);
+    document.getElementById('btnBuyStock').onclick      = () => showBuyModal(null, investAccounts, accounts).catch(e => toast(e.message,'error'));
+    document.getElementById('btnImportPos').onclick     = () => showImportModal(investAccounts);
+    document.getElementById('btnRefreshPrices').onclick = () => refreshPortfolioPrices();
   }
   if (investAccounts.length && _portfolioTab === 'analisi') {
     renderPortfolioAnalisi(items);
@@ -4965,6 +4968,33 @@ window.showBuyModal         = showBuyModal;
 window.showSellModal        = showSellModal;
 window.showCouponModal      = showCouponModal;
 window.showPortfolioHistory = showPortfolioHistory;
+async function refreshPortfolioPrices() {
+  const btn = document.getElementById('btnRefreshPrices');
+  const items = (_portfolioItems || []).filter(i => _portfolioActiveOnly ? i.quantity > 0 : true);
+  if (!items.length) { toast('Nessun titolo da aggiornare', 'info'); return; }
+
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ 0/' + items.length; }
+  let updated = 0, failed = 0;
+
+  for (const item of items) {
+    if (btn) btn.textContent = `⏳ ${updated + failed + 1}/${items.length}`;
+    try {
+      const res = await api.fetchOnlinePrice(item.ticker);
+      await api.updateStockPrice(item.id, res.price);
+      updated++;
+    } catch(e) {
+      failed++;
+      console.warn('Prezzo non aggiornato per', item.ticker, ':', e.message);
+    }
+  }
+
+  await renderPortfolio();
+  const msg = failed === 0
+    ? `Aggiornati ${updated} titoli`
+    : `Aggiornati ${updated}, non trovati ${failed}`;
+  toast(msg, failed > 0 ? 'warning' : 'success');
+}
+
 window.updateStockPrice = async (id, val) => {
   const normalized = String(val).trim().replace(',', '.');
   const price = parseFloat(normalized);

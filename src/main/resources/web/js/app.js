@@ -5042,16 +5042,14 @@ async function renderAnalytics() {
   if (_analyticsOldestYm === undefined) {
     _analyticsOldestYm = await api.getOldestTransactionMonth() || null;
   }
-  // Default startYm: ultimi 12 mesi escluso corrente; default endYm: mese precedente
+  // startYm: sempre ultimi 12 mesi escluso corrente; endYm: mese precedente (persistito)
   const now    = new Date();
   const toYm   = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
   const prevYm = toYm(new Date(now.getFullYear(), now.getMonth()-1, 1));
   const curYm  = toYm(now);
   const oldestYm = _analyticsOldestYm || prevYm;
-  if (!_analyticsStartYm) {
-    const last12 = toYm(new Date(now.getFullYear(), now.getMonth()-12, 1));
-    _analyticsStartYm = last12 > oldestYm ? last12 : oldestYm;
-  }
+  const last12 = toYm(new Date(now.getFullYear(), now.getMonth()-12, 1));
+  _analyticsStartYm = last12 > oldestYm ? last12 : oldestYm;
   if (!_analyticsEndYm)   _analyticsEndYm   = prevYm;
   const maxYm = curYm;
 
@@ -5083,8 +5081,7 @@ async function renderAnalytics() {
     _analyticsStartYm = this.value;
     // Assicura che endYm non sia prima di startYm
     if (_analyticsEndYm < _analyticsStartYm) _analyticsEndYm = _analyticsStartYm;
-    api.setSetting('analytics.startYm', _analyticsStartYm);
-    api.setSetting('analytics.endYm',   _analyticsEndYm);
+    api.setSetting('analytics.endYm', _analyticsEndYm);
     // Aggiorna opzioni del select fine
     const endSel = document.getElementById('analyticsEndYm');
     endSel.innerHTML = _buildMonthOptions(_analyticsStartYm, maxYm, _analyticsEndYm);
@@ -9274,7 +9271,6 @@ async function init() {
   if (s['proj.mode'])    _projMode   = s['proj.mode'];
   if (s['cf.range'])     _cfRange    = s['cf.range'];
   if (s['cf.months'])    _cfMonths   = parseInt(s['cf.months'])   || 6;
-  if (s['analytics.startYm'])        _analyticsStartYm        = s['analytics.startYm'];
   if (s['analytics.endYm'])          _analyticsEndYm          = s['analytics.endYm'];
   if (s['tx.range'])              txFilters           = { range: s['tx.range'], ...rangeToFilter(s['tx.range']) };
   if (s['portfolio.active_only']) _portfolioActiveOnly = s['portfolio.active_only'] !== '0';

@@ -3700,9 +3700,9 @@ async function renderPortfolio() {
               ? `<span style="font-size:12px;white-space:nowrap">${i.first_buy_date}</span>`
               : `<span style="color:var(--txt3)">—</span>`;
             const priceStatus = _portfolioPriceStatus[i.id];
-            const statusDot = priceStatus === 'ok'   ? `<span style="color:#3fb950;font-size:8px;margin-left:4px" title="Prezzo aggiornato">●</span>`
-                            : priceStatus === 'fail' ? `<span style="color:#e3b341;font-size:8px;margin-left:4px" title="Non trovato online">●</span>`
-                            :                         `<span style="color:var(--txt3);font-size:8px;margin-left:4px" title="Non ancora aggiornato">●</span>`;
+            const statusDot = priceStatus === 'ok'   ? `<span style="color:#3fb950;font-size:12px;margin-left:4px" title="Prezzo aggiornato">●</span>`
+                            : priceStatus === 'fail' ? `<span style="color:#e3b341;font-size:12px;margin-left:4px" title="Non trovato online">●</span>`
+                            :                         `<span style="color:var(--txt3);font-size:12px;margin-left:4px" title="Non ancora aggiornato">●</span>`;
             return `<tr oncontextmenu="_showPortfolioCtx(${i.id},event)" style="cursor:context-menu" title="Tasto destro per le azioni">
               <td style="white-space:nowrap">${typeBadge}${statusDot}</td>
               <td>${firstBuyDisplay}</td>

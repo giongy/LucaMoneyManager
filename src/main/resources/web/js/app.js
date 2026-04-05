@@ -3699,8 +3699,12 @@ async function renderPortfolio() {
             const firstBuyDisplay = i.first_buy_date
               ? `<span style="font-size:12px;white-space:nowrap">${i.first_buy_date}</span>`
               : `<span style="color:var(--txt3)">—</span>`;
+            const priceStatus = _portfolioPriceStatus[i.id];
+            const statusDot = priceStatus === 'ok'   ? `<span style="color:#3fb950;font-size:8px;margin-left:4px" title="Prezzo aggiornato">●</span>`
+                            : priceStatus === 'fail' ? `<span style="color:#e3b341;font-size:8px;margin-left:4px" title="Non trovato online">●</span>`
+                            :                         `<span style="color:var(--txt3);font-size:8px;margin-left:4px" title="Non ancora aggiornato">●</span>`;
             return `<tr oncontextmenu="_showPortfolioCtx(${i.id},event)" style="cursor:context-menu" title="Tasto destro per le azioni">
-              <td>${typeBadge}</td>
+              <td style="white-space:nowrap">${typeBadge}${statusDot}</td>
               <td>${firstBuyDisplay}</td>
               <td class="td-main" style="font-weight:700">${i.ticker}</td>
               <td>${i.name}${couponInfo}</td>
@@ -4981,8 +4985,10 @@ async function refreshPortfolioPrices() {
     try {
       const res = await api.fetchOnlinePrice(item.ticker);
       await api.updateStockPrice(item.id, res.price);
+      _portfolioPriceStatus[item.id] = 'ok';
       updated++;
     } catch(e) {
+      _portfolioPriceStatus[item.id] = 'fail';
       failed++;
       console.warn('Prezzo non aggiornato per', item.ticker, ':', e.message);
     }
@@ -8435,6 +8441,7 @@ let _portfolioActiveOnly = true;
 let _portfolioSort = { col: 'ticker', dir: 1 };
 let _portfolioTab = 'portfolio';
 let _portfolioItems = [];
+let _portfolioPriceStatus = {}; // id → 'ok' | 'fail' | undefined (grigio)
 let _schedSort   = { col: 'days', dir: 'asc' };
 let _schedFilter = { type: '', active: '1' };
 

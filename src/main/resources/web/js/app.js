@@ -5016,17 +5016,24 @@ function _analyticsMonthRange() {
 }
 
 /* Helper: popola un <select> con opzioni mese/anno nell'intervallo [fromYm, toYm] */
-function _buildMonthOptions(fromYm, toYm, selectedYm) {
-  const toYmStr = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
-  let d = new Date(fromYm + '-01');
-  const end = new Date(toYm + '-01');
+const _MONTHS_IT = ['gen','feb','mar','apr','mag','giu','lug','ago','set','ott','nov','dic'];
+
+function _buildYearOptions(fromYm, toYm, selectedYear) {
+  const fromY = parseInt(fromYm.slice(0,4)), toY = parseInt(toYm.slice(0,4));
   let html = '';
-  while (d <= end) {
-    const ym = toYmStr(d);
-    const label = d.toLocaleDateString('it-IT', { month:'short', year:'2-digit' });
-    html += `<option value="${ym}"${ym===selectedYm?' selected':''}>${label}</option>`;
-    d = new Date(d.getFullYear(), d.getMonth()+1, 1);
-  }
+  for (let y = fromY; y <= toY; y++)
+    html += `<option value="${y}"${y===selectedYear?' selected':''}>${y}</option>`;
+  return html;
+}
+
+function _buildMonthsForYear(year, fromYm, toYm, selectedMonth) {
+  const fromY = parseInt(fromYm.slice(0,4)), fromM = parseInt(fromYm.slice(5,7));
+  const toY   = parseInt(toYm.slice(0,4)),   toM   = parseInt(toYm.slice(5,7));
+  const mFrom = year === fromY ? fromM : 1;
+  const mTo   = year === toY   ? toM   : 12;
+  let html = '';
+  for (let m = mFrom; m <= mTo; m++)
+    html += `<option value="${m}"${m===selectedMonth?' selected':''}>${_MONTHS_IT[m-1]}</option>`;
   return html;
 }
 
@@ -5053,6 +5060,12 @@ async function renderAnalytics() {
   if (!_analyticsEndYm)   _analyticsEndYm   = prevYm;
   const maxYm = curYm;
 
+  // Scompone YYYY-MM in {y, m}
+  const parseYm = ym => ({ y: parseInt(ym.slice(0,4)), m: parseInt(ym.slice(5,7)) });
+  const fmtYm   = (y, m) => `${y}-${String(m).padStart(2,'0')}`;
+
+  let sYm = parseYm(_analyticsStartYm), eYm = parseYm(_analyticsEndYm);
+
   const pg = document.getElementById('pg-analytics');
   pg.innerHTML = `
     <div style="padding:16px 24px 0;display:flex;flex-direction:column;height:100%;overflow:hidden;box-sizing:border-box">
@@ -5063,35 +5076,77 @@ async function renderAnalytics() {
           <button class="sched-tab${_analyticsTab==='balance'?' active':''}" data-atab="balance" onclick="_setAnalyticsTab('balance',this)">Bilancio Mensile</button>
           <button class="sched-tab${_analyticsTab==='trend'?' active':''}" data-atab="trend" onclick="_setAnalyticsTab('trend',this)">Andamento Categoria</button>
         </div>
-        <div style="margin-left:auto;display:flex;gap:8px;align-items:center;white-space:nowrap">
+        <div style="margin-left:auto;display:flex;gap:6px;align-items:center;white-space:nowrap">
+          <button class="btn btn-xs btn-ghost" id="aPreset6m">6 mesi</button>
+          <button class="btn btn-xs btn-ghost" id="aPreset12m">12 mesi</button>
+          <button class="btn btn-xs btn-ghost" id="aPresetYtd">Anno</button>
+          <div style="width:1px;height:16px;background:var(--border);margin:0 2px"></div>
           <label style="font-size:13px;color:var(--txt2)">Da:</label>
-          <select id="analyticsStartYm" class="form-control" style="font-size:12px;padding:3px 6px">
-            ${_buildMonthOptions(oldestYm, maxYm, _analyticsStartYm)}
-          </select>
+          <select id="aStartY" class="form-control" style="font-size:12px;padding:3px 8px;width:72px">${_buildYearOptions(oldestYm, maxYm, sYm.y)}</select>
+          <select id="aStartM" class="form-control" style="font-size:12px;padding:3px 8px;width:60px">${_buildMonthsForYear(sYm.y, oldestYm, maxYm, sYm.m)}</select>
           <label style="font-size:13px;color:var(--txt2)">A:</label>
-          <select id="analyticsEndYm" class="form-control" style="font-size:12px;padding:3px 6px">
-            ${_buildMonthOptions(_analyticsStartYm, maxYm, _analyticsEndYm)}
-          </select>
+          <select id="aEndY" class="form-control" style="font-size:12px;padding:3px 8px;width:72px">${_buildYearOptions(_analyticsStartYm, maxYm, eYm.y)}</select>
+          <select id="aEndM" class="form-control" style="font-size:12px;padding:3px 8px;width:60px">${_buildMonthsForYear(eYm.y, _analyticsStartYm, maxYm, eYm.m)}</select>
         </div>
       </div>
       <div id="analyticsContent" style="flex:1;overflow:auto;padding-bottom:16px"></div>
     </div>`;
 
-  document.getElementById('analyticsStartYm').onchange = function() {
-    _analyticsStartYm = this.value;
-    // Assicura che endYm non sia prima di startYm
-    if (_analyticsEndYm < _analyticsStartYm) _analyticsEndYm = _analyticsStartYm;
-    api.setSetting('analytics.endYm', _analyticsEndYm);
-    // Aggiorna opzioni del select fine
-    const endSel = document.getElementById('analyticsEndYm');
-    endSel.innerHTML = _buildMonthOptions(_analyticsStartYm, maxYm, _analyticsEndYm);
+  const rebuildEndSelects = () => {
+    eYm = parseYm(_analyticsEndYm);
+    document.getElementById('aEndY').innerHTML = _buildYearOptions(_analyticsStartYm, maxYm, eYm.y);
+    document.getElementById('aEndM').innerHTML = _buildMonthsForYear(eYm.y, _analyticsStartYm, maxYm, eYm.m);
+  };
+
+  document.getElementById('aStartY').onchange = function() {
+    sYm.y = parseInt(this.value);
+    // Ricava mesi validi per il nuovo anno e clampsa il mese corrente
+    const p = parseYm(oldestYm), q = parseYm(maxYm);
+    const mFrom = sYm.y === p.y ? p.m : 1, mTo = sYm.y === q.y ? q.m : 12;
+    sYm.m = Math.min(Math.max(sYm.m, mFrom), mTo);
+    document.getElementById('aStartM').innerHTML = _buildMonthsForYear(sYm.y, oldestYm, maxYm, sYm.m);
+    _analyticsStartYm = fmtYm(sYm.y, sYm.m);
+    if (_analyticsEndYm < _analyticsStartYm) { _analyticsEndYm = _analyticsStartYm; eYm = {...sYm}; }
+    rebuildEndSelects();
     _renderCurrentAnalyticsTab();
   };
-  document.getElementById('analyticsEndYm').onchange = function() {
-    _analyticsEndYm = this.value;
-    api.setSetting('analytics.endYm', _analyticsEndYm);
+  document.getElementById('aStartM').onchange = function() {
+    sYm.m = parseInt(this.value);
+    _analyticsStartYm = fmtYm(sYm.y, sYm.m);
+    if (_analyticsEndYm < _analyticsStartYm) { _analyticsEndYm = _analyticsStartYm; eYm = {...sYm}; }
+    rebuildEndSelects();
     _renderCurrentAnalyticsTab();
   };
+  document.getElementById('aEndY').onchange = function() {
+    eYm.y = parseInt(this.value);
+    // Ricava mesi validi per il nuovo anno e clampsa il mese corrente
+    const p = parseYm(_analyticsStartYm), q = parseYm(maxYm);
+    const mFrom = eYm.y === p.y ? p.m : 1, mTo = eYm.y === q.y ? q.m : 12;
+    eYm.m = Math.min(Math.max(eYm.m, mFrom), mTo);
+    document.getElementById('aEndM').innerHTML = _buildMonthsForYear(eYm.y, _analyticsStartYm, maxYm, eYm.m);
+    _analyticsEndYm = fmtYm(eYm.y, eYm.m);
+    _renderCurrentAnalyticsTab();
+  };
+  document.getElementById('aEndM').onchange = function() {
+    eYm.y = parseInt(document.getElementById('aEndY').value);
+    eYm.m = parseInt(this.value);
+    _analyticsEndYm = fmtYm(eYm.y, eYm.m);
+    _renderCurrentAnalyticsTab();
+  };
+
+  const applyPreset = (startYm) => {
+    _analyticsStartYm = startYm < oldestYm ? oldestYm : startYm;
+    _analyticsEndYm   = prevYm;
+    sYm = parseYm(_analyticsStartYm); eYm = parseYm(_analyticsEndYm);
+    document.getElementById('aStartY').innerHTML = _buildYearOptions(oldestYm, maxYm, sYm.y);
+    document.getElementById('aStartM').innerHTML = _buildMonthsForYear(sYm.y, oldestYm, maxYm, sYm.m);
+    rebuildEndSelects();
+    _renderCurrentAnalyticsTab();
+  };
+  const ymFromDate = d => fmtYm(d.getFullYear(), d.getMonth()+1);
+  document.getElementById('aPreset6m').onclick  = () => applyPreset(ymFromDate(new Date(now.getFullYear(), now.getMonth()-6, 1)));
+  document.getElementById('aPreset12m').onclick = () => applyPreset(ymFromDate(new Date(now.getFullYear(), now.getMonth()-12, 1)));
+  document.getElementById('aPresetYtd').onclick = () => applyPreset(fmtYm(now.getFullYear(), 1));
 
   _renderCurrentAnalyticsTab();
 }
@@ -9274,7 +9329,6 @@ async function init() {
   if (s['proj.mode'])    _projMode   = s['proj.mode'];
   if (s['cf.range'])     _cfRange    = s['cf.range'];
   if (s['cf.months'])    _cfMonths   = parseInt(s['cf.months'])   || 6;
-  if (s['analytics.endYm'])          _analyticsEndYm          = s['analytics.endYm'];
   if (s['tx.range'])              txFilters           = { range: s['tx.range'], ...rangeToFilter(s['tx.range']) };
   if (s['portfolio.active_only']) _portfolioActiveOnly = s['portfolio.active_only'] !== '0';
   await updateSidebar();

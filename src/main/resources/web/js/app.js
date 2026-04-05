@@ -4973,7 +4973,7 @@ async function refreshPortfolioPrices() {
   const items = (_portfolioItems || []).filter(i => _portfolioActiveOnly ? i.quantity > 0 : true);
   if (!items.length) { toast('Nessun titolo da aggiornare', 'info'); return; }
 
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ 0/' + items.length; }
+  if (btn) btn.disabled = true;
   let updated = 0, failed = 0;
 
   for (const item of items) {

@@ -17,7 +17,6 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Base64;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -535,77 +534,63 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
 
     // ── Fetch prezzo online da Borsa Italiana ────────────────────────────────
 
-    private Map<String, Object> doFetchOnlinePrice(String ticker) throws Exception {
-        HttpClient client = HttpClient.newBuilder()
-                .followRedirects(HttpClient.Redirect.NORMAL)
-                .connectTimeout(Duration.ofSeconds(15))
-                .build();
-        String ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
+    private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
+            .followRedirects(HttpClient.Redirect.NORMAL)
+            .connectTimeout(Duration.ofSeconds(15))
+            .build();
+    private static final String HTTP_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
+    private static final Pattern PAT_SCHEDA1 = Pattern.compile(
+            "href=\"(https://www\\.borsaitaliana\\.it/borsa/search/scheda\\.html\\?[^\"]+)\"");
+    private static final Pattern PAT_SCHEDA2 = Pattern.compile(
+            "href=\"(/borsa/[^\"]+/scheda/[^\"]*-([A-Z0-9]+)\\.html)\"");
+    private static final Pattern PAT_MIC     = Pattern.compile("[?&]mic=([A-Z0-9]+)");
+    private static final Pattern PAT_PRICE   = Pattern.compile(
+            "(?i)(?:prezzo|price|ultimo|last)[^0-9]{0,80}([1-9][0-9]{0,4}(?:[.][0-9]{3})*[,][0-9]{1,4})");
 
+    private Map<String, Object> doFetchOnlinePrice(String ticker) throws Exception {
         // Step 1: cerca su Borsa Italiana search engine
         String q = URLEncoder.encode(ticker, StandardCharsets.UTF_8);
-        String searchUrl = "https://www.borsaitaliana.it/borsa/searchengine/search.html?q=" + q + "&Cerca=Search&lang=it";
-        String searchHtml = httpGet(client, ua, searchUrl);
+        String searchHtml = httpGet("https://www.borsaitaliana.it/borsa/searchengine/search.html?q=" + q + "&Cerca=Search&lang=it");
 
-        // Step 2: estrai scheda URL dal risultato.
-        // La search engine restituisce href del tipo:
-        //   https://www.borsaitaliana.it/borsa/search/scheda.html?code=IT0005672024&mic=MOTX&lang=it
-        // oppure (meno comune):
-        //   /borsa/obbligazioni/mot/btp/scheda/IT0005672024-MOTX.html
-        String schedaPath = null;
+        // Step 2: estrai scheda URL (formato 1: URL assoluto; formato 2: path relativo)
+        String schedaUrl = null;
         String mic = "";
 
-        // Formato 1: URL assoluto https://...borsaitaliana.it/borsa/search/scheda.html?code=...&mic=...
-        Matcher m1 = Pattern.compile(
-                "href=\"(https://www\\.borsaitaliana\\.it/borsa/search/scheda\\.html\\?[^\"]+)\"").matcher(searchHtml);
+        Matcher m1 = PAT_SCHEDA1.matcher(searchHtml);
         if (m1.find()) {
-            schedaPath = m1.group(1);
-            Matcher micM = Pattern.compile("[?&]mic=([A-Z0-9]+)").matcher(schedaPath);
+            schedaUrl = m1.group(1);
+            Matcher micM = PAT_MIC.matcher(schedaUrl);
             if (micM.find()) mic = micM.group(1);
         }
 
-        // Formato 2: path relativo /borsa/<categoria>/scheda/<ISIN>-<MIC>.html
-        if (schedaPath == null) {
-            Matcher m2 = Pattern.compile(
-                    "href=\"(/borsa/[^\"]+/scheda/[^\"]*-([A-Z0-9]+)\\.html)\"").matcher(searchHtml);
+        if (schedaUrl == null) {
+            Matcher m2 = PAT_SCHEDA2.matcher(searchHtml);
             if (m2.find()) {
-                schedaPath = "https://www.borsaitaliana.it" + m2.group(1);
+                schedaUrl = "https://www.borsaitaliana.it" + m2.group(1);
                 mic = m2.group(2);
             }
         }
 
-        if (schedaPath == null)
+        if (schedaUrl == null)
             throw new Exception("Titolo non trovato su Borsa Italiana: " + ticker);
 
-        // Step 3: carica la scheda e ne legge il prezzo direttamente
-        String schedaHtml = httpGet(client, ua, schedaPath);
-        String text = schedaHtml.replaceAll("<[^>]+>", " ").replaceAll("\\s+", " ");
-
-        // Cerca numero in formato italiano (virgola decimale) dopo parola "prezzo"
-        Pattern pricePat = Pattern.compile(
-                "(?i)(?:prezzo|price|ultimo|last)[^0-9]{0,80}" +
-                "([1-9][0-9]{0,4}(?:[.][0-9]{3})*[,][0-9]{1,4})");
-        Matcher priceMat = pricePat.matcher(text);
+        // Step 3: carica la scheda e legge il prezzo in formato italiano (virgola decimale)
+        String text = httpGet(schedaUrl).replaceAll("<[^>]+>", " ").replaceAll("\\s+", " ");
+        Matcher priceMat = PAT_PRICE.matcher(text);
         if (!priceMat.find())
             throw new Exception("Prezzo non trovato su Borsa Italiana per: " + ticker);
 
-        String raw = priceMat.group(1);
-        double price = Double.parseDouble(raw.replace(".", "").replace(",", "."));
-
-        Map<String, Object> result = new HashMap<>();
-        result.put("ticker", ticker);
-        result.put("price", price);
-        result.put("mic", mic);
-        return result;
+        double price = Double.parseDouble(priceMat.group(1).replace(".", "").replace(",", "."));
+        return Map.of("ticker", ticker, "price", price, "mic", mic);
     }
 
-    private String httpGet(HttpClient client, String ua, String url) throws Exception {
+    private static String httpGet(String url) throws Exception {
         HttpRequest req = HttpRequest.newBuilder()
                 .uri(URI.create(url))
-                .header("User-Agent", ua)
+                .header("User-Agent", HTTP_UA)
                 .header("Accept-Language", "it-IT,it;q=0.9")
                 .GET().build();
-        return client.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8)).body();
+        return HTTP_CLIENT.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8)).body();
     }
 
     private static String mavenVersion(String groupId, String artifactId) {

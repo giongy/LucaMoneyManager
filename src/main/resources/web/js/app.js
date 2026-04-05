@@ -5344,21 +5344,21 @@ async function renderAnalyticsHealth() {
   // Usa la mediana delle entrate come denominatore per normalizzare la pendenza in %:
   // evita divisione per risparmi vicini a zero, e non è distorta dai mesi con bonus.
   const incSorted = [...incomes].sort((a,b) => a-b);
-  const incMedian = n % 2 === 0
-    ? (incSorted[n/2-1] + incSorted[n/2]) / 2
-    : incSorted[Math.floor(n/2)];
+  // Media interquartile (IQM): media del 50% centrale, robusto agli outlier
+  const iqmQ1 = Math.floor(n * 0.25), iqmQ3 = Math.ceil(n * 0.75);
+  const incMedian = incSorted.slice(iqmQ1, iqmQ3).reduce((a,b)=>a+b,0) / (iqmQ3 - iqmQ1);
   const savXMean = (n-1)/2, savAvg = savings.reduce((a,b)=>a+b,0)/(n||1);
   let savNum=0, savDen=0;
   savings.forEach((v,i)=>{ savNum+=(i-savXMean)*(v-savAvg); savDen+=(i-savXMean)**2; });
   const savSlope    = savDen ? savNum/savDen : 0;
   const savSlopePct = incMedian > 0 ? savSlope / incMedian * 100 : 0;
-  const scoreIncTrendRaw = savSlopePct > 3 ? 20 : savSlopePct > 1 ? 16 : savSlopePct >= 0 ? 11 : savSlopePct > -1 ? 7 : savSlopePct > -3 ? 3 : 0;
+  const scoreIncTrendRaw = savSlopePct > 3 ? 20 : savSlopePct > 1 ? 16 : savSlopePct >= 0 ? 9 : savSlopePct > -1 ? 7 : savSlopePct > -3 ? 3 : 0;
   // Attenuazione: calo di tendenza è meno grave se tutti i mesi sono positivi e risparmi bene
   const scoreIncTrend = (posPct === 1 && avgSavingsRate >= 10) ? Math.max(scoreIncTrendRaw, 8)
-    : (posPct >= 0.75 && avgSavingsRate >= 5) ? Math.max(scoreIncTrendRaw, 4)
+    : (posPct >= 0.75 && avgSavingsRate >= 5) ? Math.max(scoreIncTrendRaw, 6)
     : scoreIncTrendRaw;
   // 5. Volatilità entrate (0–10 pt) — coefficiente di variazione, basso = stabile = bene
-  // Semi-deviazione (downside) rispetto alla mediana:
+  // Semi-deviazione (downside) rispetto alla IQM:
   const incSemiVar = n > 1 ? incomes.reduce((a,v) => a + (v < incMedian ? (v-incMedian)**2 : 0), 0) / n : 0;
   const incStddev  = Math.sqrt(incSemiVar);
   const incCV      = incMedian > 0 ? incStddev / incMedian * 100 : 100;
@@ -5428,7 +5428,7 @@ async function renderAnalyticsHealth() {
             },
             {
               label: 'Stabilità delle entrate',
-              desc:  `Semi-deviazione rispetto alla mediana (solo mesi sotto il reddito tipico — i bonus non spostano il riferimento). Semi-CV &lt; 3% = ottimo (10 pt) · &lt; 12% = buono · ≥ 30% = variabile.`,
+              desc:  `Semi-deviazione rispetto alla media interquartile (solo mesi sotto il reddito tipico — i bonus non spostano il riferimento). Semi-CV &lt; 3% = ottimo (10 pt) · &lt; 12% = buono · ≥ 30% = variabile.`,
               got: scoreVol, max: 10,
               detail: `Semi-CV ${incCV.toFixed(1)}% → ${scoreVol}/10 pt`,
               col: scoreVol>=7?'var(--income)':scoreVol>=4?'#e8a838':'var(--expense)'
@@ -5556,7 +5556,7 @@ async function renderAnalyticsHealth() {
             <div style="font-size:10px;color:var(--txt3)">Semi-deviazione</div>
           </div>
           <div class="health-desc" style="padding-left:8px">
-            Variabilità delle entrate <em>al ribasso</em> rispetto alla mediana di <strong>${fmt.currency(incMedian)}/mese</strong> (reddito tipico).
+            Variabilità delle entrate <em>al ribasso</em> rispetto alla media interquartile di <strong>${fmt.currency(incMedian)}/mese</strong> (reddito tipico).
             I mesi con bonus non spostano il riferimento e non penalizzano — conta solo quanto scendi sotto il tuo reddito abituale.
             Semi-CV &lt; 3% = ottimo · &lt; 12% = buono · &lt; 20% = discreto · ≥ 30% = variabile.
             ${n < 2 ? ' &nbsp;<em style="color:var(--expense)">Dati insufficienti: servono almeno 2 mesi.</em>' : ''}

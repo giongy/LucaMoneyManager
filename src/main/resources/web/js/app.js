@@ -1948,17 +1948,17 @@ window._ctxDo = action => {
 
 window.duplicateTx = async id => {
   const [txs, cats, accs, tgs] = await Promise.all([
-    api.getTransactions({limit:10000}), api.getCategories(), api.getAccounts(), api.getTags()
+    api.getTransactions({id}), api.getCategories(), api.getAccounts(), api.getTags()
   ]);
-  const tx = txs.find(t => t.id === id);
+  const tx = txs[0];
   if (tx) showTxModal({...tx, id: undefined, date: new Date().toISOString().slice(0,10)}, cats, accs, tx.type, tgs);
 };
 
 async function txToSched(id) {
   const [txs, cats, accs, tgs] = await Promise.all([
-    api.getTransactions({limit:10000}), api.getCategories(), api.getAccounts(), api.getTags()
+    api.getTransactions({id}), api.getCategories(), api.getAccounts(), api.getTags()
   ]);
-  const tx = txs.find(t => t.id === id);
+  const tx = txs[0];
   if (!tx) return;
   const sched = {
     type:        tx.type,

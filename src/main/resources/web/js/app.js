@@ -3588,16 +3588,23 @@ async function renderPortfolio() {
                color:${_portfolioTab==='analisi'?'var(--accent)':'var(--txt2)'};font-weight:${_portfolioTab==='analisi'?'600':'400'};
                padding:8px 18px;background:none">📊 Analisi</button>
       ${investAccounts.length && _portfolioTab==='portfolio' ? `
-        <div class="flex-center-8" style="margin-left:auto;padding-bottom:2px">
-          <div class="theme-toggle-group">
-            <button class="btn theme-btn ${_portfolioActiveOnly?'theme-btn-active':''}"  onclick="_setPortfolioFilter(true)">Solo attivi</button>
-            <button class="btn theme-btn ${!_portfolioActiveOnly?'theme-btn-active':''}" onclick="_setPortfolioFilter(false)">Tutti</button>
+        <div style="margin-left:auto;padding-bottom:2px;display:flex;align-items:center;gap:6px">
+          <div style="display:flex;flex-direction:column;align-items:center;gap:3px;padding:4px 8px;background:var(--bg3);border-radius:8px">
+            <span style="font-size:10px;color:var(--txt3);text-transform:uppercase;letter-spacing:.5px;line-height:1">Visualizza</span>
+            <div class="theme-toggle-group" style="margin:0">
+              <button class="btn theme-btn ${_portfolioActiveOnly?'theme-btn-active':''}"  onclick="_setPortfolioFilter(true)">Solo attivi</button>
+              <button class="btn theme-btn ${!_portfolioActiveOnly?'theme-btn-active':''}" onclick="_setPortfolioFilter(false)">Tutti</button>
+            </div>
           </div>
-          <div class="theme-toggle-group">
-            <button class="btn theme-btn ${_portfolioTypeFilter==='all'?'theme-btn-active':''}"    onclick="_setPortfolioTypeFilter('all')">Tutti</button>
-            <button class="btn theme-btn ${_portfolioTypeFilter==='equity'?'theme-btn-active':''}" onclick="_setPortfolioTypeFilter('equity')">Azioni</button>
-            <button class="btn theme-btn ${_portfolioTypeFilter==='bond'?'theme-btn-active':''}"   onclick="_setPortfolioTypeFilter('bond')">Obbligazioni</button>
+          <div style="display:flex;flex-direction:column;align-items:center;gap:3px;padding:4px 8px;background:var(--bg3);border-radius:8px">
+            <span style="font-size:10px;color:var(--txt3);text-transform:uppercase;letter-spacing:.5px;line-height:1">Tipo</span>
+            <div class="theme-toggle-group" style="margin:0">
+              <button class="btn theme-btn ${_portfolioTypeFilter==='all'?'theme-btn-active':''}"    onclick="_setPortfolioTypeFilter('all')">Tutti</button>
+              <button class="btn theme-btn ${_portfolioTypeFilter==='equity'?'theme-btn-active':''}" onclick="_setPortfolioTypeFilter('equity')">Azioni</button>
+              <button class="btn theme-btn ${_portfolioTypeFilter==='bond'?'theme-btn-active':''}"   onclick="_setPortfolioTypeFilter('bond')">Obbligazioni</button>
+            </div>
           </div>
+          <div style="width:1px;height:36px;background:var(--border);margin:0 6px;flex-shrink:0"></div>
           <button class="btn btn-secondary" id="btnRefreshPrices">🌐 Aggiorna valori online</button>
           <button class="btn btn-secondary" id="btnImportPos">📥 Carica esistente</button>
           <button class="btn btn-primary" id="btnBuyStock">+ Acquista</button>

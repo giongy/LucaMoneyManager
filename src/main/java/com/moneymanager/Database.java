@@ -1999,10 +1999,7 @@ public class Database {
     }
 
     public Map<String, Object> updateStockPrice(int id, double price) throws SQLException {
-        Map<String, Object> old = queryOne("SELECT ticker FROM portfolio WHERE id=?", id);
         execute("UPDATE portfolio SET current_price=? WHERE id=?", price, id);
-        logger.log("PREZZO AGGIORNATO", "ticker:" + DbLogger.s(old != null ? old.get("ticker") : id),
-                   "prezzo:" + DbLogger.amt(price));
         return queryOne("SELECT * FROM portfolio WHERE id=?", id);
     }
 

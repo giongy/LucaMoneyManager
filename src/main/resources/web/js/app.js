@@ -7124,12 +7124,12 @@ async function _saveCustomThemesToDB() {
   await api.setSetting('appearance.custom_themes', JSON.stringify(_customThemes));
 }
 const _FONT_SIZE_VARS = [
-  { key: '--fs-xs',    label: 'XS — etichette, badge',   def: 10, min: 7,  max: 14 },
-  { key: '--fs-sm',    label: 'SM — testo piccolo, hint', def: 11, min: 8,  max: 15 },
-  { key: '--fs-md',    label: 'MD — testo medio',         def: 12, min: 9,  max: 16 },
-  { key: '--font-size',label: 'Base — testo principale',  def: 13, min: 10, max: 17 },
-  { key: '--fs-lg',    label: 'LG — testo grande',        def: 14, min: 11, max: 18 },
-  { key: '--fs-xl',    label: 'XL — titoli sezione',      def: 16, min: 12, max: 22 },
+  { key: '--fs-xs',    label: 'Badge e tag',       hint: 'badge colorati, tag filtro, etichette nav',  def: 10, min: 7,  max: 14 },
+  { key: '--fs-sm',    label: 'Etichette',          hint: 'label campo, testo secondario, hint',        def: 11, min: 8,  max: 15 },
+  { key: '--fs-md',    label: 'Pulsanti e input',   hint: 'bottoni, campi form',                        def: 12, min: 9,  max: 16 },
+  { key: '--font-size',label: 'Corpo testo',        hint: 'testo principale, voci lista, menu',         def: 13, min: 10, max: 17 },
+  { key: '--fs-lg',    label: 'Dati e tabelle',     hint: 'celle tabella, importi, valori',             def: 14, min: 11, max: 18 },
+  { key: '--fs-xl',    label: 'Titolo finestra',    hint: 'barra del titolo applicazione',              def: 16, min: 12, max: 22 },
 ];
 
 function _applyCustomVars(ct) {
@@ -7293,14 +7293,18 @@ function showThemeEditor(themeObj) {
                value="${!_FONT_OPTIONS.find(([v])=>v===_teWorkingTheme.fontFamily) && _teWorkingTheme.fontFamily ? _teWorkingTheme.fontFamily : ''}"
                style="flex:1;font-size:var(--fs-sm,11px)">
       </div>
-      ${_FONT_SIZE_VARS.map(({key, label, def, min, max}) => {
+      ${_FONT_SIZE_VARS.map(({key, label, hint, def, min, max}) => {
         const fs = _teWorkingTheme.fontSizes || {};
         const val = fs[key] ?? (key==='--font-size' ? (_teWorkingTheme.fontSize||def) : def);
         const safeId = 'teFs_' + key.replace(/[^a-z0-9]/gi,'_');
-        return `<div class="te-prop-row">
-          <label>${label}</label>
-          <input type="range" id="${safeId}" data-fskey="${key}" min="${min}" max="${max}" value="${val}" style="flex:1">
+        return `<div class="te-prop-row" style="align-items:center;gap:6px">
+          <div style="flex:none;width:130px">
+            <div style="font-size:var(--fs-md,12px);color:var(--txt);font-weight:500;line-height:1.3">${label}</div>
+            <div style="font-size:var(--fs-xs,10px);color:var(--txt3);line-height:1.4">${hint}</div>
+          </div>
+          <input type="range" id="${safeId}" data-fskey="${key}" min="${min}" max="${max}" value="${val}" style="flex:1;min-width:0">
           <span class="te-range-val" id="${safeId}Val">${val}px</span>
+          <span id="${safeId}Preview" style="font-size:${val}px;color:var(--txt2);min-width:22px;text-align:right;flex-shrink:0;line-height:1">Aa</span>
         </div>`;
       }).join('')}
       <div class="te-section-hdr">Forma</div>
@@ -7368,6 +7372,8 @@ function _teWireEvents() {
       if (key === '--font-size') _teWorkingTheme.fontSize = v;
       const valEl = document.getElementById(e.target.id + 'Val');
       if (valEl) valEl.textContent = v + 'px';
+      const previewEl = document.getElementById(e.target.id + 'Preview');
+      if (previewEl) previewEl.style.fontSize = v + 'px';
       document.documentElement.style.setProperty(key, v + 'px');
     });
   });

@@ -528,6 +528,9 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             case "purgeLog"        -> db.purgeLog(p.get("cutoff").getAsString());
             case "purgeSystemLog"  -> db.purgeSystemLog();
 
+            // ─── Prezzi online (HTTP server: blocca il virtual thread, JCEF: async in onQuery) ──
+            case "fetchOnlinePrice" -> doFetchOnlinePrice(p.get("isin").getAsString());
+
             default -> throw new Exception("Metodo sconosciuto: " + method);
         };
     }

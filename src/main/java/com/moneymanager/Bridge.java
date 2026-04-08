@@ -309,7 +309,12 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             case "getOverdue"            -> db.getOverdue();
             case "getDueToday"           -> db.getDueToday();
             case "getTransactionsWithTag" -> db.getTransactionsWithTag(p.get("name").getAsString());
-            case "advanceScheduled"  -> { db.advanceScheduled(p.get("id").getAsInt(), p.get("date").getAsString()); yield Map.of("ok", true); }
+            case "advanceScheduled"  -> {
+                Integer txId = p.has("transaction_id") && !p.get("transaction_id").isJsonNull()
+                        ? p.get("transaction_id").getAsInt() : null;
+                db.advanceScheduled(p.get("id").getAsInt(), p.get("date").getAsString(), txId);
+                yield Map.of("ok", true);
+            }
             case "getProjection"    -> db.getProjection(
                 p.get("from_date").getAsString(), p.get("to_date").getAsString(),
                 p.has("account_ids") ? p.get("account_ids").getAsString() : "",
@@ -331,6 +336,7 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             case "updatePortfolioItem"      -> db.updatePortfolioItem(p);
             case "importPosition"           -> db.importPosition(p);
             case "registerCoupon"           -> db.registerCoupon(p);
+            case "registerPortfolioExpense" -> db.registerPortfolioExpense(p);
             case "deletePortfolioItem"      -> db.deletePortfolioItem(p.get("id").getAsInt());
 
             // ─── Tag ───────────────────────────────────────────────────────────────

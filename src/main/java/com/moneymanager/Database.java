@@ -377,7 +377,7 @@ public class Database {
         """);
     }
 
-    private static final int SCHEMA_VERSION = 6;
+    private static final int SCHEMA_VERSION = 8;
 
     private void migrate() throws SQLException {
         // Crea tabella versione se non esiste
@@ -578,6 +578,30 @@ public class Database {
                     range_key  TEXT    NOT NULL UNIQUE,
                     sort_order INTEGER DEFAULT 0
                 )""");
+        }
+
+        // ── v7: portfolio_transactions.transaction_id ON DELETE CASCADE ─────────
+        if (currentVersion < 7) {
+            executePlain("""
+                CREATE TABLE portfolio_transactions_new (
+                    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                    portfolio_id   INTEGER NOT NULL REFERENCES portfolio(id) ON DELETE CASCADE,
+                    type           TEXT    NOT NULL,
+                    quantity       REAL    NOT NULL,
+                    price          REAL    NOT NULL,
+                    date           TEXT    NOT NULL,
+                    transaction_id INTEGER REFERENCES transactions(id) ON DELETE CASCADE,
+                    notes          TEXT,
+                    created_at     TEXT    DEFAULT CURRENT_TIMESTAMP
+                )""");
+            executePlain("INSERT INTO portfolio_transactions_new SELECT * FROM portfolio_transactions");
+            executePlain("DROP TABLE portfolio_transactions");
+            executePlain("ALTER TABLE portfolio_transactions_new RENAME TO portfolio_transactions");
+        }
+
+        // ── v8: portfolio_id su scheduled_transactions ──────────────────────────
+        if (currentVersion < 8) {
+            try { executePlain("ALTER TABLE scheduled_transactions ADD COLUMN portfolio_id INTEGER REFERENCES portfolio(id) ON DELETE SET NULL"); } catch (SQLException ignored) {}
         }
 
         // Segna il DB come aggiornato all'ultima versione
@@ -965,6 +989,9 @@ public class Database {
                 str(p,"color"), reconciled, id);
         saveTags(id, p);
         saveSplits(id, p);
+        // Aggiorna il prezzo nello storico portfolio se collegato (cedola/spesa)
+        execute("UPDATE portfolio_transactions SET price=? WHERE transaction_id=? AND type IN ('coupon','expense')",
+                dbl(p,"amount"), id);
         touchSyncMeta();
         Map<String, Object> tx = getTransactionById(id);
         logger.log("TRANSAZIONE MODIFICATA",
@@ -1440,15 +1467,16 @@ public class Database {
         long id = execute("""
             INSERT INTO scheduled_transactions
                 (description,amount,type,category_id,account_id,to_account_id,
-                 frequency,start_date,end_date,is_active,color,reconciled)
-            VALUES(?,?,?,?,?,?,?,?,?,?,?,?)
+                 frequency,start_date,end_date,is_active,color,reconciled,portfolio_id)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
         """, str(p,"description"), dbl(p,"amount"), str(p,"type"),
                 intVal(p,"category_id"), p.get("account_id").getAsInt(),
                 intVal(p,"to_account_id"), str(p,"frequency"),
                 str(p,"start_date"), str(p,"end_date"),
                 p.has("is_active") ? p.get("is_active").getAsInt() : 1,
                 str(p,"color"),
-                p.has("reconciled") && !p.get("reconciled").isJsonNull() ? p.get("reconciled").getAsInt() : 1);
+                p.has("reconciled") && !p.get("reconciled").isJsonNull() ? p.get("reconciled").getAsInt() : 1,
+                intVal(p,"portfolio_id"));
         saveSchedTags(id, p);
         logger.log("PIANIFICATA AGGIUNTA", "id:" + id, "descrizione:" + str(p,"description"),
                    "tipo:" + str(p,"type"), "importo:" + DbLogger.amt(dbl(p,"amount")),
@@ -1608,11 +1636,25 @@ public class Database {
      * le occorrenze passate non vengono più generate e non risultano scadute.
      * Se la frequenza è "once", marca la transazione come inattiva.
      */
-    public void advanceScheduled(int scheduledId, String registeredDate) throws SQLException {
+    public void advanceScheduled(int scheduledId, String registeredDate, Integer transactionId) throws SQLException {
         Map<String, Object> s = queryOne(
-                "SELECT frequency, start_date, description FROM scheduled_transactions WHERE id=?", scheduledId);
+                "SELECT frequency, start_date, description, portfolio_id FROM scheduled_transactions WHERE id=?", scheduledId);
         if (s == null) return;
         String freq = (String) s.get("frequency");
+
+        // Se la pianificata è collegata a un titolo e abbiamo il transaction_id, registra nello storico portfolio
+        if (transactionId != null && s.get("portfolio_id") != null) {
+            int portfolioId = ((Number) s.get("portfolio_id")).intValue();
+            var tx = queryOne("SELECT amount, date FROM transactions WHERE id=?", transactionId);
+            if (tx != null) {
+                execute("""
+                    INSERT INTO portfolio_transactions(portfolio_id,type,quantity,price,date,transaction_id,notes)
+                    VALUES(?,?,?,?,?,?,?)
+                """, portfolioId, "coupon", 0, tx.get("amount"), tx.get("date"), transactionId,
+                        DbLogger.s(s.get("description")));
+            }
+        }
+
         if ("once".equals(freq)) {
             execute("UPDATE scheduled_transactions SET is_active=0 WHERE id=?", scheduledId);
             logger.log("PIANIFICATA COMPLETATA", "id:" + scheduledId,
@@ -2100,8 +2142,9 @@ public class Database {
         if (pos == null) throw new SQLException("Posizione non trovata");
         String ticker = (String)pos.get("ticker");
 
-        // Usa la prima categoria income disponibile
-        var incCat = queryOne("SELECT id FROM categories WHERE type='income' LIMIT 1");
+        // Cerca categoria "Investimenti" income, fallback alla prima income disponibile
+        var incCat = queryOne("SELECT id FROM categories WHERE type='income' AND name LIKE '%nvestiment%' LIMIT 1");
+        if (incCat == null) incCat = queryOne("SELECT id FROM categories WHERE type='income' LIMIT 1");
         Integer catId = incCat != null ? ((Number)incCat.get("id")).intValue() : null;
 
         String desc = notes != null ? notes : "Cedola " + ticker;
@@ -2122,6 +2165,43 @@ public class Database {
         logger.log("CEDOLA REGISTRATA", "ticker:" + ticker,
                    "importo:" + DbLogger.amt(amount), "data:" + date,
                    "note:" + DbLogger.s(notes));
+        return Map.of("ok", true, "transaction_id", txId);
+    }
+
+    public Map<String, Object> registerPortfolioExpense(JsonObject p) throws SQLException {
+        int portfolioId = p.get("portfolio_id").getAsInt();
+        int accountId   = p.get("account_id").getAsInt();
+        double amount   = p.get("amount").getAsDouble();
+        String date     = p.get("date").getAsString();
+        String label    = p.has("label") && !p.get("label").isJsonNull() ? p.get("label").getAsString() : "Spesa";
+        String notes    = p.has("notes") && !p.get("notes").isJsonNull() ? p.get("notes").getAsString() : null;
+
+        var pos = queryOne("SELECT * FROM portfolio WHERE id=?", portfolioId);
+        if (pos == null) throw new SQLException("Posizione non trovata");
+        String ticker = (String)pos.get("ticker");
+
+        // Cerca categoria "Investimenti" expense, fallback alla prima expense disponibile
+        var expCat = queryOne("SELECT id FROM categories WHERE type='expense' AND name LIKE '%nvestiment%' LIMIT 1");
+        if (expCat == null) expCat = queryOne("SELECT id FROM categories WHERE type='expense' LIMIT 1");
+        Integer catId = expCat != null ? ((Number)expCat.get("id")).intValue() : null;
+
+        String desc = notes != null ? notes : label + " " + ticker;
+        long txId = execute("""
+            INSERT INTO transactions(date,amount,type,category_id,account_id,description,reconciled)
+            VALUES(?,?,?,?,?,?,0)
+        """, date, amount, "expense", catId, accountId, desc);
+
+        execute("""
+            INSERT INTO portfolio_transactions(portfolio_id,type,quantity,price,date,transaction_id,notes)
+            VALUES(?,?,?,?,?,?,?)
+        """, portfolioId, "expense", 0, amount, date, txId, notes != null ? notes : label);
+
+        Integer investTagId = getSystemTagIdByKey("investment");
+        if (investTagId != null)
+            executePlain("INSERT OR IGNORE INTO transaction_tags(transaction_id,tag_id) VALUES(" + txId + "," + investTagId + ")");
+
+        logger.log("SPESA PORTFOLIO REGISTRATA", "ticker:" + ticker,
+                   "label:" + DbLogger.s(label), "importo:" + DbLogger.amt(amount), "data:" + date);
         return Map.of("ok", true, "transaction_id", txId);
     }
 

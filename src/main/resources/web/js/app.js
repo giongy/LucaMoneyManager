@@ -256,6 +256,7 @@ const api = {
   fetchOnlinePrice:         (isin)  => callJava('fetchOnlinePrice', {isin}),
   importPosition:           (data)  => callJava('importPosition', data),
   registerCoupon:           (data)  => callJava('registerCoupon', data),
+  registerPortfolioExpense: (data)  => callJava('registerPortfolioExpense', data),
   updatePortfolioItem:      (data)  => callJava('updatePortfolioItem', data),
   deletePortfolioItem:      (id)    => callJava('deletePortfolioItem', {id}),
 
@@ -291,7 +292,7 @@ const api = {
   getUpcomingAll:  (n)   => callJava('getUpcomingAll', {limit: n||15}),
   getOverdue:      ()    => callJava('getOverdue'),
   getDueToday:     ()    => callJava('getDueToday'),
-  advanceScheduled: (id, date) => callJava('advanceScheduled', {id, date}),
+  advanceScheduled: (id, date, transactionId) => callJava('advanceScheduled', {id, date, transaction_id: transactionId ?? null}),
   getProjection:          data  => callJava('getProjection', data),
   getProjectionByCategory:data  => callJava('getProjectionByCategory', data),
   saveForecast:           data  => callJava('saveForecast', data),
@@ -1718,9 +1719,8 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
     }
 
     try {
-      if (isEdit) await api.updateTransaction(data);
-      else        await api.addTransaction(data);
-      if (onAfterSave) await onAfterSave();
+      const txResult = isEdit ? await api.updateTransaction(data) : await api.addTransaction(data);
+      if (onAfterSave) await onAfterSave(txResult);
       closeModal();
       toast(isEdit ? 'Transazione aggiornata' : 'Transazione aggiunta');
       refreshAfterTxChange();
@@ -4641,6 +4641,68 @@ async function showCouponModal(portfolioId) {
   }, 50);
 }
 
+async function showExpenseModal(portfolioId) {
+  const [items, accounts] = await Promise.all([api.getPortfolio(), api.getAccounts()]);
+  const pos = items.find(i => i.id === portfolioId);
+  if (!pos) return;
+  const regularAccounts = accounts.filter(a => a.type !== 'investment' && !a.is_closed);
+  const today = new Date().toISOString().split('T')[0];
+
+  const body = `
+    <div style="background:var(--bg3);border-radius:6px;padding:8px 14px;margin-bottom:14px;font-size:13px">
+      <strong>${pos.ticker}</strong> — ${pos.name}
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Tipo spesa *</label>
+        <input class="form-control" id="ex_label" placeholder="es. Tobin Tax, Commissione, Ritenuta" value="Tobin Tax">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Data *</label>
+        <input type="date" class="form-control" id="ex_date" value="${today}">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Addebita da *</label>
+        <select class="form-control" id="ex_account">
+          <option value="">— Seleziona conto —</option>
+          ${regularAccounts.map(a=>`<option value="${a.id}">${a.icon} ${a.name}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Importo (€) *</label>
+        <input type="text" inputmode="decimal" class="form-control" id="ex_amount" placeholder="0,00">
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Note</label>
+      <input class="form-control" id="ex_notes" placeholder="Facoltativo">
+    </div>`;
+
+  openModal('Registra Spesa', body, async () => {
+    const label  = document.getElementById('ex_label').value.trim();
+    const amount = parseFloat((document.getElementById('ex_amount').value||'').replace(',','.'));
+    const data = {
+      portfolio_id: portfolioId,
+      account_id:   parseInt(document.getElementById('ex_account').value),
+      amount,
+      date:         document.getElementById('ex_date').value,
+      label:        label || 'Spesa',
+      notes:        document.getElementById('ex_notes').value.trim() || null,
+    };
+    if (!data.account_id)       { toast('Seleziona il conto di addebito','error'); return; }
+    if (!amount || amount <= 0) { toast('Inserisci un importo valido','error'); return; }
+    if (!data.date)             { toast('Inserisci la data','error'); return; }
+    try {
+      await api.registerPortfolioExpense(data);
+      closeModal();
+      toast(`Spesa registrata — ${fmt.currency(amount)}`);
+      renderPortfolio();
+    } catch(e) { toast(e.message,'error'); }
+  });
+}
+
 async function showPortfolioHistory(portfolioId) {
   const [txs, items] = await Promise.all([
     api.getPortfolioTransactions(portfolioId),
@@ -4654,17 +4716,19 @@ async function showPortfolioHistory(portfolioId) {
         <th>Data</th><th>Tipo</th><th>Quantità</th><th>Prezzo</th><th class="text-right">Totale</th>
       </tr></thead><tbody>
       ${txs.length ? txs.map(t=>{
-        const isBuy    = t.type === 'buy';
-        const isCoupon = t.type === 'coupon';
-        const color    = isBuy ? 'var(--expense)' : 'var(--income)';
-        const label    = isBuy ? 'Acquisto' : isCoupon ? 'Cedola' : 'Vendita';
-        const sign     = isBuy ? '-' : '+';
-        const total    = isCoupon ? t.price : t.quantity * t.price;
+        const isBuy     = t.type === 'buy';
+        const isCoupon  = t.type === 'coupon';
+        const isExpense = t.type === 'expense';
+        const isSell    = t.type === 'sell';
+        const color = isBuy || isExpense ? 'var(--expense)' : 'var(--income)';
+        const label = isBuy ? 'Acquisto' : isCoupon ? 'Cedola' : isExpense ? (t.notes || 'Spesa') : 'Vendita';
+        const sign  = isBuy || isExpense ? '-' : '+';
+        const total = (isCoupon || isExpense) ? t.price : t.quantity * t.price;
         return `<tr>
           <td>${t.date}</td>
           <td><span style="color:${color};font-weight:600">${label}</span></td>
-          <td>${isCoupon ? '—' : t.quantity}</td>
-          <td>${isCoupon ? '—' : fmt.currency(t.price)}</td>
+          <td>${(isCoupon || isExpense) ? '—' : t.quantity}</td>
+          <td>${(isCoupon || isExpense) ? '—' : fmt.currency(t.price)}</td>
           <td class="text-right" style="color:${color}">${sign} ${fmt.currency(total)}</td>
         </tr>`;
       }).join('') : '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--txt3)">Nessuna operazione</td></tr>'}
@@ -4848,8 +4912,11 @@ window._showPortfolioCtx = (portfolioId, evt) => {
   menu.appendChild(mkItem('➕', 'Acquista altro', () => showBuyModal(portfolioId)));
   menu.appendChild(mkItem('➖', 'Vendi',          () => showSellModal(portfolioId)));
   if (hasCoupon) {
-    menu.appendChild(mkItem('💰', 'Registra cedola',            () => showCouponModal(portfolioId)));
+    menu.appendChild(mkItem('💰', 'Registra cedola',               () => showCouponModal(portfolioId)));
     menu.appendChild(mkItem('📅', 'Aggiungi cedola a pianificate', () => showAddCouponToScheduled(portfolioId)));
+  }
+  if (!isBond) {
+    menu.appendChild(mkItem('💸', 'Registra spesa', () => showExpenseModal(portfolioId)));
   }
   menu.appendChild(mkSep());
   menu.appendChild(mkItem('✏️', 'Modifica',  () => showEditPositionModal(portfolioId)));
@@ -4963,6 +5030,7 @@ async function showAddCouponToScheduled(portfolioId) {
       is_active:     1,
       color:         null,
       reconciled:    1,
+      portfolio_id:  portfolioId,
     };
     try {
       await api.addScheduled(data);
@@ -4991,6 +5059,7 @@ window._portfolioSortBy = col => {
 window.showBuyModal         = showBuyModal;
 window.showSellModal        = showSellModal;
 window.showCouponModal      = showCouponModal;
+window.showExpenseModal     = showExpenseModal;
 window.showPortfolioHistory = showPortfolioHistory;
 async function refreshPortfolioPrices() {
   const btn = document.getElementById('btnRefreshPrices');
@@ -9095,8 +9164,8 @@ window.registerSched = async id => {
     reconciled:    s.reconciled    ?? 1,
     tag_ids: tagIds
   };
-  showTxModal(prefilled, cats, accs, s.type, tags, async () => {
-    await api.advanceScheduled(id, s._next);
+  showTxModal(prefilled, cats, accs, s.type, tags, async (txResult) => {
+    await api.advanceScheduled(id, s._next, txResult?.id);
     _resolveOverdue(id);
     renderSchedLista();
   });

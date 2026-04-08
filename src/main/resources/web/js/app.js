@@ -9519,7 +9519,7 @@ function showDueTodayNotice(list, save=true) {
 
 function showUnverifiedNotice(list, save=true) {
   if (save) _noticeData.push({type:'unverified', list});
-  _showNotice('', `
+  _showNotice('notice-unverified', `
     <div class="overdue-notice-head">
       <span>🔍 ${list.length} transazion${list.length===1?'e':'i'} da verificare</span>
       <button onclick="this.closest('.overdue-notice').remove()">✕</button>

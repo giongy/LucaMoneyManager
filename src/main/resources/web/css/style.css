@@ -623,6 +623,10 @@ input.te-hex:focus { outline:none; border-color:var(--accent); }
 .notice-duetoday .overdue-notice-head { background:rgba(63,185,80,.12); color:#3fb950; }
 .notice-duetoday .overdue-notice-head button { color:#3fb950; }
 .notice-duetoday .overdue-notice-progress { background:#3fb950; }
+.notice-unverified { border-color:#a371f7; }
+.notice-unverified .overdue-notice-head { background:rgba(163,113,247,.12); color:#a371f7; }
+.notice-unverified .overdue-notice-head button { color:#a371f7; }
+.notice-unverified .overdue-notice-progress { background:#a371f7; }
 
 /* ─── Toast ──────────────────────────────────────────────────────────────── */
 .toast-container { position:fixed; bottom:16px; right:16px; z-index:2000; display:flex; flex-direction:column; gap:6px; }

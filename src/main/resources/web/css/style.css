@@ -372,8 +372,8 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 .acc-quick-tra { background:rgba(88,166,255,.85); color:#fff; font-size:var(--fs-sm,11px); }
 .acc-dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; vertical-align:middle; }
 .acc-icon { font-size:var(--fs-lg,14px); margin-right:5px; vertical-align:middle; }
-.acc-name { font-size:var(--font-size,13px); font-weight:500; vertical-align:middle; }
-.acc-bal { font-size:var(--font-size,13px); font-weight:700; }
+.acc-name { font-size:var(--fs-lg,14px); font-weight:500; vertical-align:middle; }
+.acc-bal { font-size:var(--fs-lg,14px); font-weight:700; }
 .acc-total-row td {
   padding:5px 14px; font-size:var(--fs-sm,11px); font-weight:500;
   color:var(--txt3); opacity:.55;

@@ -915,7 +915,7 @@ async function renderDashboard() {
 
   // Recent transactions (fetch desc → display asc: most recent at bottom)
   const recentAsc = [...recent].reverse();
-  const compactTd = 'padding:4px 8px;font-size:12px';
+  const compactTd = 'padding:4px 8px';
   document.getElementById('recentRows').innerHTML = recentAsc.length ? recentAsc.map(t => `
     <tr>
       <td style="${compactTd};white-space:nowrap;color:var(--txt2)">${fmt.date(t.date)}</td>

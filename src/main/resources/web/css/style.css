@@ -595,6 +595,7 @@ input.te-hex:focus { outline:none; border-color:var(--accent); }
 #noticeStack {
   position:fixed; bottom:24px; right:24px;
   z-index:1900; display:flex; flex-direction:column; gap:8px; align-items:flex-end;
+  max-height:calc(100vh - 64px); overflow:hidden; justify-content:flex-end;
 }
 .overdue-notice {
   width:380px; background:var(--bg2); border:1px solid #d29922;

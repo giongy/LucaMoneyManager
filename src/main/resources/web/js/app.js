@@ -9393,22 +9393,28 @@ function showScheduledModal(sched, accounts, categories, tags = []) {
 /* ═══════════════════════════════════════════════════════════════════════════
    INIT — notices
 ═══════════════════════════════════════════════════════════════════════════ */
-const _noticeData = []; // {type:'telefono'|'overdue'|'forecast', list}
+const _noticeData = []; // {type:'telefono'|'overdue'|'forecast'|'unverified', list}
+let _noticeDelay = 0; // stagger automatico tra notice successive
 
 function _showNotice(className, html, onHeadClick) {
-  const el = document.createElement('div');
-  el.className = 'overdue-notice' + (className ? ' ' + className : '');
-  el.innerHTML = html;
-  document.getElementById('noticeStack').appendChild(el);
-  requestAnimationFrame(() => {
-    el.querySelector('.overdue-notice-progress').style.transition = 'width 8s linear';
-    el.querySelector('.overdue-notice-progress').style.width = '0%';
-  });
-  setTimeout(() => el.classList.add('fade-out'), 7800);
-  setTimeout(() => el.remove(), 8500);
-  el.querySelector('.overdue-notice-head').addEventListener('click', e => {
-    if (!e.target.closest('button')) onHeadClick();
-  });
+  const delay = _noticeDelay;
+  _noticeDelay += 400;
+  setTimeout(() => { _noticeDelay = Math.max(0, _noticeDelay - 400); }, delay + 500);
+  setTimeout(() => {
+    const el = document.createElement('div');
+    el.className = 'overdue-notice' + (className ? ' ' + className : '');
+    el.innerHTML = html;
+    document.getElementById('noticeStack').appendChild(el);
+    requestAnimationFrame(() => {
+      el.querySelector('.overdue-notice-progress').style.transition = 'width 8s linear';
+      el.querySelector('.overdue-notice-progress').style.width = '0%';
+    });
+    setTimeout(() => el.classList.add('fade-out'), 7800);
+    setTimeout(() => el.remove(), 8500);
+    el.querySelector('.overdue-notice-head').addEventListener('click', e => {
+      if (!e.target.closest('button')) onHeadClick();
+    });
+  }, delay);
 }
 
 function updateNoticeBtn() {

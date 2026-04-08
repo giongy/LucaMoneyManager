@@ -917,7 +917,7 @@ async function renderDashboard() {
   const recentAsc = [...recent].reverse();
   const compactTd = 'padding:4px 8px';
   document.getElementById('recentRows').innerHTML = recentAsc.length ? recentAsc.map(t => `
-    <tr>
+    <tr style="cursor:pointer" onclick="navigateToTx(${t.id})">
       <td style="${compactTd};white-space:nowrap;color:var(--txt2)">${fmt.date(t.date)}</td>
       <td style="${compactTd}" class="td-main">${t.description}</td>
       <td style="${compactTd}">${t.split_count > 0
@@ -1085,6 +1085,12 @@ function navigateToAccountTx(accountId) {
   else navigate('transactions');
 }
 
+function navigateToTx(id) {
+  txFilters = { id };
+  if (currentPage === 'transactions') renderTransactions();
+  else navigate('transactions');
+}
+
 async function renderTransactions() {
   _selectedTxId = null;
   const pg = document.getElementById('pg-transactions');
@@ -1196,8 +1202,8 @@ async function renderTransactions() {
   document.getElementById('btnAddExpense').onclick  = () => showTxModal(null, categories, accounts, 'expense',  tags);
   document.getElementById('btnAddTransfer').onclick = () => showTxModal(null, categories, accounts, 'transfer', tags);
 
-  // Ensure date range is resolved into date_from/date_to before loading rows
-  txFilters = { ...txFilters, ...rangeToFilter(txFilters.range || '30d', txFilters.date_from, txFilters.date_to) };
+  // Ensure date range is resolved into date_from/date_to before loading rows (skip if filtering by id)
+  if (!txFilters.id) txFilters = { ...txFilters, ...rangeToFilter(txFilters.range || '30d', txFilters.date_from, txFilters.date_to) };
   await loadTxRows(categories, accounts);
   // Thead sticky a top:0 dentro txScrollWrap (che è il container scroll)
   document.querySelectorAll('#txTable thead th').forEach(th => {
@@ -6473,7 +6479,7 @@ function renderReportResults(txs, groupby, chartType) {
     tableHtml = `<table><thead><tr>
       <th>Data</th><th>Descrizione</th><th>Categoria</th><th>Conto</th>
       <th class="text-right">Importo</th><th>Tipo</th></tr></thead><tbody>
-      ${txs.map(t=>`<tr>
+      ${txs.map(t=>`<tr style="cursor:pointer" onclick="navigateToTx(${t.id})">
         <td>${fmt.date(t.date)}</td>
         <td class="td-main">${t.description||'—'}</td>
         <td>${t.category_icon||''} ${t.category_name||'—'}</td>

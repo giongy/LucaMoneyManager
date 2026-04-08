@@ -9433,6 +9433,7 @@ function replayNotices() {
     else if (n.type === 'overdue') showOverdueNotice(n.list, false);
     else if (n.type === 'duetoday') showDueTodayNotice(n.list, false);
     else if (n.type === 'forecast') showForecastReadyNotice(n.list, false);
+    else if (n.type === 'unverified') showUnverifiedNotice(n.list, false);
   });
 }
 
@@ -9510,6 +9511,25 @@ function showDueTodayNotice(list, save=true) {
     () => { schedTab = 'lista'; navigate('scheduled'); });
 }
 
+function showUnverifiedNotice(list, save=true) {
+  if (save) _noticeData.push({type:'unverified', list});
+  _showNotice('', `
+    <div class="overdue-notice-head">
+      <span>🔍 ${list.length} transazion${list.length===1?'e':'i'} da verificare</span>
+      <button onclick="this.closest('.overdue-notice').remove()">✕</button>
+    </div>
+    <div class="overdue-notice-body">
+      ${list.slice(0,4).map(t=>`<div class="overdue-row">
+        <span>${fmt.date(t.date)}</span>
+        <span class="td-main">${t.description||'-'}</span>
+        <span class="amount-${t.type}">${t.type==='expense'?'-':''}${fmt.currency(t.amount)}</span>
+      </div>`).join('')}
+      ${list.length>4?`<div class="overdue-more">+ altre ${list.length-4}…</div>`:''}
+    </div>
+    <div class="overdue-notice-bar"><div class="overdue-notice-progress"></div></div>`,
+    () => { txFilters = { reconciled: 0, range: 'all' }; navigate('transactions'); });
+}
+
 /* ─── Chart.js global font (allineato al body Segoe UI) ──────────────────── */
 Chart.defaults.font.family = "'Segoe UI', system-ui, sans-serif";
 Chart.defaults.font.size   = 13;
@@ -9556,6 +9576,11 @@ async function init() {
     const forecasts = await api.getForecasts();
     const ready = forecasts.filter(f => f.is_ready === 1 && !f.archived);
     if (ready.length) showForecastReadyNotice(ready);
+  } catch(e) {}
+  // Notifica transazioni da verificare (reconciled=0)
+  try {
+    const unverified = await api.getTransactions({ reconciled: 0, sort_desc: true });
+    if (unverified.length) showUnverifiedNotice(unverified);
   } catch(e) {}
   updateNoticeBtn();
 }

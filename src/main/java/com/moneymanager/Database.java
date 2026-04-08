@@ -908,6 +908,9 @@ public class Database {
                 sql.append(" AND (t.attachment_path IS NULL OR t.attachment_path = '')");
             }
         }
+        if (f.has("reconciled") && !f.get("reconciled").isJsonNull()) {
+            sql.append(" AND t.reconciled=?"); params.add(f.get("reconciled").getAsInt());
+        }
         boolean desc = f.has("sort_desc") && f.get("sort_desc").getAsBoolean();
         sql.append(desc ? " GROUP BY t.id ORDER BY t.date DESC, t.id DESC"
                         : " GROUP BY t.id ORDER BY t.date ASC,  t.id ASC");

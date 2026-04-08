@@ -4642,11 +4642,15 @@ async function showCouponModal(portfolioId) {
 }
 
 async function showExpenseModal(portfolioId) {
-  const [items, accounts] = await Promise.all([api.getPortfolio(), api.getAccounts()]);
+  const [items, accounts, categories] = await Promise.all([api.getPortfolio(), api.getAccounts(), api.getCategories()]);
   const pos = items.find(i => i.id === portfolioId);
   if (!pos) return;
   const regularAccounts = accounts.filter(a => a.type !== 'investment' && !a.is_closed);
+  const expCats = categories.filter(c => c.type === 'expense');
   const today = new Date().toISOString().split('T')[0];
+
+  const optLabel = c => `${c.parent_name ? c.parent_name + ' › ' : ''}${c.icon || ''} ${c.name}`;
+  const catOptions = expCats.map(c => `<option value="${c.id}">${optLabel(c)}</option>`).join('');
 
   const body = `
     <div style="background:var(--bg3);border-radius:6px;padding:8px 14px;margin-bottom:14px;font-size:13px">
@@ -4675,14 +4679,24 @@ async function showExpenseModal(portfolioId) {
         <input type="text" inputmode="decimal" class="form-control" id="ex_amount" placeholder="0,00">
       </div>
     </div>
-    <div class="form-group">
-      <label class="form-label">Note</label>
-      <input class="form-control" id="ex_notes" placeholder="Facoltativo">
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Categoria</label>
+        <select class="form-control" id="ex_cat">
+          <option value="">— Nessuna —</option>
+          ${catOptions}
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Note</label>
+        <input class="form-control" id="ex_notes" placeholder="Facoltativo">
+      </div>
     </div>`;
 
   openModal('Registra Spesa', body, async () => {
     const label  = document.getElementById('ex_label').value.trim();
     const amount = parseFloat((document.getElementById('ex_amount').value||'').replace(',','.'));
+    const catId  = parseInt(document.getElementById('ex_cat').value) || null;
     const data = {
       portfolio_id: portfolioId,
       account_id:   parseInt(document.getElementById('ex_account').value),
@@ -4690,6 +4704,7 @@ async function showExpenseModal(portfolioId) {
       date:         document.getElementById('ex_date').value,
       label:        label || 'Spesa',
       notes:        document.getElementById('ex_notes').value.trim() || null,
+      category_id:  catId,
     };
     if (!data.account_id)       { toast('Seleziona il conto di addebito','error'); return; }
     if (!amount || amount <= 0) { toast('Inserisci un importo valido','error'); return; }

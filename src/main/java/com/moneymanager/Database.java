@@ -2180,10 +2180,14 @@ public class Database {
         if (pos == null) throw new SQLException("Posizione non trovata");
         String ticker = (String)pos.get("ticker");
 
-        // Cerca categoria "Investimenti" expense, fallback alla prima expense disponibile
-        var expCat = queryOne("SELECT id FROM categories WHERE type='expense' AND name LIKE '%nvestiment%' LIMIT 1");
-        if (expCat == null) expCat = queryOne("SELECT id FROM categories WHERE type='expense' LIMIT 1");
-        Integer catId = expCat != null ? ((Number)expCat.get("id")).intValue() : null;
+        // Usa categoria scelta dall'utente, altrimenti cerca "Investimenti" expense, fallback alla prima expense
+        Integer catId = p.has("category_id") && !p.get("category_id").isJsonNull()
+                ? p.get("category_id").getAsInt() : null;
+        if (catId == null) {
+            var expCat = queryOne("SELECT id FROM categories WHERE type='expense' AND name LIKE '%nvestiment%' LIMIT 1");
+            if (expCat == null) expCat = queryOne("SELECT id FROM categories WHERE type='expense' LIMIT 1");
+            catId = expCat != null ? ((Number)expCat.get("id")).intValue() : null;
+        }
 
         String desc = notes != null ? notes : label + " " + ticker;
         long txId = execute("""

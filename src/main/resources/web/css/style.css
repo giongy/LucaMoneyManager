@@ -647,6 +647,16 @@ input.te-hex:focus { outline:none; border-color:var(--accent); }
 }
 .section-title { font-size:var(--fs-lg,14px); font-weight:700; }
 
+/* ─── Report header ──────────────────────────────────────────────────────── */
+.r-report-name { font-size:var(--fs-lg,13px); font-weight:700; color:var(--txt); }
+.r-chips { display:flex; flex-wrap:wrap; gap:4px; margin-top:6px; }
+.r-chip {
+  display:inline-flex; align-items:center; gap:3px;
+  padding:2px 9px; border-radius:999px;
+  background:var(--bg3); border:1px solid var(--border);
+  font-size:var(--fs-sm,11px); color:var(--txt2); white-space:nowrap;
+}
+
 /* ─── Colori importo ─────────────────────────────────────────────────────── */
 .amount-income   { color:var(--income);  font-weight:600; }
 .amount-expense  { color:var(--expense); font-weight:600; }

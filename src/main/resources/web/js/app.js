@@ -6080,13 +6080,14 @@ function _renderAnalyticsTrendChart() {
 async function renderReports() {
   const pg = document.getElementById('pg-reports');
   pg.innerHTML = `
-    <div class="page-header">
-      <h2 class="page-title">Resoconti</h2>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+      <h2 style="font-size:var(--fs-xl,18px);font-weight:700">Resoconti</h2>
       <div class="flex-center-8">
-        <span id="rCurrentLabel" style="font-size:12px;color:var(--txt3)"></span>
+        <button id="rBtnEdit" class="btn btn-ghost" style="display:none">✏️ Modifica</button>
         <button class="btn btn-primary" onclick="showReportModal()">＋ Nuovo resoconto</button>
       </div>
     </div>
+    <div id="rReportHeader" style="margin-bottom:16px"></div>
     <div id="rResults"></div>`;
 
   if (_currentReportId !== null) {
@@ -6095,16 +6096,88 @@ async function renderReports() {
     if (r) { _loadReportConfig(r); _updateReportHeader(r); return; }
   }
   if (Object.keys(_reportFilters||{}).length || _reportGroupby !== 'none' || _reportChartType !== 'none') {
+    _updateReportHeader(null);
     runReport();
   }
 }
 
-function _updateReportHeader(r) {
-  const lbl = document.getElementById('rCurrentLabel');
-  if (!lbl) return;
-  lbl.innerHTML = r
-    ? `📋 ${r.name} <button class="btn btn-ghost btn-icon" style="font-size:11px;padding:1px 5px" onclick="showReportModal(${r.id})" title="Modifica">✏️</button>`
-    : '';
+async function _updateReportHeader(r) {
+  const headerEl = document.getElementById('rReportHeader');
+  const btnEdit  = document.getElementById('rBtnEdit');
+  if (!headerEl) return;
+
+  if (btnEdit) {
+    if (r) { btnEdit.style.display = ''; btnEdit.onclick = () => showReportModal(r.id); }
+    else   { btnEdit.style.display = 'none'; }
+  }
+
+  const f = r
+    ? (() => { try { return JSON.parse(r.filters_json || '{}'); } catch { return {}; } })()
+    : (_reportFilters || {});
+
+  const accIds    = f.account_ids?.length ? f.account_ids : (f.account_id ? [f.account_id] : []);
+  const needPresets = f.range && f.range !== 'custom' && !RANGE_DEFAULTS.find(o => o.v === f.range);
+
+  const [accounts, cats, tags, rangePresets] = await Promise.all([
+    accIds.length   ? api.getAccounts()     : Promise.resolve([]),
+    f.category_id   ? api.getCategories()   : Promise.resolve([]),
+    f.tag_ids?.length ? api.getTags()       : Promise.resolve([]),
+    needPresets     ? api.getRangePresets() : Promise.resolve([]),
+  ]);
+
+  const chip = label => `<span class="r-chip">${label}</span>`;
+  const chips = [];
+
+  if (f.range && f.range !== 'custom') {
+    const allRanges = [...RANGE_DEFAULTS, ...rangePresets.map(p => ({v:p.range_key, l:p.label}))];
+    const found = allRanges.find(o => o.v === f.range);
+    chips.push(chip(`📅 ${found ? found.l : f.range}`));
+  } else if (f.date_from || f.date_to) {
+    chips.push(chip(`📅 ${f.date_from||'…'} → ${f.date_to||'…'}`));
+  }
+
+  if (f.type) {
+    const typeL = {income:'↑ Entrate', expense:'↓ Uscite', transfer:'⇄ Trasferimenti'};
+    chips.push(chip(typeL[f.type] || f.type));
+  }
+
+  if (accIds.length) {
+    const names = accIds.map(id => accounts.find(a => String(a.id) === String(id))?.name || id);
+    chips.push(chip(`🏦 ${names.join(', ')}`));
+  }
+
+  if (f.category_id) {
+    const cat = cats.find(c => c.id === f.category_id);
+    chips.push(chip(`🏷️ ${cat ? cat.name : f.category_id}`));
+  }
+
+  if (f.tag_ids?.length) {
+    const tagNames = f.tag_ids.map(tid => tags.find(t => t.id === tid)?.name || tid);
+    chips.push(chip(`🔖 ${tagNames.join(', ')}`));
+  }
+
+  if (f.reconciled != null) {
+    chips.push(chip(f.reconciled ? '✓ Verificate' : '⚠ Da verificare'));
+  }
+
+  if (f.amount_op && f.amount_val != null && !isNaN(f.amount_val)) {
+    const opL = {gt:'>', lt:'<', eq:'='};
+    chips.push(chip(`€ ${opL[f.amount_op]||f.amount_op} ${fmt.currency(f.amount_val)}`));
+  }
+
+  if (f.search) chips.push(chip(`🔍 "${f.search}"`));
+
+  if (f.has_attachment) chips.push(chip(f.has_attachment === '1' ? '📎 Con allegato' : '📎 Senza allegato'));
+
+  const groupby = r ? r.groupby : _reportGroupby;
+  if (groupby && groupby !== 'none') {
+    const groupL = {category:'Per categoria', month:'Per mese', account:'Per conto', tag:'Per tag'};
+    chips.push(chip(`⊞ ${groupL[groupby] || groupby}`));
+  }
+
+  const nameHtml  = r ? `<span class="r-report-name">📋 ${r.name}</span>` : '';
+  const chipsHtml = chips.length ? `<div class="r-chips">${chips.join('')}</div>` : '';
+  headerEl.innerHTML = `${nameHtml}${chipsHtml}`;
 }
 
 function _loadReportConfig(r) {

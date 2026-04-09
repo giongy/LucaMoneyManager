@@ -3779,6 +3779,11 @@ function _setPortfolioTab(tab) {
   renderPortfolio();
 }
 
+function _setPortStoricoFilter(f) {
+  _portStoricoFilter = f;
+  renderPortfolioStorico(_portfolioItems);
+}
+
 function _togglePortStorico(id) {
   if (_portStoricoExp.has(id)) _portStoricoExp.delete(id);
   else _portStoricoExp.add(id);
@@ -3790,11 +3795,24 @@ async function renderPortfolioStorico(items) {
   if (!container) return;
   container.innerHTML = `<div style="text-align:center;padding:32px;color:var(--txt3)">⏳ Caricamento…</div>`;
 
-  const txResults = await Promise.all(items.map(i => api.getPortfolioTransactions(i.id)));
-  const withTxs   = items.map((item, idx) => ({ item, txs: txResults[idx] })).filter(x => x.txs.length > 0);
+  const filtered = _portStoricoFilter === 'active' ? items.filter(i => i.quantity > 0)
+                 : _portStoricoFilter === 'closed'  ? items.filter(i => !(i.quantity > 0))
+                 : items;
+
+  const txResults = await Promise.all(filtered.map(i => api.getPortfolioTransactions(i.id)));
+  const withTxs   = filtered.map((item, idx) => ({ item, txs: txResults[idx] })).filter(x => x.txs.length > 0);
+
+  const toolbar = `
+    <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
+      <div class="theme-toggle-group" style="margin:0">
+        <button class="btn theme-btn ${_portStoricoFilter==='all'    ?'theme-btn-active':''}" onclick="_setPortStoricoFilter('all')">Tutti</button>
+        <button class="btn theme-btn ${_portStoricoFilter==='active' ?'theme-btn-active':''}" onclick="_setPortStoricoFilter('active')">Attivi</button>
+        <button class="btn theme-btn ${_portStoricoFilter==='closed' ?'theme-btn-active':''}" onclick="_setPortStoricoFilter('closed')">Chiusi</button>
+      </div>
+    </div>`;
 
   if (!withTxs.length) {
-    container.innerHTML = `<div class="empty-state"><div class="empty-icon">📋</div><p>Nessuno storico disponibile.</p></div>`;
+    container.innerHTML = toolbar + `<div class="empty-state"><div class="empty-icon">📋</div><p>Nessuno storico disponibile.</p></div>`;
     return;
   }
 
@@ -3856,7 +3874,7 @@ async function renderPortfolioStorico(items) {
   const grandNet = grandSell + grandCoupon - grandBuy - grandExpense;
   const showExp  = grandExpense > 0;
 
-  container.innerHTML = cards.join('') + `
+  container.innerHTML = toolbar + cards.join('') + `
     <div class="card" style="margin-top:4px">
       <div style="font-weight:700;margin-bottom:10px">Totale complessivo</div>
       <div class="table-wrap">
@@ -8743,7 +8761,8 @@ let _portfolioTypeFilter = 'all'; // 'all' | 'equity' | 'bond'
 let _portfolioSort = { col: 'ticker', dir: 1 };
 let _portfolioTab = 'portfolio';
 let _portfolioItems = [];
-let _portStoricoExp = new Set();
+let _portStoricoExp    = new Set();
+let _portStoricoFilter = 'all'; // 'all' | 'active' | 'closed'
 let _portfolioPriceStatus = {}; // id → 'ok' | 'fail' | undefined (grigio)
 let _schedSort   = { col: 'days', dir: 'asc' };
 let _schedFilter = { type: '', active: '1' };

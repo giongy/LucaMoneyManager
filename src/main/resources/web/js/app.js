@@ -3780,8 +3780,8 @@ function _setPortfolioTab(tab) {
 }
 
 function _togglePortStorico(id) {
-  if (_portStoricoColl.has(id)) _portStoricoColl.delete(id);
-  else _portStoricoColl.add(id);
+  if (_portStoricoExp.has(id)) _portStoricoExp.delete(id);
+  else _portStoricoExp.add(id);
   renderPortfolioStorico(_portfolioItems);
 }
 
@@ -3811,7 +3811,7 @@ async function renderPortfolioStorico(items) {
     const totExpense = txs.filter(t=>t.type==='expense').reduce((s,t)=>s+t.price, 0);
     grandBuy += totBuy; grandSell += totSell; grandCoupon += totCoupon; grandExpense += totExpense;
 
-    const collapsed = _portStoricoColl.has(item.id);
+    const collapsed = !_portStoricoExp.has(item.id);
     const net = totSell + totCoupon - totBuy - totExpense;
 
     const chips = [
@@ -3835,12 +3835,12 @@ async function renderPortfolioStorico(items) {
     }).join('');
 
     return `
-      <div class="card" style="margin-bottom:8px">
-        <div style="display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none"
+      <div class="card" style="margin-bottom:4px;${collapsed?'padding:6px 12px':''}">
+        <div style="display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none"
              onclick="_togglePortStorico(${item.id})">
-          <span style="font-size:11px;color:var(--txt3);flex-shrink:0">${collapsed?'▶':'▼'}</span>
-          <span style="font-weight:700">${item.ticker}</span>
-          <span style="color:var(--txt2)">${item.name}</span>
+          <span style="font-size:10px;color:var(--txt3);flex-shrink:0">${collapsed?'▶':'▼'}</span>
+          <span style="font-weight:700;font-size:var(--fs-md,12px)">${item.ticker}</span>
+          <span style="color:var(--txt2);font-size:var(--fs-md,12px)">${item.name}</span>
           <div style="display:flex;flex-wrap:wrap;gap:4px;margin-left:auto">${chips}</div>
         </div>
         ${collapsed ? '' : `
@@ -8743,7 +8743,7 @@ let _portfolioTypeFilter = 'all'; // 'all' | 'equity' | 'bond'
 let _portfolioSort = { col: 'ticker', dir: 1 };
 let _portfolioTab = 'portfolio';
 let _portfolioItems = [];
-let _portStoricoColl = new Set();
+let _portStoricoExp = new Set();
 let _portfolioPriceStatus = {}; // id → 'ok' | 'fail' | undefined (grigio)
 let _schedSort   = { col: 'days', dir: 'asc' };
 let _schedFilter = { type: '', active: '1' };

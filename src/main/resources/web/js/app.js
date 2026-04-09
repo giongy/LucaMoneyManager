@@ -6543,6 +6543,9 @@ function renderReportResults(txs, groupby, chartType) {
       </tbody></table>`;
 
   } else {
+    const totI = txs.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0);
+    const totE = txs.filter(t=>t.type==='expense').reduce((s,t)=>s+t.amount,0);
+    const net  = totI - totE;
     tableHtml = `<table><thead><tr>
       <th>Data</th><th>Descrizione</th><th>Categoria</th><th>Conto</th>
       <th class="text-right">Importo</th><th>Tipo</th></tr></thead><tbody>
@@ -6554,7 +6557,11 @@ function renderReportResults(txs, groupby, chartType) {
         <td class="text-right amount-${t.type}">${t.type==='expense'?'-':''}${fmt.currency(t.amount)}</td>
         <td><span class="badge badge-${t.type}">${t.type==='income'?'Entrata':t.type==='expense'?'Uscita':'Trasf.'}</span></td>
         </tr>`).join('')}
-      </tbody></table>`;
+      <tr style="border-top:2px solid var(--border);font-weight:700">
+        <td colspan="4">Totale</td>
+        <td class="text-right" style="color:${net>=0?'var(--income)':'var(--expense)'}">${fmt.currency(net)}</td>
+        <td></td>
+      </tr></tbody></table>`;
   }
 
   el.innerHTML = `

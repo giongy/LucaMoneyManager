@@ -3593,6 +3593,10 @@ async function renderPortfolio() {
         style="border-radius:0;border:none;border-bottom:2px solid ${_portfolioTab==='analisi'?'var(--accent)':'transparent'};
                color:${_portfolioTab==='analisi'?'var(--accent)':'var(--txt2)'};font-weight:${_portfolioTab==='analisi'?'600':'400'};
                padding:8px 18px;background:none">📊 Analisi</button>
+      <button class="btn" onclick="_setPortfolioTab('storico')"
+        style="border-radius:0;border:none;border-bottom:2px solid ${_portfolioTab==='storico'?'var(--accent)':'transparent'};
+               color:${_portfolioTab==='storico'?'var(--accent)':'var(--txt2)'};font-weight:${_portfolioTab==='storico'?'600':'400'};
+               padding:8px 18px;background:none">📋 Storico</button>
       ${investAccounts.length && _portfolioTab==='portfolio' ? `
         <div style="margin-left:auto;padding-bottom:2px;display:flex;align-items:center;gap:6px">
           <div style="display:flex;flex-direction:column;align-items:center;gap:3px;padding:4px 8px;background:var(--bg3);border-radius:8px">
@@ -3624,6 +3628,8 @@ async function renderPortfolio() {
         <button class="btn btn-primary" onclick="navigate('accounts')">Vai ai Conti →</button>
       </div>` : _portfolioTab === 'analisi' ? `
     <div id="pgPortfolioAnalisi"></div>
+    ` : _portfolioTab === 'storico' ? `
+    <div id="pgPortfolioStorico"></div>
     ` : `
     <div class="portfolio-summary">
       <div class="stat-card">
@@ -3763,11 +3769,114 @@ async function renderPortfolio() {
   if (investAccounts.length && _portfolioTab === 'analisi') {
     renderPortfolioAnalisi(items);
   }
+  if (_portfolioTab === 'storico') {
+    renderPortfolioStorico(items);
+  }
 }
 
 function _setPortfolioTab(tab) {
   _portfolioTab = tab;
   renderPortfolio();
+}
+
+function _togglePortStorico(id) {
+  if (_portStoricoColl.has(id)) _portStoricoColl.delete(id);
+  else _portStoricoColl.add(id);
+  renderPortfolioStorico(_portfolioItems);
+}
+
+async function renderPortfolioStorico(items) {
+  const container = document.getElementById('pgPortfolioStorico');
+  if (!container) return;
+  container.innerHTML = `<div style="text-align:center;padding:32px;color:var(--txt3)">⏳ Caricamento…</div>`;
+
+  const txResults = await Promise.all(items.map(i => api.getPortfolioTransactions(i.id)));
+  const withTxs   = items.map((item, idx) => ({ item, txs: txResults[idx] })).filter(x => x.txs.length > 0);
+
+  if (!withTxs.length) {
+    container.innerHTML = `<div class="empty-state"><div class="empty-icon">📋</div><p>Nessuno storico disponibile.</p></div>`;
+    return;
+  }
+
+  const TYPE_LABEL = { buy:'Acquisto', sell:'Vendita', coupon:'Cedola', expense:'Spesa' };
+  const TYPE_COLOR = { buy:'var(--expense)', sell:'var(--income)', coupon:'var(--income)', expense:'var(--expense)' };
+  const TYPE_SIGN  = { buy:'-', sell:'+', coupon:'+', expense:'-' };
+
+  let grandBuy = 0, grandSell = 0, grandCoupon = 0, grandExpense = 0;
+
+  const cards = withTxs.map(({ item, txs }) => {
+    const totBuy     = txs.filter(t=>t.type==='buy').reduce((s,t)=>s+t.quantity*t.price, 0);
+    const totSell    = txs.filter(t=>t.type==='sell').reduce((s,t)=>s+t.quantity*t.price, 0);
+    const totCoupon  = txs.filter(t=>t.type==='coupon').reduce((s,t)=>s+t.price, 0);
+    const totExpense = txs.filter(t=>t.type==='expense').reduce((s,t)=>s+t.price, 0);
+    grandBuy += totBuy; grandSell += totSell; grandCoupon += totCoupon; grandExpense += totExpense;
+
+    const collapsed = _portStoricoColl.has(item.id);
+    const net = totSell + totCoupon - totBuy - totExpense;
+
+    const chips = [
+      totBuy     > 0 ? `<span class="r-chip" style="color:var(--expense)">Acq. ${fmt.currency(totBuy)}</span>`      : '',
+      totSell    > 0 ? `<span class="r-chip" style="color:var(--income)">Vend. ${fmt.currency(totSell)}</span>`     : '',
+      totCoupon  > 0 ? `<span class="r-chip" style="color:var(--income)">Ced. ${fmt.currency(totCoupon)}</span>`    : '',
+      totExpense > 0 ? `<span class="r-chip" style="color:var(--expense)">Sp. ${fmt.currency(totExpense)}</span>`   : '',
+      `<span class="r-chip" style="font-weight:600;color:${net>=0?'var(--income)':'var(--expense)'}">Netto ${net>=0?'+':''}${fmt.currency(net)}</span>`,
+    ].filter(Boolean).join('');
+
+    const rows = txs.map(t => {
+      const total = (t.type==='coupon'||t.type==='expense') ? t.price : t.quantity * t.price;
+      return `<tr>
+        <td>${fmt.date(t.date)}</td>
+        <td><span style="color:${TYPE_COLOR[t.type]||'var(--txt)'};font-weight:600">${TYPE_LABEL[t.type]||t.type}</span></td>
+        <td>${(t.type==='coupon'||t.type==='expense') ? '—' : t.quantity}</td>
+        <td>${(t.type==='coupon'||t.type==='expense') ? '—' : fmt.currency(t.price)}</td>
+        <td class="text-right" style="color:${TYPE_COLOR[t.type]||'var(--txt)'}">${TYPE_SIGN[t.type]||''}${fmt.currency(total)}</td>
+        <td style="color:var(--txt3);font-size:var(--fs-xs,10px)">${t.notes||''}</td>
+      </tr>`;
+    }).join('');
+
+    return `
+      <div class="card" style="margin-bottom:8px">
+        <div style="display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none"
+             onclick="_togglePortStorico(${item.id})">
+          <span style="font-size:11px;color:var(--txt3);flex-shrink:0">${collapsed?'▶':'▼'}</span>
+          <span style="font-weight:700">${item.ticker}</span>
+          <span style="color:var(--txt2)">${item.name}</span>
+          <div style="display:flex;flex-wrap:wrap;gap:4px;margin-left:auto">${chips}</div>
+        </div>
+        ${collapsed ? '' : `
+        <div class="table-wrap" style="margin-top:10px">
+          <table><thead><tr>
+            <th>Data</th><th>Tipo</th><th>Qtà</th><th>Prezzo</th>
+            <th class="text-right">Totale</th><th>Note</th>
+          </tr></thead><tbody>${rows}</tbody></table>
+        </div>`}
+      </div>`;
+  });
+
+  const grandNet = grandSell + grandCoupon - grandBuy - grandExpense;
+  const showExp  = grandExpense > 0;
+
+  container.innerHTML = cards.join('') + `
+    <div class="card" style="margin-top:4px">
+      <div style="font-weight:700;margin-bottom:10px">Totale complessivo</div>
+      <div class="table-wrap">
+        <table><thead><tr>
+          <th class="text-right">Acquisti</th>
+          <th class="text-right">Vendite</th>
+          <th class="text-right">Cedole</th>
+          ${showExp ? '<th class="text-right">Spese</th>' : ''}
+          <th class="text-right">Netto</th>
+        </tr></thead><tbody><tr>
+          <td class="text-right amount-expense">-${fmt.currency(grandBuy)}</td>
+          <td class="text-right amount-income">+${fmt.currency(grandSell)}</td>
+          <td class="text-right amount-income">+${fmt.currency(grandCoupon)}</td>
+          ${showExp ? `<td class="text-right amount-expense">-${fmt.currency(grandExpense)}</td>` : ''}
+          <td class="text-right" style="font-weight:700;color:${grandNet>=0?'var(--income)':'var(--expense)'}">
+            ${grandNet>=0?'+':''}${fmt.currency(grandNet)}
+          </td>
+        </tr></tbody></table>
+      </div>
+    </div>`;
 }
 
 function renderPortfolioAnalisi(items) {
@@ -8634,6 +8743,7 @@ let _portfolioTypeFilter = 'all'; // 'all' | 'equity' | 'bond'
 let _portfolioSort = { col: 'ticker', dir: 1 };
 let _portfolioTab = 'portfolio';
 let _portfolioItems = [];
+let _portStoricoColl = new Set();
 let _portfolioPriceStatus = {}; // id → 'ok' | 'fail' | undefined (grigio)
 let _schedSort   = { col: 'days', dir: 'asc' };
 let _schedFilter = { type: '', active: '1' };

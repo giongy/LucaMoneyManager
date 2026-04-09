@@ -6083,7 +6083,6 @@ async function renderReports() {
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
       <h2 style="font-size:var(--fs-xl,18px);font-weight:700">Resoconti</h2>
       <div class="flex-center-8">
-        <button id="rBtnEdit" class="btn btn-ghost" style="display:none">✏️ Modifica</button>
         <button class="btn btn-primary" onclick="showReportModal()">＋ Nuovo resoconto</button>
       </div>
     </div>
@@ -6103,13 +6102,8 @@ async function renderReports() {
 
 async function _updateReportHeader(r) {
   const headerEl = document.getElementById('rReportHeader');
-  const btnEdit  = document.getElementById('rBtnEdit');
   if (!headerEl) return;
 
-  if (btnEdit) {
-    if (r) { btnEdit.style.display = ''; btnEdit.onclick = () => showReportModal(r.id); }
-    else   { btnEdit.style.display = 'none'; }
-  }
 
   const f = r
     ? (() => { try { return JSON.parse(r.filters_json || '{}'); } catch { return {}; } })()
@@ -6175,7 +6169,7 @@ async function _updateReportHeader(r) {
     chips.push(chip(`⊞ ${groupL[groupby] || groupby}`));
   }
 
-  const nameHtml  = r ? `<span class="r-report-name">📋 ${r.name}</span>` : '';
+  const nameHtml  = r ? `<span class="r-report-name">📋 ${r.name}</span> <button class="btn btn-ghost btn-icon" onclick="showReportModal(${r.id})" title="Modifica">✏️</button>` : '';
   const chipsHtml = chips.length ? `<div class="r-chips">${chips.join('')}</div>` : '';
   headerEl.innerHTML = `${nameHtml}${chipsHtml}`;
 }

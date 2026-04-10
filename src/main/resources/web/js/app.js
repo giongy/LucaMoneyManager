@@ -996,7 +996,7 @@ let _reportChart      = null;
 
 function rangeToFilter(range, from, to) {
   const today = new Date();
-  const fmt = d => d.toLocaleDateString('en-CA'); // YYYY-MM-DD in fuso locale (toISOString sarebbe UTC)
+  const fmt = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   const sub = days => { const d = new Date(today); d.setDate(d.getDate()-days); return d; };
   switch (range) {
     case '7d':        return { date_from: fmt(sub(6)),  date_to: fmt(today) };

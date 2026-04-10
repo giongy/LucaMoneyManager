@@ -40,50 +40,22 @@ echo       OK - %JAR%
 echo.
 echo Creazione JRE con jlink...
 if exist "%DIST%\build" rmdir /s /q "%DIST%\build"
-mkdir "%DIST%\build\app"
-copy /y "%JAR%" "%DIST%\build\app\moneymanager.jar" >nul
-copy /y "%ROOT%target\icon.ico" "%DIST%\build\icon.ico" >nul
+if exist "%DIST%\runtime" rmdir /s /q "%DIST%\runtime"
 
-"%JAVA_HOME%\bin\jlink" --module-path "%JAVA_HOME%\jmods" --add-modules ALL-MODULE-PATH --output "%DIST%\build\runtime" --strip-debug --compress zip-6 --no-header-files --no-man-pages
+"%JAVA_HOME%\bin\jlink" --module-path "%JAVA_HOME%\jmods" --add-modules ALL-MODULE-PATH --output "%DIST%\runtime" --strip-debug --compress zip-6 --no-header-files --no-man-pages
 if errorlevel 1 ( echo [ERRORE] jlink fallito. & pause & exit /b 1 )
 
-:: ── Launch4j ────────────────────────────────────────────────────────────────
-echo Generazione EXE con Launch4j...
-(
-  echo ^<launch4jConfig^>
-  echo   ^<dontWrapJar^>true^</dontWrapJar^>
-  echo   ^<headerType^>gui^</headerType^>
-  echo   ^<jar^>app/moneymanager.jar^</jar^>
-  echo   ^<outfile^>%DIST%\build\LucaMoneyManager.exe^</outfile^>
-  echo   ^<errTitle^>LucaMoneyManager^</errTitle^>
-  echo   ^<icon^>%DIST%\build\icon.ico^</icon^>
-  echo   ^<jre^>
-  echo     ^<path^>runtime^</path^>
-  echo     ^<opt^>-Dfile.encoding=UTF-8^</opt^>
-  echo   ^</jre^>
-  echo   ^<versionInfo^>
-  echo     ^<fileVersion^>%VERSION%.0^</fileVersion^>
-  echo     ^<txtFileVersion^>%VERSION%^</txtFileVersion^>
-  echo     ^<fileDescription^>LucaMoneyManager^</fileDescription^>
-  echo     ^<copyright^>Luca^</copyright^>
-  echo     ^<productVersion^>%VERSION%.0^</productVersion^>
-  echo     ^<txtProductVersion^>%VERSION%^</txtProductVersion^>
-  echo     ^<productName^>LucaMoneyManager^</productName^>
-  echo     ^<internalName^>LucaMoneyManager^</internalName^>
-  echo     ^<originalFilename^>LucaMoneyManager.exe^</originalFilename^>
-  echo   ^</versionInfo^>
-  echo ^</launch4jConfig^>
-) > "%DIST%\launch4j-config.xml"
+:: ── jpackage ─────────────────────────────────────────────────────────────────
+echo Creazione EXE con jpackage...
+"%JAVA_HOME%\bin\jpackage" --type app-image --runtime-image "%DIST%\runtime" --input "%ROOT%target" --main-jar moneymanager-%VERSION%.jar --name LucaMoneyManager --app-version %VERSION% --dest "%DIST%\build" --icon "%ROOT%target\icon.ico" --java-options "-Dfile.encoding=UTF-8"
+if errorlevel 1 ( echo [ERRORE] jpackage fallito. & pause & exit /b 1 )
 
-"%LAUNCH4J%" "%DIST%\launch4j-config.xml"
-if errorlevel 1 ( echo [ERRORE] Launch4j fallito. & pause & exit /b 1 )
-del /q "%DIST%\build\icon.ico" 2>nul
-del /q "%DIST%\launch4j-config.xml" 2>nul
+rmdir /s /q "%DIST%\runtime"
 
 :: ── Deploy ──────────────────────────────────────────────────────────────────
 echo Deploy in "%DEPLOY%"...
 if not exist "%DEPLOY%" mkdir "%DEPLOY%"
-%SystemRoot%\System32\robocopy.exe "%DIST%\build" "%DEPLOY%" /e /xf "*.db" "settings.properties" "*.bak" "*.properties" "*.log" /xd "backup" "jcef" /njh /njs /ndl
+%SystemRoot%\System32\robocopy.exe "%DIST%\build\LucaMoneyManager" "%DEPLOY%" /e /xf "*.db" "settings.properties" "*.bak" "*.properties" "*.log" /xd "backup" "jcef" /njh /njs /ndl
 if errorlevel 8 ( echo [ERRORE] Deploy fallito. & pause & exit /b 1 )
 echo       OK - deploy in %DEPLOY%
 
@@ -92,7 +64,7 @@ if "%SCELTA%"=="2" goto :fine
 :: ── ZIP (solo opzione 3) ─────────────────────────────────────────────────────
 echo Creazione ZIP...
 if exist "%DIST%\LucaMoneyManager-distrib.zip" del /q "%DIST%\LucaMoneyManager-distrib.zip"
-powershell -NoProfile -Command "Compress-Archive -Path '%DIST%\build\*' -DestinationPath '%DIST%\LucaMoneyManager-distrib.zip'"
+powershell -NoProfile -Command "Compress-Archive -Path '%DIST%\build\LucaMoneyManager\*' -DestinationPath '%DIST%\LucaMoneyManager-distrib.zip'"
 if errorlevel 1 ( echo [ERRORE] Creazione ZIP fallita. & pause & exit /b 1 )
 echo       OK - %DIST%\LucaMoneyManager-distrib.zip
 

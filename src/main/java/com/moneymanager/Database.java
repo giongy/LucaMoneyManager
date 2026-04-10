@@ -836,11 +836,17 @@ public class Database {
         Integer filterCatId = (f.has("category_id") && !f.get("category_id").isJsonNull())
                 ? f.get("category_id").getAsInt() : null;
 
-        // Quando si filtra per categoria, aggiunge l'importo dello split corrispondente (NULL se non è uno split)
+        // Quando si filtra per categoria, aggiunge importo/nome/icona dello split corrispondente
         String filteredSplitCol = filterCatId != null
                 ? ",\n                (SELECT SUM(ts.amount) FROM transaction_splits ts" +
                   " WHERE ts.transaction_id=t.id AND ts.category_id=" + filterCatId +
-                  ") AS filtered_split_amount"
+                  ") AS filtered_split_amount" +
+                  ",\n                (SELECT sc.name FROM transaction_splits ts" +
+                  " JOIN categories sc ON sc.id=ts.category_id" +
+                  " WHERE ts.transaction_id=t.id AND ts.category_id=" + filterCatId + " LIMIT 1) AS filtered_split_category_name" +
+                  ",\n                (SELECT sc.icon FROM transaction_splits ts" +
+                  " JOIN categories sc ON sc.id=ts.category_id" +
+                  " WHERE ts.transaction_id=t.id AND ts.category_id=" + filterCatId + " LIMIT 1) AS filtered_split_category_icon"
                 : "";
 
         StringBuilder sql = new StringBuilder(

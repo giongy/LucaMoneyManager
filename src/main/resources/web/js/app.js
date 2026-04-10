@@ -6550,6 +6550,19 @@ function renderReportResults(txs, groupby, chartType) {
     return;
   }
 
+  // Usa la quota filtrata (split) se disponibile, altrimenti il totale della transazione
+  const effectiveAmt = t => t.filtered_split_amount != null ? t.filtered_split_amount : t.amount;
+  // Categoria effettiva per split filtrati
+  const effectiveCatName = t => t.filtered_split_amount != null
+    ? (t.filtered_split_category_name || t.category_name || '—')
+    : (t.category_name || '—');
+  const effectiveCatIcon = t => t.filtered_split_amount != null
+    ? (t.filtered_split_category_icon || t.category_icon || '')
+    : (t.category_icon || '');
+  const effectiveCatId = t => t.filtered_split_amount != null
+    ? (_reportFilters?.category_id || t.category_id || 0)
+    : (t.category_id || 0);
+
   let tableHtml = '', chartData = null;
   const cc = chartColors();
 
@@ -6557,10 +6570,11 @@ function renderReportResults(txs, groupby, chartType) {
     const byM = {};
     txs.forEach(t => {
       const k = t.date.slice(0,7);
+      const a = effectiveAmt(t);
       if (!byM[k]) byM[k] = {income:0,expense:0,count:0};
       byM[k].count++;
-      if (t.type==='income')  byM[k].income  += t.amount;
-      if (t.type==='expense') byM[k].expense += t.amount;
+      if (t.type==='income')  byM[k].income  += a;
+      if (t.type==='expense') byM[k].expense += a;
     });
     const months = Object.keys(byM).sort();
     const totI = months.reduce((s,m)=>s+byM[m].income,0);
@@ -6592,11 +6606,12 @@ function renderReportResults(txs, groupby, chartType) {
   } else if (groupby === 'category') {
     const byC = {};
     txs.forEach(t => {
-      const k = t.category_id || 0;
-      if (!byC[k]) byC[k]={name:t.category_name||'(nessuna)',icon:t.category_icon||'📁',color:t.category_color||'var(--txt3)',total:0,count:0};
+      const k = effectiveCatId(t);
+      const a = effectiveAmt(t);
+      if (!byC[k]) byC[k]={name:effectiveCatName(t),icon:effectiveCatIcon(t),color:t.category_color||'var(--txt3)',total:0,count:0};
       byC[k].count++;
-      if (t.type==='income')  byC[k].total += t.amount;
-      if (t.type==='expense') byC[k].total -= t.amount;
+      if (t.type==='income')  byC[k].total += a;
+      if (t.type==='expense') byC[k].total -= a;
     });
     const cats = Object.entries(byC).sort(([,a],[,b])=>Math.abs(b.total)-Math.abs(a.total));
     tableHtml = `<table><thead><tr>
@@ -6621,10 +6636,11 @@ function renderReportResults(txs, groupby, chartType) {
     const byA = {};
     txs.forEach(t => {
       const k = t.account_id;
+      const a = effectiveAmt(t);
       if (!byA[k]) byA[k]={name:t.account_name||'—',color:t.account_color||'var(--accent)',income:0,expense:0,count:0};
       byA[k].count++;
-      if (t.type==='income')  byA[k].income  += t.amount;
-      if (t.type==='expense') byA[k].expense += t.amount;
+      if (t.type==='income')  byA[k].income  += a;
+      if (t.type==='expense') byA[k].expense += a;
     });
     const accs = Object.entries(byA).sort(([,a],[,b])=>b.count-a.count);
     tableHtml = `<table><thead><tr>
@@ -6641,20 +6657,23 @@ function renderReportResults(txs, groupby, chartType) {
       </tbody></table>`;
 
   } else {
-    const totI = txs.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0);
-    const totE = txs.filter(t=>t.type==='expense').reduce((s,t)=>s+t.amount,0);
+    const totI = txs.filter(t=>t.type==='income').reduce((s,t)=>s+effectiveAmt(t),0);
+    const totE = txs.filter(t=>t.type==='expense').reduce((s,t)=>s+effectiveAmt(t),0);
     const net  = totI - totE;
     tableHtml = `<table><thead><tr>
       <th>Data</th><th>Descrizione</th><th>Categoria</th><th>Conto</th>
       <th class="text-right">Importo</th><th>Tipo</th></tr></thead><tbody>
-      ${txs.map(t=>`<tr style="cursor:pointer" onclick="navigateToTx(${t.id})">
+      ${txs.map(t=>{
+        const isSplitFiltered = t.filtered_split_amount != null;
+        const dispAmt = effectiveAmt(t);
+        return `<tr style="cursor:pointer" onclick="navigateToTx(${t.id})">
         <td>${fmt.date(t.date)}</td>
-        <td class="td-main">${t.description||'—'}</td>
-        <td>${t.category_icon||''} ${t.category_name||'—'}</td>
+        <td class="td-main">${t.description||'—'}${isSplitFiltered ? ` <span style="font-size:10px;opacity:.5" title="Totale transazione: ${fmt.currency(t.amount)}">(tot. ${fmt.currency(t.amount)})</span>` : ''}</td>
+        <td>${effectiveCatIcon(t)} ${effectiveCatName(t)}${isSplitFiltered ? ' <span style="font-size:10px;opacity:.5">(÷)</span>' : ''}</td>
         <td>${t.account_name||'—'}</td>
-        <td class="text-right amount-${t.type}">${t.type==='expense'?'-':''}${fmt.currency(t.amount)}</td>
+        <td class="text-right amount-${t.type}">${t.type==='expense'?'-':''}${fmt.currency(dispAmt)}</td>
         <td><span class="badge badge-${t.type}">${t.type==='income'?'Entrata':t.type==='expense'?'Uscita':'Trasf.'}</span></td>
-        </tr>`).join('')}
+        </tr>`;}).join('')}
       <tr style="border-top:2px solid var(--border);font-weight:700">
         <td colspan="4">Totale</td>
         <td class="text-right" style="color:${net>=0?'var(--income)':'var(--expense)'}">${fmt.currency(net)}</td>

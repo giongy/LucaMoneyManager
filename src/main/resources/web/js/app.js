@@ -930,7 +930,7 @@ async function renderDashboard() {
     '<tr><td colspan="5" class="text-muted" style="text-align:center;padding:20px">Nessuna transazione</td></tr>';
 
   // Upcoming scheduled
-  const dashTodayStr = new Date().toLocaleDateString('en-CA');
+  const dashTodayStr = _todayStr();
   const dashToday = new Date(dashTodayStr + 'T00:00:00');
   document.getElementById('upcomingRows').innerHTML = upcoming.length ? upcoming.map(u => {
     const nextStr = u.date || u.start_date;
@@ -993,6 +993,10 @@ let _reportFilters    = {};
 let _reportGroupby    = 'none';
 let _reportChartType  = 'none';
 let _reportChart      = null;
+
+// Formatta una Date come YYYY-MM-DD nel fuso locale (toISOString userebbe UTC e sfaserebbe di 1 giorno)
+const _dateStr  = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+const _todayStr = () => _dateStr(new Date());
 
 function rangeToFilter(range, from, to) {
   const today = new Date();
@@ -1487,7 +1491,7 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
   const initType = tx?.type || defaultType;
   const expCats = categories.filter(c=>c.type==='expense');
   const incCats = categories.filter(c=>c.type==='income');
-  const today = new Date().toISOString().split('T')[0];
+  const today = _todayStr();
 
   const body = `
     <div class="form-row">
@@ -1968,7 +1972,7 @@ window.duplicateTx = async id => {
     api.getTransactions({id}), api.getCategories(), api.getAccounts(), api.getTags()
   ]);
   const tx = txs[0];
-  if (tx) showTxModal({...tx, id: undefined, date: new Date().toISOString().slice(0,10)}, cats, accs, tx.type, tgs);
+  if (tx) showTxModal({...tx, id: undefined, date: _todayStr()}, cats, accs, tx.type, tgs);
 };
 
 async function txToSched(id) {
@@ -1985,7 +1989,7 @@ async function txToSched(id) {
     account_id:  tx.account_id,
     to_account_id: tx.to_account_id,
     color:       tx.color,
-    start_date:  new Date().toISOString().slice(0,10)
+    start_date:  _todayStr()
   };
   showScheduledModal(sched, accs, cats, tgs);
 }
@@ -4190,7 +4194,7 @@ async function showBuyModal(portfolioId, investAccounts, allAccounts) {
     allAccounts = accounts;
   }
   const regularAccounts = allAccounts.filter(a => a.type !== 'investment' && !a.is_closed);
-  const today = new Date().toISOString().split('T')[0];
+  const today = _todayStr();
 
   // If buying more of existing position, pre-fill ticker/name
   let prefillTicker = '', prefillName = '', prefillAccountId = '';
@@ -4541,7 +4545,7 @@ async function showSellModal(portfolioId) {
   const pos = items.find(i => i.id === portfolioId);
   if (!pos) return;
   const regularAccounts = accounts.filter(a => a.type !== 'investment' && !a.is_closed);
-  const today = new Date().toISOString().split('T')[0];
+  const today = _todayStr();
   const isBond = pos.asset_type === 'bond';
   const avgDisplay = isBond ? `${(pos.avg_price||0).toFixed(2)} %` : fmt.currency(pos.avg_price);
   const qtyLabel   = isBond ? 'Nominale da vendere (€) *' : 'Quantità *';
@@ -4640,7 +4644,7 @@ async function showCouponModal(portfolioId) {
   const pos = items.find(i => i.id === portfolioId);
   if (!pos) return;
   const regularAccounts = accounts.filter(a => a.type !== 'investment' && !a.is_closed);
-  const today = new Date().toISOString().split('T')[0];
+  const today = _todayStr();
   // quantity = nominale totale €, coupon_rate = % annuo
   const freqDivisor = { annual:1, semiannual:2, quarterly:4, monthly:12 };
   const freqLabel   = { annual:'annuale', semiannual:'semestrale', quarterly:'trimestrale', monthly:'mensile' };
@@ -4751,7 +4755,7 @@ async function showExpenseModal(portfolioId) {
   if (!pos) return;
   const regularAccounts = accounts.filter(a => a.type !== 'investment' && !a.is_closed);
   const expCats = categories.filter(c => c.type === 'expense');
-  const today = new Date().toISOString().split('T')[0];
+  const today = _todayStr();
 
   const optLabel = c => `${c.parent_name ? c.parent_name + ' › ' : ''}${c.icon || ''} ${c.name}`;
   const catOptions = expCats.map(c => `<option value="${c.id}">${optLabel(c)}</option>`).join('');
@@ -4989,7 +4993,7 @@ function nextCouponDate(maturityDateStr, frequency) {
   }
   if (!candidates.length) return null;
   candidates.sort((a, b) => a - b);
-  return candidates[0].toISOString().split('T')[0];
+  return _dateStr(candidates[0]);
 }
 
 function closePortfolioContextMenu() {
@@ -7326,7 +7330,7 @@ window.maintPurgeLog = async () => {
     else if (sel === '6m') d.setMonth(d.getMonth() - 6);
     else if (sel === '1y') d.setFullYear(d.getFullYear() - 1);
     else if (sel === '2y') d.setFullYear(d.getFullYear() - 2);
-    cutoff = d.toISOString().slice(0, 10);
+    cutoff = _dateStr(d);
   }
   const ok = await confirm('Elimina log', `Eliminare tutte le righe di log precedenti al ${cutoff}?`);
   if (!ok) return;
@@ -9402,7 +9406,7 @@ window.registerSched = async id => {
 
 function showScheduledModal(sched, accounts, categories, tags = []) {
   const isEdit = !!(sched?.id);
-  const today  = new Date().toISOString().slice(0,10);
+  const today  = _todayStr();
   const initType = sched?.type || 'expense';
 
   const expCats = categories.filter(c=>c.type==='expense');

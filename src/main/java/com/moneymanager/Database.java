@@ -2566,20 +2566,18 @@ public class Database {
             cat.put("diff", "income".equals(txType) ? actual - proj : proj - actual);
         }
         // Saldo reale alla forecast_date
-        var accList = queryList(
-                "SELECT a.initial_balance, " +
+        var balRow = queryOne(
+                "SELECT SUM(a.initial_balance + " +
                 "COALESCE((SELECT SUM(CASE WHEN t.type='income' THEN t.amount " +
                 "  WHEN t.type='expense' THEN -t.amount " +
                 "  WHEN t.type='transfer' AND t.account_id=a.id THEN -t.amount ELSE 0 END) " +
                 "  FROM transactions t WHERE t.account_id=a.id AND t.date<=?),0) " +
                 "+ COALESCE((SELECT SUM(t.amount) FROM transactions t " +
-                "  WHERE t.to_account_id=a.id AND t.type='transfer' AND t.date<=?),0) AS tx_sum " +
+                "  WHERE t.to_account_id=a.id AND t.type='transfer' AND t.date<=?),0)) AS total " +
                 "FROM accounts a WHERE a.type!='investment'",
                 forecastDate, forecastDate);
-        double actualBalance = accList.stream()
-                .mapToDouble(a -> ((Number) a.get("initial_balance")).doubleValue()
-                                + ((Number) a.get("tx_sum")).doubleValue())
-                .sum();
+        double actualBalance = (balRow != null && balRow.get("total") != null)
+                ? ((Number) balRow.get("total")).doubleValue() : 0.0;
         forecast.put("categories",     cats);
         forecast.put("actual_balance", actualBalance);
         return forecast;

@@ -381,6 +381,9 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                 try {
                     all.put("_sqlite_version", db.getSQLiteVersion());
                 } catch (Exception ignored) {}
+                String dbp = settings.get(Settings.DB_PATH);
+                if (dbp != null) all.put("_app_log_path",
+                        java.nio.file.Path.of(dbp).getParent().resolve("app.log").toString());
                 all.put("_java_version", System.getProperty("java.version")
                         + " (" + System.getProperty("java.vm.name") + ")");
                 all.put("_dep_jcef",   mavenVersion("me.friwi",              "jcefmaven"));
@@ -448,6 +451,28 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                     }
                 }
                 db.removeAttachment(txId);
+                yield Map.of("ok", true);
+            }
+
+            case "openAppLog" -> {
+                String dbPath = settings.get(Settings.DB_PATH);
+                if (dbPath != null) {
+                    java.nio.file.Path appLog = java.nio.file.Path.of(dbPath).getParent().resolve("app.log");
+                    if (java.nio.file.Files.exists(appLog))
+                        java.awt.Desktop.getDesktop().open(appLog.toFile());
+                }
+                yield Map.of("ok", true);
+            }
+
+            case "clearAppLog" -> {
+                String dbPath = settings.get(Settings.DB_PATH);
+                if (dbPath != null) {
+                    java.nio.file.Path appLog = java.nio.file.Path.of(dbPath).getParent().resolve("app.log");
+                    // Tronca invece di cancellare: il file è tenuto aperto da System.err
+                    try (var _ = java.nio.channels.FileChannel.open(appLog,
+                            java.nio.file.StandardOpenOption.WRITE,
+                            java.nio.file.StandardOpenOption.TRUNCATE_EXISTING)) {}
+                }
                 yield Map.of("ok", true);
             }
 

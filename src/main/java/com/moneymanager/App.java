@@ -1,10 +1,13 @@
 package com.moneymanager;
 
+import java.io.PrintStream;
 import java.nio.channels.FileChannel;
 import java.nio.channels.FileLock;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 
 import javax.swing.JOptionPane;
 import javax.swing.SwingUtilities;
@@ -59,6 +62,15 @@ public class App {
             dbPath = dataDir.resolve("data.db").toString();
             settings.set(Settings.DB_PATH, dbPath);
         }
+
+        // Log eccezioni Java → stessa cartella del DB (app.log)
+        Path appLog = Path.of(dbPath).getParent().resolve("app.log");
+        PrintStream logStream = new PrintStream(
+                new java.io.FileOutputStream(appLog.toFile(), true),
+                true, java.nio.charset.StandardCharsets.UTF_8);
+        logStream.println("\n── Avvio " + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")) + " ──");
+        System.setErr(logStream);
+        System.setOut(logStream);
 
         // Database SQLite
         Database db = new Database(dbPath);

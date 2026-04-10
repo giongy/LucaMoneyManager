@@ -277,6 +277,7 @@ const api = {
   openAttachment:        (path)         => callJava('openAttachment', {path}),
   removeAttachment:      (tx_id, path)  => callJava('removeAttachment', {tx_id, path: path||null}),
   openSettingsFile:      ()             => callJava('openSettingsFile', {}),
+  openAppLog:            ()             => callJava('openAppLog', {}),
   openUrl:           (url)   => callJava('openUrl', {url}),
   resetJcef:         ()      => callJava('resetJcef', {}),
   doBackup:        ()         => callJava('doBackup', {}),
@@ -7086,6 +7087,14 @@ async function renderSettings() {
             <button class="btn btn-ghost" style="white-space:nowrap;padding:2px 8px;font-size:11px"
                     onclick="api.openSettingsFile()">Apri ↗</button>
           </span>
+          <span class="settings-info-label">Log Java</span>
+          <span class="settings-info-value flex-center-8">
+            <span style="word-break:break-all">${s['_app_log_path'] || '—'}</span>
+            <button class="btn btn-ghost" style="white-space:nowrap;padding:2px 8px;font-size:11px"
+                    onclick="api.openAppLog()">Apri ↗</button>
+            <button class="btn btn-ghost" style="white-space:nowrap;padding:2px 8px;font-size:11px"
+                    onclick="_clearAppLog()">🗑️</button>
+          </span>
         </div>
       </div>
       <div class="settings-section">
@@ -7308,6 +7317,13 @@ window.maintPurgeSystemLog = async () => {
     result.textContent = res.deleted > 0 ? `Eliminate ${res.deleted} righe` : 'Nessuna voce di sistema trovata';
     maintLoadLogInfo();
   }
+};
+
+window._clearAppLog = async () => {
+  const ok = await confirm('Pulisci log Java', 'Eliminare il contenuto di app.log?');
+  if (!ok) return;
+  await callJava('clearAppLog', {});
+  toast('Log Java eliminato', 'success');
 };
 
 window.maintPurgeLog = async () => {

@@ -2533,8 +2533,45 @@ async function loadBudgetTable() {
   if (_budgetTab === 'scostamenti') renderBudgetScostamenti();
 }
 
-function renderBudgetTable() {
+/* ─── Budget: mappe condivise tra le 3 viste ─────────────────────────────── */
+function _buildBudgetMaps() {
   const { budgets, actuals, categories, configs } = _budgetData;
+  const budgetMap = {}, actualMap = {}, configMap = {}, catById = {};
+  budgets.forEach(b => {
+    if (!budgetMap[b.category_id]) budgetMap[b.category_id] = {};
+    budgetMap[b.category_id][b.month] = b.amount;
+  });
+  actuals.forEach(a => {
+    if (!actualMap[a.category_id]) actualMap[a.category_id] = {};
+    actualMap[a.category_id][a.month] = a.total;
+  });
+  (configs || []).forEach(c => { configMap[c.category_id] = c; });
+  categories.forEach(c => { catById[c.id] = c; });
+
+  const parentIds = new Set(categories.filter(c => c.parent_id).map(c => c.parent_id));
+  const childrenOf = {};
+  categories.forEach(c => { if (c.parent_id) (childrenOf[c.parent_id] ??= []).push(c); });
+  const leafCats = categories.filter(c => !parentIds.has(c.id));
+
+  // Ritorna i 12 valori mensili effettivi: DB per i mesi manuali, distribuiti per i liberi
+  const getEffective = catId => {
+    const cfg = configMap[catId], stored = budgetMap[catId] || {};
+    if (!cfg || !cfg.master_amount) return stored;
+    const lockedTotal = cfg.mode === 'annuale' ? cfg.master_amount : cfg.master_amount * 12;
+    const pinnedMonths = Object.keys(stored).map(Number);
+    const pinnedSum = pinnedMonths.reduce((s, m) => s + (stored[m] || 0), 0);
+    const freeCount = 12 - pinnedMonths.length;
+    const freeVal = freeCount > 0 ? Math.round((lockedTotal - pinnedSum) / freeCount * 100) / 100 : 0;
+    const result = {...stored};
+    for (let m = 1; m <= 12; m++) if (result[m] === undefined) result[m] = Math.max(0, freeVal);
+    return result;
+  };
+
+  return { budgetMap, actualMap, configMap, catById, parentIds, childrenOf, leafCats, getEffective };
+}
+
+function renderBudgetTable() {
+  const { categories } = _budgetData;
 
   if (!categories.length) {
     document.getElementById('budgetBody').innerHTML =
@@ -2544,45 +2581,11 @@ function renderBudgetTable() {
     return;
   }
 
-  // Lookup maps
-  const budgetMap = {};  // catId -> {1:amt, 2:amt, ...}
-  budgets.forEach(b => {
-    if (!budgetMap[b.category_id]) budgetMap[b.category_id] = {};
-    budgetMap[b.category_id][b.month] = b.amount;
-  });
-  const actualMap = {};  // catId -> {1:total, ...}
-  actuals.forEach(a => {
-    if (!actualMap[a.category_id]) actualMap[a.category_id] = {};
-    actualMap[a.category_id][a.month] = a.total;
-  });
-  const configMap = {};  // catId -> {mode, master_amount}
-  (configs || []).forEach(c => { configMap[c.category_id] = c; });
+  const { budgetMap, actualMap, configMap, parentIds, childrenOf, leafCats, getEffective } = _buildBudgetMaps();
 
   const now = new Date();
   const curYear = now.getFullYear(), curMonth = now.getMonth() + 1;
   const isCurMonthCol = m => budgetYear === curYear && m === curMonth;
-
-  // Categorie che hanno figli → solo riepilogo, non editabili
-  const parentIds = new Set(categories.filter(c => c.parent_id).map(c => c.parent_id));
-  const childrenOf = {};
-  categories.forEach(c => { if (c.parent_id) (childrenOf[c.parent_id] ??= []).push(c); });
-
-  // Ritorna i 12 valori effettivi: DB per i mesi manuali, calcolato per i liberi
-  const getEffective = catId => {
-    const cfg = configMap[catId];
-    const stored = budgetMap[catId] || {};
-    if (!cfg || !cfg.master_amount) return stored;
-    const lockedTotal = cfg.mode === 'annuale' ? cfg.master_amount : cfg.master_amount * 12;
-    const pinnedMonths = Object.keys(stored).map(Number);
-    const pinnedSum = pinnedMonths.reduce((s, m) => s + (stored[m] || 0), 0);
-    const freeCount = 12 - pinnedMonths.length;
-    const freeVal = freeCount > 0 ? Math.round((lockedTotal - pinnedSum) / freeCount * 100) / 100 : 0;
-    const result = {...stored};
-    for (let m = 1; m <= 12; m++) {
-      if (result[m] === undefined) result[m] = Math.max(0, freeVal);
-    }
-    return result;
-  };
 
   const sumBm = id => {
     const direct = getEffective(id);
@@ -2704,7 +2707,6 @@ function renderBudgetTable() {
   }).join('');
 
   // ── Righe sommario (Reale / Budget / Differenza) ─────────────────────────
-  const leafCats = categories.filter(c => !parentIds.has(c.id));
   const mReale = {}, mBudget = {};
   for (let m = 1; m <= 12; m++) {
     // income categories contribute positively, expense negatively → net balance
@@ -2780,32 +2782,7 @@ function renderBudgetAndamento() {
   const el = document.getElementById('budgAndamentoWrap');
   if (!el || !_budgetData) return;
 
-  const { budgets, actuals, categories, configs } = _budgetData;
-
-  // Rebuild lookup maps (identici a renderBudgetTable)
-  const budgetMap = {};
-  budgets.forEach(b => { if (!budgetMap[b.category_id]) budgetMap[b.category_id]={}; budgetMap[b.category_id][b.month]=b.amount; });
-  const actualMap = {};
-  actuals.forEach(a => { if (!actualMap[a.category_id]) actualMap[a.category_id]={}; actualMap[a.category_id][a.month]=a.total; });
-  const configMap = {};
-  (configs||[]).forEach(c => { configMap[c.category_id]=c; });
-
-  const parentIds = new Set(categories.filter(c=>c.parent_id).map(c=>c.parent_id));
-  const leafCats  = categories.filter(c => !parentIds.has(c.id));
-
-  const getEffective = catId => {
-    const cfg = configMap[catId];
-    const stored = budgetMap[catId] || {};
-    if (!cfg || !cfg.master_amount) return stored;
-    const lockedTotal = cfg.mode === 'annuale' ? cfg.master_amount : cfg.master_amount * 12;
-    const pinnedMonths = Object.keys(stored).map(Number);
-    const pinnedSum = pinnedMonths.reduce((s,m) => s+(stored[m]||0), 0);
-    const freeCount = 12 - pinnedMonths.length;
-    const freeVal = freeCount > 0 ? Math.round((lockedTotal-pinnedSum)/freeCount*100)/100 : 0;
-    const result = {...stored};
-    for (let m=1; m<=12; m++) if (result[m]===undefined) result[m]=Math.max(0,freeVal);
-    return result;
-  };
+  const { actualMap, leafCats, getEffective } = _buildBudgetMaps();
 
   const now = new Date();
   const curYear = now.getFullYear(), curMonth = now.getMonth()+1;
@@ -2966,8 +2943,14 @@ function renderBudgetAndamento() {
 }
 
 let _budgAndDragFrom = null;
+let _budgAndDragController = null;
 
 function _wireBudgetAndDrag() {
+  // Rimuove i vecchi listener prima di ri-agganciare (evita accumulo su re-drop)
+  if (_budgAndDragController) _budgAndDragController.abort();
+  _budgAndDragController = new AbortController();
+  const signal = _budgAndDragController.signal;
+
   const table = document.getElementById('budgAndTable');
   if (!table) return;
   const headers = [...table.querySelectorAll('thead th[data-col]')];
@@ -2977,19 +2960,19 @@ function _wireBudgetAndDrag() {
       _budgAndDragFrom = th.dataset.col;
       e.dataTransfer.effectAllowed = 'move';
       th.style.opacity = '0.4';
-    });
+    }, { signal });
     th.addEventListener('dragend', () => {
       th.style.opacity = '';
       table.querySelectorAll('th[data-col]').forEach(h => h.style.outline = '');
-    });
+    }, { signal });
     th.addEventListener('dragover', e => {
       e.preventDefault();
       e.dataTransfer.dropEffect = 'move';
       table.querySelectorAll('th[data-col]').forEach(h => h.style.outline = '');
       if (th.dataset.col !== _budgAndDragFrom)
         th.style.outline = '2px dashed var(--accent)';
-    });
-    th.addEventListener('dragleave', () => { th.style.outline = ''; });
+    }, { signal });
+    th.addEventListener('dragleave', () => { th.style.outline = ''; }, { signal });
     th.addEventListener('drop', e => {
       e.preventDefault();
       th.style.outline = '';
@@ -3006,9 +2989,9 @@ function _wireBudgetAndDrag() {
         else                 row.insertBefore(from, to);
       });
       _budgAndDragFrom = null;
-      // Ri-agganicia drag sui nuovi header
+      // Ri-aggancia drag sui nuovi header (i vecchi listener vengono rimossi dall'abort)
       _wireBudgetAndDrag();
-    });
+    }, { signal });
     // Abilita drag (l'attributo draggable deve essere settato via JS per evitare problemi con Chrome)
     th.setAttribute('draggable', 'true');
   });
@@ -3019,30 +3002,7 @@ function renderBudgetScostamenti() {
   const el = document.getElementById('budgScostWrap');
   if (!el || !_budgetData) return;
 
-  const { budgets, actuals, categories, configs } = _budgetData;
-
-  // Lookup maps (stessa logica di renderBudgetTable)
-  const budgetMap = {}, actualMap = {}, configMap = {}, catById = {};
-  budgets.forEach(b => { if (!budgetMap[b.category_id]) budgetMap[b.category_id]={}; budgetMap[b.category_id][b.month]=b.amount; });
-  actuals.forEach(a => { if (!actualMap[a.category_id]) actualMap[a.category_id]={}; actualMap[a.category_id][a.month]=a.total; });
-  (configs||[]).forEach(c => { configMap[c.category_id]=c; });
-  categories.forEach(c => { catById[c.id]=c; });
-
-  const parentIds = new Set(categories.filter(c=>c.parent_id).map(c=>c.parent_id));
-  const leafCats  = categories.filter(c => !parentIds.has(c.id));
-
-  const getEffective = catId => {
-    const cfg = configMap[catId], stored = budgetMap[catId]||{};
-    if (!cfg || !cfg.master_amount) return stored;
-    const lockedTotal = cfg.mode==='annuale' ? cfg.master_amount : cfg.master_amount*12;
-    const pinnedMonths = Object.keys(stored).map(Number);
-    const pinnedSum = pinnedMonths.reduce((s,m)=>s+(stored[m]||0),0);
-    const freeCount = 12-pinnedMonths.length;
-    const freeVal = freeCount>0 ? Math.round((lockedTotal-pinnedSum)/freeCount*100)/100 : 0;
-    const result = {...stored};
-    for (let m=1;m<=12;m++) if (result[m]===undefined) result[m]=Math.max(0,freeVal);
-    return result;
-  };
+  const { actualMap, catById, leafCats, getEffective } = _buildBudgetMaps();
 
   const now = new Date();
   const curYear = now.getFullYear(), curMonth = now.getMonth()+1;

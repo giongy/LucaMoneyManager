@@ -2632,7 +2632,8 @@ function renderBudgetTable() {
       const past = isPast(m);
       const showActual = actual > 0 && past;
       // diff: mostrata per tutti i mesi passati/correnti, anche senza transazioni
-      const showDiff = past && budget > 0;
+      // Se hasCfg ma budget calcolato = 0 (master_amount esaurito), mostra comunque se c'è spesa reale
+      const showDiff = past && (budget > 0 || (hasCfg && actual > 0));
       // income: diff = actual - budget (negativo = sotto il previsto = rosso)
       // expense: diff = budget - actual (negativo = sforato = rosso)
       // 0 sempre verde
@@ -2640,7 +2641,7 @@ function renderBudgetTable() {
       const diffColor = diff < 0 ? 'var(--expense)' : 'var(--income)';
       const diffStr = (diff >= 0 ? '+' : '') + fmt.currency(diff);
       if (!showActual && !showDiff) return '';
-      return `${showActual ? `<span class="budget-cell-actual">${fmt.currency(actual)}</span>` : ''}
+      return `${(showActual || showDiff) ? `<span class="budget-cell-actual">${showActual ? fmt.currency(actual) : '&nbsp;'}</span>` : ''}
         ${showDiff ? `<span class="budget-cell-diff" style="color:${diffColor}">${diffStr}</span>` : ''}`;
     };
     const cells = Array.from({length:12},(_,i)=>{

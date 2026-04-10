@@ -888,7 +888,9 @@ public class Database {
             params.add(aid); params.add(aid);
         }
         if (f.has("category_id") && !f.get("category_id").isJsonNull()) {
-            sql.append(" AND t.category_id=?"); params.add(f.get("category_id").getAsInt());
+            int catId = f.get("category_id").getAsInt();
+            sql.append(" AND (t.category_id=? OR t.id IN (SELECT ts.transaction_id FROM transaction_splits ts WHERE ts.category_id=?))");
+            params.add(catId); params.add(catId);
         }
         if (f.has("tag_id") && !f.get("tag_id").isJsonNull()) {
             sql.append(" AND t.id IN (SELECT transaction_id FROM transaction_tags WHERE tag_id=?)");

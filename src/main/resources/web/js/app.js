@@ -163,21 +163,38 @@ function _fromB64(b64) {
     '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
 }
 
+// ─── Performance tracking ─────────────────────────────────────────────────────
+let _perfEnabled = false;
+const _perfBuf = [];          // { method, roundMs, ts }
+const _PERF_MAX = 150;
+
+function _perfRecord(method, roundMs) {
+  if (_perfBuf.length >= _PERF_MAX) _perfBuf.shift();
+  _perfBuf.push({ method, roundMs, ts: Date.now() });
+}
+
 function callJava(method, params = {}) {
   const payload = _toB64(JSON.stringify({ method, params }));
+  const t0 = _perfEnabled ? performance.now() : 0;
+
+  const finish = result => {
+    if (_perfEnabled) _perfRecord(method, Math.round(performance.now() - t0));
+    return result;
+  };
+
   if (typeof window.cefQuery === 'function') {
     return new Promise((resolve, reject) => {
       window.cefQuery({
         request: payload,
-        onSuccess: r => resolve(JSON.parse(_fromB64(r))),
-        onFailure: (_code, msg) => reject(new Error(msg))
+        onSuccess: r => resolve(finish(JSON.parse(_fromB64(r)))),
+        onFailure: (_code, msg) => { finish(null); reject(new Error(msg)); }
       });
     });
   }
   // Modalità browser: usa HTTP bridge
   return fetch('/bridge', { method: 'POST', body: payload })
     .then(r => r.text())
-    .then(b64 => JSON.parse(_fromB64(b64)));
+    .then(b64 => finish(JSON.parse(_fromB64(b64))));
 }
 
 const api = {
@@ -316,6 +333,11 @@ const api = {
   readLog:    (lines) => callJava('readLog', {lines: lines || 1000}),
   getLogInfo: ()      => callJava('getLogInfo'),
   purgeLog:   (p)     => callJava('purgeLog', p),
+
+  // Prestazioni
+  setPerfEnabled: (enabled) => callJava('setPerfEnabled', {enabled}),
+  getPerfLog:     ()        => callJava('getPerfLog'),
+  clearPerfLog:   ()        => callJava('clearPerfLog'),
 };
 
 /* ─── Chart theme helpers ─────────────────────────────────────────────────── */
@@ -6745,6 +6767,7 @@ async function renderSettings() {
     { id: 'prefs',       label: '🎨 Preferenze'    },
     { id: 'maintenance', label: '🔧 Manutenzione'  },
     { id: 'info',        label: 'ℹ️ Informazioni'  },
+    { id: 'perf',        label: '⏱️ Prestazioni'   },
   ];
 
   const tabContent = {
@@ -7126,6 +7149,38 @@ async function renderSettings() {
           </tbody>
         </table>
       </div>`,
+
+    perf: `
+      <div class="settings-section">
+        <div class="settings-section-title">⏱️ Monitoraggio prestazioni</div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <strong>Registrazione attiva</strong>
+            <span class="settings-hint">Misura i tempi di risposta di ogni chiamata Java. Disattivare in uso normale.</span>
+          </div>
+          <div class="settings-control">
+            <div class="theme-toggle-group">
+              <button id="perfToggleOn"  class="btn theme-btn ${_perfEnabled?'theme-btn-active':''}"
+                      onclick="perfSetEnabled(true)">Attivo</button>
+              <button id="perfToggleOff" class="btn theme-btn ${!_perfEnabled?'theme-btn-active':''}"
+                      onclick="perfSetEnabled(false)">Disattivo</button>
+            </div>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <strong>Registro ultimi ${_PERF_MAX} log</strong>
+            <span class="settings-hint">Round-trip = tempo totale JS. Java = elaborazione Bridge+DB. JCEF = overhead CEF.</span>
+          </div>
+          <div class="settings-control" style="gap:6px">
+            <button class="btn btn-secondary" onclick="perfRefresh()">🔄 Aggiorna</button>
+            <button class="btn btn-ghost"     onclick="perfClear()">🗑️ Svuota</button>
+          </div>
+        </div>
+        <div id="perfTableWrap" style="overflow-x:auto;margin-top:4px">
+          <span class="settings-hint" style="padding:8px 0;display:block">Premi Aggiorna per caricare i dati.</span>
+        </div>
+      </div>`,
   };
 
   pg.innerHTML = `
@@ -7146,6 +7201,92 @@ async function renderSettings() {
 window._setSettingsTab = tab => {
   _settingsTab = tab;
   renderSettings();
+};
+
+// ─── Prestazioni ──────────────────────────────────────────────────────────────
+
+window.perfSetEnabled = async (enabled) => {
+  _perfEnabled = enabled;
+  await api.setPerfEnabled(enabled);
+  renderSettings();
+};
+
+window.perfRefresh = async () => {
+  const wrap = document.getElementById('perfTableWrap');
+  if (!wrap) return;
+  wrap.innerHTML = '<span class="settings-hint">Caricamento...</span>';
+  try {
+    const [jsLog, javaLog] = await Promise.all([
+      Promise.resolve(_perfBuf.slice()),
+      api.getPerfLog(),
+    ]);
+    // Merge by method+ts: build javaMap keyed by method+ts (closest match)
+    const javaByMethod = {};
+    for (const j of javaLog) {
+      const k = j.method;
+      if (!javaByMethod[k]) javaByMethod[k] = [];
+      javaByMethod[k].push(j);
+    }
+    // Match js entries to java entries by method, picking closest ts
+    const rows = jsLog.map(js => {
+      const candidates = javaByMethod[js.method] || [];
+      let best = null, bestDiff = Infinity;
+      for (const j of candidates) {
+        const diff = Math.abs(j.ts - js.ts);
+        if (diff < bestDiff) { bestDiff = diff; best = j; }
+      }
+      const javaMs  = best ? best.javaMs : null;
+      const roundMs = js.roundMs;
+      const jcefMs  = (javaMs != null) ? Math.max(0, roundMs - javaMs) : null;
+      return { method: js.method, ts: js.ts, roundMs, javaMs, jcefMs };
+    }).reverse();
+
+    if (!rows.length) {
+      wrap.innerHTML = '<span class="settings-hint" style="padding:8px 0;display:block">Nessun dato. Attiva la registrazione ed esegui alcune operazioni.</span>';
+      return;
+    }
+
+    const badge = (ms, label) => {
+      if (ms == null) return '<span style="color:var(--text-secondary)">—</span>';
+      const color = ms < 50 ? 'var(--income)' : ms < 200 ? '#f0a030' : 'var(--expense)';
+      return `<span style="color:${color};font-weight:600">${label !== undefined ? label : ms + ' ms'}</span>`;
+    };
+
+    wrap.innerHTML = `
+      <table style="width:100%;border-collapse:collapse;font-size:12px;font-family:monospace">
+        <thead>
+          <tr style="border-bottom:1px solid var(--border-color)">
+            <th style="text-align:left;padding:5px 8px;color:var(--text-secondary);font-weight:500;white-space:nowrap">Metodo</th>
+            <th style="text-align:right;padding:5px 8px;color:var(--text-secondary);font-weight:500">Round-trip</th>
+            <th style="text-align:right;padding:5px 8px;color:var(--text-secondary);font-weight:500">Java</th>
+            <th style="text-align:right;padding:5px 8px;color:var(--text-secondary);font-weight:500">JCEF</th>
+            <th style="text-align:right;padding:5px 8px;color:var(--text-secondary);font-weight:500">Ora</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map(r => {
+            const t = new Date(r.ts);
+            const hms = `${String(t.getHours()).padStart(2,'0')}:${String(t.getMinutes()).padStart(2,'0')}:${String(t.getSeconds()).padStart(2,'0')}`;
+            return `<tr style="border-bottom:1px solid var(--border-color)">
+              <td style="padding:5px 8px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.method}">${r.method}</td>
+              <td style="text-align:right;padding:5px 8px">${badge(r.roundMs, r.roundMs + ' ms')}</td>
+              <td style="text-align:right;padding:5px 8px">${badge(r.javaMs,  r.javaMs  != null ? r.javaMs  + ' ms' : null)}</td>
+              <td style="text-align:right;padding:5px 8px">${badge(r.jcefMs,  r.jcefMs  != null ? r.jcefMs  + ' ms' : null)}</td>
+              <td style="text-align:right;padding:5px 8px;color:var(--text-secondary)">${hms}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>`;
+  } catch(e) {
+    wrap.innerHTML = `<span class="settings-hint" style="color:var(--expense)">Errore: ${e}</span>`;
+  }
+};
+
+window.perfClear = async () => {
+  _perfBuf.length = 0;
+  await api.clearPerfLog();
+  const wrap = document.getElementById('perfTableWrap');
+  if (wrap) wrap.innerHTML = '<span class="settings-hint" style="padding:8px 0;display:block">Log svuotato.</span>';
 };
 
 // ─── Manutenzione DB ──────────────────────────────────────────────────────────

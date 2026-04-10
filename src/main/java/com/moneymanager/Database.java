@@ -191,10 +191,17 @@ public class Database {
 
     // ─── Helpers JDBC ─────────────────────────────────────────────────────────
 
+    private static final long SLOW_QUERY_MS = 50;
+
     private List<Map<String, Object>> queryList(String sql, Object... params) throws SQLException {
+        long t0 = System.nanoTime();
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             bind(ps, params);
-            return toList(ps.executeQuery());
+            List<Map<String, Object>> result = toList(ps.executeQuery());
+            long ms = (System.nanoTime() - t0) / 1_000_000;
+            if (ms >= SLOW_QUERY_MS)
+                System.err.printf("[SLOW QUERY %dms] %s%n", ms, sql.substring(0, Math.min(120, sql.length())).replaceAll("\\s+", " ").trim());
+            return result;
         }
     }
 
@@ -204,11 +211,15 @@ public class Database {
     }
 
     private long execute(String sql, Object... params) throws SQLException {
+        long t0 = System.nanoTime();
         try (PreparedStatement ps = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
             bind(ps, params);
             ps.executeUpdate();
             ResultSet keys = ps.getGeneratedKeys();
             long id = keys.next() ? keys.getLong(1) : -1;
+            long ms = (System.nanoTime() - t0) / 1_000_000;
+            if (ms >= SLOW_QUERY_MS)
+                System.err.printf("[SLOW QUERY %dms] %s%n", ms, sql.substring(0, Math.min(120, sql.length())).replaceAll("\\s+", " ").trim());
             return id;
         }
     }

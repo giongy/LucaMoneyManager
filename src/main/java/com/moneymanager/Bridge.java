@@ -34,6 +34,12 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
     private final java.nio.file.Path dataDir;
     private final Gson gson = new GsonBuilder().serializeNulls().create();
 
+    // ─── Performance log ──────────────────────────────────────────────────────
+    private volatile boolean _perfEnabled = false;
+    private static final int PERF_MAX = 150;
+    private final java.util.Deque<java.util.Map<String,Object>> _perfBuf =
+            new java.util.ArrayDeque<>();
+
     public Bridge(Database db, Settings settings, JFrame window, java.nio.file.Path dataDir) {
         this.db = db;
         this.settings = settings;
@@ -88,7 +94,19 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                 return true;
             }
 
-            succeed(callback, dispatch(method, params, browser));
+            long t0 = _perfEnabled ? System.nanoTime() : 0;
+            Object result = dispatch(method, params, browser);
+            if (_perfEnabled) {
+                long javaMs = (System.nanoTime() - t0) / 1_000_000;
+                synchronized (_perfBuf) {
+                    if (_perfBuf.size() >= PERF_MAX) _perfBuf.pollFirst();
+                    _perfBuf.addLast(java.util.Map.of(
+                            "method", method,
+                            "javaMs", javaMs,
+                            "ts",     System.currentTimeMillis()));
+                }
+            }
+            succeed(callback, result);
 
         } catch (Exception e) {
             callback.failure(500, e.getMessage() != null ? e.getMessage() : "Errore interno");
@@ -561,6 +579,19 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
 
             // ─── Prezzi online (HTTP server: blocca il virtual thread, JCEF: async in onQuery) ──
             case "fetchOnlinePrice" -> doFetchOnlinePrice(p.get("isin").getAsString());
+
+            // ─── Performance log ───────────────────────────────────────────────
+            case "setPerfEnabled" -> {
+                _perfEnabled = p.get("enabled").getAsBoolean();
+                yield java.util.Map.of("ok", true);
+            }
+            case "getPerfLog" -> {
+                synchronized (_perfBuf) { yield new java.util.ArrayList<>(_perfBuf); }
+            }
+            case "clearPerfLog" -> {
+                synchronized (_perfBuf) { _perfBuf.clear(); }
+                yield java.util.Map.of("ok", true);
+            }
 
             default -> throw new Exception("Metodo sconosciuto: " + method);
         };

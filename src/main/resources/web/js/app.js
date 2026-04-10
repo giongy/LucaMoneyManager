@@ -2294,9 +2294,9 @@ window.closeCreditMonth = async (cardId, cardName) => {
     const sourceId = parseInt(document.getElementById('cc_source').value);
     const amount   = parseFloat(document.getElementById('cc_amount').value);
     const date     = document.getElementById('cc_date').value;
-    if (!sourceId) { toast('Seleziona il conto sorgente', 'error'); return; }
-    if (!amount || amount <= 0) { toast('Importo non valido', 'error'); return; }
-    if (!date)    { toast('Inserisci la data', 'error'); return; }
+    if (!sourceId) { toast('Seleziona il conto sorgente', 'error'); return false; }
+    if (!amount || amount <= 0) { toast('Importo non valido', 'error'); return false; }
+    if (!date)    { toast('Inserisci la data', 'error'); return false; }
     const monthVal = document.getElementById('cc_month')?.value || defMonthStr;
     await api.addTransaction({
       date, amount, type: 'transfer',
@@ -2307,7 +2307,7 @@ window.closeCreditMonth = async (cardId, cardName) => {
     toast(`Trasferimento di ${fmt.currency(amount)} creato`);
     loadAccountCards();
     updateSidebar();
-  });
+  }, 'Salva', 'btn-primary', 'modal-sm');
 
   // Calcola subito al primo render
   setTimeout(calcAmount, 50);

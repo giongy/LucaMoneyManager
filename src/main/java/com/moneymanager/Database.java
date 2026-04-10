@@ -832,27 +832,38 @@ public class Database {
     // ─── Transazioni ──────────────────────────────────────────────────────────
 
     public List<Map<String, Object>> getTransactions(JsonObject f) throws SQLException {
-        StringBuilder sql = new StringBuilder("""
-            SELECT t.*,
-                c.name  AS category_name, c.icon AS category_icon, c.color AS category_color,
-                pc.name AS parent_category_name,
-                a.name  AS account_name,  a.color AS account_color,
-                ta.name AS to_account_name,
-                GROUP_CONCAT(CASE WHEN tg.id IS NOT NULL
-                    THEN tg.id || '\u00A7' || tg.name || '\u00A7' || tg.color END, '||') AS tags_concat,
-                (SELECT COUNT(*) FROM transaction_splits ts WHERE ts.transaction_id = t.id) AS split_count,
-                (SELECT GROUP_CONCAT(COALESCE(sc.icon,'') || ' ' || COALESCE(sc.name,'?') || ' (' || PRINTF('%.2f', ts.amount) || '€)', ' · ')
-                 FROM transaction_splits ts LEFT JOIN categories sc ON sc.id = ts.category_id
-                 WHERE ts.transaction_id = t.id) AS splits_summary
-            FROM transactions t
-            LEFT JOIN categories c  ON t.category_id    = c.id
-            LEFT JOIN categories pc ON c.parent_id      = pc.id
-            LEFT JOIN accounts   a  ON t.account_id     = a.id
-            LEFT JOIN accounts   ta ON t.to_account_id  = ta.id
-            LEFT JOIN transaction_tags tt ON tt.transaction_id = t.id
-            LEFT JOIN tags tg ON tg.id = tt.tag_id
-            WHERE 1=1
-        """);
+        // Pre-calcola il filtro categoria: serve sia nella SELECT (filtered_split_amount) che nella WHERE
+        Integer filterCatId = (f.has("category_id") && !f.get("category_id").isJsonNull())
+                ? f.get("category_id").getAsInt() : null;
+
+        // Quando si filtra per categoria, aggiunge l'importo dello split corrispondente (NULL se non è uno split)
+        String filteredSplitCol = filterCatId != null
+                ? ",\n                (SELECT SUM(ts.amount) FROM transaction_splits ts" +
+                  " WHERE ts.transaction_id=t.id AND ts.category_id=" + filterCatId +
+                  ") AS filtered_split_amount"
+                : "";
+
+        StringBuilder sql = new StringBuilder(
+            "SELECT t.*,\n" +
+            "                c.name  AS category_name, c.icon AS category_icon, c.color AS category_color,\n" +
+            "                pc.name AS parent_category_name,\n" +
+            "                a.name  AS account_name,  a.color AS account_color,\n" +
+            "                ta.name AS to_account_name,\n" +
+            "                GROUP_CONCAT(CASE WHEN tg.id IS NOT NULL\n" +
+            "                    THEN tg.id || '\u00A7' || tg.name || '\u00A7' || tg.color END, '||') AS tags_concat,\n" +
+            "                (SELECT COUNT(*) FROM transaction_splits ts WHERE ts.transaction_id = t.id) AS split_count,\n" +
+            "                (SELECT GROUP_CONCAT(COALESCE(sc.icon,'') || ' ' || COALESCE(sc.name,'?') || ' (' || PRINTF('%.2f', ts.amount) || '\u20ac)', ' \u00b7 ')\n" +
+            "                 FROM transaction_splits ts LEFT JOIN categories sc ON sc.id = ts.category_id\n" +
+            "                 WHERE ts.transaction_id = t.id) AS splits_summary" +
+            filteredSplitCol + "\n" +
+            "            FROM transactions t\n" +
+            "            LEFT JOIN categories c  ON t.category_id    = c.id\n" +
+            "            LEFT JOIN categories pc ON c.parent_id      = pc.id\n" +
+            "            LEFT JOIN accounts   a  ON t.account_id     = a.id\n" +
+            "            LEFT JOIN accounts   ta ON t.to_account_id  = ta.id\n" +
+            "            LEFT JOIN transaction_tags tt ON tt.transaction_id = t.id\n" +
+            "            LEFT JOIN tags tg ON tg.id = tt.tag_id\n" +
+            "            WHERE 1=1\n");
         List<Object> params = new ArrayList<>();
 
         if (f.has("date_from") && !str(f,"date_from").isBlank()) {
@@ -887,10 +898,9 @@ public class Database {
             int aid = f.get("account_id").getAsInt();
             params.add(aid); params.add(aid);
         }
-        if (f.has("category_id") && !f.get("category_id").isJsonNull()) {
-            int catId = f.get("category_id").getAsInt();
+        if (filterCatId != null) {
             sql.append(" AND (t.category_id=? OR t.id IN (SELECT ts.transaction_id FROM transaction_splits ts WHERE ts.category_id=?))");
-            params.add(catId); params.add(catId);
+            params.add(filterCatId); params.add(filterCatId);
         }
         if (f.has("tag_id") && !f.get("tag_id").isJsonNull()) {
             sql.append(" AND t.id IN (SELECT transaction_id FROM transaction_tags WHERE tag_id=?)");

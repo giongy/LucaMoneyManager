@@ -1313,6 +1313,10 @@ function renderTxBodyAndHeaders() {
   const showBalance = txFilters.account_id && String(txFilters.account_id).trim() !== '';
   const sorted = sortTxs(txCache);
   const colCount = showBalance ? 11 : 10;
+  // Nome categoria filtrata (per mostrare la voce giusta negli split filtrati)
+  const filterCatLabel = txFilters.category_id
+    ? document.querySelector(`#txCategory option[value="${txFilters.category_id}"]`)?.textContent?.trim() || ''
+    : '';
   tbody.innerHTML = sorted.length ? sorted.map(t => {
     const isRec = t.reconciled == 1;
     const isSel = t.id === _selectedTxId;
@@ -1320,6 +1324,9 @@ function renderTxBodyAndHeaders() {
       ? `<td class="text-right tx-balance ${t.balance >= 0 ? 'positive' : 'negative'}">${fmt.currency(t.balance)}</td>`
       : (showBalance ? '<td></td>' : '');
     const bgStyle = t.color ? `style="background:${t.color}40"` : '';
+    // Se filtro per categoria e la transazione è uno split che matcha → mostra solo la quota filtrata
+    const isSplitFiltered = t.split_count > 0 && t.filtered_split_amount != null;
+    const displayAmt = isSplitFiltered ? t.filtered_split_amount : t.amount;
     return `
     <tr data-tx-id="${t.id}" class="${t.color ? 'tx-colored' : ''}${isSel ? ' tx-selected' : ''}${!isRec ? ' tx-unreconciled' : ''}" ${bgStyle} ondblclick="editTx(${t.id})">
       <td>${fmt.date(t.date)}</td>
@@ -1332,12 +1339,14 @@ function renderTxBodyAndHeaders() {
       <td>${t.account_name||'-'}${t.to_account_name?` → ${t.to_account_name}`:''}</td>
       <td><span class="badge badge-${t.type}">${t.type==='income'?'Entrata':t.type==='expense'?'Uscita':'Trasferimento'}</span></td>
       <td class="td-tags">${(t.tags&&t.tags.length)?t.tags.map(tg=>`<span class="tag-inline" style="--tc:${tg.color}">${tg.name}</span>`).join(''):''}</td>
-      <td>${t.split_count > 0
-        ? `<span class="cat-chip" style="opacity:.8;font-size:11px" title="${t.splits_summary||''}">÷ ${t.splits_summary||`${t.split_count} voci`}</span>`
-        : `${t.category_icon||''} ${t.parent_category_name ? t.parent_category_name + ' : ' + t.category_name : (t.category_name||'-')}`
+      <td>${isSplitFiltered
+        ? `<span class="cat-chip" style="opacity:.8;font-size:11px" title="${t.splits_summary||''}">${filterCatLabel} <span style="opacity:.6;font-size:10px">(÷ split)</span></span>`
+        : t.split_count > 0
+          ? `<span class="cat-chip" style="opacity:.8;font-size:11px" title="${t.splits_summary||''}">÷ ${t.splits_summary||`${t.split_count} voci`}</span>`
+          : `${t.category_icon||''} ${t.parent_category_name ? t.parent_category_name + ' : ' + t.category_name : (t.category_name||'-')}`
       }</td>
-      <td class="td-main">${t.description||''}</td>
-      <td class="text-right amount-${t.type}">${t.type==='expense'?'-':''}${fmt.currency(t.amount)}</td>
+      <td class="td-main">${t.description||''}${isSplitFiltered ? ` <span style="font-size:10px;opacity:.5" title="Totale transazione: ${fmt.currency(t.amount)}">(tot. ${fmt.currency(t.amount)})</span>` : ''}</td>
+      <td class="text-right amount-${t.type}">${t.type==='expense'?'-':''}${fmt.currency(displayAmt)}</td>
       ${balCell}
       <td>
         <button class="btn btn-ghost btn-icon" onclick="editTx(${t.id})">✏️</button>

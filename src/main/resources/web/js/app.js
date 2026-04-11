@@ -736,7 +736,7 @@ async function renderDashboard() {
       <div class="card dash-recent-card">
         <div class="card-header">
           <span class="card-title">Ultime transazioni</span>
-          <button class="btn btn-ghost" onclick="navigate('transactions')">Vedi tutte →</button>
+          <button class="btn btn-ghost" onclick="txFilters={range:txFilters.range};navigate('transactions')">Vedi tutte →</button>
         </div>
         <div class="table-wrap"><table><thead><tr>
           <th>Data</th><th>Descrizione</th><th>Categoria</th><th>Conto</th><th class="text-right">Importo</th>

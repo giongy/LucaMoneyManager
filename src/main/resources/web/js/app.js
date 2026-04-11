@@ -8915,15 +8915,41 @@ let _portStoricoExp    = new Set();
 let _portStoricoFilter = 'all'; // 'all' | 'active' | 'closed'
 let _portfolioPriceStatus = {}; // id → 'ok' | 'fail' | undefined (grigio)
 let _schedSort   = { col: 'days', dir: 'asc' };
-let _schedFilter = { type: '', active: '1' };
+let _schedFilter = { type: '', active: '1', category: '', tags: new Set() };
+
+function _buildSchedCatOptions(categories) {
+  const parents  = categories.filter(c => !c.parent_id).sort((a,b) => (a.name||'').localeCompare(b.name));
+  const childMap = {};
+  categories.filter(c => c.parent_id).forEach(c => {
+    (childMap[c.parent_id] = childMap[c.parent_id] || []).push(c);
+  });
+  const sel = _schedFilter.category;
+  let html = `<option value="">Tutte le categorie</option>`;
+  for (const p of parents) {
+    const children = (childMap[p.id] || []).sort((a,b) => (a.name||'').localeCompare(b.name));
+    if (children.length) {
+      html += `<option value="p:${p.id}" ${sel===`p:${p.id}`?'selected':''}>${p.icon||''} ${p.name}</option>`;
+      for (const c of children)
+        html += `<option value="${c.id}" ${sel===String(c.id)?'selected':''}>&nbsp;&nbsp;└ ${c.icon||''} ${c.name}</option>`;
+    } else {
+      html += `<option value="${p.id}" ${sel===String(p.id)?'selected':''}>${p.icon||''} ${p.name}</option>`;
+    }
+  }
+  return html;
+}
 
 async function renderSchedLista() {
   const [scheds, accounts, categories, tags] = await Promise.all([
     api.getScheduled(), api.getAccounts(), api.getCategories(), api.getTags()
   ]);
 
+  // Mappa categorie per il filtro: id → parent_id
+  window._schedCatParentMap = Object.fromEntries(categories.map(c => [c.id, c.parent_id ?? null]));
+  window._schedCatsArr = categories;
+  window._schedTagsArr = tags;
+
   // Arricchisce ogni pianificata con prossima data e giorni rimanenti
-  const todayStr = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD locale-safe
+  const todayStr = _todayStr();
   const today = new Date(todayStr + 'T00:00:00');
   scheds.forEach(s => {
     if (!s.is_active) { s._next = null; s._days = null; return; }
@@ -8938,7 +8964,7 @@ async function renderSchedLista() {
   const el = document.getElementById('schedContent');
   el.innerHTML = `
     <div class="sched-toolbar">
-      <div class="filter-bar" style="margin-bottom:0;flex:1">
+      <div class="filter-bar" style="margin-bottom:0;flex:1;flex-wrap:wrap">
         <select class="form-control" id="sfActive">
           <option value="">Tutte</option>
           <option value="1" ${_schedFilter.active==='1'?'selected':''}>Solo attive</option>
@@ -8950,6 +8976,21 @@ async function renderSchedLista() {
           <option value="expense"  ${_schedFilter.type==='expense' ?'selected':''}>Uscite</option>
           <option value="transfer" ${_schedFilter.type==='transfer'?'selected':''}>Trasferimenti</option>
         </select>
+        <select class="form-control" id="sfCat">
+          ${_buildSchedCatOptions(categories)}
+        </select>
+        <div class="sched-tag-filter" id="sfTagWrap">
+          <button class="form-control sched-tag-btn" id="sfTagBtn" type="button">
+            ${_schedFilter.tags.size ? `Tag: ${_schedFilter.tags.size} ✕` : 'Tutti i tag ▾'}
+          </button>
+          <div class="sched-tag-dropdown" id="sfTagDrop" style="display:none">
+            ${tags.length ? tags.map(t => `
+              <label class="sched-tag-opt">
+                <input type="checkbox" value="${t.id}" ${_schedFilter.tags.has(t.id)?'checked':''}>
+                <span class="tag-chip" style="background:${t.color}22;color:${t.color};border-color:${t.color}55">${t.name}</span>
+              </label>`).join('') : '<span style="padding:8px;color:var(--txt3);font-size:12px">Nessun tag</span>'}
+          </div>
+        </div>
       </div>
       <button class="btn btn-primary" id="btnNewSched">+ Nuova</button>
     </div>
@@ -8971,8 +9012,31 @@ async function renderSchedLista() {
     </div>`;
 
   document.getElementById('btnNewSched').onclick = () => showScheduledModal(null, accounts, categories, tags);
-  document.getElementById('sfActive').addEventListener('change', e => { _schedFilter.active = e.target.value; _renderSchedRows(scheds); });
-  document.getElementById('sfType').addEventListener('change',   e => { _schedFilter.type   = e.target.value; _renderSchedRows(scheds); });
+  document.getElementById('sfActive').addEventListener('change', e => { _schedFilter.active   = e.target.value; _renderSchedRows(scheds); });
+  document.getElementById('sfType').addEventListener('change',   e => { _schedFilter.type     = e.target.value; _renderSchedRows(scheds); });
+  document.getElementById('sfCat').addEventListener('change',    e => { _schedFilter.category = e.target.value; _renderSchedRows(scheds); });
+
+  // Tag multi-select dropdown
+  const tagBtn  = document.getElementById('sfTagBtn');
+  const tagDrop = document.getElementById('sfTagDrop');
+  tagBtn.addEventListener('click', e => {
+    e.stopPropagation();
+    tagDrop.style.display = tagDrop.style.display === 'none' ? 'block' : 'none';
+  });
+  tagDrop.querySelectorAll('input[type=checkbox]').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const id = Number(cb.value);
+      if (cb.checked) _schedFilter.tags.add(id); else _schedFilter.tags.delete(id);
+      tagBtn.textContent = _schedFilter.tags.size ? `Tag: ${_schedFilter.tags.size} ✕` : 'Tutti i tag ▾';
+      _renderSchedRows(scheds);
+    });
+  });
+  document.addEventListener('click', function _closeTagDrop(e) {
+    if (!document.getElementById('sfTagWrap')?.contains(e.target)) {
+      if (tagDrop) tagDrop.style.display = 'none';
+      document.removeEventListener('click', _closeTagDrop);
+    }
+  });
 
   _renderSchedRows(scheds);
 }
@@ -8997,6 +9061,22 @@ function _renderSchedRows(scheds) {
   let rows = scheds.filter(s => {
     if (_schedFilter.active !== '' && String(s.is_active) !== _schedFilter.active) return false;
     if (_schedFilter.type   !== '' && s.type !== _schedFilter.type) return false;
+    if (_schedFilter.category !== '') {
+      const cv = _schedFilter.category;
+      if (cv.startsWith('p:')) {
+        const pid = Number(cv.slice(2));
+        const parentMap = window._schedCatParentMap || {};
+        const isChild = s.category_id && parentMap[s.category_id] === pid;
+        const isSelf  = s.category_id === pid;
+        if (!isChild && !isSelf) return false;
+      } else {
+        if (String(s.category_id) !== cv) return false;
+      }
+    }
+    if (_schedFilter.tags.size > 0) {
+      const sTags = new Set((s.tags || []).map(t => t.id));
+      for (const tid of _schedFilter.tags) if (!sTags.has(tid)) return false;
+    }
     return true;
   });
 

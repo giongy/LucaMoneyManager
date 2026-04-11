@@ -8710,7 +8710,7 @@ async function renderBudgetVsPianificate() {
         ? `<button class="btn btn-sm btn-primary" onclick="showBudgetIntegraModal(${r.catId})">Integra</button>`
         : `<span style="color:var(--text2);font-size:.8rem">Eccesso</span>`;
     return `<tr class="${ok ? 'sync-row-ok' : ''}">
-      <td>${r.cat.icon||''} ${catLabel}</td>
+      <td><a style="cursor:pointer;color:inherit;text-decoration:none" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color=''" onclick="schedTab='lista';_schedFilter.category='${r.catId}';renderScheduled()">${r.cat.icon||''} ${catLabel}</a></td>
       <td class="num">${fmt.currency(r.budgAnnual)}</td>
       <td class="num">${fmt.currency(r.scheduled)}</td>
       <td class="num ${diffCls}">${diffTxt}</td>

@@ -1015,6 +1015,9 @@ let _reportFilters    = {};
 let _reportGroupby    = 'none';
 let _reportChartType  = 'none';
 let _reportChart      = null;
+let _reportsTab       = 'resoconti';
+let _fcChart          = null;
+let _fcParams         = { histMonths: 18, horizonMonths: 6, sensitivity: 'media' };
 
 // Formatta una Date come YYYY-MM-DD nel fuso locale (toISOString userebbe UTC e sfaserebbe di 1 giorno)
 const _dateStr  = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -6202,12 +6205,19 @@ async function renderReports() {
   pg.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
       <h2 style="font-size:var(--fs-xl,18px);font-weight:700">Resoconti</h2>
-      <div class="flex-center-8">
-        <button class="btn btn-primary" onclick="showReportModal()">＋ Nuovo resoconto</button>
-      </div>
+      ${_reportsTab === 'resoconti' ? `<div class="flex-center-8"><button class="btn btn-primary" onclick="showReportModal()">＋ Nuovo resoconto</button></div>` : ''}
+    </div>
+    <div class="scheduled-tabs" style="margin-bottom:12px">
+      <button class="sched-tab ${_reportsTab==='resoconti'  ?'active':''}" onclick="_setReportsTab('resoconti')">📋 Resoconti</button>
+      <button class="sched-tab ${_reportsTab==='previsione' ?'active':''}" onclick="_setReportsTab('previsione')">📊 Previsione Saldo</button>
     </div>
     <div id="rReportHeader" style="margin-bottom:16px"></div>
     <div id="rResults"></div>`;
+
+  if (_reportsTab === 'previsione') {
+    await renderForecastSaldo();
+    return;
+  }
 
   if (_currentReportId !== null) {
     const reports = await api.getReports();
@@ -6218,6 +6228,11 @@ async function renderReports() {
     _updateReportHeader(null);
     runReport();
   }
+}
+
+function _setReportsTab(tab) {
+  _reportsTab = tab;
+  renderReports();
 }
 
 async function _updateReportHeader(r) {
@@ -6749,6 +6764,356 @@ async function deleteReportConfirm(id, name) {
       closeModal(); toast('Resoconto eliminato');
       renderSidebarReports();
     }, 'Elimina', 'btn-danger');
+}
+
+/* ─── Previsione Saldo ───────────────────────────────────────────────────── */
+
+async function renderForecastSaldo() {
+  const container = document.getElementById('rResults');
+  const { histMonths, horizonMonths, sensitivity } = _fcParams;
+
+  container.innerHTML = `
+    <div class="card" style="padding:16px;margin-bottom:16px">
+      <div style="display:flex;flex-wrap:wrap;gap:20px;align-items:flex-end">
+        <div>
+          <label style="font-size:12px;color:var(--txt2);display:block;margin-bottom:6px">Storico analizzato</label>
+          <div style="display:flex;align-items:center;gap:8px">
+            <input type="range" id="fcHistR" min="3" max="60" value="${histMonths}" style="width:130px"
+              oninput="_fcParams.histMonths=+this.value;document.getElementById('fcHistN').textContent=this.value">
+            <span id="fcHistN" style="font-weight:700;min-width:22px">${histMonths}</span>
+            <span style="color:var(--txt2);font-size:13px">mesi</span>
+          </div>
+        </div>
+        <div>
+          <label style="font-size:12px;color:var(--txt2);display:block;margin-bottom:6px">Orizzonte previsione</label>
+          <div style="display:flex;align-items:center;gap:8px">
+            <input type="range" id="fcHorizR" min="1" max="36" value="${horizonMonths}" style="width:130px"
+              oninput="_fcParams.horizonMonths=+this.value;document.getElementById('fcHorizN').textContent=this.value">
+            <span id="fcHorizN" style="font-weight:700;min-width:22px">${horizonMonths}</span>
+            <span style="color:var(--txt2);font-size:13px">mesi</span>
+          </div>
+        </div>
+        <div>
+          <label style="font-size:12px;color:var(--txt2);display:block;margin-bottom:6px">Sensibilità outlier</label>
+          <select id="fcSens" class="form-select" onchange="_fcParams.sensitivity=this.value">
+            <option value="bassa" ${sensitivity==='bassa'?'selected':''}>Bassa  (k = 3.0)</option>
+            <option value="media" ${sensitivity==='media'?'selected':''}>Media  (k = 1.5)</option>
+            <option value="alta"  ${sensitivity==='alta' ?'selected':''}>Alta   (k = 1.0)</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" onclick="_runForecastSaldo()">Calcola previsione</button>
+      </div>
+    </div>
+    <div id="fcOutput"></div>`;
+
+  await _runForecastSaldo();
+}
+
+async function _runForecastSaldo() {
+  const { histMonths, horizonMonths, sensitivity } = _fcParams;
+  const kMap = { bassa: 3.0, media: 1.5, alta: 1.0 };
+  const k    = kMap[sensitivity] || 1.5;
+  const out  = document.getElementById('fcOutput');
+  if (!out) return;
+  out.innerHTML = '<div style="text-align:center;padding:40px;color:var(--txt2)">Calcolo in corso…</div>';
+
+  const [monthlyData, dashStats] = await Promise.all([
+    api.getMonthlyBalance(histMonths),
+    api.getDashboardStats(new Date().getFullYear()),
+  ]);
+
+  if (!monthlyData || monthlyData.length < 3) {
+    out.innerHTML = '<div class="empty-state"><div class="empty-icon">📊</div><p>Dati insufficienti. Servono almeno 3 mesi di transazioni.</p></div>';
+    return;
+  }
+
+  // ── Dati storici ─────────────────────────────────────────────────────────
+  const months   = monthlyData.map(r => String(r.ym));
+  const incomes  = monthlyData.map(r => Number(r.income));
+  const expenses = monthlyData.map(r => Number(r.expense));
+  const nets     = months.map((_, i) => incomes[i] - expenses[i]);
+
+  // ── Rilevamento outlier: IQR separato su entrate e uscite ────────────────
+  const incOut    = _fcIqrOutliers(incomes, k);
+  const expOut    = _fcIqrOutliers(expenses, k);
+  const isOutlier = months.map((_, i) => incOut[i] || expOut[i]);
+
+  const cleanNets = nets.filter((_, i)    => !isOutlier[i]);
+  const cleanInc  = incomes.filter((_, i) => !isOutlier[i]);
+  const cleanExp  = expenses.filter((_, i)=> !isOutlier[i]);
+  const n         = cleanNets.length;
+
+  if (n < 2) {
+    out.innerHTML = '<div class="empty-state"><div class="empty-icon">⚠️</div><p>Troppi mesi anomali rilevati. Riduci la sensibilità outlier.</p></div>';
+    return;
+  }
+
+  // ── Statistiche descrittive ───────────────────────────────────────────────
+  const _mean = arr => arr.reduce((a,b) => a+b, 0) / arr.length;
+  const meanInc  = _mean(cleanInc);
+  const meanExp  = _mean(cleanExp);
+  const meanNet  = _mean(cleanNets);
+  const variance = cleanNets.reduce((s,v) => s + (v - meanNet)**2, 0) / n;
+  const stdNet   = Math.sqrt(variance);
+  const cv       = meanNet !== 0 ? Math.abs(stdNet / meanNet) : 999;
+
+  // ── Regressione lineare (tendenza del flusso netto) ──────────────────────
+  const reg = _fcLinReg(cleanNets);
+
+  // ── Saldo corrente totale ─────────────────────────────────────────────────
+  const currentBalance = Number(dashStats.balance);
+
+  // ── Ricostruzione saldo storico a ritroso dal saldo attuale ─────────────
+  const histBal = new Array(months.length);
+  histBal[months.length - 1] = currentBalance;
+  for (let i = months.length - 2; i >= 0; i--) {
+    histBal[i] = histBal[i + 1] - nets[i + 1];
+  }
+
+  // ── Proiezione futura con IC 90% (crescita errore √t) ───────────────────
+  const now       = new Date();
+  const projLabels= [], projBal = [], projHigh = [], projLow = [];
+  let   bal       = currentBalance;
+  for (let i = 1; i <= horizonMonths; i++) {
+    const d  = new Date(now.getFullYear(), now.getMonth() + i, 1);
+    const ym = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    bal += meanNet + reg.slope * i;       // flusso atteso corretto per tendenza
+    const margin = 1.645 * stdNet * Math.sqrt(i);   // IC 90%
+    projLabels.push(ym);
+    projBal.push(bal);
+    projHigh.push(bal + margin);
+    projLow.push(bal  - margin);
+  }
+
+  // ── Affidabilità composita ────────────────────────────────────────────────
+  // 45% stabilità (CV basso), 25% bontà del trend (R²), 30% quantità dati
+  const cvScore   = Math.max(0, 1 - Math.min(cv, 2) / 2);
+  const r2Score   = Math.max(0, reg.r2);
+  const nScore    = Math.min(n / 18, 1);
+  const reliability = (cvScore * 0.45 + r2Score * 0.25 + nScore * 0.30) * 100;
+  // Precisione del flusso: quanto è stabile rispetto alla media (1 − CV)
+  const precision = Math.max(0, Math.min(100, (1 - cv) * 100));
+
+  const outlierCount  = isOutlier.filter(Boolean).length;
+  const outlierMonths = months.filter((_, i) => isOutlier[i]);
+  const trendLabel    = reg.slope >  50 ? '↑ Crescente'
+                      : reg.slope < -50 ? '↓ Decrescente' : '→ Stabile';
+
+  // ── Colori ───────────────────────────────────────────────────────────────
+  const relColor   = reliability >= 70 ? 'var(--income)' : reliability >= 45 ? 'var(--warn)' : 'var(--expense)';
+  const netColor   = meanNet  >= 0 ? 'var(--income)' : 'var(--expense)';
+  const slopeColor = reg.slope >= 0 ? 'var(--income)' : 'var(--expense)';
+  const finalBal   = projBal.at(-1);
+  const finalColor = finalBal >= currentBalance ? 'var(--income)' : 'var(--expense)';
+
+  // ── Render ────────────────────────────────────────────────────────────────
+  out.innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:12px;margin-bottom:18px">
+      ${_fcCard('Entrate medie/mese',  fmt.currency(meanInc),  'var(--income)')}
+      ${_fcCard('Uscite medie/mese',   fmt.currency(meanExp),  'var(--expense)')}
+      ${_fcCard('Flusso netto medio',  (meanNet>=0?'+':'')+fmt.currency(meanNet), netColor)}
+      ${_fcCard('Trend mensile',       (reg.slope>=0?'+':'')+fmt.currency(reg.slope)+'/m', slopeColor)}
+      ${_fcCard('Affidabilità',        reliability.toFixed(0)+'%', relColor)}
+      ${_fcCard('Precisione flusso',   precision.toFixed(0)+'%',   relColor)}
+    </div>
+
+    <div class="card" style="padding:16px;margin-bottom:16px">
+      <div style="font-size:14px;font-weight:600;margin-bottom:14px">Andamento saldo — storico &amp; previsione</div>
+      <canvas id="fcChartCanvas" style="max-height:340px"></canvas>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
+      <div class="card" style="padding:16px">
+        <div style="font-size:13px;font-weight:600;margin-bottom:12px;color:var(--txt2)">Statistiche modello</div>
+        <table style="width:100%;font-size:12px;border-collapse:collapse">
+          ${_fcRow('Mesi analizzati',             months.length)}
+          ${_fcRow('Mesi puliti (no outlier)',     n)}
+          ${_fcRow('Mesi esclusi (outlier)',       outlierCount, outlierCount > 0 ? 'var(--warn)' : '')}
+          ${_fcRow('Deviazione standard flusso',  fmt.currency(stdNet))}
+          ${_fcRow('Coefficiente di variazione',  (cv*100).toFixed(1)+'%')}
+          ${_fcRow('R² regressione lineare',       reg.r2.toFixed(3))}
+          ${_fcRow('Tendenza rilevata',            trendLabel)}
+        </table>
+      </div>
+      <div class="card" style="padding:16px">
+        <div style="font-size:13px;font-weight:600;margin-bottom:12px;color:var(--txt2)">Margini d'errore IC 90%</div>
+        <table style="width:100%;font-size:12px;border-collapse:collapse">
+          ${_fcRow('Errore a  1 mese',  '± '+fmt.currency(1.645*stdNet*Math.sqrt(1)))}
+          ${_fcRow('Errore a  3 mesi',  '± '+fmt.currency(1.645*stdNet*Math.sqrt(3)))}
+          ${_fcRow('Errore a  6 mesi',  '± '+fmt.currency(1.645*stdNet*Math.sqrt(6)))}
+          ${_fcRow('Errore a 12 mesi',  '± '+fmt.currency(1.645*stdNet*Math.sqrt(12)))}
+          <tr><td colspan="2" style="padding:4px 0;border-top:1px solid var(--border)"></td></tr>
+          ${_fcRow('Saldo previsto a '+horizonMonths+'m', fmt.currency(finalBal), finalColor)}
+          ${_fcRow('Limite inferiore IC', fmt.currency(projLow.at(-1)))}
+          ${_fcRow('Limite superiore IC', fmt.currency(projHigh.at(-1)))}
+        </table>
+      </div>
+    </div>
+
+    ${outlierCount > 0 ? `
+    <div class="card" style="padding:16px;margin-bottom:16px;border-left:3px solid var(--warn)">
+      <div style="font-size:13px;font-weight:600;margin-bottom:6px;color:var(--warn)">⚠ Mesi anomali esclusi dall'analisi</div>
+      <div style="font-size:12px;color:var(--txt2);margin-bottom:10px">Mesi con entrate o uscite statisticamente anomale (IQR con k=${k}), esclusi per non distorcere la previsione:</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        ${outlierMonths.map(m => `<span style="background:rgba(255,208,64,.12);border:1px solid var(--warn);border-radius:4px;padding:2px 10px;font-size:12px;font-weight:600;color:var(--warn)">${m}</span>`).join('')}
+      </div>
+    </div>` : ''}
+
+    <div class="card" style="padding:16px">
+      <div style="font-size:13px;font-weight:600;margin-bottom:12px;color:var(--txt2)">Dettaglio storico mensile</div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;font-size:12px;border-collapse:collapse">
+          <thead><tr style="color:var(--txt2);border-bottom:1px solid var(--border)">
+            <th style="padding:6px 8px;text-align:left">Mese</th>
+            <th style="padding:6px 8px;text-align:right">Entrate</th>
+            <th style="padding:6px 8px;text-align:right">Uscite</th>
+            <th style="padding:6px 8px;text-align:right">Flusso netto</th>
+            <th style="padding:6px 8px;text-align:right">Saldo stimato</th>
+            <th style="padding:6px 8px;text-align:center"></th>
+          </tr></thead>
+          <tbody>
+            ${months.map((m, i) => {
+              const anom = isOutlier[i];
+              const net  = nets[i];
+              return `<tr style="${anom?'opacity:.55;':''}border-bottom:1px solid var(--border)">
+                <td style="padding:5px 8px;font-weight:600">${m}</td>
+                <td style="padding:5px 8px;text-align:right;color:var(--income)">${fmt.currency(incomes[i])}</td>
+                <td style="padding:5px 8px;text-align:right;color:var(--expense)">${fmt.currency(expenses[i])}</td>
+                <td style="padding:5px 8px;text-align:right;font-weight:600;color:${net>=0?'var(--income)':'var(--expense)'}">${net>=0?'+':''}${fmt.currency(net)}</td>
+                <td style="padding:5px 8px;text-align:right">${fmt.currency(histBal[i])}</td>
+                <td style="padding:5px 8px;text-align:center;font-size:11px;color:var(--warn)">${anom?'⚠ outlier':''}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+
+  // ── Chart.js ─────────────────────────────────────────────────────────────
+  if (_fcChart) { _fcChart.destroy(); _fcChart = null; }
+
+  const allLabels   = [...months, ...projLabels];
+  const nHist       = months.length;
+  const connPad     = Array(nHist - 1).fill(null);   // null fino al penultimo storico
+
+  // dataset 0: saldo storico (linea grigia, solo passato)
+  const dsHist      = [...histBal, ...Array(horizonMonths).fill(null)];
+  // dataset 1: banda superiore IC (fill verso dataset 2)
+  const dsHigh      = [...connPad, currentBalance, ...projHigh];
+  // dataset 2: banda inferiore IC
+  const dsLow       = [...connPad, currentBalance, ...projLow];
+  // dataset 3: saldo previsto (linea tratteggiata accent)
+  const dsProj      = [...connPad, currentBalance, ...projBal];
+  // dataset 4: marcatori outlier (triangoli gialli sulla linea storica)
+  const dsOutlier   = [...histBal.map((v,i) => isOutlier[i] ? v : null), ...Array(horizonMonths).fill(null)];
+
+  const ctx = document.getElementById('fcChartCanvas').getContext('2d');
+  _fcChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: allLabels,
+      datasets: [
+        { label: 'Saldo storico',
+          data: dsHist, borderColor: 'var(--txt2)', borderWidth: 2,
+          backgroundColor: 'transparent', pointRadius: 3, tension: 0.3,
+          spanGaps: false, fill: false },
+        { label: '_ciHigh',
+          data: dsHigh, borderColor: 'transparent',
+          backgroundColor: 'rgba(90,150,255,0.13)',
+          pointRadius: 0, tension: 0.3, spanGaps: false, fill: 2 },
+        { label: '_ciLow',
+          data: dsLow, borderColor: 'transparent',
+          backgroundColor: 'transparent',
+          pointRadius: 0, tension: 0.3, spanGaps: false, fill: false },
+        { label: 'Saldo previsto',
+          data: dsProj, borderColor: 'var(--accent)', borderWidth: 2.5,
+          borderDash: [6,4], backgroundColor: 'transparent',
+          pointRadius: 3, tension: 0.3, spanGaps: false, fill: false },
+        { label: 'Mesi anomali',
+          data: dsOutlier, borderColor: 'var(--warn)',
+          backgroundColor: 'var(--warn)', pointRadius: 7,
+          pointStyle: 'triangle', showLine: false, fill: false },
+      ],
+    },
+    options: {
+      responsive: true,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: {
+          labels: {
+            color: 'var(--txt)',
+            filter: item => !item.text.startsWith('_'),
+          },
+        },
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              if (ctx.dataset.label.startsWith('_')) return null;
+              const v = ctx.parsed.y;
+              if (v == null) return null;
+              return `${ctx.dataset.label}: ${fmt.currency(v)}`;
+            },
+          },
+        },
+      },
+      scales: {
+        x: { ticks: { color:'var(--txt2)', maxTicksLimit:14 }, grid:{ color:'var(--border)' } },
+        y: { ticks: { color:'var(--txt2)', callback: v => fmt.currency(v) }, grid:{ color:'var(--border)' } },
+      },
+    },
+  });
+}
+
+// ── Rilevamento outlier IQR ───────────────────────────────────────────────────
+// Restituisce array di boolean: true = il valore è anomalo rispetto alla distribuzione
+function _fcIqrOutliers(values, k) {
+  const pos = values.filter(v => v > 0);
+  if (pos.length < 4) return values.map(() => false);
+  const sorted = [...pos].sort((a,b) => a - b);
+  const q1  = _fcPct(sorted, 25);
+  const q3  = _fcPct(sorted, 75);
+  const iqr = q3 - q1;
+  const hi  = q3 + k * iqr;
+  const lo  = Math.max(0, q1 - k * iqr);
+  return values.map(v => v > 0 && (v > hi || v < lo));
+}
+
+function _fcPct(sorted, p) {
+  const idx = (p / 100) * (sorted.length - 1);
+  const lo  = Math.floor(idx), hi = Math.ceil(idx);
+  return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo);
+}
+
+// ── Regressione lineare OLS ───────────────────────────────────────────────────
+// Restituisce { slope, intercept, r2 } sul vettore y (x = 0,1,2,…)
+function _fcLinReg(y) {
+  const n = y.length;
+  if (n < 2) return { slope: 0, intercept: y[0] ?? 0, r2: 0 };
+  const xMean = (n - 1) / 2;
+  const yMean = y.reduce((a,b) => a+b, 0) / n;
+  const ssXX  = y.reduce((s,_,i) => s + (i - xMean)**2, 0);
+  const ssXY  = y.reduce((s,v,i) => s + (i - xMean)*(v - yMean), 0);
+  const slope     = ssXX > 0 ? ssXY / ssXX : 0;
+  const intercept = yMean - slope * xMean;
+  const ssTot = y.reduce((s,v)   => s + (v - yMean)**2, 0);
+  const ssRes = y.reduce((s,v,i) => s + (v - (intercept + slope*i))**2, 0);
+  const r2    = ssTot > 0 ? Math.max(0, 1 - ssRes / ssTot) : 0;
+  return { slope, intercept, r2 };
+}
+
+// ── Helper UI ─────────────────────────────────────────────────────────────────
+function _fcCard(label, value, color) {
+  return `<div class="card" style="padding:14px 16px">
+    <div style="font-size:11px;color:var(--txt2);margin-bottom:4px">${label}</div>
+    <div style="font-size:16px;font-weight:700;color:${color}">${value}</div>
+  </div>`;
+}
+
+function _fcRow(label, value, color) {
+  return `<tr style="border-bottom:1px solid var(--border)">
+    <td style="padding:5px 4px;color:var(--txt2)">${label}</td>
+    <td style="padding:5px 4px;text-align:right;font-weight:600${color?';color:'+color:''}">${value}</td>
+  </tr>`;
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════

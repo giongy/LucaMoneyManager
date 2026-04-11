@@ -323,6 +323,10 @@ const api = {
   getCategoryMonthTable: (months) => callJava('getCategoryMonthTable', { months }),
   getMonthlyBalance:          (months) => callJava('getMonthlyBalance',         { months }),
   getOldestTransactionMonth: ()       => callJava('getOldestTransactionMonth',  {}),
+  getForecastExcluded:   ()           => callJava('getForecastExcluded',   {}),
+  addForecastExcluded:   (id) => callJava('addForecastExcluded', {id}),
+  removeForecastExcluded:(id)         => callJava('removeForecastExcluded', {id}),
+  getForecastExpenseSplit:(months)    => callJava('getForecastExpenseSplit', {months}),
 
   // Resoconti
   getReports:   ()     => callJava('getReports'),
@@ -1017,7 +1021,13 @@ let _reportChartType  = 'none';
 let _reportChart      = null;
 let _reportsTab       = 'resoconti';
 let _fcChart          = null;
-let _fcParams         = { histMonths: 18, horizonMonths: 6, sensitivity: 'media' };
+let _fcParams         = { histMonths: 12, horizonMonths: 6, sensitivity: 'media' };
+let _fcManualExcl     = new Set();   // mesi forzatamente esclusi dall'utente
+let _fcManualIncl     = new Set();   // mesi forzatamente reintegrati dall'utente
+let _fcExcludedTxIds  = new Set();   // IDs transazioni escluse dal calcolo
+let _fcTxAdjustments  = {};          // { ym: { incAdj, expAdj } } — aggiustamenti tx
+let _fcMonthTxCache   = {};          // { ym: tx[] } — cache transazioni per mese
+let _fcExpandedMonths = new Set();   // mesi espansi nella tabella storica
 
 // Formatta una Date come YYYY-MM-DD nel fuso locale (toISOString userebbe UTC e sfaserebbe di 1 giorno)
 const _dateStr  = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -5674,10 +5684,15 @@ async function renderAnalyticsForecast() {
             <option value="alta"  ${sensitivity==='alta' ?'selected':''}>Alta   (k = 1.0)</option>
           </select>
         </div>
-        <button class="btn btn-primary" onclick="_runForecastSaldo()">Calcola previsione</button>
+        <div style="display:flex;align-items:center;gap:10px">
+          <button class="btn btn-primary" onclick="_runForecastSaldo(true)">Aggiorna</button>
+          <span id="fcDirtyBadge" style="display:none;font-size:11px;color:var(--warn)">● modifiche in attesa</span>
+        </div>
       </div>
     </div>
     <div id="fcOutput"></div>`;
+  // Carica dal DB le transazioni escluse persistite
+  await _fcLoadExcludedFromDb();
   await _runForecastSaldo();
 }
 
@@ -6835,7 +6850,10 @@ async function renderForecastSaldo() {
             <option value="alta"  ${sensitivity==='alta' ?'selected':''}>Alta   (k = 1.0)</option>
           </select>
         </div>
-        <button class="btn btn-primary" onclick="_runForecastSaldo()">Calcola previsione</button>
+        <div style="display:flex;align-items:center;gap:10px">
+          <button class="btn btn-primary" onclick="_runForecastSaldo(true)">Aggiorna</button>
+          <span id="fcDirtyBadge" style="display:none;font-size:11px;color:var(--warn)">● modifiche in attesa</span>
+        </div>
       </div>
     </div>
     <div id="fcOutput"></div>`;
@@ -6843,44 +6861,93 @@ async function renderForecastSaldo() {
   await _runForecastSaldo();
 }
 
-async function _runForecastSaldo() {
+function _fcSetDirty() {
+  const badge = document.getElementById('fcDirtyBadge');
+  if (badge) badge.style.display = '';
+}
+
+async function _runForecastSaldo(keepExclusions = false) {
   const { histMonths, horizonMonths, sensitivity } = _fcParams;
   const kMap = { bassa: 3.0, media: 1.5, alta: 1.0 };
   const k    = kMap[sensitivity] || 1.5;
   const out  = document.getElementById('fcOutput');
   if (!out) return;
+  // Nascondi badge "modifiche in attesa"
+  const _dirtyBadge = document.getElementById('fcDirtyBadge');
+  if (_dirtyBadge) _dirtyBadge.style.display = 'none';
   out.innerHTML = '<div style="text-align:center;padding:40px;color:var(--txt2)">Calcolo in corso…</div>';
 
-  const [monthlyData, dashStats] = await Promise.all([
+  if (!keepExclusions) {
+    _fcManualExcl = new Set();
+    _fcManualIncl = new Set();
+    // tx exclusions persistite in DB — non si resettano con "Calcola previsione"
+  }
+
+  // ── Carica dati mensili + struttura spese + transazioni mesi espansi ────────
+  const toFetch = [..._fcExpandedMonths].filter(ym => !_fcMonthTxCache[ym]);
+  const [monthlyData, dashStats, expSplit] = await Promise.all([
     api.getMonthlyBalance(histMonths),
     api.getDashboardStats(new Date().getFullYear()),
+    api.getForecastExpenseSplit(histMonths),
+    ...toFetch.map(async ym => {
+      const [y, mo] = ym.split('-');
+      const lastDay = new Date(+y, +mo, 0).getDate();
+      const txs = await api.getTransactions({ date_from: `${ym}-01`, date_to: `${ym}-${lastDay}`, limit: 5000 });
+      _fcMonthTxCache[ym] = (txs || [])
+        .filter(t => t.type !== 'transfer')
+        .sort((a, b) => Number(b.amount) - Number(a.amount));
+    }),
   ]);
 
-  if (!monthlyData || monthlyData.length < 3) {
-    out.innerHTML = '<div class="empty-state"><div class="empty-icon">📊</div><p>Dati insufficienti. Servono almeno 3 mesi di transazioni.</p></div>';
+  if (!monthlyData?.length) return;
+
+  // ── Escludi mese corrente (incompleto — stipendio arriva il 27) ─────────────
+  const now       = new Date();
+  const currentYm = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  const histData  = monthlyData.filter(r => String(r.ym) !== currentYm);
+
+  if (histData.length < 3) {
+    out.innerHTML = '<div class="empty-state"><div class="empty-icon">📊</div><p>Dati insufficienti. Servono almeno 3 mesi di transazioni completati.</p></div>';
     return;
   }
 
   // ── Dati storici ─────────────────────────────────────────────────────────
-  const months   = monthlyData.map(r => String(r.ym));
-  const incomes  = monthlyData.map(r => Number(r.income));
-  const expenses = monthlyData.map(r => Number(r.expense));
+  const months   = histData.map(r => String(r.ym));
+  const incomes  = histData.map(r => Number(r.income));
+  const expenses = histData.map(r => Number(r.expense));
   const nets     = months.map((_, i) => incomes[i] - expenses[i]);
 
-  // ── Rilevamento outlier: IQR separato su entrate e uscite ────────────────
-  const incOut    = _fcIqrOutliers(incomes, k);
-  const expOut    = _fcIqrOutliers(expenses, k);
-  const isOutlier = months.map((_, i) => incOut[i] || expOut[i]);
+  // ── Aggregati aggiustati (sottratte le tx escluse) ────────────────────────
+  const adjInc = incomes.map((v, i) => v - (_fcTxAdjustments[months[i]]?.incAdj || 0));
+  const adjExp = expenses.map((v, i) => v - (_fcTxAdjustments[months[i]]?.expAdj || 0));
+  const adjNet = months.map((_, i) => adjInc[i] - adjExp[i]);
 
-  const cleanNets = nets.filter((_, i)    => !isOutlier[i]);
-  const cleanInc  = incomes.filter((_, i) => !isOutlier[i]);
-  const cleanExp  = expenses.filter((_, i)=> !isOutlier[i]);
+  // ── IQR outlier sui valori aggiustati ────────────────────────────────────
+  const incOut       = _fcIqrOutliers(adjInc, k);
+  const expOut       = _fcIqrOutliers(adjExp, k);
+  const autoExcluded = new Set(months.filter((_, i) => incOut[i] || expOut[i]));
+
+  // ── Esclusioni finali: (auto ∪ manuali-esclusi) − manuali-inclusi ─────────
+  const finalExcl = new Set([...autoExcluded, ..._fcManualExcl].filter(m => !_fcManualIncl.has(m)));
+  const isOutlier = months.map(m => finalExcl.has(m));
+
+  const cleanNets = adjNet.filter((_, i) => !isOutlier[i]);
+  const cleanInc  = adjInc.filter((_, i) => !isOutlier[i]);
+  const cleanExp  = adjExp.filter((_, i) => !isOutlier[i]);
   const n         = cleanNets.length;
 
   if (n < 2) {
-    out.innerHTML = '<div class="empty-state"><div class="empty-icon">⚠️</div><p>Troppi mesi anomali rilevati. Riduci la sensibilità outlier.</p></div>';
+    out.innerHTML = '<div class="empty-state"><div class="empty-icon">⚠️</div><p>Troppi mesi esclusi. Riduci la sensibilità outlier o reintegra alcuni mesi.</p></div>';
     return;
   }
+
+  // ── Struttura spese: split fisso/saltuario per mese ──────────────────────
+  // monthlySplit: ym → { fixed, sporadic } — da DB, categorie freq≥0.75 = fisse
+  const monthlySplit = {};
+  for (const row of (expSplit?.monthly || [])) {
+    monthlySplit[String(row.ym)] = { fixed: Number(row.fixed_exp), sporadic: Number(row.sporadic_exp) };
+  }
+  const cleanMonthNames = months.filter((_, i) => !isOutlier[i]);
 
   // ── Statistiche descrittive ───────────────────────────────────────────────
   const _mean = arr => arr.reduce((a,b) => a+b, 0) / arr.length;
@@ -6889,10 +6956,26 @@ async function _runForecastSaldo() {
   const meanNet  = _mean(cleanNets);
   const variance = cleanNets.reduce((s,v) => s + (v - meanNet)**2, 0) / n;
   const stdNet   = Math.sqrt(variance);
-  const cv       = meanNet !== 0 ? Math.abs(stdNet / meanNet) : 999;
+
+  // ── stdBaseline: rimuove il rumore del "quando" arrivano le spese saltuarie ─
+  // Per ogni mese pulito: sostituisce la spesa saltuaria reale con la media attesa.
+  // mean(netNormalizzato) = meanNet (invariato), ma la varianza è minore.
+  const cleanSporadics = cleanMonthNames.map(m => monthlySplit[m]?.sporadic || 0);
+  const meanSporadic   = _mean(cleanSporadics.length ? cleanSporadics : [0]);
+  const meanFixed      = _mean(cleanMonthNames.map(m => monthlySplit[m]?.fixed || 0).filter((_, i) => i < n));
+  const netNormalized  = cleanNets.map((v, ci) => v - cleanSporadics[ci] + meanSporadic);
+  const varBaseline    = netNormalized.reduce((s,v) => s + (v - meanNet)**2, 0) / n;
+  const stdBaseline    = Math.sqrt(varBaseline);
+
+  // CV totale (variabilità reale vissuta) e baseline (struttura prevedibile)
+  const cv         = stdNet      / Math.max(meanInc, 1);
+  const cvBaseline = stdBaseline / Math.max(meanInc, 1);
 
   // ── Regressione lineare (tendenza del flusso netto) ──────────────────────
-  const reg = _fcLinReg(cleanNets);
+  // Usa gli indici di calendario reali (non 0..n-1) per evitare distorsione
+  // quando i mesi puliti non sono consecutivi (outlier in mezzo alla serie)
+  const cleanIndices = months.map((_, i) => i).filter((_, i) => !isOutlier[i]);
+  const reg = _fcLinReg(cleanNets, cleanIndices);
 
   // ── Saldo corrente totale ─────────────────────────────────────────────────
   const currentBalance = Number(dashStats.balance);
@@ -6905,14 +6988,13 @@ async function _runForecastSaldo() {
   }
 
   // ── Proiezione futura con IC 90% (crescita errore √t) ───────────────────
-  const now       = new Date();
   const projLabels= [], projBal = [], projHigh = [], projLow = [];
   let   bal       = currentBalance;
   for (let i = 1; i <= horizonMonths; i++) {
     const d  = new Date(now.getFullYear(), now.getMonth() + i, 1);
     const ym = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
     bal += meanNet + reg.slope * i;       // flusso atteso corretto per tendenza
-    const margin = 1.645 * stdNet * Math.sqrt(i);   // IC 90%
+    const margin = 1.645 * stdBaseline * Math.sqrt(i);   // IC 90% — usa stdBaseline (senza rumore saltuario)
     projLabels.push(ym);
     projBal.push(bal);
     projHigh.push(bal + margin);
@@ -6920,16 +7002,21 @@ async function _runForecastSaldo() {
   }
 
   // ── Affidabilità composita ────────────────────────────────────────────────
-  // 45% stabilità (CV basso), 25% bontà del trend (R²), 30% quantità dati
-  const cvScore   = Math.max(0, 1 - Math.min(cv, 2) / 2);
+  // 45% stabilità strutturale (cvBaseline — senza rumore saltuario)
+  // 25% bontà del trend (R²)
+  // 30% quantità dati
+  const cvScore   = Math.max(0, 1 - Math.min(cvBaseline, 2) / 2);
   const r2Score   = Math.max(0, reg.r2);
-  const nScore    = Math.min(n / 18, 1);
+  const nScore    = Math.min(n / histMonths, 1);
   const reliability = (cvScore * 0.45 + r2Score * 0.25 + nScore * 0.30) * 100;
-  // Precisione del flusso: quanto è stabile rispetto alla media (1 − CV)
+  // Precisione del flusso: variabilità totale vissuta (cv su stdNet, non baseline)
   const precision = Math.max(0, Math.min(100, (1 - cv) * 100));
 
   const outlierCount  = isOutlier.filter(Boolean).length;
-  const outlierMonths = months.filter((_, i) => isOutlier[i]);
+  const autoNormCnt   = months.filter(m => autoExcluded.has(m) && !finalExcl.has(m)).length;
+  const manualReiCnt  = months.filter(m => _fcManualIncl.has(m)).length;
+  const manualExclCnt = months.filter(m => _fcManualExcl.has(m) && !autoExcluded.has(m)).length;
+  const txAdjCnt      = months.filter(m => (_fcTxAdjustments[m]?.incAdj||0)+(_fcTxAdjustments[m]?.expAdj||0) > 0).length;
   const trendLabel    = reg.slope >  50 ? '↑ Crescente'
                       : reg.slope < -50 ? '↓ Decrescente' : '→ Stabile';
 
@@ -6939,6 +7026,20 @@ async function _runForecastSaldo() {
   const slopeColor = reg.slope >= 0 ? 'var(--income)' : 'var(--expense)';
   const finalBal   = projBal.at(-1);
   const finalColor = finalBal >= currentBalance ? 'var(--income)' : 'var(--expense)';
+
+  // ── Helper: etichetta stato cella mese ────────────────────────────────────
+  const _monthStato = m => {
+    const hasTxAdj = (_fcTxAdjustments[m]?.incAdj||0)+(_fcTxAdjustments[m]?.expAdj||0) > 0;
+    if (_fcManualExcl.has(m))                       return '<span style="color:var(--expense);font-size:11px">✕ escluso</span>';
+    if (_fcManualIncl.has(m))                       return '<span style="color:var(--income);font-size:11px">✓ reintegrato</span>';
+    if (autoExcluded.has(m) && finalExcl.has(m))   return '<span style="color:var(--warn);font-size:11px">⚠ anomalo</span>';
+    if (autoExcluded.has(m) && !finalExcl.has(m))  return '<span style="color:var(--income);font-size:11px">✓ normalizzato</span>';
+    if (hasTxAdj)                                   return '<span style="color:var(--txt2);font-size:11px">✂ tx escluse</span>';
+    return '';
+  };
+
+  // ── Helper: sub-tabella transazioni per mese espanso ─────────────────────
+  // sub-tabella tx: usa la funzione di modulo _fcBuildTxSubrow
 
   // ── Render ────────────────────────────────────────────────────────────────
   out.innerHTML = `
@@ -6960,22 +7061,30 @@ async function _runForecastSaldo() {
       <div class="card" style="padding:16px">
         <div style="font-size:13px;font-weight:600;margin-bottom:12px;color:var(--txt2)">Statistiche modello</div>
         <table style="width:100%;font-size:12px;border-collapse:collapse">
-          ${_fcRow('Mesi analizzati',             months.length)}
-          ${_fcRow('Mesi puliti (no outlier)',     n)}
-          ${_fcRow('Mesi esclusi (outlier)',       outlierCount, outlierCount > 0 ? 'var(--warn)' : '')}
-          ${_fcRow('Deviazione standard flusso',  fmt.currency(stdNet))}
-          ${_fcRow('Coefficiente di variazione',  (cv*100).toFixed(1)+'%')}
-          ${_fcRow('R² regressione lineare',       reg.r2.toFixed(3))}
-          ${_fcRow('Tendenza rilevata',            trendLabel)}
+          ${_fcRow('Mesi analizzati',               months.length)}
+          ${_fcRow('Mesi usati nel calcolo',        n)}
+          ${_fcRow('Mesi esclusi totale',           outlierCount, outlierCount > 0 ? 'var(--warn)' : '')}
+          ${autoNormCnt   > 0 ? _fcRow('Normalizzati via tx escluse', autoNormCnt,   'var(--income)') : ''}
+          ${manualReiCnt  > 0 ? _fcRow('Reintegrati manualmente',     manualReiCnt,  'var(--income)') : ''}
+          ${manualExclCnt > 0 ? _fcRow('Esclusi manualmente',         manualExclCnt, 'var(--expense)') : ''}
+          ${txAdjCnt      > 0 ? _fcRow('Mesi con tx escluse',         txAdjCnt,      'var(--txt2)') : ''}
+          ${_fcRow('Std flusso totale',              fmt.currency(stdNet))}
+          ${_fcRow('Std strutturale (baseline)',    fmt.currency(stdBaseline))}
+          ${_fcRow('Variabilità totale/entrate',   (cv*100).toFixed(1)+'%')}
+          ${_fcRow('Variabilità strutturale',      (cvBaseline*100).toFixed(1)+'%')}
+          ${_fcRow('Spese fisse medie/mese',        fmt.currency(meanFixed))}
+          ${_fcRow('Spese saltuarie medie/mese',    fmt.currency(meanSporadic))}
+          ${_fcRow('R² regressione lineare',        reg.r2.toFixed(3))}
+          ${_fcRow('Tendenza rilevata',             trendLabel)}
         </table>
       </div>
       <div class="card" style="padding:16px">
         <div style="font-size:13px;font-weight:600;margin-bottom:12px;color:var(--txt2)">Margini d'errore IC 90%</div>
         <table style="width:100%;font-size:12px;border-collapse:collapse">
-          ${_fcRow('Errore a  1 mese',  '± '+fmt.currency(1.645*stdNet*Math.sqrt(1)))}
-          ${_fcRow('Errore a  3 mesi',  '± '+fmt.currency(1.645*stdNet*Math.sqrt(3)))}
-          ${_fcRow('Errore a  6 mesi',  '± '+fmt.currency(1.645*stdNet*Math.sqrt(6)))}
-          ${_fcRow('Errore a 12 mesi',  '± '+fmt.currency(1.645*stdNet*Math.sqrt(12)))}
+          ${_fcRow('Errore a  1 mese',  '± '+fmt.currency(1.645*stdBaseline*Math.sqrt(1)))}
+          ${_fcRow('Errore a  3 mesi',  '± '+fmt.currency(1.645*stdBaseline*Math.sqrt(3)))}
+          ${_fcRow('Errore a  6 mesi',  '± '+fmt.currency(1.645*stdBaseline*Math.sqrt(6)))}
+          ${_fcRow('Errore a 12 mesi',  '± '+fmt.currency(1.645*stdBaseline*Math.sqrt(12)))}
           <tr><td colspan="2" style="padding:4px 0;border-top:1px solid var(--border)"></td></tr>
           ${_fcRow('Saldo previsto a '+horizonMonths+'m', fmt.currency(finalBal), finalColor)}
           ${_fcRow('Limite inferiore IC', fmt.currency(projLow.at(-1)))}
@@ -6984,39 +7093,108 @@ async function _runForecastSaldo() {
       </div>
     </div>
 
-    ${outlierCount > 0 ? `
+    ${(() => {
+      const cats = expSplit?.categories || [];
+      if (!cats.length) return '';
+      const fisse      = cats.filter(c => c.frequency >= 0.75);
+      const periodiche = cats.filter(c => c.frequency >= 0.40 && c.frequency < 0.75);
+      const saltuarie  = cats.filter(c => c.frequency  < 0.40);
+      const col = (title, color, list) => {
+        if (!list.length) return '';
+        const rows = list.slice(0, 10).map(c =>
+          `<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--border);font-size:11px">
+            <span style="color:var(--txt)">${c.name}</span>
+            <span style="color:${color};font-weight:600;white-space:nowrap;margin-left:8px">${fmt.currency(c.avg_monthly)}/m</span>
+          </div>`
+        ).join('');
+        const totAvg = list.reduce((s, c) => s + Number(c.avg_monthly), 0);
+        return `<div>
+          <div style="font-size:11px;font-weight:700;color:${color};margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">${title}</div>
+          ${rows}
+          <div style="font-size:11px;color:var(--txt2);margin-top:5px;text-align:right">Totale: <b style="color:${color}">${fmt.currency(totAvg)}/m</b></div>
+        </div>`;
+      };
+      return `<div class="card" style="padding:16px;margin-bottom:16px">
+        <div style="font-size:13px;font-weight:600;margin-bottom:14px;color:var(--txt2)">Struttura spese per categoria</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:20px">
+          ${col('Fisse (ogni mese)',     'var(--income)',  fisse)}
+          ${col('Periodiche (40-75%)',   'var(--warn)',    periodiche)}
+          ${col('Saltuarie (<40%)',      'var(--expense)', saltuarie)}
+        </div>
+      </div>`;
+    })()}
+
+    ${outlierCount > 0 || autoNormCnt > 0 ? `
     <div class="card" style="padding:16px;margin-bottom:16px;border-left:3px solid var(--warn)">
-      <div style="font-size:13px;font-weight:600;margin-bottom:6px;color:var(--warn)">⚠ Mesi anomali esclusi dall'analisi</div>
-      <div style="font-size:12px;color:var(--txt2);margin-bottom:10px">Mesi con entrate o uscite statisticamente anomale (IQR con k=${k}), esclusi per non distorcere la previsione:</div>
+      <div style="font-size:13px;font-weight:600;margin-bottom:6px;color:var(--warn)">⚠ Mesi anomali — gestione esclusioni</div>
+      <div style="font-size:12px;color:var(--txt2);margin-bottom:10px">
+        Mesi con valori anomali (IQR k=${k}). Clicca ▶ per espandere e vedere le singole transazioni — escludine una per normalizzare il mese.
+      </div>
       <div style="display:flex;flex-wrap:wrap;gap:6px">
-        ${outlierMonths.map(m => `<span style="background:rgba(255,208,64,.12);border:1px solid var(--warn);border-radius:4px;padding:2px 10px;font-size:12px;font-weight:600;color:var(--warn)">${m}</span>`).join('')}
+        ${months.map(m => {
+          const isAuto = autoExcluded.has(m);
+          const isExcl = finalExcl.has(m);
+          if (!isAuto && !_fcManualExcl.has(m)) return '';
+          if (isAuto && isExcl)  return `<span style="background:rgba(255,208,64,.12);border:1px solid var(--warn);border-radius:4px;padding:2px 10px;font-size:12px;font-weight:600;color:var(--warn)">${m} ⚠</span>`;
+          if (isAuto && !isExcl) return `<span style="background:rgba(80,200,120,.12);border:1px solid var(--income);border-radius:4px;padding:2px 10px;font-size:12px;font-weight:600;color:var(--income)">${m} ✓</span>`;
+          return `<span style="background:rgba(240,80,80,.1);border:1px solid var(--expense);border-radius:4px;padding:2px 10px;font-size:12px;font-weight:600;color:var(--expense)">${m} ✕</span>`;
+        }).join('')}
       </div>
     </div>` : ''}
 
     <div class="card" style="padding:16px">
-      <div style="font-size:13px;font-weight:600;margin-bottom:12px;color:var(--txt2)">Dettaglio storico mensile</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <div style="font-size:13px;font-weight:600;color:var(--txt2)">Dettaglio storico mensile</div>
+        <div style="font-size:11px;color:var(--txt2)">▶ per vedere le transazioni del mese</div>
+      </div>
       <div style="overflow-x:auto">
         <table style="width:100%;font-size:12px;border-collapse:collapse">
           <thead><tr style="color:var(--txt2);border-bottom:1px solid var(--border)">
+            <th style="padding:6px 4px;width:24px"></th>
             <th style="padding:6px 8px;text-align:left">Mese</th>
             <th style="padding:6px 8px;text-align:right">Entrate</th>
             <th style="padding:6px 8px;text-align:right">Uscite</th>
             <th style="padding:6px 8px;text-align:right">Flusso netto</th>
             <th style="padding:6px 8px;text-align:right">Saldo stimato</th>
-            <th style="padding:6px 8px;text-align:center"></th>
+            <th style="padding:6px 8px;text-align:center">Stato</th>
+            <th style="padding:6px 8px;text-align:center" title="Escludi mese intero">Escludi</th>
           </tr></thead>
           <tbody>
             ${months.map((m, i) => {
-              const anom = isOutlier[i];
-              const net  = nets[i];
-              return `<tr style="${anom?'opacity:.55;':''}border-bottom:1px solid var(--border)">
+              const isExcl   = finalExcl.has(m);
+              const expanded = _fcExpandedMonths.has(m);
+              const incDiff  = Math.abs(adjInc[i] - incomes[i]) > 0.005;
+              const expDiff  = Math.abs(adjExp[i] - expenses[i]) > 0.005;
+              const dispNet  = adjNet[i];
+              const monthRow = `<tr id="fcRow-${m}" style="${isExcl?'opacity:.45;':''}border-bottom:${expanded?'none':'1px solid var(--border)'}">
+                <td style="padding:5px 4px;text-align:center">
+                  <button id="fcExpBtn-${m}" onclick="_fcToggleExpand('${m}')"
+                    style="background:none;border:none;cursor:pointer;color:var(--accent);font-size:11px;padding:2px 4px;border-radius:3px"
+                    title="Mostra/nascondi transazioni">
+                    ${expanded?'▼':'▶'}
+                  </button>
+                </td>
                 <td style="padding:5px 8px;font-weight:600">${m}</td>
-                <td style="padding:5px 8px;text-align:right;color:var(--income)">${fmt.currency(incomes[i])}</td>
-                <td style="padding:5px 8px;text-align:right;color:var(--expense)">${fmt.currency(expenses[i])}</td>
-                <td style="padding:5px 8px;text-align:right;font-weight:600;color:${net>=0?'var(--income)':'var(--expense)'}">${net>=0?'+':''}${fmt.currency(net)}</td>
+                <td style="padding:5px 8px;text-align:right;color:var(--income)">
+                  ${fmt.currency(adjInc[i])}
+                  ${incDiff ? `<br><span style="font-size:10px;opacity:.6">orig ${fmt.currency(incomes[i])}</span>` : ''}
+                </td>
+                <td style="padding:5px 8px;text-align:right;color:var(--expense)">
+                  ${fmt.currency(adjExp[i])}
+                  ${expDiff ? `<br><span style="font-size:10px;opacity:.6">orig ${fmt.currency(expenses[i])}</span>` : ''}
+                </td>
+                <td style="padding:5px 8px;text-align:right;font-weight:600;color:${dispNet>=0?'var(--income)':'var(--expense)'}">
+                  ${dispNet>=0?'+':''}${fmt.currency(dispNet)}
+                </td>
                 <td style="padding:5px 8px;text-align:right">${fmt.currency(histBal[i])}</td>
-                <td style="padding:5px 8px;text-align:center;font-size:11px;color:var(--warn)">${anom?'⚠ outlier':''}</td>
+                <td style="padding:5px 8px;text-align:center">${_monthStato(m)}</td>
+                <td style="padding:5px 8px;text-align:center">
+                  <input type="checkbox" ${isExcl?'checked':''} onchange="_fcToggleMonth('${m}',this.checked)"
+                    title="${isExcl?'Reintegra mese nel calcolo':'Escludi mese intero dal calcolo'}"
+                    style="cursor:pointer;width:14px;height:14px">
+                </td>
               </tr>`;
+              return monthRow + (expanded ? _fcBuildTxSubrow(m) : '');
             }).join('')}
           </tbody>
         </table>
@@ -7024,6 +7202,8 @@ async function _runForecastSaldo() {
     </div>`;
 
   // ── Chart.js ─────────────────────────────────────────────────────────────
+  // Salva posizione scroll prima che il re-render sposti la pagina
+  const _savedScrollY = window.scrollY || document.documentElement.scrollTop;
   if (_fcChart) { _fcChart.destroy(); _fcChart = null; }
 
   const allLabels   = [...months, ...projLabels];
@@ -7096,6 +7276,128 @@ async function _runForecastSaldo() {
       },
     },
   });
+  // Ripristina scroll dopo il paint (evita il salto in cima al re-render)
+  if (_savedScrollY > 0) requestAnimationFrame(() => window.scrollTo(0, _savedScrollY));
+}
+
+// ── Toggle esclusione mese intero ────────────────────────────────────────────
+function _fcToggleMonth(ym, excluded) {
+  if (excluded) { _fcManualExcl.add(ym);    _fcManualIncl.delete(ym); }
+  else          { _fcManualIncl.add(ym);    _fcManualExcl.delete(ym); }
+  _fcSetDirty();
+}
+
+// ── Toggle espansione mese — DOM manipulation, nessun re-render ──────────────
+async function _fcToggleExpand(ym) {
+  const btn     = document.getElementById('fcExpBtn-' + ym);
+  const mainRow = document.getElementById('fcRow-'   + ym);
+  if (!mainRow) return;
+
+  if (_fcExpandedMonths.has(ym)) {
+    // ── Collassa ─────────────────────────────────────────────────────────────
+    _fcExpandedMonths.delete(ym);
+    const subRow = document.getElementById('fcSub-' + ym);
+    if (subRow) subRow.remove();
+    mainRow.style.borderBottom = '1px solid var(--border)';
+    if (btn) btn.textContent = '▶';
+  } else {
+    // ── Espandi ──────────────────────────────────────────────────────────────
+    _fcExpandedMonths.add(ym);
+    if (btn) btn.textContent = '▼';
+    mainRow.style.borderBottom = 'none';
+    // Carica transazioni se non ancora in cache
+    if (!_fcMonthTxCache[ym]) {
+      if (btn) btn.textContent = '⏳';
+      const [y, mo] = ym.split('-');
+      const lastDay = new Date(+y, +mo, 0).getDate();
+      const txs = await api.getTransactions({ date_from: `${ym}-01`, date_to: `${ym}-${lastDay}`, limit: 5000 });
+      _fcMonthTxCache[ym] = (txs || [])
+        .filter(t => t.type !== 'transfer')
+        .sort((a, b) => Number(b.amount) - Number(a.amount));
+      if (btn) btn.textContent = '▼';
+    }
+    // Inserisci sub-riga dopo la riga principale
+    mainRow.insertAdjacentHTML('afterend', _fcBuildTxSubrow(ym));
+  }
+}
+
+// ── Carica dal DB le transazioni escluse e popola lo stato in memoria ─────────
+async function _fcLoadExcludedFromDb() {
+  const rows = await api.getForecastExcluded();
+  _fcExcludedTxIds = new Set((rows || []).map(r => Number(r.transaction_id)));
+  _fcTxAdjustments = {};
+  for (const r of (rows || [])) {
+    const ym = String(r.ym);
+    if (!_fcTxAdjustments[ym]) _fcTxAdjustments[ym] = { incAdj: 0, expAdj: 0 };
+    if (r.type === 'income')  _fcTxAdjustments[ym].incAdj += Number(r.amount);
+    if (r.type === 'expense') _fcTxAdjustments[ym].expAdj += Number(r.amount);
+  }
+}
+
+// ── Toggle esclusione singola transazione ─────────────────────────────────────
+async function _fcToggleTx(txId, ym, excluded) {
+  if (excluded) {
+    _fcExcludedTxIds.add(txId);
+    await api.addForecastExcluded(txId);
+  } else {
+    _fcExcludedTxIds.delete(txId);
+    await api.removeForecastExcluded(txId);
+  }
+  // Ricalcola aggiustamento per questo mese dal cache
+  const txs = _fcMonthTxCache[ym] || [];
+  let incAdj = 0, expAdj = 0;
+  for (const tx of txs) {
+    if (!_fcExcludedTxIds.has(tx.id)) continue;
+    if (tx.type === 'income')  incAdj += Number(tx.amount);
+    if (tx.type === 'expense') expAdj += Number(tx.amount);
+  }
+  _fcTxAdjustments[ym] = { incAdj, expAdj };
+  _fcSetDirty();
+}
+
+// ── Costruisce HTML sub-tabella transazioni per un mese espanso ──────────────
+// Restituisce un <tr id="fcSub-{ym}"> con la lista delle transazioni del mese
+function _fcBuildTxSubrow(ym) {
+  const txs = _fcMonthTxCache[ym];
+  if (!txs || txs.length === 0) {
+    const msg = !txs ? 'Caricamento…' : 'Nessuna transazione in questo mese.';
+    return `<tr id="fcSub-${ym}"><td colspan="8" style="padding:8px 8px 8px 36px;font-size:11px;color:var(--txt2);background:var(--bg3)">${msg}</td></tr>`;
+  }
+  const txRows = txs.map(tx => {
+    const isExcl = _fcExcludedTxIds.has(tx.id);
+    const amtCol = tx.type === 'income' ? 'var(--income)' : 'var(--expense)';
+    const sign   = tx.type === 'income' ? '+' : '-';
+    return `<tr style="${isExcl?'opacity:.4;':''}border-bottom:1px solid var(--border)">
+      <td style="padding:3px 6px;color:var(--txt2);white-space:nowrap">${tx.date}</td>
+      <td style="padding:3px 6px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(tx.description||'').replace(/"/g,'&quot;')}">${tx.description||'—'}</td>
+      <td style="padding:3px 6px;color:var(--txt2)">${tx.category_name||'—'}</td>
+      <td style="padding:3px 6px;text-align:right;font-weight:600;color:${amtCol}">${sign}${fmt.currency(tx.amount)}</td>
+      <td style="padding:3px 6px;text-align:center">
+        <input type="checkbox" ${isExcl?'checked':''} onchange="_fcToggleTx(${tx.id},'${ym}',this.checked)"
+          title="${isExcl?'Reintegra nel calcolo':'Escludi dal calcolo'}"
+          style="cursor:pointer;width:13px;height:13px">
+      </td>
+    </tr>`;
+  }).join('');
+  return `<tr id="fcSub-${ym}"><td colspan="8" style="padding:0;background:var(--bg3);border-bottom:1px solid var(--border)">
+    <div style="padding:6px 8px 8px 36px">
+      <div style="font-size:11px;color:var(--txt2);margin-bottom:5px">
+        Transazioni di <strong>${ym}</strong> — spunta per escludere dal calcolo statistico
+      </div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;font-size:11px;border-collapse:collapse">
+          <thead><tr style="color:var(--txt2);border-bottom:1px solid var(--border)">
+            <th style="padding:3px 6px;text-align:left">Data</th>
+            <th style="padding:3px 6px;text-align:left">Descrizione</th>
+            <th style="padding:3px 6px;text-align:left">Categoria</th>
+            <th style="padding:3px 6px;text-align:right">Importo</th>
+            <th style="padding:3px 6px;text-align:center">Escludi</th>
+          </tr></thead>
+          <tbody>${txRows}</tbody>
+        </table>
+      </div>
+    </div>
+  </td></tr>`;
 }
 
 // ── Rilevamento outlier IQR ───────────────────────────────────────────────────
@@ -7119,18 +7421,21 @@ function _fcPct(sorted, p) {
 }
 
 // ── Regressione lineare OLS ───────────────────────────────────────────────────
-// Restituisce { slope, intercept, r2 } sul vettore y (x = 0,1,2,…)
-function _fcLinReg(y) {
+// Restituisce { slope, intercept, r2 } sul vettore y.
+// x opzionale: indici personalizzati (es. posizioni calendario reali).
+// Se omesso usa 0,1,2,… — slope sarà "per indice", non "per mese calendario".
+function _fcLinReg(y, x) {
   const n = y.length;
   if (n < 2) return { slope: 0, intercept: y[0] ?? 0, r2: 0 };
-  const xMean = (n - 1) / 2;
+  if (!x) x = y.map((_, i) => i);
+  const xMean = x.reduce((a,b) => a+b, 0) / n;
   const yMean = y.reduce((a,b) => a+b, 0) / n;
-  const ssXX  = y.reduce((s,_,i) => s + (i - xMean)**2, 0);
-  const ssXY  = y.reduce((s,v,i) => s + (i - xMean)*(v - yMean), 0);
+  const ssXX  = x.reduce((s,v) => s + (v - xMean)**2, 0);
+  const ssXY  = x.reduce((s,v,i) => s + (v - xMean)*(y[i] - yMean), 0);
   const slope     = ssXX > 0 ? ssXY / ssXX : 0;
   const intercept = yMean - slope * xMean;
   const ssTot = y.reduce((s,v)   => s + (v - yMean)**2, 0);
-  const ssRes = y.reduce((s,v,i) => s + (v - (intercept + slope*i))**2, 0);
+  const ssRes = y.reduce((s,v,i) => s + (v - (intercept + slope*x[i]))**2, 0);
   const r2    = ssTot > 0 ? Math.max(0, 1 - ssRes / ssTot) : 0;
   return { slope, intercept, r2 };
 }

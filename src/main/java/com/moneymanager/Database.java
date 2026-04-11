@@ -388,7 +388,7 @@ public class Database {
         """);
     }
 
-    private static final int SCHEMA_VERSION = 8;
+    private static final int SCHEMA_VERSION = 10;
 
     private void migrate() throws SQLException {
         // Crea tabella versione se non esiste
@@ -613,6 +613,26 @@ public class Database {
         // ── v8: portfolio_id su scheduled_transactions ──────────────────────────
         if (currentVersion < 8) {
             try { executePlain("ALTER TABLE scheduled_transactions ADD COLUMN portfolio_id INTEGER REFERENCES portfolio(id) ON DELETE SET NULL"); } catch (SQLException ignored) {}
+        }
+
+        // ── v9: transazioni escluse dalla previsione saldo ──────────────────────
+        if (currentVersion < 9) {
+            executePlain("""
+                CREATE TABLE IF NOT EXISTS forecast_excluded (
+                    transaction_id INTEGER PRIMARY KEY REFERENCES transactions(id) ON DELETE CASCADE,
+                    ym             TEXT    NOT NULL,
+                    amount         REAL    NOT NULL,
+                    type           TEXT    NOT NULL
+                )""");
+        }
+
+        // ── v10: semplifica forecast_excluded a solo transaction_id (JOIN su transactions) ──
+        if (currentVersion < 10) {
+            executePlain("DROP TABLE IF EXISTS forecast_excluded");
+            executePlain("""
+                CREATE TABLE forecast_excluded (
+                    transaction_id INTEGER PRIMARY KEY REFERENCES transactions(id) ON DELETE CASCADE
+                )""");
         }
 
         // Segna il DB come aggiornato all'ultima versione
@@ -2610,6 +2630,79 @@ public class Database {
         forecast.put("categories",     cats);
         forecast.put("actual_balance", actualBalance);
         return forecast;
+    }
+
+    // ── Previsione Saldo — transazioni escluse ────────────────────────────────
+
+    public List<Map<String, Object>> getForecastExcluded() throws SQLException {
+        return queryList("""
+                SELECT fe.transaction_id,
+                       strftime('%Y-%m', t.date) AS ym,
+                       t.amount,
+                       t.type
+                FROM forecast_excluded fe
+                JOIN transactions t ON t.id = fe.transaction_id
+                ORDER BY ym, fe.transaction_id""");
+    }
+
+    public void addForecastExcluded(int txId) throws SQLException {
+        execute("INSERT OR IGNORE INTO forecast_excluded (transaction_id) VALUES (?)", txId);
+    }
+
+    public void removeForecastExcluded(int txId) throws SQLException {
+        execute("DELETE FROM forecast_excluded WHERE transaction_id = ?", txId);
+    }
+
+    // ── Previsione Saldo — struttura spese per categoria ─────────────────────
+    // Restituisce:
+    //   categories: nome, frequency (0-1), avg_monthly (media su tutti i mesi)
+    //   monthly:    ym, fixed_exp (cat freq≥0.75), sporadic_exp (cat freq<0.75)
+    public Map<String, Object> getForecastExpenseSplit(int histMonths) throws SQLException {
+        java.time.LocalDate start = java.time.LocalDate.now()
+                .withDayOfMonth(1).minusMonths(histMonths - 1);
+        String dateFrom = start.toString();
+
+        List<Map<String, Object>> categories = queryList("""
+                SELECT CASE
+                         WHEN p.name IS NOT NULL THEN p.name || ':' || c.name
+                         WHEN c.name IS NOT NULL THEN c.name
+                         ELSE 'Senza categoria'
+                       END AS name,
+                       ROUND(COUNT(DISTINCT strftime('%Y-%m', t.date)) * 1.0 / ?, 3) AS frequency,
+                       ROUND(SUM(t.amount) / ?, 2) AS avg_monthly,
+                       ROUND(SUM(t.amount), 2) AS total
+                FROM transactions t
+                LEFT JOIN categories c ON c.id = t.category_id
+                LEFT JOIN categories p ON p.id = c.parent_id
+                WHERE t.type = 'expense' AND t.date >= ?
+                  AND t.id NOT IN (SELECT transaction_id FROM forecast_excluded)
+                GROUP BY t.category_id
+                ORDER BY total DESC
+                LIMIT 50
+                """, histMonths, histMonths, dateFrom);
+
+        // Per ogni mese: split fisso (freq≥0.75) vs saltuario (freq<0.75)
+        List<Map<String, Object>> monthly = queryList("""
+                WITH freq AS (
+                    SELECT category_id,
+                           COUNT(DISTINCT strftime('%Y-%m', date)) * 1.0 / ? AS freq
+                    FROM transactions
+                    WHERE type = 'expense' AND date >= ?
+                      AND id NOT IN (SELECT transaction_id FROM forecast_excluded)
+                    GROUP BY category_id
+                )
+                SELECT strftime('%Y-%m', t.date) AS ym,
+                       ROUND(SUM(CASE WHEN COALESCE(f.freq, 0) >= 0.75 THEN t.amount ELSE 0 END), 2) AS fixed_exp,
+                       ROUND(SUM(CASE WHEN COALESCE(f.freq, 0) <  0.75 THEN t.amount ELSE 0 END), 2) AS sporadic_exp
+                FROM transactions t
+                LEFT JOIN freq f ON f.category_id = t.category_id
+                WHERE t.type = 'expense' AND t.date >= ?
+                  AND t.id NOT IN (SELECT transaction_id FROM forecast_excluded)
+                GROUP BY ym
+                ORDER BY ym
+                """, histMonths, dateFrom, dateFrom);
+
+        return Map.of("categories", categories, "monthly", monthly);
     }
 
     public List<Map<String, Object>> getCategoryMonthTable(int months) throws SQLException {

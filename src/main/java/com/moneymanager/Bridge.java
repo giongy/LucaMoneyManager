@@ -343,7 +343,17 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             case "getForecasts"      -> db.getForecasts();
             case "deleteForecast"    -> { db.deleteForecast(p.get("id").getAsInt()); yield Map.of("ok", true); }
             case "archiveForecast"   -> { db.archiveForecast(p.get("id").getAsInt()); yield Map.of("ok", true); }
-            case "getForecastDetail" -> db.getForecastDetail(p.get("id").getAsInt());
+            case "getForecastDetail"    -> db.getForecastDetail(p.get("id").getAsInt());
+            case "getForecastExcluded"  -> db.getForecastExcluded();
+            case "addForecastExcluded"  -> {
+                db.addForecastExcluded(p.get("id").getAsInt());
+                yield Map.of("ok", true);
+            }
+            case "removeForecastExcluded" -> {
+                db.removeForecastExcluded(p.get("id").getAsInt());
+                yield Map.of("ok", true);
+            }
+            case "getForecastExpenseSplit" -> db.getForecastExpenseSplit(p.get("months").getAsInt());
 
             // ─── Portafoglio ───────────────────────────────────────────────
             case "getPortfolio"             -> db.getPortfolio();

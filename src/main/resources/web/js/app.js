@@ -497,7 +497,7 @@ function navigate(page) {
 
 document.querySelectorAll('.nav-item').forEach(el => {
   el.addEventListener('click', () => {
-    if (el.dataset.page === 'transactions') txFilters = { range: txFilters.range || '30d' };
+    if (el.dataset.page === 'transactions') txFilters = { range: txFilters.range };
     if (el.dataset.page === 'budgets') _budgetTab = 'grid';
     navigate(el.dataset.page);
   });
@@ -1107,13 +1107,13 @@ let txCache      = [];
 let _selectedTxId = null;
 
 function navigateToAccountTx(accountId) {
-  txFilters = { range: txFilters.range || '30d', account_id: String(accountId) };
+  txFilters = { range: txFilters.range, account_id: String(accountId) };
   if (currentPage === 'transactions') renderTransactions();
   else navigate('transactions');
 }
 
 function navigateToTx(id) {
-  txFilters = { id };
+  txFilters = { range: txFilters.range, id };
   if (currentPage === 'transactions') renderTransactions();
   else navigate('transactions');
 }

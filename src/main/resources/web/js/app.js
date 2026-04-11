@@ -2488,7 +2488,6 @@ async function renderBudgets() {
         <button class="sched-tab ${_budgetTab==='grid'?'active':''}"        data-btab="grid"        onclick="_setBudgetTab('grid')">📊 Budget</button>
         <button class="sched-tab ${_budgetTab==='andamento'?'active':''}"   data-btab="andamento"   onclick="_setBudgetTab('andamento')">📈 Andamento</button>
         <button class="sched-tab ${_budgetTab==='scostamenti'?'active':''}" data-btab="scostamenti" onclick="_setBudgetTab('scostamenti')">📉 Scostamenti</button>
-        <button class="sched-tab ${_budgetTab==='pianificate'?'active':''}" data-btab="pianificate" onclick="_setBudgetTab('pianificate')">🔗 Verifica Pianificate</button>
       </div>
     </div>
     <div id="budgetContent" style="flex:1;overflow:hidden;padding:0 16px 16px;display:flex;flex-direction:column">
@@ -2500,7 +2499,6 @@ async function renderBudgets() {
       </div>
       <div id="budgAndamentoWrap"  style="display:${_budgetTab==='andamento'  ?'block':'none'};overflow-y:auto;flex:1"></div>
       <div id="budgScostWrap"      style="display:${_budgetTab==='scostamenti'?'block':'none'};overflow-y:auto;flex:1"></div>
-      <div id="budgPianWrap"       style="display:${_budgetTab==='pianificate' ?'block':'none'};overflow-y:auto;flex:1"></div>
     </div>`;
 
   document.getElementById('budgYearLabel').textContent = budgetYear;
@@ -2544,11 +2542,9 @@ window._setBudgetTab = tab => {
   document.getElementById('budgGridWrap').style.display      = tab === 'grid'        ? 'block' : 'none';
   document.getElementById('budgAndamentoWrap').style.display = tab === 'andamento'   ? 'block' : 'none';
   document.getElementById('budgScostWrap').style.display     = tab === 'scostamenti' ? 'block' : 'none';
-  document.getElementById('budgPianWrap').style.display      = tab === 'pianificate' ? 'block' : 'none';
   document.getElementById('budgGridActions').style.display   = tab === 'grid'        ? 'flex' : 'none';
   if (tab === 'andamento'   && _budgetData) renderBudgetAndamento();
   if (tab === 'scostamenti' && _budgetData) renderBudgetScostamenti();
-  if (tab === 'pianificate') renderBudgetVsPianificate();
 };
 
 let _accFavoritesOnly = false;
@@ -8610,7 +8606,7 @@ function _countSchedYearOcc(freq, startDate, endDate, year) {
 }
 
 async function renderBudgetVsPianificate() {
-  const wrap = document.getElementById('budgPianWrap');
+  const wrap = document.getElementById('schedContent') || document.getElementById('budgPianWrap');
   wrap.innerHTML = '<div style="padding:24px;color:var(--text2)">Analisi in corso…</div>';
 
   const [budgetData, scheds, accs] = await Promise.all([
@@ -8870,10 +8866,11 @@ async function renderScheduled() {
   pg.innerHTML = `
     <div style="flex-shrink:0;padding:16px 16px 0;background:var(--bg)">
       <div class="scheduled-tabs" id="schedTabBar">
-        <button class="sched-tab ${schedTab==='lista'?'active':''}"      data-stab="lista"       onclick="setSchedTab('lista')">📋 Lista</button>
+        <button class="sched-tab ${schedTab==='lista'?'active':''}"       data-stab="lista"       onclick="setSchedTab('lista')">📋 Lista</button>
         <button class="sched-tab ${schedTab==='projection'?'active':''}" data-stab="projection"  onclick="setSchedTab('projection')">📈 Proiezione Saldo</button>
         <button class="sched-tab ${schedTab==='cashflow'?'active':''}"   data-stab="cashflow"    onclick="setSchedTab('cashflow')">💰 Flusso di Cassa</button>
         <button class="sched-tab ${schedTab==='forecasts'?'active':''}"  data-stab="forecasts"   onclick="setSchedTab('forecasts')">🔮 Previsioni</button>
+        <button class="sched-tab ${schedTab==='verificabud'?'active':''}" data-stab="verificabud" onclick="setSchedTab('verificabud')">🔗 Verifica Budget</button>
       </div>
     </div>
     <div id="schedContent" style="flex:1;overflow-y:auto;padding:0 16px 16px"></div>`;
@@ -8894,6 +8891,7 @@ async function renderSchedTab() {
   else if (schedTab === 'projection') await renderSchedProjection();
   else if (schedTab === 'cashflow')   await renderSchedCashflow();
   else if (schedTab === 'forecasts')  await renderForecastsInTab();
+  else if (schedTab === 'verificabud') await renderBudgetVsPianificate();
 }
 
 // Restituisce la prossima occorrenza di una transazione pianificata.

@@ -9074,8 +9074,8 @@ function _renderSchedRows(scheds) {
       }
     }
     if (_schedFilter.tags.size > 0) {
-      const sTags = new Set((s.tags || []).map(t => t.id));
-      for (const tid of _schedFilter.tags) if (!sTags.has(tid)) return false;
+      const sTags = new Set((s.tags || []).map(t => Number(t.id)));
+      if (![..._schedFilter.tags].some(tid => sTags.has(tid))) return false;
     }
     return true;
   });

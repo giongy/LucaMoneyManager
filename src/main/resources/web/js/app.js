@@ -6906,6 +6906,10 @@ async function _runForecastSaldo(keepExclusions = false) {
   const currentYm = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
   const histData  = monthlyData.filter(r => String(r.ym) !== currentYm);
 
+  // Flusso parziale del mese corrente (usato per correggere il saldo storico)
+  const _curRow          = monthlyData.find(r => String(r.ym) === currentYm);
+  const netCurrentPartial = _curRow ? Number(_curRow.income) - Number(_curRow.expense) : 0;
+
   if (histData.length < 3) {
     out.innerHTML = '<div class="empty-state"><div class="empty-icon">📊</div><p>Dati insufficienti. Servono almeno 3 mesi di transazioni completati.</p></div>';
     return;
@@ -6981,19 +6985,28 @@ async function _runForecastSaldo(keepExclusions = false) {
   const currentBalance = Number(dashStats.balance);
 
   // ── Ricostruzione saldo storico a ritroso dal saldo attuale ─────────────
+  // Punto di partenza: saldo alla fine dell'ultimo mese completato
+  // (currentBalance include le tx parziali del mese corrente — le sottraiamo)
+  const balAtEndOfLastMonth = currentBalance - netCurrentPartial;
   const histBal = new Array(months.length);
-  histBal[months.length - 1] = currentBalance;
+  histBal[months.length - 1] = balAtEndOfLastMonth;
   for (let i = months.length - 2; i >= 0; i--) {
     histBal[i] = histBal[i + 1] - nets[i + 1];
   }
 
   // ── Proiezione futura con IC 90% (crescita errore √t) ───────────────────
+  // La proiezione parte dal saldo corrente reale (include tx parziali del mese corrente).
+  // Il flusso mensile atteso usa la retta di regressione all'indice di calendario futuro:
+  //   net(x) = intercept + slope * x   con x = indice nella serie storica (0-based)
+  //   Il prossimo mese ha indice months.length, il secondo months.length+1, ecc.
+  // Con slope=0 coincide con meanNet; con slope≠0 proietta dalla posizione attuale,
+  // non dalla media storica (evita la sottostima sistematica con trend positivo).
   const projLabels= [], projBal = [], projHigh = [], projLow = [];
   let   bal       = currentBalance;
   for (let i = 1; i <= horizonMonths; i++) {
     const d  = new Date(now.getFullYear(), now.getMonth() + i, 1);
     const ym = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
-    bal += meanNet + reg.slope * i;       // flusso atteso corretto per tendenza
+    bal += reg.intercept + reg.slope * (months.length + i - 1);  // proiezione dalla posizione attuale nella serie
     const margin = 1.645 * stdBaseline * Math.sqrt(i);   // IC 90% — usa stdBaseline (senza rumore saltuario)
     projLabels.push(ym);
     projBal.push(bal);

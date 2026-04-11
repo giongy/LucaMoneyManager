@@ -2654,13 +2654,16 @@ public class Database {
     }
 
     // ── Previsione Saldo — struttura spese per categoria ─────────────────────
-    // Restituisce:
-    //   categories: nome, frequency (0-1), avg_monthly (media su tutti i mesi)
+    // Restituisce solo i mesi COMPLETATI (esclude il mese corrente, parziale).
+    //   categories: nome, frequency (0-1), avg_monthly (media sui mesi completati)
     //   monthly:    ym, fixed_exp (cat freq≥0.75), sporadic_exp (cat freq<0.75)
     public Map<String, Object> getForecastExpenseSplit(int histMonths) throws SQLException {
-        java.time.LocalDate start = java.time.LocalDate.now()
-                .withDayOfMonth(1).minusMonths(histMonths - 1);
-        String dateFrom = start.toString();
+        java.time.LocalDate today     = java.time.LocalDate.now();
+        java.time.LocalDate startDate = today.withDayOfMonth(1).minusMonths(histMonths - 1);
+        java.time.LocalDate endExcl   = today.withDayOfMonth(1); // primo del mese corrente (escluso)
+        String dateFrom       = startDate.toString();
+        String dateTo         = endExcl.toString();
+        int    completedMonths = histMonths - 1; // mesi completati effettivi (escluso il corrente)
 
         List<Map<String, Object>> categories = queryList("""
                 SELECT CASE
@@ -2674,20 +2677,20 @@ public class Database {
                 FROM transactions t
                 LEFT JOIN categories c ON c.id = t.category_id
                 LEFT JOIN categories p ON p.id = c.parent_id
-                WHERE t.type = 'expense' AND t.date >= ?
+                WHERE t.type = 'expense' AND t.date >= ? AND t.date < ?
                   AND t.id NOT IN (SELECT transaction_id FROM forecast_excluded)
                 GROUP BY t.category_id
                 ORDER BY total DESC
                 LIMIT 50
-                """, histMonths, histMonths, dateFrom);
+                """, completedMonths, completedMonths, dateFrom, dateTo);
 
-        // Per ogni mese: split fisso (freq≥0.75) vs saltuario (freq<0.75)
+        // Per ogni mese completato: split fisso (freq≥0.75) vs saltuario (freq<0.75)
         List<Map<String, Object>> monthly = queryList("""
                 WITH freq AS (
                     SELECT category_id,
                            COUNT(DISTINCT strftime('%Y-%m', date)) * 1.0 / ? AS freq
                     FROM transactions
-                    WHERE type = 'expense' AND date >= ?
+                    WHERE type = 'expense' AND date >= ? AND date < ?
                       AND id NOT IN (SELECT transaction_id FROM forecast_excluded)
                     GROUP BY category_id
                 )
@@ -2696,11 +2699,11 @@ public class Database {
                        ROUND(SUM(CASE WHEN COALESCE(f.freq, 0) <  0.75 THEN t.amount ELSE 0 END), 2) AS sporadic_exp
                 FROM transactions t
                 LEFT JOIN freq f ON f.category_id = t.category_id
-                WHERE t.type = 'expense' AND t.date >= ?
+                WHERE t.type = 'expense' AND t.date >= ? AND t.date < ?
                   AND t.id NOT IN (SELECT transaction_id FROM forecast_excluded)
                 GROUP BY ym
                 ORDER BY ym
-                """, histMonths, dateFrom, dateFrom);
+                """, completedMonths, dateFrom, dateTo, dateFrom, dateTo);
 
         return Map.of("categories", categories, "monthly", monthly);
     }

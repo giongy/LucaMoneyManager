@@ -6251,19 +6251,12 @@ async function renderReports() {
   pg.innerHTML = `
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
       <h2 style="font-size:var(--fs-xl,18px);font-weight:700">Resoconti</h2>
-      ${_reportsTab === 'resoconti' ? `<div class="flex-center-8"><button class="btn btn-primary" onclick="showReportModal()">＋ Nuovo resoconto</button></div>` : ''}
-    </div>
-    <div class="scheduled-tabs" style="margin-bottom:12px">
-      <button class="sched-tab ${_reportsTab==='resoconti'  ?'active':''}" onclick="_setReportsTab('resoconti')">📋 Resoconti</button>
-      <button class="sched-tab ${_reportsTab==='previsione' ?'active':''}" onclick="_setReportsTab('previsione')">📊 Previsione Saldo</button>
+      <div class="flex-center-8">
+        <button class="btn btn-primary" onclick="showReportModal()">＋ Nuovo resoconto</button>
+      </div>
     </div>
     <div id="rReportHeader" style="margin-bottom:16px"></div>
     <div id="rResults"></div>`;
-
-  if (_reportsTab === 'previsione') {
-    await renderForecastSaldo();
-    return;
-  }
 
   if (_currentReportId !== null) {
     const reports = await api.getReports();
@@ -6274,11 +6267,6 @@ async function renderReports() {
     _updateReportHeader(null);
     runReport();
   }
-}
-
-function _setReportsTab(tab) {
-  _reportsTab = tab;
-  renderReports();
 }
 
 async function _updateReportHeader(r) {
@@ -7065,7 +7053,7 @@ async function _runForecastSaldo() {
           spanGaps: false, fill: false },
         { label: '_ciHigh',
           data: dsHigh, borderColor: 'transparent',
-          backgroundColor: 'rgba(90,150,255,0.13)',
+          backgroundColor: 'rgba(120,180,255,0.28)',
           pointRadius: 0, tension: 0.3, spanGaps: false, fill: 2 },
         { label: '_ciLow',
           data: dsLow, borderColor: 'transparent',

@@ -5315,9 +5315,10 @@ function _buildMonthsForYear(year, fromYm, toYm, selectedMonth) {
 }
 
 function _renderCurrentAnalyticsTab() {
-  if (_analyticsTab === 'balance')  renderAnalyticsBalance();
-  else if (_analyticsTab === 'trend')  renderAnalyticsTrend();
-  else if (_analyticsTab === 'health') renderAnalyticsHealth();
+  if (_analyticsTab === 'balance')   renderAnalyticsBalance();
+  else if (_analyticsTab === 'trend')    renderAnalyticsTrend();
+  else if (_analyticsTab === 'health')   renderAnalyticsHealth();
+  else if (_analyticsTab === 'forecast') renderAnalyticsForecast();
   else renderAnalyticsCatMonth();
 }
 
@@ -5352,8 +5353,9 @@ async function renderAnalytics() {
           <button class="sched-tab${_analyticsTab==='catmonth'?' active':''}" data-atab="catmonth" onclick="_setAnalyticsTab('catmonth',this)">Categorie / Mese</button>
           <button class="sched-tab${_analyticsTab==='balance'?' active':''}" data-atab="balance" onclick="_setAnalyticsTab('balance',this)">Bilancio Mensile</button>
           <button class="sched-tab${_analyticsTab==='trend'?' active':''}" data-atab="trend" onclick="_setAnalyticsTab('trend',this)">Andamento Categoria</button>
+          <button class="sched-tab${_analyticsTab==='forecast'?' active':''}" data-atab="forecast" onclick="_setAnalyticsTab('forecast',this)">📊 Previsione Saldo</button>
         </div>
-        <div style="margin-left:auto;display:flex;gap:6px;align-items:center;white-space:nowrap">
+        <div id="aDateControls" style="margin-left:auto;display:flex;gap:6px;align-items:center;white-space:nowrap;${_analyticsTab==='forecast'?'visibility:hidden':''}">
           <button class="btn btn-xs btn-ghost" id="aPreset6m">6 mesi</button>
           <button class="btn btn-xs btn-ghost" id="aPreset12m">12 mesi</button>
           <button class="btn btn-xs btn-ghost" id="aPresetYtd">Anno</button>
@@ -5433,10 +5435,13 @@ window._setAnalyticsTab = (tab, btn) => {
   _analyticsTab = tab;
   document.querySelectorAll('[data-atab]').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
-  if (tab === 'catmonth') renderAnalyticsCatMonth();
-  if (tab === 'balance')  renderAnalyticsBalance();
-  if (tab === 'trend')    renderAnalyticsTrend();
-  if (tab === 'health')   renderAnalyticsHealth();
+  const dc = document.getElementById('aDateControls');
+  if (dc) dc.style.visibility = tab === 'forecast' ? 'hidden' : '';
+  if (tab === 'catmonth')  renderAnalyticsCatMonth();
+  if (tab === 'balance')   renderAnalyticsBalance();
+  if (tab === 'trend')     renderAnalyticsTrend();
+  if (tab === 'health')    renderAnalyticsHealth();
+  if (tab === 'forecast')  renderAnalyticsForecast();
 };
 
 let _analyticsCatSort = { col: null, dir: -1 };
@@ -5634,6 +5639,47 @@ let _healthRateChart = null;
 let _healthExpChart  = null;
 let _healthIncChart  = null;
 let _healthVolChart  = null;
+
+// ── Previsione Saldo nel contesto Analytics ───────────────────────────────────
+async function renderAnalyticsForecast() {
+  const el = document.getElementById('analyticsContent');
+  if (!el) return;
+  const { histMonths, horizonMonths, sensitivity } = _fcParams;
+  el.innerHTML = `
+    <div class="card" style="padding:16px;margin-bottom:16px">
+      <div style="display:flex;flex-wrap:wrap;gap:20px;align-items:flex-end">
+        <div>
+          <label style="font-size:12px;color:var(--txt2);display:block;margin-bottom:6px">Storico analizzato</label>
+          <div style="display:flex;align-items:center;gap:8px">
+            <input type="range" id="fcHistR" min="3" max="60" value="${histMonths}" style="width:130px"
+              oninput="_fcParams.histMonths=+this.value;document.getElementById('fcHistN').textContent=this.value">
+            <span id="fcHistN" style="font-weight:700;min-width:22px">${histMonths}</span>
+            <span style="color:var(--txt2);font-size:13px">mesi</span>
+          </div>
+        </div>
+        <div>
+          <label style="font-size:12px;color:var(--txt2);display:block;margin-bottom:6px">Orizzonte previsione</label>
+          <div style="display:flex;align-items:center;gap:8px">
+            <input type="range" id="fcHorizR" min="1" max="36" value="${horizonMonths}" style="width:130px"
+              oninput="_fcParams.horizonMonths=+this.value;document.getElementById('fcHorizN').textContent=this.value">
+            <span id="fcHorizN" style="font-weight:700;min-width:22px">${horizonMonths}</span>
+            <span style="color:var(--txt2);font-size:13px">mesi</span>
+          </div>
+        </div>
+        <div>
+          <label style="font-size:12px;color:var(--txt2);display:block;margin-bottom:6px">Sensibilità outlier</label>
+          <select id="fcSens" class="form-select" onchange="_fcParams.sensitivity=this.value">
+            <option value="bassa" ${sensitivity==='bassa'?'selected':''}>Bassa  (k = 3.0)</option>
+            <option value="media" ${sensitivity==='media'?'selected':''}>Media  (k = 1.5)</option>
+            <option value="alta"  ${sensitivity==='alta' ?'selected':''}>Alta   (k = 1.0)</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" onclick="_runForecastSaldo()">Calcola previsione</button>
+      </div>
+    </div>
+    <div id="fcOutput"></div>`;
+  await _runForecastSaldo();
+}
 
 async function renderAnalyticsHealth() {
   const el = document.getElementById('analyticsContent');

@@ -350,8 +350,9 @@ Chart.defaults.animation.easing   = 'linear';
 
 const chartColors = () => {
   const t = document.documentElement.dataset.theme;
-  if (t === 'carta')    return { tick: '#8a7860', grid: 'rgba(0,0,0,0.05)' };
-  if (t === 'sintesi')  return { tick: '#b090d8', grid: 'rgba(255,255,255,0.06)' };
+  if (t === 'carta')   return { tick: '#8a7860', grid: 'rgba(0,0,0,0.05)' };
+  if (t === 'sintesi') return { tick: '#b090d8', grid: 'rgba(255,255,255,0.06)' };
+  if (t === 'aurora')  return { tick: '#6e96b4', grid: 'rgba(80,160,255,0.07)' };
   return { tick: '#8b949e', grid: 'rgba(255,255,255,0.06)' };
 };
 
@@ -6202,8 +6203,8 @@ function _renderAnalyticsTrendChart() {
 
   const cc = chartColors();
   const t = document.documentElement.dataset.theme;
-  const lineBlue   = t === 'carta' ? 'rgba(20,70,190,1)'  : t === 'sintesi' ? 'rgba(0,200,255,1)'   : 'rgba(100,160,255,1)';
-  const linePurple = t === 'carta' ? 'rgba(100,30,190,1)' : t === 'sintesi' ? 'rgba(180,80,255,1)'  : 'rgba(185,120,255,1)';
+  const lineBlue   = t === 'carta' ? 'rgba(20,70,190,1)'  : t === 'sintesi' ? 'rgba(0,200,255,1)'  : t === 'aurora' ? 'rgba(79,195,247,1)'  : 'rgba(100,160,255,1)';
+  const linePurple = t === 'carta' ? 'rgba(100,30,190,1)' : t === 'sintesi' ? 'rgba(180,80,255,1)' : t === 'aurora' ? 'rgba(167,139,250,1)' : 'rgba(185,120,255,1)';
   const barColor = (cat.color && cat.color.startsWith('#') && cat.color.length === 7)
     ? cat.color + '66'
     : 'rgba(88,166,255,.4)';
@@ -7627,7 +7628,7 @@ async function renderSettings() {
           <div class="settings-control">
             <div style="display:flex;flex-direction:column;gap:10px">
               <div style="display:flex;gap:6px;flex-wrap:wrap">
-                ${[['dark','🌙 Scuro'],['carta','📜 Carta'],['sintesi','⚡ Sintesi']].map(([key,label]) => `
+                ${[['dark','🌙 Scuro'],['aurora','🌊 Aurora'],['carta','📜 Carta'],['sintesi','⚡ Sintesi']].map(([key,label]) => `
                   <button class="btn theme-btn ${(s['appearance.theme']||'dark')===key?'theme-btn-active':''}"
                           onclick="settingsSetTheme('${key}')">${label}</button>
                   <button class="btn btn-ghost btn-icon" title="Duplica e personalizza" onclick="duplicateTheme('${key}')">⧉</button>`).join('')}
@@ -8312,7 +8313,7 @@ function applyTheme(theme) {
     document.documentElement.dataset.theme = '';
     if (ct) _applyCustomVars(ct);
   } else {
-    const valid = ['carta', 'sintesi'];
+    const valid = ['carta', 'sintesi', 'aurora'];
     document.documentElement.dataset.theme = valid.includes(theme) ? theme : '';
   }
   _updateThemeBtn();
@@ -8326,9 +8327,10 @@ async function settingsSetTheme(theme) {
 }
 
 const _THEME_CYCLE = [
-  { key: '',         icon: '🌙', label: 'Scuro' },
-  { key: 'carta',    icon: '📜', label: 'Carta' },
-  { key: 'sintesi',  icon: '⚡', label: 'Sintesi'  },
+  { key: '',         icon: '🌙', label: 'Scuro'   },
+  { key: 'aurora',   icon: '🌊', label: 'Aurora'  },
+  { key: 'carta',    icon: '📜', label: 'Carta'   },
+  { key: 'sintesi',  icon: '⚡', label: 'Sintesi' },
 ];
 
 function _updateThemeBtn() {

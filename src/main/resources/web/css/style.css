@@ -91,6 +91,65 @@
   --shadow:   0 8px 32px rgba(0,0,0,.85);
 }
 
+/* ─── Aurora theme (navy gradient, leggero) ──────────────────────────────── */
+[data-theme="aurora"] th { background: var(--bg2); }
+[data-theme="aurora"] td { border-bottom-color: #1b3356; }
+[data-theme="aurora"] tr:hover td { background: var(--bg4); }
+[data-theme="aurora"] .budget-row-child td { background: var(--bg); }
+[data-theme="aurora"] .budget-row-parent td { background: var(--bg2); }
+[data-theme="aurora"] .budget-gestione-badge.monthly { background: #082040; color: #4fc3f7; border-color: #4fc3f744; }
+[data-theme="aurora"] .budget-gestione-badge.annual  { background: #082c24; color: #26c6a0; border-color: #26c6a044; }
+/* Gradient sul body: alone navy luminoso in alto a sinistra, quasi-nero in basso a destra */
+[data-theme="aurora"] body {
+  background: radial-gradient(ellipse at 18% 8%, #1c3e68 0%, #0d2040 40%, #07111e 100%);
+}
+/* Sidebar e titlebar più scuri del contenuto — danno la gerarchia visiva */
+[data-theme="aurora"] .sidebar {
+  background: #060e1c;
+  border-right-color: #152840;
+}
+[data-theme="aurora"] .titlebar {
+  background: #07101e;
+  border-bottom-color: #152840;
+}
+/* Cards con sfondo leggermente tinto di navy: "galleggiano" sul gradiente */
+[data-theme="aurora"] .card,
+[data-theme="aurora"] .stat-card,
+[data-theme="aurora"] .account-card,
+[data-theme="aurora"] .filter-bar {
+  background: #0d1e36;
+  border-color: #1c3456;
+  box-shadow: 0 2px 14px rgba(0,6,24,.45);
+}
+[data-theme="aurora"] .card:hover { border-color: #274878; }
+/* Form controls e dropdown coordinati */
+[data-theme="aurora"] .form-control { background: #0a192d; border-color: #1b3356; }
+[data-theme="aurora"] .form-control:focus { border-color: #4fc3f7; }
+[data-theme="aurora"] .cat-picker-list { background: #0d1e36; border-color: #1c3456; }
+/* Nav item attivo con accento cyan */
+[data-theme="aurora"] .nav-item.active { background: #0d2040; color: #4fc3f7; border-left-color: #4fc3f7; }
+[data-theme="aurora"] .nav-item:hover  { background: #0e1f38; }
+/* Scrollbar coordinata */
+[data-theme="aurora"] ::-webkit-scrollbar-thumb { background: #1e3d6a; }
+[data-theme="aurora"] {
+  --bg:       #07111e;
+  --bg2:      #0d1e36;
+  --bg3:      #122440;
+  --bg4:      #182e50;
+  --border:   #1c3456;
+  --accent:   #4fc3f7;
+  --accent2:  #26c6a0;
+  --income:   #4ade80;
+  --expense:  #f87171;
+  --warn:     #fbbf24;
+  --purple:   #a78bfa;
+  --orange:   #fb923c;
+  --txt:      #d8eaf8;
+  --txt2:     #6e96b4;
+  --txt3:     #3d6080;
+  --shadow:   0 6px 28px rgba(0,6,24,.6);
+}
+
 /* ─── Reset ──────────────────────────────────────────────────────────────── */
 *,*::before,*::after { box-sizing:border-box; margin:0; padding:0; }
 html,body { height:100%; overflow:hidden; }

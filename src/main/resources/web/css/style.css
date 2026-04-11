@@ -65,30 +65,30 @@
   --shadow:   0 8px 32px rgba(0,0,0,.10);
 }
 
-/* ─── Vinaccia theme ─────────────────────────────────────────────────────── */
-[data-theme="vinaccia"] th { background: var(--bg3); }
-[data-theme="vinaccia"] td { border-bottom-color: #4a2538; }
-[data-theme="vinaccia"] .budget-row-child td { background: var(--bg); }
-[data-theme="vinaccia"] .budget-row-parent td { background: var(--bg2); }
-[data-theme="vinaccia"] .budget-gestione-badge.monthly { background: #1e2a4a; color: #9ab8f0; border-color: #9ab8f044; }
-[data-theme="vinaccia"] .budget-gestione-badge.annual  { background: #1a3028; color: #7cc87a; border-color: #7cc87a44; }
-[data-theme="vinaccia"] {
-  --bg:       #160d11;
-  --bg2:      #1e1118;
-  --bg3:      #261520;
-  --bg4:      #301926;
-  --border:   #4a2538;
-  --accent:   #e8829a;
-  --accent2:  #8eccc4;
-  --income:   #7ac87a;
-  --expense:  #e8826a;
-  --warn:     #d4b464;
-  --purple:   #c09ae0;
-  --orange:   #e0a060;
-  --txt:      #f2e4ec;
-  --txt2:     #c4a0b4;
-  --txt3:     #7a5a6a;
-  --shadow:   0 8px 32px rgba(0,0,0,.7);
+/* ─── Sintesi theme (synthwave neon) ─────────────────────────────────────── */
+[data-theme="sintesi"] th { background: var(--bg3); }
+[data-theme="sintesi"] td { border-bottom-color: #3a2060; }
+[data-theme="sintesi"] .budget-row-child td { background: var(--bg); }
+[data-theme="sintesi"] .budget-row-parent td { background: var(--bg2); }
+[data-theme="sintesi"] .budget-gestione-badge.monthly { background: #0a1838; color: #60c0ff; border-color: #60c0ff44; }
+[data-theme="sintesi"] .budget-gestione-badge.annual  { background: #0a2818; color: #40e880; border-color: #40e88044; }
+[data-theme="sintesi"] {
+  --bg:       #0d0618;
+  --bg2:      #140a28;
+  --bg3:      #1c1038;
+  --bg4:      #261548;
+  --border:   #3a2060;
+  --accent:   #ff2d78;
+  --accent2:  #00f5c0;
+  --income:   #39e87a;
+  --expense:  #ff5040;
+  --warn:     #ffd040;
+  --purple:   #b060ff;
+  --orange:   #ff9030;
+  --txt:      #f0e8ff;
+  --txt2:     #b090d8;
+  --txt3:     #705888;
+  --shadow:   0 8px 32px rgba(0,0,0,.85);
 }
 
 /* ─── Reset ──────────────────────────────────────────────────────────────── */

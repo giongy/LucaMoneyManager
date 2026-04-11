@@ -347,7 +347,7 @@ Chart.defaults.animation.easing   = 'linear';
 const chartColors = () => {
   const t = document.documentElement.dataset.theme;
   if (t === 'carta')    return { tick: '#8a7860', grid: 'rgba(0,0,0,0.05)' };
-  if (t === 'vinaccia') return { tick: '#c4a0b4', grid: 'rgba(255,255,255,0.05)' };
+  if (t === 'sintesi')  return { tick: '#b090d8', grid: 'rgba(255,255,255,0.06)' };
   return { tick: '#8b949e', grid: 'rgba(255,255,255,0.06)' };
 };
 
@@ -6142,8 +6142,8 @@ function _renderAnalyticsTrendChart() {
 
   const cc = chartColors();
   const t = document.documentElement.dataset.theme;
-  const lineBlue   = t === 'carta' ? 'rgba(20,70,190,1)'  : t === 'vinaccia' ? 'rgba(110,155,255,1)' : 'rgba(100,160,255,1)';
-  const linePurple = t === 'carta' ? 'rgba(100,30,190,1)' : t === 'vinaccia' ? 'rgba(195,130,255,1)' : 'rgba(185,120,255,1)';
+  const lineBlue   = t === 'carta' ? 'rgba(20,70,190,1)'  : t === 'sintesi' ? 'rgba(0,200,255,1)'   : 'rgba(100,160,255,1)';
+  const linePurple = t === 'carta' ? 'rgba(100,30,190,1)' : t === 'sintesi' ? 'rgba(180,80,255,1)'  : 'rgba(185,120,255,1)';
   const barColor = (cat.color && cat.color.startsWith('#') && cat.color.length === 7)
     ? cat.color + '66'
     : 'rgba(88,166,255,.4)';
@@ -6915,7 +6915,7 @@ async function renderSettings() {
           <div class="settings-control">
             <div style="display:flex;flex-direction:column;gap:10px">
               <div style="display:flex;gap:6px;flex-wrap:wrap">
-                ${[['dark','🌙 Scuro'],['carta','📜 Carta'],['vinaccia','🍷 Vinaccia']].map(([key,label]) => `
+                ${[['dark','🌙 Scuro'],['carta','📜 Carta'],['sintesi','⚡ Sintesi']].map(([key,label]) => `
                   <button class="btn theme-btn ${(s['appearance.theme']||'dark')===key?'theme-btn-active':''}"
                           onclick="settingsSetTheme('${key}')">${label}</button>
                   <button class="btn btn-ghost btn-icon" title="Duplica e personalizza" onclick="duplicateTheme('${key}')">⧉</button>`).join('')}
@@ -7509,12 +7509,12 @@ const _BUILTIN_VARS = {
     '--purple':'#5e3a8a','--orange':'#a04810',
     '--txt':'#241a08','--txt2':'#5c4a2c','--txt3':'#8a7860',
   },
-  vinaccia: {
-    '--bg':'#160d11','--bg2':'#1e1118','--bg3':'#261520','--bg4':'#301926',
-    '--border':'#4a2538','--accent':'#e8829a','--accent2':'#8eccc4',
-    '--income':'#7ac87a','--expense':'#e8826a','--warn':'#d4b464',
-    '--purple':'#c09ae0','--orange':'#e0a060',
-    '--txt':'#f2e4ec','--txt2':'#c4a0b4','--txt3':'#7a5a6a',
+  sintesi: {
+    '--bg':'#0d0618','--bg2':'#140a28','--bg3':'#1c1038','--bg4':'#261548',
+    '--border':'#3a2060','--accent':'#ff2d78','--accent2':'#00f5c0',
+    '--income':'#39e87a','--expense':'#ff5040','--warn':'#ffd040',
+    '--purple':'#b060ff','--orange':'#ff9030',
+    '--txt':'#f0e8ff','--txt2':'#b090d8','--txt3':'#705888',
   },
 };
 
@@ -7600,7 +7600,7 @@ function applyTheme(theme) {
     document.documentElement.dataset.theme = '';
     if (ct) _applyCustomVars(ct);
   } else {
-    const valid = ['carta', 'vinaccia'];
+    const valid = ['carta', 'sintesi'];
     document.documentElement.dataset.theme = valid.includes(theme) ? theme : '';
   }
   _updateThemeBtn();
@@ -7616,7 +7616,7 @@ async function settingsSetTheme(theme) {
 const _THEME_CYCLE = [
   { key: '',         icon: '🌙', label: 'Scuro' },
   { key: 'carta',    icon: '📜', label: 'Carta' },
-  { key: 'vinaccia', icon: '🍷', label: 'Vinaccia' },
+  { key: 'sintesi',  icon: '⚡', label: 'Sintesi'  },
 ];
 
 function _updateThemeBtn() {

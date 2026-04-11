@@ -6995,14 +6995,13 @@ async function _runForecastSaldo(keepExclusions = false) {
   }
 
   // ── Proiezione futura con IC 90% (crescita errore √t) ───────────────────
-  // La proiezione parte dal saldo corrente reale (include tx parziali del mese corrente).
-  // Il flusso mensile atteso usa la retta di regressione all'indice di calendario futuro:
-  //   net(x) = intercept + slope * x   con x = indice nella serie storica (0-based)
-  //   Il prossimo mese ha indice months.length, il secondo months.length+1, ecc.
-  // Con slope=0 coincide con meanNet; con slope≠0 proietta dalla posizione attuale,
-  // non dalla media storica (evita la sottostima sistematica con trend positivo).
+  // Parte da balAtEndOfLastMonth (fine dell'ultimo mese completato) per coerenza
+  // con la linea storica e per evitare il salto visivo dovuto alle tx parziali
+  // del mese corrente. Il flusso mensile usa la retta di regressione all'indice
+  // di calendario futuro: net(x) = intercept + slope*x (x 0-based nella serie).
+  // Con slope=0 coincide con meanNet; con slope≠0 evita la sottostima sistematica.
   const projLabels= [], projBal = [], projHigh = [], projLow = [];
-  let   bal       = currentBalance;
+  let   bal       = balAtEndOfLastMonth;
   for (let i = 1; i <= horizonMonths; i++) {
     const d  = new Date(now.getFullYear(), now.getMonth() + i, 1);
     const ym = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
@@ -7226,11 +7225,11 @@ async function _runForecastSaldo(keepExclusions = false) {
   // dataset 0: saldo storico (linea grigia, solo passato)
   const dsHist      = [...histBal, ...Array(horizonMonths).fill(null)];
   // dataset 1: banda superiore IC (fill verso dataset 2)
-  const dsHigh      = [...connPad, currentBalance, ...projHigh];
+  const dsHigh      = [...connPad, balAtEndOfLastMonth, ...projHigh];
   // dataset 2: banda inferiore IC
-  const dsLow       = [...connPad, currentBalance, ...projLow];
+  const dsLow       = [...connPad, balAtEndOfLastMonth, ...projLow];
   // dataset 3: saldo previsto (linea tratteggiata accent)
-  const dsProj      = [...connPad, currentBalance, ...projBal];
+  const dsProj      = [...connPad, balAtEndOfLastMonth, ...projBal];
   // dataset 4: marcatori outlier (triangoli gialli sulla linea storica)
   const dsOutlier   = [...histBal.map((v,i) => isOutlier[i] ? v : null), ...Array(horizonMonths).fill(null)];
 

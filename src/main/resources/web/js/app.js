@@ -5663,7 +5663,7 @@ async function renderAnalyticsForecast() {
           <label style="font-size:12px;color:var(--txt2);display:block;margin-bottom:6px">Storico analizzato</label>
           <div style="display:flex;align-items:center;gap:8px">
             <input type="range" id="fcHistR" min="3" max="60" value="${histMonths}" style="width:130px"
-              oninput="_fcParams.histMonths=+this.value;document.getElementById('fcHistN').textContent=this.value">
+              oninput="_fcParams.histMonths=+this.value;document.getElementById('fcHistN').textContent=this.value;_fcSetDirty()">
             <span id="fcHistN" style="font-weight:700;min-width:22px">${histMonths}</span>
             <span style="color:var(--txt2);font-size:13px">mesi</span>
           </div>
@@ -5672,14 +5672,14 @@ async function renderAnalyticsForecast() {
           <label style="font-size:12px;color:var(--txt2);display:block;margin-bottom:6px">Orizzonte previsione</label>
           <div style="display:flex;align-items:center;gap:8px">
             <input type="range" id="fcHorizR" min="1" max="36" value="${horizonMonths}" style="width:130px"
-              oninput="_fcParams.horizonMonths=+this.value;document.getElementById('fcHorizN').textContent=this.value">
+              oninput="_fcParams.horizonMonths=+this.value;document.getElementById('fcHorizN').textContent=this.value;_fcSetDirty()">
             <span id="fcHorizN" style="font-weight:700;min-width:22px">${horizonMonths}</span>
             <span style="color:var(--txt2);font-size:13px">mesi</span>
           </div>
         </div>
         <div>
           <label style="font-size:12px;color:var(--txt2);display:block;margin-bottom:6px">Sensibilità outlier</label>
-          <select id="fcSens" class="form-select" onchange="_fcParams.sensitivity=this.value">
+          <select id="fcSens" class="form-control" onchange="_fcParams.sensitivity=this.value;_fcSetDirty()">
             <option value="bassa" ${sensitivity==='bassa'?'selected':''}>Bassa  (k = 3.0)</option>
             <option value="media" ${sensitivity==='media'?'selected':''}>Media  (k = 1.5)</option>
             <option value="alta"  ${sensitivity==='alta' ?'selected':''}>Alta   (k = 1.0)</option>
@@ -6829,7 +6829,7 @@ async function renderForecastSaldo() {
           <label style="font-size:12px;color:var(--txt2);display:block;margin-bottom:6px">Storico analizzato</label>
           <div style="display:flex;align-items:center;gap:8px">
             <input type="range" id="fcHistR" min="3" max="60" value="${histMonths}" style="width:130px"
-              oninput="_fcParams.histMonths=+this.value;document.getElementById('fcHistN').textContent=this.value">
+              oninput="_fcParams.histMonths=+this.value;document.getElementById('fcHistN').textContent=this.value;_fcSetDirty()">
             <span id="fcHistN" style="font-weight:700;min-width:22px">${histMonths}</span>
             <span style="color:var(--txt2);font-size:13px">mesi</span>
           </div>
@@ -6838,14 +6838,14 @@ async function renderForecastSaldo() {
           <label style="font-size:12px;color:var(--txt2);display:block;margin-bottom:6px">Orizzonte previsione</label>
           <div style="display:flex;align-items:center;gap:8px">
             <input type="range" id="fcHorizR" min="1" max="36" value="${horizonMonths}" style="width:130px"
-              oninput="_fcParams.horizonMonths=+this.value;document.getElementById('fcHorizN').textContent=this.value">
+              oninput="_fcParams.horizonMonths=+this.value;document.getElementById('fcHorizN').textContent=this.value;_fcSetDirty()">
             <span id="fcHorizN" style="font-weight:700;min-width:22px">${horizonMonths}</span>
             <span style="color:var(--txt2);font-size:13px">mesi</span>
           </div>
         </div>
         <div>
           <label style="font-size:12px;color:var(--txt2);display:block;margin-bottom:6px">Sensibilità outlier</label>
-          <select id="fcSens" class="form-select" onchange="_fcParams.sensitivity=this.value">
+          <select id="fcSens" class="form-control" onchange="_fcParams.sensitivity=this.value;_fcSetDirty()">
             <option value="bassa" ${sensitivity==='bassa'?'selected':''}>Bassa  (k = 3.0)</option>
             <option value="media" ${sensitivity==='media'?'selected':''}>Media  (k = 1.5)</option>
             <option value="alta"  ${sensitivity==='alta' ?'selected':''}>Alta   (k = 1.0)</option>
@@ -6996,17 +6996,18 @@ async function _runForecastSaldo(keepExclusions = false) {
   }
 
   // ── Proiezione futura con IC 90% (crescita errore √t) ───────────────────
-  // Parte da balAtEndOfLastMonth (fine dell'ultimo mese completato) per coerenza
-  // con la linea storica e per evitare il salto visivo dovuto alle tx parziali
-  // del mese corrente. Il flusso mensile usa la retta di regressione all'indice
-  // di calendario futuro: net(x) = intercept + slope*x (x 0-based nella serie).
-  // Con slope=0 coincide con meanNet; con slope≠0 evita la sottostima sistematica.
+  // Flusso mensile = meanNet + trend ammortizzato.
+  // Il trend è scalato per R² (affidabilità fit) e decade esponenzialmente
+  // nel tempo (dimezza ogni 12 mesi): evita estrapolazioni irrealistiche
+  // su orizzonti lunghi o con pochi dati, riportando verso meanNet nel lungo periodo.
+  // Con slope=0 o R²=0: flusso = meanNet puro.
   const projLabels= [], projBal = [], projHigh = [], projLow = [];
   let   bal       = balAtEndOfLastMonth;
   for (let i = 1; i <= horizonMonths; i++) {
     const d  = new Date(now.getFullYear(), now.getMonth() + i, 1);
     const ym = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
-    bal += reg.intercept + reg.slope * (months.length + i - 1);  // proiezione dalla posizione attuale nella serie
+    const trendDecay = reg.r2 * Math.exp(-0.058 * (i - 1));  // R²-scaled, dimezza ogni 12 mesi
+    bal += meanNet + reg.slope * trendDecay;
     const margin = 1.645 * stdBaseline * Math.sqrt(i);   // IC 90% — usa stdBaseline (senza rumore saltuario)
     projLabels.push(ym);
     projBal.push(bal);

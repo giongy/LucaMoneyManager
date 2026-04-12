@@ -665,7 +665,7 @@ function _renderDashBudgetBubbles(budgetYear) {
     ...c,
     budget: _getEff(c.id)[curMonth] || 0,
     actual: actualMap[c.id] || 0,
-  })).filter(c => c.actual > 0);
+  })).filter(c => c.actual > 0 || c.type === 'income');
 
   if (!catData.length) { el.innerHTML = ''; el.style.display = 'none'; return; }
   el.style.display = '';

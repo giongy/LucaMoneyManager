@@ -667,7 +667,8 @@ function _renderDashBudgetBubbles(budgetYear) {
     actual: actualMap[c.id] || 0,
   })).filter(c => c.budget > 0 || c.actual > 0);
 
-  if (!catData.length) { el.innerHTML = ''; return; }
+  if (!catData.length) { el.innerHTML = ''; el.style.display = 'none'; return; }
+  el.style.display = '';
 
   const expCats = catData.filter(c => c.type === 'expense').sort((a, b) => b.budget - a.budget);
   const incCats = catData.filter(c => c.type === 'income').sort((a, b) => b.budget - a.budget);
@@ -727,27 +728,24 @@ function _renderDashBudgetBubbles(budgetYear) {
 
   const netColor = netActual >= 0 ? 'var(--income)' : 'var(--expense)';
 
-  el.innerHTML = `<div class="card" style="padding:16px;margin-bottom:16px">
-    <div class="card-header" style="margin-bottom:12px">
+  el.innerHTML = `
+    <div class="card-header" style="margin-bottom:12px;padding:16px 16px 0">
       <span class="card-title">Budget — ${monthName} ${curYear}</span>
       <button class="btn btn-ghost" onclick="navigate('budgets')">Gestisci →</button>
     </div>
-    ${expCats.length ? `
-      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--txt3);margin-bottom:8px">Uscite</div>
-      <div style="overflow-x:auto;margin-bottom:${incCats.length ? '14' : '0'}px">
-        <div class="dash-budget-bubbles">${expCats.map(_bubble).join('')}</div>
-      </div>` : ''}
-    ${incCats.length ? `
-      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--txt3);margin-bottom:8px">Entrate</div>
-      <div style="overflow-x:auto">
-        <div class="dash-budget-bubbles">${incCats.map(_bubble).join('')}</div>
-      </div>` : ''}
-    <div style="display:flex;justify-content:flex-end;gap:24px;margin-top:14px;padding-top:10px;border-top:1px solid var(--border)">
+    <div style="padding:0 16px;flex:1">
+      ${expCats.length ? `
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--txt3);margin-bottom:8px">Uscite</div>
+        <div class="dash-budget-bubbles" style="margin-bottom:${incCats.length ? '14' : '0'}px">${expCats.map(_bubble).join('')}</div>` : ''}
+      ${incCats.length ? `
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--txt3);margin-bottom:8px">Entrate</div>
+        <div class="dash-budget-bubbles">${incCats.map(_bubble).join('')}</div>` : ''}
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:24px;padding:10px 16px;margin-top:auto;border-top:1px solid var(--border)">
       ${expCats.length ? _tot('Uscite',  totExpActual, totExpBudget, 'var(--expense)') : ''}
       ${incCats.length ? _tot('Entrate', totIncActual, totIncBudget, 'var(--income)')  : ''}
       ${expCats.length && incCats.length ? _tot('Netto', netActual, netBudget, netColor) : ''}
-    </div>
-  </div>`;
+    </div>`;
 }
 
 function _renderDashAccountsWidget(accounts) {
@@ -835,6 +833,9 @@ async function renderDashboard() {
         </div>
         <div id="dashAccounts"></div>
       </div>
+      <div class="card dash-bubbles-card" id="dashBudgetBubbles"></div>
+    </div>
+    <div class="dash-mid-row">
       <div class="card dash-upcoming-card">
         <div class="card-header">
           <span class="card-title">🗓️ Prossime pianificate</span>
@@ -844,8 +845,11 @@ async function renderDashboard() {
           <th>Categoria</th><th>Descrizione</th><th>Giorni</th><th class="text-right">Importo</th>
         </tr></thead><tbody id="upcomingRows"></tbody></table></div>
       </div>
+      <div class="card dash-budgetchart-card" style="cursor:pointer" onclick="_budgetTab='andamento';navigate('budgets')">
+        <div class="card-header"><span class="card-title">Budget vs Reale ${dashYear}</span></div>
+        <div class="dash-chart-wrap"><canvas id="budgetChart"></canvas></div>
+      </div>
     </div>
-    <div id="dashBudgetBubbles"></div>
     <div class="dash-charts-row">
       <div class="card dash-barchart-card" style="cursor:pointer" onclick="_analyticsTab='balance';navigate('analytics')">
         <div class="card-header"><span class="card-title">Entrate vs Uscite ${dashYear}</span></div>
@@ -855,12 +859,6 @@ async function renderDashboard() {
         <div class="card-header"><span class="card-title">Risparmio mensile</span></div>
         <div class="dash-chart-wrap"><canvas id="savingsChart"></canvas></div>
       </div>
-      <div class="card dash-budgetchart-card" style="cursor:pointer" onclick="_budgetTab='andamento';navigate('budgets')">
-        <div class="card-header"><span class="card-title">Budget vs Reale ${dashYear}</span></div>
-        <div class="dash-chart-wrap"><canvas id="budgetChart"></canvas></div>
-      </div>
-    </div>
-    <div class="dash-tables-row" style="margin-bottom:16px">
       <div class="card dash-recent-card">
         <div class="card-header">
           <span class="card-title">Ultime transazioni</span>

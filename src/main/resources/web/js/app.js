@@ -731,11 +731,11 @@ function _renderDashBudgetBubbles(budgetYear) {
   const netColor = netActual >= 0 ? 'var(--income)' : 'var(--expense)';
 
   el.innerHTML = `
-    <div class="card-header" style="margin-bottom:12px;padding:16px 16px 0">
+    <div class="card-header">
       <span class="card-title">Budget — ${monthName} ${curYear}</span>
-      <button class="btn btn-ghost" onclick="navigate('budgets')">Gestisci \u2192</button>
+      <button class="btn btn-ghost" onclick="navigate('budgets')">Gestisci →</button>
     </div>
-    <div style="padding:0 16px;flex:1">
+    <div style="padding:0 16px 8px;flex:1">
       ${expCats.length ? `
         <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--txt3);margin-bottom:8px">Uscite</div>
         <div class="dash-budget-bubbles" style="margin-bottom:${incCats.length ? '14' : '0'}px">${expCats.map(_bubble).join('')}</div>` : ''}

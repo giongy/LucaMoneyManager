@@ -351,6 +351,7 @@ Chart.defaults.animation.easing   = 'linear';
 const chartColors = () => {
   const t = document.documentElement.dataset.theme;
   if (t === 'carta') return { tick: '#8a7860', grid: 'rgba(0,0,0,0.05)' };
+  if (t === 'aria')  return { tick: '#6b84a0', grid: 'rgba(0,0,0,0.06)' };
   return { tick: '#8b949e', grid: 'rgba(255,255,255,0.06)' };
 };
 
@@ -6333,8 +6334,9 @@ function _renderAnalyticsTrendChart() {
 
   const cc = chartColors();
   const t = document.documentElement.dataset.theme;
-  const lineBlue   = t === 'carta' ? 'rgba(20,70,190,1)'  : 'rgba(100,160,255,1)';
-  const linePurple = t === 'carta' ? 'rgba(100,30,190,1)' : 'rgba(185,120,255,1)';
+  const isLight    = t === 'carta' || t === 'aria';
+  const lineBlue   = isLight ? 'rgba(20,70,190,1)'  : 'rgba(100,160,255,1)';
+  const linePurple = isLight ? 'rgba(100,30,190,1)' : 'rgba(185,120,255,1)';
   const barColor = (cat.color && cat.color.startsWith('#') && cat.color.length === 7)
     ? cat.color + '66'
     : 'rgba(88,166,255,.4)';
@@ -8460,6 +8462,7 @@ async function settingsSetTheme(theme) {
 const _THEME_CYCLE = [
   { key: '',      icon: '🌙', label: 'Scuro' },
   { key: 'carta', icon: '📜', label: 'Carta' },
+  { key: 'aria',  icon: '🌤️', label: 'Aria'  },
 ];
 
 function _updateThemeBtn() {

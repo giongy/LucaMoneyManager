@@ -66,6 +66,32 @@
 }
 
 
+/* ─── Aria theme (slate blue-gray, leggero e pulito) ─────────────────────── */
+[data-theme="aria"] th { background: var(--bg3); }
+[data-theme="aria"] td { border-bottom-color: #b4c0ce; }
+[data-theme="aria"] .budget-row-child td { background: var(--bg); }
+[data-theme="aria"] .budget-row-parent td { background: var(--bg2); }
+[data-theme="aria"] .budget-gestione-badge.monthly { background: #d0e2f8; color: #1a3f82; border-color: #1a3f8255; }
+[data-theme="aria"] .budget-gestione-badge.annual  { background: #c8e8d4; color: #1a5230; border-color: #1a523055; }
+[data-theme="aria"] {
+  --bg:       #d8e0ea;
+  --bg2:      #e8eef6;
+  --bg3:      #cad3de;
+  --bg4:      #bdc7d3;
+  --border:   #aab4c2;
+  --accent:   #2563eb;
+  --accent2:  #0891b2;
+  --income:   #15803d;
+  --expense:  #dc2626;
+  --warn:     #b45309;
+  --purple:   #7c3aed;
+  --orange:   #c2410c;
+  --txt:      #0f1f33;
+  --txt2:     #3a5068;
+  --txt3:     #6b84a0;
+  --shadow:   0 8px 32px rgba(0,0,0,.08);
+}
+
 /* ─── Reset ──────────────────────────────────────────────────────────────── */
 *,*::before,*::after { box-sizing:border-box; margin:0; padding:0; }
 html,body { height:100%; overflow:hidden; }

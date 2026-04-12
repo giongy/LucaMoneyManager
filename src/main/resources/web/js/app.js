@@ -701,7 +701,9 @@ function _renderDashBudgetBubbles(budgetYear) {
   const _bubble = c => {
     const over = c.actual > c.budget && c.budget > 0;
     const pct  = c.budget > 0 ? Math.round(c.actual / c.budget * 100) : 0;
-    const amtColor = over ? 'var(--expense)' : 'var(--income)';
+    const amtColor = c.type === 'income'
+      ? (c.actual >= c.budget && c.budget > 0 ? 'var(--income)' : c.actual > 0 ? 'var(--expense)' : 'var(--txt3)')
+      : (over ? 'var(--expense)' : 'var(--income)');
     const hexColor = c.color?.startsWith('#') ? c.color : null;
     const bg       = hexColor ? hexColor + '28' : 'rgba(255,255,255,0.07)';
     return `<div class="budget-bubble" onclick="navigate('budgets')"

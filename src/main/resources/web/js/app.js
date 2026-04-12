@@ -712,8 +712,8 @@ function _renderDashBudgetBubbles(budgetYear) {
       </div>
       <div class="budget-bubble-name">${c.name}</div>
       <div class="budget-bubble-amounts">
-        <span style="color:${amtColor};font-weight:700;font-size:10px">${fmt.currency(c.actual)}</span><br>
-        <span style="color:var(--txt3);font-size:9px">${c.budget > 0 ? fmt.currency(c.budget) : '—'}</span>
+        <span style="color:${amtColor};font-weight:700;font-size:11px">${fmt.currency(c.actual)}</span><br>
+        <span style="color:var(--txt3);font-size:10px">${c.budget > 0 ? fmt.currency(c.budget) : '—'}</span>
       </div>
     </div>`;
   };

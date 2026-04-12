@@ -351,7 +351,7 @@ Chart.defaults.animation.easing   = 'linear';
 const chartColors = () => {
   const t = document.documentElement.dataset.theme;
   if (t === 'carta') return { tick: '#8a7860', grid: 'rgba(0,0,0,0.05)' };
-  if (t === 'aria')  return { tick: '#6b84a0', grid: 'rgba(0,0,0,0.06)' };
+  if (t === 'salvia') return { tick: '#5a7a60', grid: 'rgba(0,0,0,0.06)' };
   return { tick: '#8b949e', grid: 'rgba(255,255,255,0.06)' };
 };
 
@@ -6334,7 +6334,7 @@ function _renderAnalyticsTrendChart() {
 
   const cc = chartColors();
   const t = document.documentElement.dataset.theme;
-  const isLight    = t === 'carta' || t === 'aria';
+  const isLight    = t === 'carta' || t === 'salvia';
   const lineBlue   = isLight ? 'rgba(20,70,190,1)'  : 'rgba(100,160,255,1)';
   const linePurple = isLight ? 'rgba(100,30,190,1)' : 'rgba(185,120,255,1)';
   const barColor = (cat.color && cat.color.startsWith('#') && cat.color.length === 7)
@@ -7761,7 +7761,7 @@ async function renderSettings() {
           <div class="settings-control">
             <div style="display:flex;flex-direction:column;gap:10px">
               <div style="display:flex;gap:6px;flex-wrap:wrap">
-                ${[['dark','🌙 Scuro'],['carta','📜 Carta'],['aria','🌤️ Aria']].map(([key,label]) => `
+                ${[['dark','🌙 Scuro'],['carta','📜 Carta'],['salvia','🌿 Salvia']].map(([key,label]) => `
                   <button class="btn theme-btn ${(s['appearance.theme']||'dark')===key?'theme-btn-active':''}"
                           onclick="settingsSetTheme('${key}')">${label}</button>
                   <button class="btn btn-ghost btn-icon" title="Duplica e personalizza" onclick="duplicateTheme('${key}')">⧉</button>`).join('')}
@@ -8446,7 +8446,7 @@ function applyTheme(theme) {
     document.documentElement.dataset.theme = '';
     if (ct) _applyCustomVars(ct);
   } else {
-    const valid = ['carta', 'aria'];
+    const valid = ['carta', 'salvia'];
     document.documentElement.dataset.theme = valid.includes(theme) ? theme : '';
   }
   _updateThemeBtn();
@@ -8462,7 +8462,7 @@ async function settingsSetTheme(theme) {
 const _THEME_CYCLE = [
   { key: '',      icon: '🌙', label: 'Scuro' },
   { key: 'carta', icon: '📜', label: 'Carta' },
-  { key: 'aria',  icon: '🌤️', label: 'Aria'  },
+  { key: 'salvia', icon: '🌿', label: 'Salvia' },
 ];
 
 function _updateThemeBtn() {

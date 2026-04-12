@@ -66,19 +66,19 @@
 }
 
 
-/* ─── Aria theme (slate blue-gray, leggero e pulito) ─────────────────────── */
-[data-theme="aria"] th { background: var(--bg3); }
-[data-theme="aria"] td { border-bottom-color: #b4c0ce; }
-[data-theme="aria"] .budget-row-child td { background: var(--bg); }
-[data-theme="aria"] .budget-row-parent td { background: var(--bg2); }
-[data-theme="aria"] .budget-gestione-badge.monthly { background: #d0e2f8; color: #1a3f82; border-color: #1a3f8255; }
-[data-theme="aria"] .budget-gestione-badge.annual  { background: #c8e8d4; color: #1a5230; border-color: #1a523055; }
-[data-theme="aria"] {
-  --bg:       #d8e0ea;
-  --bg2:      #e8eef6;
-  --bg3:      #cad3de;
-  --bg4:      #bdc7d3;
-  --border:   #aab4c2;
+/* ─── Salvia theme (verde salvia, naturale e riposante) ───────────────────── */
+[data-theme="salvia"] th { background: var(--bg3); }
+[data-theme="salvia"] td { border-bottom-color: #a8b8aa; }
+[data-theme="salvia"] .budget-row-child td { background: var(--bg); }
+[data-theme="salvia"] .budget-row-parent td { background: var(--bg2); }
+[data-theme="salvia"] .budget-gestione-badge.monthly { background: #c8dff0; color: #1a3f72; border-color: #1a3f7244; }
+[data-theme="salvia"] .budget-gestione-badge.annual  { background: #c2e8ce; color: #1a5230; border-color: #1a523044; }
+[data-theme="salvia"] {
+  --bg:       #d8e4da;
+  --bg2:      #e4ede6;
+  --bg3:      #c8d5ca;
+  --bg4:      #baccbe;
+  --border:   #a8b8aa;
   --accent:   #2563eb;
   --accent2:  #0891b2;
   --income:   #15803d;
@@ -86,9 +86,9 @@
   --warn:     #b45309;
   --purple:   #7c3aed;
   --orange:   #c2410c;
-  --txt:      #0f1f33;
-  --txt2:     #3a5068;
-  --txt3:     #6b84a0;
+  --txt:      #0d1f12;
+  --txt2:     #2d4a32;
+  --txt3:     #5a7a60;
   --shadow:   0 8px 32px rgba(0,0,0,.08);
 }
 

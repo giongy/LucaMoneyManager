@@ -8446,7 +8446,7 @@ function applyTheme(theme) {
     document.documentElement.dataset.theme = '';
     if (ct) _applyCustomVars(ct);
   } else {
-    const valid = ['carta'];
+    const valid = ['carta', 'aria'];
     document.documentElement.dataset.theme = valid.includes(theme) ? theme : '';
   }
   _updateThemeBtn();

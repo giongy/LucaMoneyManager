@@ -626,6 +626,130 @@ async function openSavedReport(id) {
 let   _accTypeOrder         = ['checking','savings','cash','credit','investment'];
 const _DASH_ACC_TYPE_LABELS = {checking:'Conti Correnti',savings:'Risparmio',cash:'Contanti',credit:'Carte di Credito',investment:'Investimenti'};
 
+function _renderDashBudgetBubbles(budgetYear) {
+  const el = document.getElementById('dashBudgetBubbles');
+  if (!el) return;
+
+  const { categories = [], budgets = [], configs = [], actuals = [] } = budgetYear;
+  const curMonth  = new Date().getMonth() + 1;
+  const curYear   = new Date().getFullYear();
+  const monthName = new Date(curYear, curMonth - 1).toLocaleString('it-IT', { month: 'long' });
+
+  // Effective budget per mese (stessa logica pagina budget)
+  const _bMap = {};
+  budgets.forEach(b => { if (!_bMap[b.category_id]) _bMap[b.category_id] = {}; _bMap[b.category_id][b.month] = b.amount; });
+  const _cfgMap = {};
+  configs.forEach(c => { _cfgMap[c.category_id] = c; });
+  const _getEff = catId => {
+    const cfg = _cfgMap[catId], stored = _bMap[catId] || {};
+    if (!cfg || !cfg.master_amount) return stored;
+    const locked = cfg.mode === 'annuale' ? cfg.master_amount : cfg.master_amount * 12;
+    const pinned = Object.keys(stored).map(Number);
+    const pinnedSum = pinned.reduce((s, m) => s + (stored[m] || 0), 0);
+    const free = 12 - pinned.length;
+    const freeVal = free > 0 ? Math.round((locked - pinnedSum) / free * 100) / 100 : 0;
+    const res = { ...stored };
+    for (let m = 1; m <= 12; m++) if (res[m] === undefined) res[m] = Math.max(0, freeVal);
+    return res;
+  };
+
+  // Speso questo mese per categoria
+  const actualMap = {};
+  actuals.forEach(a => { if (a.month === curMonth) actualMap[a.category_id] = a.total; });
+
+  // Categorie foglia (senza figli)
+  const parentIds = new Set(categories.filter(c => c.parent_id).map(c => c.parent_id));
+  const leafCats  = categories.filter(c => !parentIds.has(c.id));
+
+  const catData = leafCats.map(c => ({
+    ...c,
+    budget: _getEff(c.id)[curMonth] || 0,
+    actual: actualMap[c.id] || 0,
+  })).filter(c => c.budget > 0 || c.actual > 0);
+
+  if (!catData.length) { el.innerHTML = ''; return; }
+
+  const expCats = catData.filter(c => c.type === 'expense').sort((a, b) => b.budget - a.budget);
+  const incCats = catData.filter(c => c.type === 'income').sort((a, b) => b.budget - a.budget);
+
+  // Totali
+  const totExpBudget = expCats.reduce((s, c) => s + c.budget, 0);
+  const totExpActual = expCats.reduce((s, c) => s + c.actual, 0);
+  const totIncBudget = incCats.reduce((s, c) => s + c.budget, 0);
+  const totIncActual = incCats.reduce((s, c) => s + c.actual, 0);
+  const netActual    = totIncActual - totExpActual;
+  const netBudget    = totIncBudget - totExpBudget;
+
+  // Anello SVG di progresso
+  const _ring = (spent, budget, color, sz = 56) => {
+    const pct  = budget > 0 ? Math.min(spent / budget, 1) : 0;
+    const over = budget > 0 && spent > budget;
+    const r    = (sz - 5) / 2;
+    const c    = 2 * Math.PI * r;
+    const fill = pct * c;
+    const sc   = over ? 'var(--expense)' : spent > 0 ? (color || 'var(--accent)') : 'transparent';
+    return `<svg width="${sz}" height="${sz}" viewBox="0 0 ${sz} ${sz}"
+        style="position:absolute;top:0;left:0;transform:rotate(-90deg);pointer-events:none">
+      <circle cx="${sz/2}" cy="${sz/2}" r="${r}" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="3.5"/>
+      <circle cx="${sz/2}" cy="${sz/2}" r="${r}" fill="none" stroke="${sc}" stroke-width="3.5"
+        stroke-dasharray="${c.toFixed(1)}" stroke-dashoffset="${(c - fill).toFixed(1)}" stroke-linecap="round"/>
+    </svg>`;
+  };
+
+  // HTML singola bolla
+  const _bubble = c => {
+    const over = c.actual > c.budget && c.budget > 0;
+    const pct  = c.budget > 0 ? Math.round(c.actual / c.budget * 100) : 0;
+    const amtColor = over ? 'var(--expense)' : c.actual > 0 ? 'var(--income)' : 'var(--txt3)';
+    const hexColor = c.color?.startsWith('#') ? c.color : null;
+    const bg       = hexColor ? hexColor + '28' : 'rgba(255,255,255,0.07)';
+    return `<div class="budget-bubble" onclick="navigate('budgets')"
+        title="${c.name} — ${fmt.currency(c.actual)} / ${fmt.currency(c.budget)} (${pct}%)">
+      <div class="budget-bubble-icon" style="background:${bg}">
+        <span style="position:relative;z-index:1;font-size:22px;line-height:1">${c.icon || '📁'}</span>
+        ${_ring(c.actual, c.budget, hexColor)}
+      </div>
+      <div class="budget-bubble-name">${c.name}</div>
+      <div class="budget-bubble-amounts">
+        <span style="color:${amtColor};font-weight:700;font-size:11px">${fmt.currency(c.actual)}</span><br>
+        <span style="color:var(--txt3);font-size:10px">${c.budget > 0 ? fmt.currency(c.budget) : '—'}</span>
+      </div>
+    </div>`;
+  };
+
+  // Cella totale
+  const _tot = (label, actual, budget, color) =>
+    `<div style="text-align:right">
+      <div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--txt3);margin-bottom:2px">${label}</div>
+      <div style="font-size:13px;font-weight:700;color:${color}">${fmt.currency(actual)}</div>
+      ${budget > 0 ? `<div style="font-size:10px;color:var(--txt3)">/ ${fmt.currency(budget)}</div>` : ''}
+    </div>`;
+
+  const netColor = netActual >= 0 ? 'var(--income)' : 'var(--expense)';
+
+  el.innerHTML = `<div class="card" style="padding:16px;margin-bottom:16px">
+    <div class="card-header" style="margin-bottom:12px">
+      <span class="card-title">Budget — ${monthName} ${curYear}</span>
+      <button class="btn btn-ghost" onclick="navigate('budgets')">Gestisci →</button>
+    </div>
+    ${expCats.length ? `
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--txt3);margin-bottom:8px">Uscite</div>
+      <div style="overflow-x:auto;margin-bottom:${incCats.length ? '14' : '0'}px">
+        <div class="dash-budget-bubbles">${expCats.map(_bubble).join('')}</div>
+      </div>` : ''}
+    ${incCats.length ? `
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--txt3);margin-bottom:8px">Entrate</div>
+      <div style="overflow-x:auto">
+        <div class="dash-budget-bubbles">${incCats.map(_bubble).join('')}</div>
+      </div>` : ''}
+    <div style="display:flex;justify-content:flex-end;gap:24px;margin-top:14px;padding-top:10px;border-top:1px solid var(--border)">
+      ${expCats.length ? _tot('Uscite',  totExpActual, totExpBudget, 'var(--expense)') : ''}
+      ${incCats.length ? _tot('Entrate', totIncActual, totIncBudget, 'var(--income)')  : ''}
+      ${expCats.length && incCats.length ? _tot('Netto', netActual, netBudget, netColor) : ''}
+    </div>
+  </div>`;
+}
+
 function _renderDashAccountsWidget(accounts) {
   const el = document.getElementById('dashAccounts');
   if (!el) return;
@@ -721,6 +845,7 @@ async function renderDashboard() {
         </tr></thead><tbody id="upcomingRows"></tbody></table></div>
       </div>
     </div>
+    <div id="dashBudgetBubbles"></div>
     <div class="dash-charts-row">
       <div class="card dash-barchart-card" style="cursor:pointer" onclick="_analyticsTab='balance';navigate('analytics')">
         <div class="card-header"><span class="card-title">Entrate vs Uscite ${dashYear}</span></div>
@@ -790,6 +915,7 @@ async function renderDashboard() {
 
   _renderDashAccountsWidget(accounts);
   _fillCreditMonthDash(accounts);
+  _renderDashBudgetBubbles(budgetYear);
 
   // Bar chart
   const months = Array.from({length:12},(_,i)=>new Date(0,i).toLocaleString('it-IT',{month:'short'}));

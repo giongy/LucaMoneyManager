@@ -1,4 +1,4 @@
-/* ═══════════════════════════════════════════════════════════════════════════
+﻿/* ═══════════════════════════════════════════════════════════════════════════
    LucaMoneyManager — app.js
    Bridge JS→Java via cefQuery, tutte le pagine SPA
 ═══════════════════════════════════════════════════════════════════════════ */
@@ -706,7 +706,7 @@ function _renderDashBudgetBubbles(budgetYear) {
       : (over ? 'var(--expense)' : 'var(--income)');
     const hexColor = c.color?.startsWith('#') ? c.color : null;
     const bg       = hexColor ? hexColor + '28' : 'rgba(255,255,255,0.07)';
-    return `<div class="budget-bubble" onclick="navigate('budgets')"
+    return `<div class="budget-bubble" onclick="_dashBubbleDetail(${c.id},'${c.name.replace(/'/g,\\')}')"
         title="${c.name} — ${fmt.currency(c.actual)} / ${fmt.currency(c.budget)} (${pct}%)">
       <div class="budget-bubble-icon" style="background:${bg}">
         <span style="position:relative;z-index:1;font-size:18px;line-height:1">${c.icon || '📁'}</span>
@@ -733,7 +733,7 @@ function _renderDashBudgetBubbles(budgetYear) {
   el.innerHTML = `
     <div class="card-header" style="margin-bottom:12px;padding:16px 16px 0">
       <span class="card-title">Budget — ${monthName} ${curYear}</span>
-      <button class="btn btn-ghost" onclick="navigate('budgets')">Gestisci →</button>
+      <button class="btn btn-ghost" onclick="navigate('budgets')">Gestisci \u2192</button>
     </div>
     <div style="padding:0 16px;flex:1">
       ${expCats.length ? `
@@ -3402,6 +3402,11 @@ window._budgetShowDetail = (catId, catName) => {
     _budgetDetailNavIdx  = _budgetDetailNavList.findIndex(c => c.id === catId);
   }
   _openBudgetDetail(catId, catName, true);
+};
+
+window._dashBubbleDetail = async (catId, catName) => {
+  if (!_budgetData) _budgetData = await api.getBudgetYear(budgetYear);
+  _budgetShowDetail(catId, catName);
 };
 
 window._budgetNavDetail = dir => {

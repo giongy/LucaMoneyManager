@@ -8345,21 +8345,24 @@ const _BUILTIN_VARS = {
     '--bg':'#0d1117','--bg2':'#161b22','--bg3':'#1c2128','--bg4':'#21262d',
     '--border':'#30363d','--accent':'#58a6ff','--accent2':'#00d4aa',
     '--income':'#3fb950','--expense':'#f85149','--warn':'#d29922',
-    '--purple':'#a371f7','--orange':'#f0883e',
     '--txt':'#e6edf3','--txt2':'#8b949e','--txt3':'#6e7681',
   },
   carta: {
     '--bg':'#ece5d8','--bg2':'#f4ede0','--bg3':'#e0d8cb','--bg4':'#d4ccbf',
     '--border':'#c2b8a6','--accent':'#8b5a18','--accent2':'#2e6e58',
     '--income':'#1e6b2e','--expense':'#b52a1a','--warn':'#7a5600',
-    '--purple':'#5e3a8a','--orange':'#a04810',
     '--txt':'#241a08','--txt2':'#5c4a2c','--txt3':'#8a7860',
+  },
+  salvia: {
+    '--bg':'#d8e4da','--bg2':'#e4ede6','--bg3':'#c8d5ca','--bg4':'#baccbe',
+    '--border':'#a8b8aa','--accent':'#2563eb','--accent2':'#0891b2',
+    '--income':'#15803d','--expense':'#dc2626','--warn':'#b45309',
+    '--txt':'#0d1f12','--txt2':'#2d4a32','--txt3':'#5a7a60',
   },
   sintesi: {
     '--bg':'#0d0618','--bg2':'#140a28','--bg3':'#1c1038','--bg4':'#261548',
     '--border':'#3a2060','--accent':'#ff2d78','--accent2':'#00f5c0',
     '--income':'#39e87a','--expense':'#ff5040','--warn':'#ffd040',
-    '--purple':'#b060ff','--orange':'#ff9030',
     '--txt':'#f0e8ff','--txt2':'#b090d8','--txt3':'#705888',
   },
 };
@@ -8379,12 +8382,10 @@ const _THEME_VAR_GROUPS = [
   ]},
   { title: 'Accenti & Colori', vars: [
     ['--accent',  'Accent principale'],
-    ['--accent2', 'Accent secondario'],
+    ['--accent2', 'Accent secondario / Investimenti'],
     ['--income',  'Entrate'],
     ['--expense', 'Uscite'],
     ['--warn',    'Avviso'],
-    ['--purple',  'Viola'],
-    ['--orange',  'Arancio'],
   ]},
 ];
 const _ALL_THEME_VARS = _THEME_VAR_GROUPS.flatMap(g => g.vars.map(v => v[0]));
@@ -8497,11 +8498,12 @@ function duplicateTheme(sourceKey) {
     if (!ct) return;
     base = { ...ct, id: Date.now().toString(36), name: ct.name + ' (copia)', vars: { ...ct.vars } };
   } else {
-    const names = { dark: 'Scuro', light: 'Chiaro', viola: 'Viola' };
+    const names = { dark: 'Scuro', carta: 'Carta', salvia: 'Salvia', sintesi: 'Sintesi' };
     base = {
       id: Date.now().toString(36),
       name: (names[sourceKey] || 'Tema') + ' (copia)',
       vars: { ...(_BUILTIN_VARS[sourceKey] || _BUILTIN_VARS.dark) },
+      baseKey: sourceKey,
       fontFamily: '', fontSize: 13, radius: 8,
     };
   }
@@ -8546,11 +8548,15 @@ function showThemeEditor(themeObj) {
     <div class="te-section-hdr">${g.title}</div>
     ${g.vars.map(([v, label]) => {
       const val = _teWorkingTheme.vars[v] || '#888888';
+      const base = _BUILTIN_VARS[_teWorkingTheme.baseKey || 'dark'] || _BUILTIN_VARS.dark;
+      const defVal = base[v] || '';
+      const isDefault = defVal && val.toLowerCase() === defVal.toLowerCase();
       return `<div class="te-color-row">
         <span class="te-color-label">${label}</span>
         <div class="te-color-inputs">
           <input type="color" class="te-swatch" data-var="${v}" value="${val}">
           <input type="text" class="te-hex" data-var="${v}" value="${val.toUpperCase()}" maxlength="7" spellcheck="false">
+          <button class="te-reset-btn" data-var="${v}" title="Ripristina default (${defVal.toUpperCase()})" style="opacity:${isDefault?'0.2':'0.8'}"${!defVal?' disabled':''}>↺</button>
         </div>
       </div>`;
     }).join('')}`).join('');
@@ -8636,6 +8642,22 @@ function _teWireEvents() {
     });
     el.addEventListener('blur', e => {
       e.target.value = (_teWorkingTheme.vars[e.target.dataset.var] || '#888888').toUpperCase();
+    });
+  });
+  document.querySelectorAll('#tePanel button.te-reset-btn').forEach(el => {
+    el.addEventListener('click', e => {
+      const v = e.currentTarget.dataset.var;
+      const base = _BUILTIN_VARS[_teWorkingTheme.baseKey || 'dark'] || _BUILTIN_VARS.dark;
+      const defVal = base[v];
+      if (!defVal) return;
+      _teWorkingTheme.vars[v] = defVal;
+      const sw  = document.querySelector(`#tePanel input.te-swatch[data-var="${v}"]`);
+      const hex = document.querySelector(`#tePanel input.te-hex[data-var="${v}"]`);
+      const btn = e.currentTarget;
+      if (sw)  sw.value  = defVal;
+      if (hex) hex.value = defVal.toUpperCase();
+      if (btn) btn.style.opacity = '0.2';
+      document.documentElement.style.setProperty(v, defVal);
     });
   });
   const applyFont = val => {

@@ -706,7 +706,7 @@ function _renderDashBudgetBubbles(budgetYear) {
       : (over ? 'var(--expense)' : 'var(--income)');
     const hexColor = c.color?.startsWith('#') ? c.color : null;
     const bg       = hexColor ? hexColor + '28' : 'rgba(255,255,255,0.07)';
-    return `<div class="budget-bubble" onclick="_dashBubbleDetail(${c.id},'${c.name.replace(/'/g,\\')}')"
+    return `<div class="budget-bubble" onclick="_dashBubbleDetail(${c.id})"
         title="${c.name} — ${fmt.currency(c.actual)} / ${fmt.currency(c.budget)} (${pct}%)">
       <div class="budget-bubble-icon" style="background:${bg}">
         <span style="position:relative;z-index:1;font-size:18px;line-height:1">${c.icon || '📁'}</span>
@@ -3404,9 +3404,10 @@ window._budgetShowDetail = (catId, catName) => {
   _openBudgetDetail(catId, catName, true);
 };
 
-window._dashBubbleDetail = async (catId, catName) => {
+window._dashBubbleDetail = async (catId) => {
   if (!_budgetData) _budgetData = await api.getBudgetYear(budgetYear);
-  _budgetShowDetail(catId, catName);
+  const cat = _budgetData.categories.find(c => c.id === catId);
+  if (cat) _budgetShowDetail(catId, cat.name);
 };
 
 window._budgetNavDetail = dir => {

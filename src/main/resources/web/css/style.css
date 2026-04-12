@@ -321,21 +321,21 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 /* ─── Dashboard Budget Bubbles ───────────────────────────────────────────── */
 .dash-budget-bubbles { display:flex; flex-wrap:wrap; gap:8px 10px; padding:2px 2px 6px; }
 .budget-bubble {
-  display:flex; flex-direction:column; align-items:center; gap:5px;
-  width:72px; cursor:pointer; flex-shrink:0; transition:transform .15s;
+  display:flex; flex-direction:column; align-items:center; gap:4px;
+  width:56px; cursor:pointer; flex-shrink:0; transition:transform .15s;
   text-decoration:none;
 }
 .budget-bubble:hover { transform:translateY(-2px); }
 .budget-bubble-icon {
-  width:56px; height:56px; border-radius:50%;
+  width:44px; height:44px; border-radius:50%;
   display:flex; align-items:center; justify-content:center;
   position:relative; flex-shrink:0;
 }
 .budget-bubble-name {
-  font-size:10px; color:var(--txt2); text-align:center;
-  width:72px; line-height:1.2; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  font-size:9px; color:var(--txt2); text-align:center;
+  width:56px; line-height:1.2; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
 }
-.budget-bubble-amounts { text-align:center; line-height:1.4; }
+.budget-bubble-amounts { text-align:center; line-height:1.3; }
 
 /* ─── Dashboard conti ────────────────────────────────────────────────────── */
 .acc-list-table { width:100%; border-collapse:collapse; }

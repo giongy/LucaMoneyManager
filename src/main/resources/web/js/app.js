@@ -665,7 +665,7 @@ function _renderDashBudgetBubbles(budgetYear) {
     ...c,
     budget: _getEff(c.id)[curMonth] || 0,
     actual: actualMap[c.id] || 0,
-  })).filter(c => c.budget > 0 || c.actual > 0);
+  })).filter(c => c.actual > 0);
 
   if (!catData.length) { el.innerHTML = ''; el.style.display = 'none'; return; }
   el.style.display = '';
@@ -682,17 +682,17 @@ function _renderDashBudgetBubbles(budgetYear) {
   const netBudget    = totIncBudget - totExpBudget;
 
   // Anello SVG di progresso
-  const _ring = (spent, budget, color, sz = 56) => {
+  const _ring = (spent, budget, color, sz = 44) => {
     const pct  = budget > 0 ? Math.min(spent / budget, 1) : 0;
     const over = budget > 0 && spent > budget;
-    const r    = (sz - 5) / 2;
+    const r    = (sz - 4) / 2;
     const c    = 2 * Math.PI * r;
     const fill = pct * c;
     const sc   = over ? 'var(--expense)' : spent > 0 ? (color || 'var(--accent)') : 'transparent';
     return `<svg width="${sz}" height="${sz}" viewBox="0 0 ${sz} ${sz}"
         style="position:absolute;top:0;left:0;transform:rotate(-90deg);pointer-events:none">
-      <circle cx="${sz/2}" cy="${sz/2}" r="${r}" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="3.5"/>
-      <circle cx="${sz/2}" cy="${sz/2}" r="${r}" fill="none" stroke="${sc}" stroke-width="3.5"
+      <circle cx="${sz/2}" cy="${sz/2}" r="${r}" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="3"/>
+      <circle cx="${sz/2}" cy="${sz/2}" r="${r}" fill="none" stroke="${sc}" stroke-width="3"
         stroke-dasharray="${c.toFixed(1)}" stroke-dashoffset="${(c - fill).toFixed(1)}" stroke-linecap="round"/>
     </svg>`;
   };
@@ -701,19 +701,19 @@ function _renderDashBudgetBubbles(budgetYear) {
   const _bubble = c => {
     const over = c.actual > c.budget && c.budget > 0;
     const pct  = c.budget > 0 ? Math.round(c.actual / c.budget * 100) : 0;
-    const amtColor = over ? 'var(--expense)' : c.actual > 0 ? 'var(--income)' : 'var(--txt3)';
+    const amtColor = over ? 'var(--expense)' : 'var(--income)';
     const hexColor = c.color?.startsWith('#') ? c.color : null;
     const bg       = hexColor ? hexColor + '28' : 'rgba(255,255,255,0.07)';
     return `<div class="budget-bubble" onclick="navigate('budgets')"
         title="${c.name} — ${fmt.currency(c.actual)} / ${fmt.currency(c.budget)} (${pct}%)">
       <div class="budget-bubble-icon" style="background:${bg}">
-        <span style="position:relative;z-index:1;font-size:22px;line-height:1">${c.icon || '📁'}</span>
+        <span style="position:relative;z-index:1;font-size:18px;line-height:1">${c.icon || '📁'}</span>
         ${_ring(c.actual, c.budget, hexColor)}
       </div>
       <div class="budget-bubble-name">${c.name}</div>
       <div class="budget-bubble-amounts">
-        <span style="color:${amtColor};font-weight:700;font-size:11px">${fmt.currency(c.actual)}</span><br>
-        <span style="color:var(--txt3);font-size:10px">${c.budget > 0 ? fmt.currency(c.budget) : '—'}</span>
+        <span style="color:${amtColor};font-weight:700;font-size:10px">${fmt.currency(c.actual)}</span><br>
+        <span style="color:var(--txt3);font-size:9px">${c.budget > 0 ? fmt.currency(c.budget) : '—'}</span>
       </div>
     </div>`;
   };

@@ -23,36 +23,36 @@
   <!-- ── SIDEBAR ── -->
   <aside class="sidebar">
     <div class="sidebar-logo">
-      <span class="logo-icon">💰</span>
+      <i data-lucide="wallet" class="logo-icon-svg"></i>
       <span class="logo-text">LucaMoneyManager</span>
     </div>
 
     <nav class="sidebar-nav">
       <a class="nav-item active" data-page="dashboard">
-        <span class="nav-icon">📊</span><span>Dashboard</span>
+        <i data-lucide="layout-dashboard" class="nav-icon-svg"></i><span>Dashboard</span>
       </a>
       <a class="nav-item" data-page="accounts">
-        <span class="nav-icon">🏦</span><span>Conti</span>
+        <i data-lucide="landmark" class="nav-icon-svg"></i><span>Conti</span>
       </a>
       <a class="nav-item" data-page="transactions">
-        <span class="nav-icon">💳</span><span>Transazioni</span>
+        <i data-lucide="credit-card" class="nav-icon-svg"></i><span>Transazioni</span>
       </a>
-      
+
       <a class="nav-item" data-page="budgets">
-        <span class="nav-icon">🎯</span><span>Budget</span>
+        <i data-lucide="target" class="nav-icon-svg"></i><span>Budget</span>
       </a>
       <a class="nav-item" data-page="scheduled">
-        <span class="nav-icon">🗓️</span><span>Pianificate</span>
+        <i data-lucide="calendar-clock" class="nav-icon-svg"></i><span>Pianificate</span>
       </a>
       <a class="nav-item" data-page="portfolio">
-        <span class="nav-icon">📈</span><span>Titoli</span>
+        <i data-lucide="trending-up" class="nav-icon-svg"></i><span>Titoli</span>
       </a>
       <a class="nav-item" data-page="analytics">
-        <span class="nav-icon">📋</span><span>Reports</span>
+        <i data-lucide="bar-chart-2" class="nav-icon-svg"></i><span>Reports</span>
       </a>
       <div class="nav-group" id="navGroupReports">
         <a class="nav-item" data-page="reports" id="navReports" onclick="toggleReportsGroup(event)">
-          <span class="nav-icon">📊</span>
+          <i data-lucide="sliders-horizontal" class="nav-icon-svg"></i>
           <span style="flex:1">Filtri</span>
           <span class="nav-group-arrow" id="navReportsArrow">▶</span>
         </a>
@@ -64,7 +64,7 @@
           </a>
         </div>
       </div>
-      
+
     </nav>
 <div class="sidebar-spacer"></div>
     <div class="sidebar-accounts" id="sidebarAccounts"></div>
@@ -74,22 +74,22 @@
     <div class="sidebar-section-label">Configurazione</div>
     <nav class="sidebar-nav">
       <a class="nav-item" data-page="categories">
-        <span class="nav-icon">🏷️</span><span>Categorie</span>
+        <i data-lucide="tag" class="nav-icon-svg"></i><span>Categorie</span>
       </a>
       <a class="nav-item" data-page="tags">
-        <span class="nav-icon">🔖</span><span>Tag</span>
+        <i data-lucide="bookmark" class="nav-icon-svg"></i><span>Tag</span>
       </a>
       <a class="nav-item" data-page="ranges">
-        <span class="nav-icon">📅</span><span>Periodi</span>
+        <i data-lucide="calendar-range" class="nav-icon-svg"></i><span>Periodi</span>
       </a>
       <a class="nav-item" data-page="logviewer">
-        <span class="nav-icon">📋</span><span>Log</span>
+        <i data-lucide="scroll-text" class="nav-icon-svg"></i><span>Log</span>
       </a>
     </nav>
 
     <div class="sidebar-bottom">
       <a class="nav-item" data-page="settings">
-        <span class="nav-icon">⚙️</span><span>Impostazioni</span>
+        <i data-lucide="settings" class="nav-icon-svg"></i><span>Impostazioni</span>
       </a>
     </div>
   </aside>
@@ -155,6 +155,7 @@
 <div id="noticeStack"></div>
 <div id="shortcutsOverlay" onclick="if(event.target===this)closeShortcutsHelp()"></div>
 
+<script src="js/vendor/lucide.min.js"></script>
 <script src="js/vendor/chart.min.js"></script>
 <script src="js/vendor/hammer.min.js"></script>
 <script src="js/vendor/chartjs-plugin-zoom.min.js"></script>

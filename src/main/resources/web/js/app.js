@@ -10882,6 +10882,9 @@ Chart.defaults.font.family = "'Segoe UI', system-ui, sans-serif";
 Chart.defaults.font.size   = 13;
 
 async function init() {
+  // Inizializza icone Lucide nella sidebar
+  if (typeof lucide !== 'undefined') lucide.createIcons();
+
   // Modalità browser (non JCEF): nascondi titlebar desktop
   if (typeof window.cefQuery !== 'function') {
     const tb = document.getElementById('titlebar');

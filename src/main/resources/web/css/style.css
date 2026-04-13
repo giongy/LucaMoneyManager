@@ -118,6 +118,7 @@ input,select,textarea { font-family:inherit; }
   box-sizing:border-box;
 }
 .logo-icon { font-size:18px; }
+.logo-icon-svg { width:20px; height:20px; stroke:var(--accent); flex-shrink:0; }
 .logo-text  { font-size:var(--font-size,13px); font-weight:700; color:var(--txt); letter-spacing:.3px; }
 
 .sidebar-nav { padding:6px 0; }
@@ -137,6 +138,7 @@ input,select,textarea { font-family:inherit; }
 .nav-item:hover  { background:var(--bg4); color:var(--txt); }
 .nav-item.active { background:var(--bg3); color:var(--accent); border-left-color:var(--accent); }
 .nav-icon { font-size:var(--fs-lg,14px); width:18px; text-align:center; }
+.nav-icon-svg { width:17px; height:17px; flex-shrink:0; stroke:currentColor; stroke-width:1.75; }
 
 .sidebar-accounts {
   padding:8px 10px; margin-top:10px; border-top:1px solid var(--border);

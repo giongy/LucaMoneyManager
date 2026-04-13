@@ -337,7 +337,7 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 .dash-barchart-card    { flex:1; min-width:0; display:flex; flex-direction:column; align-self:stretch; }
 .dash-budgetchart-card { flex:1; min-width:0; display:flex; flex-direction:column; align-self:stretch; }
 .dash-chart-wrap { position:relative; flex:1; min-height:210px; margin-top:6px; }
-.dash-recent-card   { flex:1; min-width:0; display:flex; flex-direction:column; }
+.dash-recent-card   { flex:1.5; min-width:0; display:flex; flex-direction:column; }
 .dash-recent-card .table-wrap { flex:1; overflow-y:auto; max-height:260px; }
 
 .dash-bottom-charts { display:flex; gap:16px; margin-top:16px; }

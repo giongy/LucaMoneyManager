@@ -685,13 +685,14 @@ function _renderDashBudgetBubbles(budgetYear) {
   const netBudget    = totIncBudget - totExpBudget;
 
   // Anello SVG di progresso
-  const _ring = (spent, budget, color, sz = 44) => {
+  const _ring = (spent, budget, color, sz = 44, isIncome = false) => {
     const pct  = budget > 0 ? Math.min(spent / budget, 1) : 0;
     const over = budget > 0 && spent > budget;
+    const bad  = isIncome ? spent < budget && budget > 0 : over;
     const r    = (sz - 4) / 2;
     const c    = 2 * Math.PI * r;
     const fill = pct * c;
-    const sc   = over ? 'var(--expense)' : spent > 0 ? (color || 'var(--accent)') : 'transparent';
+    const sc   = bad ? 'var(--expense)' : spent > 0 ? (color || 'var(--accent)') : 'transparent';
     return `<svg width="${sz}" height="${sz}" viewBox="0 0 ${sz} ${sz}"
         style="position:absolute;top:0;left:0;transform:rotate(-90deg);pointer-events:none">
       <circle cx="${sz/2}" cy="${sz/2}" r="${r}" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="3"/>
@@ -702,11 +703,12 @@ function _renderDashBudgetBubbles(budgetYear) {
 
   // HTML singola bolla
   const _bubble = c => {
-    const over = c.actual > c.budget && c.budget > 0;
     const pct  = c.budget > 0 ? Math.round(c.actual / c.budget * 100) : 0;
-    const amtColor = c.type === 'income'
-      ? (c.actual >= c.budget && c.budget > 0 ? 'var(--income)' : c.actual > 0 ? 'var(--expense)' : 'var(--txt3)')
-      : (over ? 'var(--expense)' : 'var(--income)');
+    const amtColor = c.budget <= 0
+      ? 'var(--txt3)'
+      : c.type === 'income'
+        ? (c.actual > c.budget ? 'var(--income)' : c.actual < c.budget ? 'var(--expense)' : 'var(--txt3)')
+        : (c.actual < c.budget ? 'var(--income)' : c.actual > c.budget ? 'var(--expense)' : 'var(--txt3)');
     const hexColor = c.color?.startsWith('#') ? c.color : null;
     const bg       = hexColor ? hexColor + '28' : 'rgba(255,255,255,0.07)';
     const fullName = c.parent_name ? `${c.parent_name} : ${c.name}` : c.name;
@@ -714,7 +716,7 @@ function _renderDashBudgetBubbles(budgetYear) {
         title="${fullName} — ${fmt.currency(c.actual)} / ${fmt.currency(c.budget)} (${pct}%)">
       <div class="budget-bubble-icon" style="background:${bg}">
         <span style="position:relative;z-index:1;font-size:18px;line-height:1">${c.icon || '📁'}</span>
-        ${_ring(c.actual, c.budget, hexColor)}
+        ${_ring(c.actual, c.budget, hexColor, 44, c.type === 'income')}
       </div>
       <div class="budget-bubble-name">${c.name}</div>
       <div class="budget-bubble-amounts">

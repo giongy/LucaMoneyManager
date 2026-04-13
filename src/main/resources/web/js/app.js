@@ -857,13 +857,9 @@ async function renderDashboard() {
       </div>
     </div>
     <div class="dash-charts-row">
-      <div class="card dash-barchart-card" style="cursor:pointer" onclick="_analyticsTab='balance';navigate('analytics')">
-        <div class="card-header"><span class="card-title">Entrate vs Uscite ${dashYear}</span></div>
-        <div class="dash-chart-wrap"><canvas id="barChart"></canvas></div>
-      </div>
-      <div class="card dash-barchart-card">
-        <div class="card-header"><span class="card-title">Risparmio mensile</span></div>
-        <div class="dash-chart-wrap"><canvas id="savingsChart"></canvas></div>
+      <div class="card dash-barchart-card" style="cursor:pointer" onclick="_analyticsTab='catmonth';navigate('analytics')">
+        <div class="card-header"><span class="card-title">Top categorie spesa</span></div>
+        <div class="dash-chart-wrap"><canvas id="topCatChart"></canvas></div>
       </div>
       <div class="card dash-recent-card">
         <div class="card-header">
@@ -878,11 +874,15 @@ async function renderDashboard() {
     <div class="dash-bottom-charts">
       <div class="card dash-chart-sm">
         <div class="card-header"><span class="card-title">Spese per categoria</span></div>
-        <canvas id="pieChart"></canvas>
+        <div class="dash-chart-wrap"><canvas id="pieChart"></canvas></div>
       </div>
-      <div class="card dash-chart-sm" style="cursor:pointer" onclick="_analyticsTab='catmonth';navigate('analytics')">
-        <div class="card-header"><span class="card-title">Top categorie spesa</span></div>
-        <canvas id="topCatChart"></canvas>
+      <div class="card dash-chart-sm" style="cursor:pointer" onclick="_analyticsTab='balance';navigate('analytics')">
+        <div class="card-header"><span class="card-title">Entrate vs Uscite ${dashYear}</span></div>
+        <div class="dash-chart-wrap"><canvas id="barChart"></canvas></div>
+      </div>
+      <div class="card dash-chart-sm">
+        <div class="card-header"><span class="card-title">Risparmio mensile</span></div>
+        <div class="dash-chart-wrap"><canvas id="savingsChart"></canvas></div>
       </div>
     </div>`;
 
@@ -1056,7 +1056,7 @@ async function renderDashboard() {
       data:{ labels: top.map(c => c.icon+' '+c.name),
              datasets:[{ data: top.map(c=>c.total), backgroundColor: top.map(c=>c.color), borderWidth:0 }]},
       options:{
-        responsive:true,
+        responsive:true, maintainAspectRatio:false,
         plugins:{
           legend:{ position:'right', labels:{ color:chartColors().tick, font:{size:11}, boxWidth:12, padding:6 }},
           tooltip:{ callbacks:{ label: ctx => {
@@ -1131,7 +1131,7 @@ async function renderDashboard() {
       data: { labels: top5.map(c => c.icon+' '+c.name),
               datasets: [{label:'Spesa', data: top5.map(c=>c.total),
                 backgroundColor: top5.map(c=>c.color||'rgba(88,166,255,.7)'), borderRadius:4}]},
-      options: { indexAxis:'y', responsive:true, plugins:{legend:{display:false}},
+      options: { indexAxis:'y', responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}},
         scales:{ x:{ticks:{color:chartColors().tick,font:{size:10},stepSize:200},grid:{color:chartColors().grid}},
                  y:{ticks:{color:chartColors().tick,font:{size:10}},grid:{color:chartColors().grid}}}}
     });

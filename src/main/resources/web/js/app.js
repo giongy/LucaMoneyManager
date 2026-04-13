@@ -661,11 +661,13 @@ function _renderDashBudgetBubbles(budgetYear) {
   // Categorie foglia (senza figli)
   const parentIds = new Set(categories.filter(c => c.parent_id).map(c => c.parent_id));
   const leafCats  = categories.filter(c => !parentIds.has(c.id));
+  const catMap    = Object.fromEntries(categories.map(c => [c.id, c]));
 
   const catData = leafCats.map(c => ({
     ...c,
     budget: _getEff(c.id)[curMonth] || 0,
     actual: actualMap[c.id] || 0,
+    parent_name: c.parent_id ? (catMap[c.parent_id]?.name || '') : '',
   })).filter(c => c.actual > 0 || c.type === 'income');
 
   if (!catData.length) { el.innerHTML = ''; el.style.display = 'none'; return; }
@@ -707,8 +709,9 @@ function _renderDashBudgetBubbles(budgetYear) {
       : (over ? 'var(--expense)' : 'var(--income)');
     const hexColor = c.color?.startsWith('#') ? c.color : null;
     const bg       = hexColor ? hexColor + '28' : 'rgba(255,255,255,0.07)';
+    const fullName = c.parent_name ? `${c.parent_name} : ${c.name}` : c.name;
     return `<div class="budget-bubble" onclick="_dashBubbleDetail(${c.id})"
-        title="${c.name} — ${fmt.currency(c.actual)} / ${fmt.currency(c.budget)} (${pct}%)">
+        title="${fullName} — ${fmt.currency(c.actual)} / ${fmt.currency(c.budget)} (${pct}%)">
       <div class="budget-bubble-icon" style="background:${bg}">
         <span style="position:relative;z-index:1;font-size:18px;line-height:1">${c.icon || '📁'}</span>
         ${_ring(c.actual, c.budget, hexColor)}

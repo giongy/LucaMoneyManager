@@ -742,16 +742,46 @@ function _renderDashBudgetBubbles(budgetYear) {
     <div style="padding:0 16px 8px;flex:1">
       ${expCats.length ? `
         <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--txt3);margin-bottom:8px">Uscite</div>
-        <div class="dash-budget-bubbles" style="margin-bottom:${incCats.length ? '14' : '0'}px">${expCats.map(_bubble).join('')}</div>` : ''}
+        <div class="dash-bubbles-scroll-wrap" style="margin-bottom:${incCats.length ? '14' : '0'}px">
+          <div class="dash-budget-bubbles">${expCats.map(_bubble).join('')}</div>
+        </div>` : ''}
       ${incCats.length ? `
         <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--txt3);margin-bottom:8px">Entrate</div>
-        <div class="dash-budget-bubbles">${incCats.map(_bubble).join('')}</div>` : ''}
+        <div class="dash-bubbles-scroll-wrap">
+          <div class="dash-budget-bubbles">${incCats.map(_bubble).join('')}</div>
+        </div>` : ''}
     </div>
     <div style="display:flex;justify-content:flex-end;gap:24px;padding:10px 16px;margin-top:auto;border-top:1px solid var(--border)">
       ${expCats.length ? _tot('Uscite',  totExpActual, totExpBudget, 'var(--expense)') : ''}
       ${incCats.length ? _tot('Entrate', totIncActual, totIncBudget, 'var(--income)')  : ''}
       ${expCats.length && incCats.length ? _tot('Netto', netActual, netBudget, netColor) : ''}
     </div>`;
+}
+
+function _initBubbleDrag() {
+  document.querySelectorAll('.dash-budget-bubbles').forEach(el => {
+    const wrap = el.closest('.dash-bubbles-scroll-wrap');
+    let isDown = false, startX = 0, scrollLeft = 0;
+
+    const updateGradient = () => {
+      if (!wrap) return;
+      wrap.classList.toggle('at-end', el.scrollLeft + el.clientWidth >= el.scrollWidth - 2);
+    };
+    el.addEventListener('scroll', updateGradient);
+    updateGradient();
+
+    el.addEventListener('mousedown', e => {
+      isDown = true; el.classList.add('is-dragging');
+      startX = e.pageX - el.offsetLeft; scrollLeft = el.scrollLeft;
+    });
+    el.addEventListener('mouseleave', () => { isDown = false; el.classList.remove('is-dragging'); });
+    el.addEventListener('mouseup',    () => { isDown = false; el.classList.remove('is-dragging'); });
+    el.addEventListener('mousemove',  e => {
+      if (!isDown) return;
+      e.preventDefault();
+      el.scrollLeft = scrollLeft - (e.pageX - el.offsetLeft - startX) * 1.5;
+    });
+  });
 }
 
 function _renderDashAccountsWidget(accounts) {
@@ -920,6 +950,7 @@ async function renderDashboard() {
   _renderDashAccountsWidget(accounts);
   _fillCreditMonthDash(accounts);
   _renderDashBudgetBubbles(budgetYear);
+  _initBubbleDrag();
 
   // Bar chart
   const months = Array.from({length:12},(_,i)=>new Date(0,i).toLocaleString('it-IT',{month:'short'}));

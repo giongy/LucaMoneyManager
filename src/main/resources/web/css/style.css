@@ -346,7 +346,19 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 .dash-chart-sm { flex:1; min-width:0; display:flex; flex-direction:column; }
 
 /* ─── Dashboard Budget Bubbles ───────────────────────────────────────────── */
-.dash-budget-bubbles { display:flex; flex-wrap:wrap; gap:8px 10px; padding:2px 2px 6px; }
+.dash-bubbles-scroll-wrap { position:relative; }
+.dash-bubbles-scroll-wrap::after {
+  content:''; position:absolute; top:0; right:0; bottom:8px; width:64px;
+  background:linear-gradient(to right, transparent, var(--bg2));
+  pointer-events:none; transition:opacity .25s;
+}
+.dash-bubbles-scroll-wrap.at-end::after { opacity:0; }
+.dash-budget-bubbles {
+  display:flex; flex-wrap:nowrap; overflow-x:auto; gap:8px 10px; padding:2px 2px 6px;
+  scrollbar-width:none; cursor:grab; user-select:none;
+}
+.dash-budget-bubbles::-webkit-scrollbar { display:none; }
+.dash-budget-bubbles.is-dragging { cursor:grabbing; }
 .budget-bubble {
   display:flex; flex-direction:column; align-items:center; gap:4px;
   width:56px; cursor:pointer; flex-shrink:0; transition:transform .15s;

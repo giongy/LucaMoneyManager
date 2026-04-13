@@ -180,7 +180,7 @@ input,select,textarea { font-family:inherit; }
 
 /* ─── Pagine ──────────────────────────────────────────────────────────────── */
 .page-container { flex:1; overflow:hidden; position:relative; }
-.page { position:absolute; inset:0; overflow-y:auto; padding:16px; display:none; }
+.page { position:absolute; inset:0; overflow-y:auto; padding:var(--dash-gap); display:none; }
 .page.active { display:block; }
 #pg-transactions.active { display:flex; flex-direction:column; overflow:hidden; padding:0; }
 #pg-logviewer { display:none; flex-direction:column; overflow-y:hidden; }

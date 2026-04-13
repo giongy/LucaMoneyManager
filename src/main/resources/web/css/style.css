@@ -207,7 +207,7 @@ input,select,textarea { font-family:inherit; }
 .card-header .btn { padding:2px 8px; font-size:var(--fs-sm,11px); }
 
 /* ─── Stat Cards ─────────────────────────────────────────────────────────── */
-.stats-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:16px; }
+.stats-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin-bottom:10px; }
 .stat-card { background:var(--bg2); border:1px solid var(--border); border-radius:var(--radius); padding:8px 12px; }
 .stat-label { font-size:var(--fs-sm,11px); color:var(--txt2); margin-bottom:2px; text-transform:uppercase; letter-spacing:.5px; }
 .stat-value { font-size:18px; font-weight:700; margin-bottom:2px; }
@@ -328,19 +328,19 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 .acc-badge-fav, .acc-badge-closed { font-size:var(--fs-xs,10px); color:var(--txt3); }
 
 /* ─── Dashboard layout ───────────────────────────────────────────────────── */
-.dash-top-row    { display:flex; gap:16px; align-items:stretch; margin-bottom:16px; }
+.dash-top-row    { display:flex; gap:10px; align-items:stretch; margin-bottom:10px; }
 .dash-accounts-card { flex:0 0 36%; min-width:0; }
 .dash-bubbles-card  { flex:1; min-width:0; display:flex; flex-direction:column; }
-.dash-mid-row    { display:flex; gap:16px; align-items:stretch; margin-bottom:16px; }
+.dash-mid-row    { display:flex; gap:10px; align-items:stretch; margin-bottom:10px; }
 .dash-upcoming-card { flex:0 0 60%; min-width:0; display:flex; flex-direction:column; }
-.dash-charts-row { display:flex; gap:16px; align-items:stretch; margin-bottom:16px; }
+.dash-charts-row { display:flex; gap:10px; align-items:stretch; margin-bottom:10px; }
 .dash-barchart-card    { flex:1; min-width:0; display:flex; flex-direction:column; align-self:stretch; }
 .dash-budgetchart-card { flex:1; min-width:0; display:flex; flex-direction:column; align-self:stretch; }
 .dash-chart-wrap { position:relative; flex:1; min-height:210px; margin-top:6px; }
 .dash-recent-card   { flex:2; min-width:0; display:flex; flex-direction:column; }
 .dash-recent-card .table-wrap { flex:1; overflow-y:auto; max-height:260px; }
 
-.dash-bottom-charts { display:flex; gap:16px; margin-top:16px; }
+.dash-bottom-charts { display:flex; gap:10px; margin-top:10px; }
 .dash-chart-sm { flex:1; min-width:0; }
 .dash-chart-sm canvas { max-height:290px; }
 

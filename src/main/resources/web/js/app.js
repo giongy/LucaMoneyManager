@@ -1083,6 +1083,8 @@ async function renderDashboard() {
       <td style="${compactTd}" class="text-right amount-${t.type}">${t.type==='expense'?'-':''}${fmt.currency(t.amount)}</td>
     </tr>`).join('') :
     '<tr><td colspan="5" class="text-muted" style="text-align:center;padding:20px">Nessuna transazione</td></tr>';
+  const recentWrap = document.getElementById('recentRows')?.closest('.table-wrap');
+  if (recentWrap) recentWrap.scrollTop = recentWrap.scrollHeight;
 
   // Upcoming scheduled
   const dashTodayStr = _todayStr();

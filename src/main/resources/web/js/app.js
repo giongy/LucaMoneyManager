@@ -720,8 +720,8 @@ function _renderDashBudgetBubbles(budgetYear) {
       </div>
       <div class="budget-bubble-name">${c.name}</div>
       <div class="budget-bubble-amounts">
-        <span style="color:${amtColor};font-weight:700;font-size:11px">${fmt.currency(c.actual)}</span><br>
-        <span style="color:var(--txt3);font-size:10px">${c.budget > 0 ? fmt.currency(c.budget) : '—'}</span>
+        <span style="color:${amtColor};font-weight:700;font-size:13px">${fmt.currency(c.actual)}</span><br>
+        <span style="color:var(--txt3);font-size:11px">${c.budget > 0 ? fmt.currency(c.budget) : '—'}</span>
       </div>
     </div>`;
   };
@@ -729,9 +729,9 @@ function _renderDashBudgetBubbles(budgetYear) {
   // Cella totale
   const _tot = (label, actual, budget, color) =>
     `<div style="text-align:right">
-      <div style="font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:var(--txt3);margin-bottom:2px">${label}</div>
-      <div style="font-size:13px;font-weight:700;color:${color}">${fmt.currency(actual)}</div>
-      ${budget > 0 ? `<div style="font-size:10px;color:var(--txt3)">/ ${fmt.currency(budget)}</div>` : ''}
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--txt3);margin-bottom:2px">${label}</div>
+      <div style="font-size:14px;font-weight:700;color:${color}">${fmt.currency(actual)}</div>
+      ${budget > 0 ? `<div style="font-size:11px;color:var(--txt3)">/ ${fmt.currency(budget)}</div>` : ''}
     </div>`;
 
   const netColor = netActual >= 0 ? 'var(--income)' : 'var(--expense)';
@@ -743,12 +743,12 @@ function _renderDashBudgetBubbles(budgetYear) {
     </div>
     <div style="padding:0 16px 8px;flex:1">
       ${expCats.length ? `
-        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--txt3);margin-bottom:8px">Uscite</div>
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--txt3);margin-bottom:8px">Uscite</div>
         <div class="dash-bubbles-scroll-wrap" style="margin-bottom:${incCats.length ? '14' : '0'}px">
           <div class="dash-budget-bubbles">${expCats.map(_bubble).join('')}</div>
         </div>` : ''}
       ${incCats.length ? `
-        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--txt3);margin-bottom:8px">Entrate</div>
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--txt3);margin-bottom:8px">Entrate</div>
         <div class="dash-bubbles-scroll-wrap">
           <div class="dash-budget-bubbles">${incCats.map(_bubble).join('')}</div>
         </div>` : ''}

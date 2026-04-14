@@ -264,6 +264,8 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 .btn-primary:hover { background:#79b8ff; }
 .btn-danger  { background:var(--expense); color:#fff; }
 .btn-danger:hover { filter:brightness(1.15); }
+.btn-success { background:var(--income); color:#fff; }
+.btn-success:hover { filter:brightness(1.15); }
 .btn-ghost   { background:var(--bg4); color:var(--txt2); }
 .btn-ghost:hover { background:var(--border); color:var(--txt); }
 .btn-icon    { padding:4px 7px; border-radius:5px; font-size:var(--font-size,13px); }

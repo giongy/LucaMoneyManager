@@ -3820,9 +3820,11 @@ async function renderPortfolio() {
               <button class="btn theme-btn ${_portfolioTypeFilter==='bond'?'theme-btn-active':''}"   onclick="_setPortfolioTypeFilter('bond')">Obbligazioni</button>
             </div>
           </div>
-          <div style="width:1px;height:36px;background:var(--border);margin:0 6px;flex-shrink:0"></div>
-          <button class="btn btn-secondary" id="btnRefreshPrices">🌐 Aggiorna valori online</button>
+          <div style="width:1px;height:36px;background:var(--border);margin:0 10px;flex-shrink:0"></div>
+          <button class="btn btn-success" id="btnRefreshPrices">🌐 Aggiorna valori online</button>
+          <div style="width:8px;flex-shrink:0"></div>
           <button class="btn btn-secondary" id="btnImportPos">📥 Carica esistente</button>
+          <div style="width:8px;flex-shrink:0"></div>
           <button class="btn btn-primary" id="btnBuyStock">+ Acquista</button>
         </div>` : ''}
     </div>

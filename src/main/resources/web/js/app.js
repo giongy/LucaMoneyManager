@@ -921,7 +921,7 @@ async function renderDashboard() {
   const [stats, accounts, recent, monthly, catData, upcoming, budgetYear] = await Promise.all([
     api.getDashboardStats(dashYear),
     api.getAccounts(),
-    api.getTransactions({limit:15, sort_desc:true}),
+    api.getTransactions({limit:9, sort_desc:true}),
     api.getMonthlyChartData(dashYear),
     api.getCategoryChartData(dashYear, 'expense'),
     api.getUpcomingAll(10),
@@ -1145,8 +1145,6 @@ async function renderDashboard() {
       <td style="${compactTd}" class="text-right amount-${t.type}">${t.type==='expense'?'-':''}${fmt.currency(t.amount)}</td>
     </tr>`).join('') :
     '<tr><td colspan="5" class="text-muted" style="text-align:center;padding:20px">Nessuna transazione</td></tr>';
-  const recentWrap = document.getElementById('recentRows')?.closest('.table-wrap');
-  if (recentWrap) recentWrap.scrollTop = recentWrap.scrollHeight;
 
   // Upcoming scheduled
   const dashTodayStr = _todayStr();

@@ -201,8 +201,9 @@ input,select,textarea { font-family:inherit; }
 /* ─── Card ───────────────────────────────────────────────────────────────── */
 .card {
   background:var(--bg2); border:1px solid var(--border);
+  border-top:1px solid rgba(255,255,255,.10);
   border-radius:var(--radius); padding:14px;
-  box-shadow:var(--shadow);
+  box-shadow:var(--shadow), 0 4px 20px rgba(88,166,255,.08);
 }
 .card-header {
   display:flex; align-items:center; justify-content:space-between;

@@ -1057,11 +1057,11 @@ async function renderDashboard() {
       const _bCtx = budgetCtx.getContext('2d');
       const _bH   = budgetCtx.offsetHeight || 300;
       const gradGreen = _bCtx.createLinearGradient(0, 0, 0, _bH);
-      gradGreen.addColorStop(0,   'rgba(63,185,80,.45)');
-      gradGreen.addColorStop(1,   'rgba(63,185,80,.03)');
+      gradGreen.addColorStop(0,   'rgba(63,185,80,.25)');
+      gradGreen.addColorStop(1,   'rgba(63,185,80,.02)');
       const gradRed = _bCtx.createLinearGradient(0, 0, 0, _bH);
-      gradRed.addColorStop(0,   'rgba(248,81,73,.03)');
-      gradRed.addColorStop(1,   'rgba(248,81,73,.45)');
+      gradRed.addColorStop(0,   'rgba(248,81,73,.02)');
+      gradRed.addColorStop(1,   'rgba(248,81,73,.25)');
       charts.budget = new Chart(budgetCtx, {
         type: 'line',
         data: {

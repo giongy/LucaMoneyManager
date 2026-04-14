@@ -567,7 +567,11 @@ async function refreshAfterTxChange() {
 async function updateSidebar() {
   const accounts = await api.getAccounts();
   const el = document.getElementById('sidebarAccounts');
-  el.innerHTML = accounts.filter(isAccountVisible).map(a => `
+  const visAcc = accounts.filter(isAccountVisible);
+  const grouped = {};
+  visAcc.forEach(a => { (grouped[a.type] = grouped[a.type] || []).push(a); });
+  const orderedTypes = [...new Set([..._accTypeOrder.filter(t => grouped[t]), ...Object.keys(grouped)])];
+  el.innerHTML = orderedTypes.flatMap(t => grouped[t]).map(a => `
     <div class="sidebar-account-item" style="--acc-color:${a.color||'var(--border)'};${a.is_closed?'opacity:.55':''}"
          onclick="navigateToAccountTx(${a.id})" title="${a.name}">
       <div class="acc-tile-icon">${a.icon}</div>

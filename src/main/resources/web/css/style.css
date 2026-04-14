@@ -141,17 +141,17 @@ input,select,textarea { font-family:inherit; }
 .nav-icon-svg { width:17px; height:17px; flex-shrink:0; stroke:currentColor; stroke-width:1.75; }
 
 .sidebar-accounts {
-  padding:8px 10px; margin-top:10px; border-top:1px solid var(--border);
-  display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px;
+  padding:6px 8px; margin-top:10px; border-top:1px solid var(--border);
+  display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:4px;
 }
 .sidebar-account-item {
   display:flex; flex-direction:column; align-items:center;
-  padding:8px 6px 6px; border-radius:8px; background:var(--bg3);
-  transition:background .15s; gap:3px; min-width:0; cursor:pointer;
+  padding:5px 3px 4px; border-radius:7px; background:var(--bg3);
+  transition:background .15s; gap:2px; min-width:0; cursor:pointer;
   border-top:2px solid var(--acc-color, var(--border));
 }
 .sidebar-account-item:hover { background:var(--bg4,var(--border)); }
-.acc-tile-icon { font-size:18px; line-height:1.2; }
+.acc-tile-icon { font-size:16px; line-height:1.2; }
 .acc-tile-name {
   font-size:var(--fs-xs,10px); color:var(--txt2); text-align:center;
   word-break:break-word; width:100%; line-height:1.2;

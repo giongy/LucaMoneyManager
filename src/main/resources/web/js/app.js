@@ -730,7 +730,7 @@ function _renderDashBudgetBubbles(budgetYear) {
   const _tot = (label, actual, budget, color) =>
     `<div style="text-align:right">
       <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--txt3);margin-bottom:2px">${label}</div>
-      <div style="font-size:14px;font-weight:700;color:${color}">${fmt.currency(actual)}</div>
+      <div style="font-size:13px;font-weight:700;color:${color}">${fmt.currency(actual)}</div>
       ${budget > 0 ? `<div style="font-size:11px;color:var(--txt3)">/ ${fmt.currency(budget)}</div>` : ''}
     </div>`;
 

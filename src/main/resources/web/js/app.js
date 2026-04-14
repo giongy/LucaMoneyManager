@@ -1054,6 +1054,14 @@ async function renderDashboard() {
     if (charts.budget) charts.budget.destroy();
     const budgetCtx = document.getElementById('budgetChart');
     if (budgetCtx && bLabels.length) {
+      const _bCtx = budgetCtx.getContext('2d');
+      const _bH   = budgetCtx.offsetHeight || 300;
+      const gradGreen = _bCtx.createLinearGradient(0, 0, 0, _bH);
+      gradGreen.addColorStop(0,   'rgba(63,185,80,.45)');
+      gradGreen.addColorStop(1,   'rgba(63,185,80,.03)');
+      const gradRed = _bCtx.createLinearGradient(0, 0, 0, _bH);
+      gradRed.addColorStop(0,   'rgba(248,81,73,.03)');
+      gradRed.addColorStop(1,   'rgba(248,81,73,.45)');
       charts.budget = new Chart(budgetCtx, {
         type: 'line',
         data: {
@@ -1061,7 +1069,7 @@ async function renderDashboard() {
           datasets: [{
             label: 'Differenza',
             data: bDiff,
-            fill: { target: 'origin', above: 'rgba(63,185,80,0.25)', below: 'rgba(248,81,73,0.25)' },
+            fill: { target: 'origin', above: gradGreen, below: gradRed },
             segment: {
               borderColor: ctx => ctx.p1.parsed.y < 0 ? 'rgba(248,81,73,0.8)' : 'rgba(63,185,80,0.8)'
             },

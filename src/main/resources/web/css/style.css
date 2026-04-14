@@ -27,7 +27,7 @@
   --txt2:     #8b949e;
   --txt3:     #6e7681;
   --shadow:   0 8px 32px rgba(0,0,0,.5);
-  --radius:    8px;
+  --radius:    12px;
   --fs-xs:     10px;
   --fs-sm:     11px;
   --fs-md:     12px;
@@ -202,6 +202,7 @@ input,select,textarea { font-family:inherit; }
 .card {
   background:var(--bg2); border:1px solid var(--border);
   border-radius:var(--radius); padding:14px;
+  box-shadow:var(--shadow);
 }
 .card-header {
   display:flex; align-items:center; justify-content:space-between;
@@ -220,6 +221,10 @@ input,select,textarea { font-family:inherit; }
 .stat-expense .stat-value { color:var(--expense); }
 .stat-balance .stat-value { color:var(--accent); }
 .stat-net     .stat-value { color:var(--accent2); }
+.stat-income  { border-left:3px solid var(--income);  }
+.stat-expense { border-left:3px solid var(--expense); }
+.stat-balance { border-left:3px solid var(--accent);  }
+.stat-net     { border-left:3px solid var(--accent2); }
 
 /* ─── Grid a 2 colonne ───────────────────────────────────────────────────── */
 .grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:16px; }

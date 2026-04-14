@@ -954,6 +954,26 @@ async function renderDashboard() {
   _renderDashBudgetBubbles(budgetYear);
   _initBubbleDrag();
 
+  // Gradient plugin per bar chart dashboard
+  const _dashGradPlugin = {
+    id: 'dashGrad',
+    beforeDatasetsUpdate(chart) {
+      const {ctx, chartArea, data} = chart;
+      if (!chartArea) return;
+      data.datasets.forEach(ds => {
+        if (!ds._gradColors) return;
+        const [c0, c1] = ds._gradColors;
+        const isHoriz = chart.config.options?.indexAxis === 'y';
+        const grad = isHoriz
+          ? ctx.createLinearGradient(chartArea.left, 0, chartArea.right, 0)
+          : ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+        grad.addColorStop(0, c0);
+        grad.addColorStop(1, c1);
+        ds.backgroundColor = grad;
+      });
+    }
+  };
+
   // Bar chart
   const months = Array.from({length:12},(_,i)=>new Date(0,i).toLocaleString('it-IT',{month:'short'}));
   const incArr = Array(12).fill(0), expArr = Array(12).fill(0);
@@ -962,10 +982,11 @@ async function renderDashboard() {
   if (charts.bar) charts.bar.destroy();
   charts.bar = new Chart(document.getElementById('barChart'), {
     type:'bar',
+    plugins:[_dashGradPlugin],
     data:{ labels:months,
       datasets:[
-        {label:'Entrate', data:incArr, backgroundColor:'rgba(63,185,80,.7)', borderRadius:4},
-        {label:'Uscite',  data:expArr, backgroundColor:'rgba(248,81,73,.7)',  borderRadius:4}
+        {label:'Entrate', data:incArr, _gradColors:['rgba(63,185,80,.9)','rgba(63,185,80,.2)'], backgroundColor:'rgba(63,185,80,.7)', borderRadius:4},
+        {label:'Uscite',  data:expArr, _gradColors:['rgba(248,81,73,.9)','rgba(248,81,73,.2)'], backgroundColor:'rgba(248,81,73,.7)', borderRadius:4}
       ]},
     options:{ responsive:true, maintainAspectRatio:false,
       interaction:{ mode:'index', intersect:false },
@@ -1144,13 +1165,15 @@ async function renderDashboard() {
   if (charts.savings) charts.savings.destroy();
   charts.savings = new Chart(document.getElementById('savingsChart'), {
     type: 'bar',
-    data: { labels: months, datasets: [{
-      label: 'Risparmio',
-      data: savArr,
-      backgroundColor: savArr.map(v => v >= 0 ? 'rgba(63,185,80,.75)' : 'rgba(248,81,73,.75)'),
-      borderRadius: 4
-    }]},
-    options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}},
+    plugins:[_dashGradPlugin],
+    data: { labels: months, datasets: [
+      { label:'Risparmio+', data: savArr.map(v => v >= 0 ? v : null),
+        _gradColors:['rgba(63,185,80,.9)','rgba(63,185,80,.2)'], backgroundColor:'rgba(63,185,80,.75)', borderRadius:4 },
+      { label:'Risparmio-', data: savArr.map(v => v < 0 ? v : null),
+        _gradColors:['rgba(248,81,73,.2)','rgba(248,81,73,.9)'], backgroundColor:'rgba(248,81,73,.75)', borderRadius:4 }
+    ]},
+    options: { responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{display:false} },
       scales:{ x:{ticks:{color:chartColors().tick},grid:{color:chartColors().grid}},
                y:{ticks:{color:chartColors().tick},grid:{color:chartColors().grid}}}}
   });
@@ -1161,8 +1184,10 @@ async function renderDashboard() {
   if (top5.length) {
     charts.topCat = new Chart(document.getElementById('topCatChart'), {
       type: 'bar',
+      plugins:[_dashGradPlugin],
       data: { labels: top5.map(c => c.icon+' '+c.name),
               datasets: [{label:'Spesa', data: top5.map(c=>c.total),
+                _gradColors:['rgba(248,81,73,.85)','rgba(248,81,73,.2)'],
                 backgroundColor: top5.map(c=>c.color||'rgba(88,166,255,.7)'), borderRadius:4}]},
       options: { indexAxis:'y', responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}},
         scales:{ x:{ticks:{color:chartColors().tick,font:{size:10},stepSize:200},grid:{color:chartColors().grid}},

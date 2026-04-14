@@ -8529,27 +8529,28 @@ const _THEME_CYCLE = [
   { key: 'salvia', icon: '🌿', label: 'Salvia' },
 ];
 
+function _fullThemeCycle() {
+  const customs = _customThemes.map(ct => ({ key: 'c:' + ct.id, icon: '🎨', label: ct.name }));
+  return [..._THEME_CYCLE, ...customs];
+}
+
 function _updateThemeBtn() {
   const btn = document.getElementById('themeToggleBtn');
   if (!btn) return;
-  if (_activeThemeKey && _activeThemeKey.startsWith('c:')) {
-    const ct = _customThemes.find(t => t.id === _activeThemeKey.slice(2));
-    btn.textContent = '🎨';
-    btn.title = `Tema: ${ct ? ct.name : 'Personalizzato'} — Alt+T per tornare al ciclo predefinito`;
-  } else {
-    const t = document.documentElement.dataset.theme;
-    const curr = _THEME_CYCLE.find(x => x.key === t) || _THEME_CYCLE[0];
-    const next = _THEME_CYCLE[(_THEME_CYCLE.indexOf(curr) + 1) % _THEME_CYCLE.length];
-    btn.textContent = curr.icon;
-    btn.title = `Tema ${curr.label} — clicca per passare a ${next.label} (Alt+T)`;
-  }
+  const cycle = _fullThemeCycle();
+  const activeKey = _activeThemeKey || '';
+  const currIdx = cycle.findIndex(x => x.key === activeKey);
+  const curr = currIdx >= 0 ? cycle[currIdx] : cycle[0];
+  const next = cycle[(Math.max(currIdx, 0) + 1) % cycle.length];
+  btn.textContent = curr.icon;
+  btn.title = `Tema ${curr.label} — clicca per passare a ${next.label} (Alt+T)`;
 }
 
 async function _toggleTheme() {
-  // Se è attivo un tema custom, torna a scuro; altrimenti cicla i 3 predefiniti
-  const base = _activeThemeKey && _activeThemeKey.startsWith('c:') ? '' : (document.documentElement.dataset.theme || '');
-  const curr = _THEME_CYCLE.find(x => x.key === base) || _THEME_CYCLE[0];
-  const next = _THEME_CYCLE[(_THEME_CYCLE.indexOf(curr) + 1) % _THEME_CYCLE.length];
+  const cycle = _fullThemeCycle();
+  const activeKey = _activeThemeKey || '';
+  const currIdx = cycle.findIndex(x => x.key === activeKey);
+  const next = cycle[(Math.max(currIdx, 0) + 1) % cycle.length];
   await settingsSetTheme(next.key || 'dark');
 }
 

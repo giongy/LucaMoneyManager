@@ -1193,7 +1193,6 @@ async function renderDashboard() {
       plugins:[_dashGradPlugin],
       data: { labels: top5.map(c => c.icon+' '+c.name),
               datasets: [{label:'Spesa', data: top5.map(c=>c.total),
-                _gradColors:['rgba(248,81,73,.85)','rgba(248,81,73,.2)'],
                 backgroundColor: top5.map(c=>c.color||'rgba(88,166,255,.7)'), borderRadius:4}]},
       options: { indexAxis:'y', responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}},
         scales:{ x:{ticks:{color:chartColors().tick,font:{size:10},stepSize:200},grid:{color:chartColors().grid}},

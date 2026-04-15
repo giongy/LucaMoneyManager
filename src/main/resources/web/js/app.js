@@ -2373,6 +2373,7 @@ async function loadAccountCards() {
   grid.querySelectorAll('.account-card[draggable]').forEach(card => {
     card.addEventListener('dragstart', e => {
       dragId = Number(card.dataset.id);
+      e.stopPropagation();
       setTimeout(() => card.classList.add('dragging'), 0);
       e.dataTransfer.effectAllowed = 'move';
     });

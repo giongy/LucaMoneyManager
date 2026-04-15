@@ -259,6 +259,15 @@ public class Database {
         return p.has(key) && !p.get(key).isJsonNull() ? p.get(key).getAsDouble() : null;
     }
 
+    /** Arrotonda a 2 decimali — usato per tutti i valori monetari in €. */
+    private static double r2(double v) { return Math.round(v * 100.0) / 100.0; }
+
+    /** Legge un double da JSON e lo arrotonda a 2 decimali. */
+    private Double dbl2(JsonObject p, String key) {
+        Double v = dbl(p, key);
+        return v != null ? r2(v) : null;
+    }
+
     private Integer intVal(JsonObject p, String key) {
         return p.has(key) && !p.get(key).isJsonNull() ? p.get(key).getAsInt() : null;
     }
@@ -732,19 +741,19 @@ public class Database {
         int nextOrder = ((Number) maxRow.get("next_order")).intValue();
         long id = execute("INSERT INTO accounts(name,type,currency,initial_balance,color,icon,is_favorite,is_closed,sort_order) VALUES(?,?,?,?,?,?,?,?,?)",
                 str(p,"name"), str(p,"type"), str(p,"currency") != null ? str(p,"currency") : "EUR",
-                dbl(p,"initial_balance") != null ? dbl(p,"initial_balance") : 0.0,
+                dbl2(p,"initial_balance") != null ? dbl2(p,"initial_balance") : 0.0,
                 str(p,"color"), str(p,"icon"),
                 intVal(p,"is_favorite") != null ? intVal(p,"is_favorite") : 0, 0, nextOrder);
         touchSyncMeta();
         logger.log("CONTO AGGIUNTO", "id:" + id, "nome:" + str(p,"name"), "tipo:" + str(p,"type"),
-                   "saldo_iniziale:" + DbLogger.amt(dbl(p,"initial_balance")));
+                   "saldo_iniziale:" + DbLogger.amt(dbl2(p,"initial_balance")));
         return queryOne("SELECT * FROM accounts WHERE id=?", id);
     }
 
     public Map<String, Object> updateAccount(int id, JsonObject p) throws SQLException {
         execute("UPDATE accounts SET name=?,type=?,currency=?,initial_balance=?,color=?,icon=?,is_favorite=?,is_closed=? WHERE id=?",
                 str(p,"name"), str(p,"type"), str(p,"currency") != null ? str(p,"currency") : "EUR",
-                dbl(p,"initial_balance") != null ? dbl(p,"initial_balance") : 0.0,
+                dbl2(p,"initial_balance") != null ? dbl2(p,"initial_balance") : 0.0,
                 str(p,"color"), str(p,"icon"),
                 intVal(p,"is_favorite") != null ? intVal(p,"is_favorite") : 0,
                 intVal(p,"is_closed") != null ? intVal(p,"is_closed") : 0,
@@ -1008,7 +1017,7 @@ public class Database {
         long id = execute("""
             INSERT INTO transactions(date,amount,type,category_id,account_id,to_account_id,description,color,reconciled)
             VALUES(?,?,?,?,?,?,?,?,?)
-        """, str(p,"date"), dbl(p,"amount"), str(p,"type"),
+        """, str(p,"date"), dbl2(p,"amount"), str(p,"type"),
                 intVal(p,"category_id"), p.get("account_id").getAsInt(),
                 intVal(p,"to_account_id"),
                 str(p,"description") != null ? str(p,"description") : "",
@@ -1021,7 +1030,7 @@ public class Database {
             "id:" + id,
             "data:" + str(p,"date"),
             "tipo:" + str(p,"type"),
-            "importo:" + DbLogger.amt(dbl(p,"amount")),
+            "importo:" + DbLogger.amt(dbl2(p,"amount")),
             "conto:" + DbLogger.s(tx != null ? tx.get("account_name") : null),
             "categoria:" + DbLogger.s(tx != null ? tx.get("category_name") : null),
             "descrizione:" + DbLogger.s(str(p,"description")));
@@ -1034,7 +1043,7 @@ public class Database {
         execute("""
             UPDATE transactions SET date=?,amount=?,type=?,category_id=?,account_id=?,
                 to_account_id=?,description=?,color=?,reconciled=? WHERE id=?
-        """, str(p,"date"), dbl(p,"amount"), str(p,"type"),
+        """, str(p,"date"), dbl2(p,"amount"), str(p,"type"),
                 intVal(p,"category_id"), p.get("account_id").getAsInt(),
                 intVal(p,"to_account_id"),
                 str(p,"description") != null ? str(p,"description") : "",
@@ -1043,14 +1052,14 @@ public class Database {
         saveSplits(id, p);
         // Aggiorna il prezzo nello storico portfolio se collegato (cedola/spesa)
         execute("UPDATE portfolio_transactions SET price=? WHERE transaction_id=? AND type IN ('coupon','expense')",
-                dbl(p,"amount"), id);
+                dbl2(p,"amount"), id);
         touchSyncMeta();
         Map<String, Object> tx = getTransactionById(id);
         logger.log("TRANSAZIONE MODIFICATA",
             "id:" + id,
             "data:" + str(p,"date"),
             "tipo:" + str(p,"type"),
-            "importo:" + DbLogger.amt(dbl(p,"amount")),
+            "importo:" + DbLogger.amt(dbl2(p,"amount")),
             "conto:" + DbLogger.s(tx != null ? tx.get("account_name") : null),
             "categoria:" + DbLogger.s(tx != null ? tx.get("category_name") : null),
             "descrizione:" + DbLogger.s(str(p,"description")));
@@ -1214,7 +1223,7 @@ public class Database {
                 execute("INSERT INTO transaction_splits(transaction_id,category_id,amount,description) VALUES(?,?,?,?)",
                         txId,
                         s.has("category_id") && !s.get("category_id").isJsonNull() ? s.get("category_id").getAsInt() : null,
-                        s.get("amount").getAsDouble(),
+                        r2(s.get("amount").getAsDouble()),
                         s.has("description") && !s.get("description").isJsonNull() ? s.get("description").getAsString() : "");
             }
         }
@@ -1306,12 +1315,12 @@ public class Database {
         execute("""
             INSERT INTO budgets(category_id,amount,month,year) VALUES(?,?,?,?)
             ON CONFLICT(category_id,month,year) DO UPDATE SET amount=excluded.amount
-        """, catId, dbl(p,"amount"), month, year);
+        """, catId, dbl2(p,"amount"), month, year);
         Map<String, Object> cat = queryOne("SELECT name FROM categories WHERE id=?", catId);
         logger.log("BUDGET IMPOSTATO",
             "categoria:" + DbLogger.s(cat != null ? cat.get("name") : catId),
             "mese:" + month + "/" + year,
-            "importo:" + DbLogger.amt(dbl(p,"amount")));
+            "importo:" + DbLogger.amt(dbl2(p,"amount")));
         return queryOne("SELECT * FROM budgets WHERE category_id=? AND month=? AND year=?", catId, month, year);
     }
 
@@ -1442,7 +1451,7 @@ public class Database {
         execute("""
             INSERT INTO budget_config(category_id, year, mode, master_amount) VALUES(?,?,?,?)
             ON CONFLICT(category_id, year) DO UPDATE SET mode=excluded.mode, master_amount=excluded.master_amount
-        """, categoryId, year, mode, masterAmount);
+        """, categoryId, year, mode, r2(masterAmount));
         Map<String, Object> cat = queryOne("SELECT name FROM categories WHERE id=?", categoryId);
         logger.log("BUDGET CONFIG", "categoria:" + DbLogger.s(cat != null ? cat.get("name") : categoryId),
                    "anno:" + year, "modalita:" + mode, "importo:" + DbLogger.amt(masterAmount));
@@ -1459,7 +1468,7 @@ public class Database {
                 execute("""
                     INSERT INTO budgets(category_id,amount,month,year) VALUES(?,?,?,?)
                     ON CONFLICT(category_id,month,year) DO UPDATE SET amount=excluded.amount
-                """, categoryId, el.getAsDouble(), m, year);
+                """, categoryId, r2(el.getAsDouble()), m, year);
             }
         }
         Map<String, Object> cat = queryOne("SELECT name FROM categories WHERE id=?", categoryId);
@@ -1521,7 +1530,7 @@ public class Database {
                 (description,amount,type,category_id,account_id,to_account_id,
                  frequency,start_date,end_date,is_active,color,reconciled,portfolio_id)
             VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
-        """, str(p,"description"), dbl(p,"amount"), str(p,"type"),
+        """, str(p,"description"), dbl2(p,"amount"), str(p,"type"),
                 intVal(p,"category_id"), p.get("account_id").getAsInt(),
                 intVal(p,"to_account_id"), str(p,"frequency"),
                 str(p,"start_date"), str(p,"end_date"),
@@ -1531,7 +1540,7 @@ public class Database {
                 intVal(p,"portfolio_id"));
         saveSchedTags(id, p);
         logger.log("PIANIFICATA AGGIUNTA", "id:" + id, "descrizione:" + str(p,"description"),
-                   "tipo:" + str(p,"type"), "importo:" + DbLogger.amt(dbl(p,"amount")),
+                   "tipo:" + str(p,"type"), "importo:" + DbLogger.amt(dbl2(p,"amount")),
                    "frequenza:" + str(p,"frequency"), "inizio:" + str(p,"start_date"));
         return queryOne("SELECT * FROM scheduled_transactions WHERE id=?", id);
     }
@@ -1542,7 +1551,7 @@ public class Database {
                 description=?,amount=?,type=?,category_id=?,account_id=?,to_account_id=?,
                 frequency=?,start_date=?,end_date=?,is_active=?,color=?,reconciled=?
             WHERE id=?
-        """, str(p,"description"), dbl(p,"amount"), str(p,"type"),
+        """, str(p,"description"), dbl2(p,"amount"), str(p,"type"),
                 intVal(p,"category_id"), p.get("account_id").getAsInt(),
                 intVal(p,"to_account_id"), str(p,"frequency"),
                 str(p,"start_date"), str(p,"end_date"),
@@ -1552,7 +1561,7 @@ public class Database {
                 id);
         saveSchedTags(id, p);
         logger.log("PIANIFICATA MODIFICATA", "id:" + id, "descrizione:" + str(p,"description"),
-                   "tipo:" + str(p,"type"), "importo:" + DbLogger.amt(dbl(p,"amount")),
+                   "tipo:" + str(p,"type"), "importo:" + DbLogger.amt(dbl2(p,"amount")),
                    "frequenza:" + str(p,"frequency"), "attiva:" + p.get("is_active"));
         return queryOne("SELECT * FROM scheduled_transactions WHERE id=?", id);
     }
@@ -1978,20 +1987,20 @@ public class Database {
         String ticker        = p.get("ticker").getAsString().toUpperCase();
         String name          = p.get("name").getAsString();
         double qty           = p.get("quantity").getAsDouble();
-        double price         = p.get("price").getAsDouble();
+        double price         = r2(p.get("price").getAsDouble());
         String date          = p.get("date").getAsString();
         String notes         = p.has("notes") && !p.get("notes").isJsonNull() ? p.get("notes").getAsString() : null;
         String assetType     = p.has("asset_type") && !p.get("asset_type").isJsonNull() ? p.get("asset_type").getAsString() : "equity";
-        double faceValue     = p.has("face_value") && !p.get("face_value").isJsonNull() ? p.get("face_value").getAsDouble() : 1.0;
+        double faceValue     = r2(p.has("face_value") && !p.get("face_value").isJsonNull() ? p.get("face_value").getAsDouble() : 1.0);
         String maturityDate  = p.has("maturity_date") && !p.get("maturity_date").isJsonNull() ? p.get("maturity_date").getAsString() : null;
         double couponRate    = p.has("coupon_rate") && !p.get("coupon_rate").isJsonNull() ? p.get("coupon_rate").getAsDouble() : 0.0;
         String couponFreq    = p.has("coupon_frequency") && !p.get("coupon_frequency").isJsonNull() ? p.get("coupon_frequency").getAsString() : null;
         double couponTax     = p.has("coupon_tax") && !p.get("coupon_tax").isJsonNull() ? p.get("coupon_tax").getAsDouble() : 12.5;
-        double commissions   = p.has("commissions") && !p.get("commissions").isJsonNull() ? p.get("commissions").getAsDouble() : 0.0;
+        double commissions   = r2(p.has("commissions") && !p.get("commissions").isJsonNull() ? p.get("commissions").getAsDouble() : 0.0);
         boolean isBond       = "bond".equals(assetType);
         // Controvalore puro + commissioni = totale trasferito
-        double pureAmount = isBond ? qty * price / 100.0 : qty * price;
-        double amount     = pureAmount + commissions;
+        double pureAmount = r2(isBond ? qty * price / 100.0 : qty * price);
+        double amount     = r2(pureAmount + commissions);
 
         // Get transfer category
         var cat = queryOne("SELECT id FROM categories WHERE type='transfer' LIMIT 1");
@@ -2014,16 +2023,16 @@ public class Database {
             double existComm = existing.get("total_commissions") != null
                     ? ((Number)existing.get("total_commissions")).doubleValue() : 0.0;
             // Avg price includes commissions: per equity in €/unit, per bond in % equivalente
-            double newAvg = isBond
+            double newAvg = r2(isBond
                 ? (existQty * existAvg + qty * price + commissions * 100) / (existQty + qty)
-                : (existQty * existAvg + qty * price + commissions) / (existQty + qty);
+                : (existQty * existAvg + qty * price + commissions) / (existQty + qty));
             portfolioId = ((Number)existing.get("id")).longValue();
             execute("UPDATE portfolio SET quantity=?, avg_price=?, current_price=?, total_commissions=? WHERE id=?",
-                    existQty + qty, newAvg, price, existComm + commissions, portfolioId);
+                    existQty + qty, newAvg, price, r2(existComm + commissions), portfolioId);
         } else {
-            double initAvg = isBond
+            double initAvg = r2(isBond
                 ? price + (commissions > 0 ? commissions * 100 / qty : 0)
-                : (commissions > 0 ? (qty * price + commissions) / qty : price);
+                : (commissions > 0 ? (qty * price + commissions) / qty : price));
             portfolioId = execute("""
                 INSERT INTO portfolio(account_id,ticker,name,quantity,avg_price,current_price,notes,
                                       asset_type,face_value,maturity_date,coupon_rate,coupon_frequency,coupon_tax,total_commissions)
@@ -2049,7 +2058,7 @@ public class Database {
         int portfolioId   = p.get("portfolio_id").getAsInt();
         int toAccountId   = p.get("to_account_id").getAsInt(); // regular account receiving
         double qty        = p.get("quantity").getAsDouble();
-        double price      = p.get("price").getAsDouble();
+        double price      = r2(p.get("price").getAsDouble());
         String date       = p.get("date").getAsString();
         String notes      = p.has("notes") && !p.get("notes").isJsonNull() ? p.get("notes").getAsString() : null;
 
@@ -2063,7 +2072,7 @@ public class Database {
         if (qty > existQty + 0.00001)
             throw new SQLException("Quantità venduta (" + qty + ") superiore alla disponibile (" + existQty + ")");
 
-        double amount = qty * price;
+        double amount = r2(qty * price);
 
         // Get transfer category
         var cat = queryOne("SELECT id FROM categories WHERE type='transfer' LIMIT 1");
@@ -2093,7 +2102,7 @@ public class Database {
     }
 
     public Map<String, Object> updateStockPrice(int id, double price) throws SQLException {
-        execute("UPDATE portfolio SET current_price=? WHERE id=?", price, id);
+        execute("UPDATE portfolio SET current_price=? WHERE id=?", r2(price), id);
         return queryOne("SELECT * FROM portfolio WHERE id=?", id);
     }
 
@@ -2103,11 +2112,11 @@ public class Database {
         String name          = p.get("name").getAsString();
         int    accountId     = p.get("account_id").getAsInt();
         double quantity      = p.get("quantity").getAsDouble();
-        double avgPrice      = p.get("avg_price").getAsDouble();
-        double curPrice      = p.has("current_price") && !p.get("current_price").isJsonNull()
-                               ? p.get("current_price").getAsDouble() : avgPrice;
-        double totalComm     = p.has("total_commissions") && !p.get("total_commissions").isJsonNull()
-                               ? p.get("total_commissions").getAsDouble() : 0.0;
+        double avgPrice      = r2(p.get("avg_price").getAsDouble());
+        double curPrice      = r2(p.has("current_price") && !p.get("current_price").isJsonNull()
+                               ? p.get("current_price").getAsDouble() : avgPrice);
+        double totalComm     = r2(p.has("total_commissions") && !p.get("total_commissions").isJsonNull()
+                               ? p.get("total_commissions").getAsDouble() : 0.0);
         String assetType     = p.has("asset_type") && !p.get("asset_type").isJsonNull()
                                ? p.get("asset_type").getAsString() : "equity";
         String maturityDate  = p.has("maturity_date") && !p.get("maturity_date").isJsonNull()
@@ -2141,33 +2150,33 @@ public class Database {
         String ticker    = p.get("ticker").getAsString().toUpperCase();
         String name      = p.get("name").getAsString();
         double qty       = p.get("quantity").getAsDouble();
-        double avgPrice  = p.get("avg_price").getAsDouble();
-        double curPrice  = p.has("current_price") && !p.get("current_price").isJsonNull()
-                ? p.get("current_price").getAsDouble() : avgPrice;
+        double avgPrice  = r2(p.get("avg_price").getAsDouble());
+        double curPrice  = r2(p.has("current_price") && !p.get("current_price").isJsonNull()
+                ? p.get("current_price").getAsDouble() : avgPrice);
         String notes     = p.has("notes") && !p.get("notes").isJsonNull() ? p.get("notes").getAsString() : null;
         String assetType = p.has("asset_type") && !p.get("asset_type").isJsonNull() ? p.get("asset_type").getAsString() : "equity";
-        double faceValue = p.has("face_value") && !p.get("face_value").isJsonNull() ? p.get("face_value").getAsDouble() : 1.0;
+        double faceValue = r2(p.has("face_value") && !p.get("face_value").isJsonNull() ? p.get("face_value").getAsDouble() : 1.0);
         String maturityDate = p.has("maturity_date") && !p.get("maturity_date").isJsonNull() ? p.get("maturity_date").getAsString() : null;
         double couponRate   = p.has("coupon_rate") && !p.get("coupon_rate").isJsonNull() ? p.get("coupon_rate").getAsDouble() : 0.0;
         String couponFreq   = p.has("coupon_frequency") && !p.get("coupon_frequency").isJsonNull() ? p.get("coupon_frequency").getAsString() : null;
         double couponTax    = p.has("coupon_tax") && !p.get("coupon_tax").isJsonNull() ? p.get("coupon_tax").getAsDouble() : 12.5;
 
-        double commissions  = p.has("commissions") && !p.get("commissions").isJsonNull() ? p.get("commissions").getAsDouble() : 0.0;
+        double commissions  = r2(p.has("commissions") && !p.get("commissions").isJsonNull() ? p.get("commissions").getAsDouble() : 0.0);
 
         var existing = queryOne("SELECT * FROM portfolio WHERE account_id=? AND ticker=?", accountId, ticker);
         long id;
         boolean isBondImp   = "bond".equals(assetType);
         // Bond: qty = nominale €, avgPrice = %; valore = nominale * prezzo% / 100
-        double addedValue   = isBondImp ? qty * avgPrice / 100.0 : qty * avgPrice;
+        double addedValue   = r2(isBondImp ? qty * avgPrice / 100.0 : qty * avgPrice);
         if (existing != null) {
             double existQty  = ((Number)existing.get("quantity")).doubleValue();
             double existAvg  = ((Number)existing.get("avg_price")).doubleValue();
             double existComm = existing.get("total_commissions") != null
                     ? ((Number)existing.get("total_commissions")).doubleValue() : 0.0;
-            double newAvg    = (existQty * existAvg + qty * avgPrice) / (existQty + qty);
+            double newAvg    = r2((existQty * existAvg + qty * avgPrice) / (existQty + qty));
             id = ((Number)existing.get("id")).longValue();
             execute("UPDATE portfolio SET quantity=?, avg_price=?, current_price=?, total_commissions=? WHERE id=?",
-                    existQty + qty, newAvg, curPrice, existComm + commissions, id);
+                    existQty + qty, newAvg, curPrice, r2(existComm + commissions), id);
         } else {
             id = execute("""
                 INSERT INTO portfolio(account_id,ticker,name,quantity,avg_price,current_price,notes,
@@ -2186,7 +2195,7 @@ public class Database {
     public Map<String, Object> registerCoupon(JsonObject p) throws SQLException {
         int portfolioId = p.get("portfolio_id").getAsInt();
         int accountId   = p.get("account_id").getAsInt();  // conto su cui accreditare
-        double amount   = p.get("amount").getAsDouble();
+        double amount   = r2(p.get("amount").getAsDouble());
         String date     = p.get("date").getAsString();
         String notes    = p.has("notes") && !p.get("notes").isJsonNull() ? p.get("notes").getAsString() : null;
 
@@ -2223,7 +2232,7 @@ public class Database {
     public Map<String, Object> registerPortfolioExpense(JsonObject p) throws SQLException {
         int portfolioId = p.get("portfolio_id").getAsInt();
         int accountId   = p.get("account_id").getAsInt();
-        double amount   = p.get("amount").getAsDouble();
+        double amount   = r2(p.get("amount").getAsDouble());
         String date     = p.get("date").getAsString();
         String label    = p.has("label") && !p.get("label").isJsonNull() ? p.get("label").getAsString() : "Spesa";
         String notes    = p.has("notes") && !p.get("notes").isJsonNull() ? p.get("notes").getAsString() : null;
@@ -2548,7 +2557,7 @@ public class Database {
 
     public int saveForecast(String forecastDate, double projectedBalance, JsonArray categories) throws SQLException {
         execute("INSERT INTO forecasts (forecast_date, projected_balance) VALUES (?,?)",
-                forecastDate, projectedBalance);
+                forecastDate, r2(projectedBalance));
         var r  = queryOne("SELECT last_insert_rowid() AS id");
         int id = ((Number) r.get("id")).intValue();
         for (var el : categories) {
@@ -2558,7 +2567,7 @@ public class Database {
                     cat.has("category_id") && !cat.get("category_id").isJsonNull() ? cat.get("category_id").getAsInt() : null,
                     cat.get("category_name").getAsString(),
                     cat.get("type").getAsString(),
-                    cat.get("projected_amount").getAsDouble());
+                    r2(cat.get("projected_amount").getAsDouble()));
         }
         logger.log("PREVISIONE SALVATA", "data:" + forecastDate, "saldo:" + DbLogger.amt(projectedBalance));
         return id;

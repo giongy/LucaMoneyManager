@@ -1,9 +1,11 @@
 package com.moneymanager;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -18,18 +20,64 @@ public class DbLogger {
     private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("yyyy-MM-dd");
     private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HH:mm:ss");
 
+    // Formato riga: DATE(10) + "  " + TIME(8) + "  " + ACTION(35) + fields...
+    // Posizioni:    0-9          10-11  12-19     20-21  22-56
+    private static final int POS_TIME   = 12;
+    private static final int POS_ACTION = 22;
+    private static final int POS_FIELDS = 57; // 22 + 35
+
     private Path logFile;
+    private int  startLineCount; // righe nel log all'avvio della sessione
 
     public DbLogger(String dbPath) {
-        setDbPath(dbPath);
+        initPath(dbPath);
     }
 
     /** Aggiorna il percorso del log file quando si cambia DB. */
-    public void setDbPath(String dbPath) {
-        if (dbPath == null || dbPath.isBlank()) { logFile = null; return; }
+    public void setDbPath(String dbPath) { initPath(dbPath); }
+
+    private void initPath(String dbPath) {
+        if (dbPath == null || dbPath.isBlank()) { logFile = null; startLineCount = 0; return; }
         Path db = Path.of(dbPath);
         String base = db.getFileName().toString().replaceAll("\\.[^.]+$", "");
         logFile = db.resolveSibling(base + ".log");
+        startLineCount = countCurrentLines();
+    }
+
+    /** Conta le righe attuali nel file di log (0 se non esiste). */
+    private int countCurrentLines() {
+        if (logFile == null || !Files.exists(logFile)) return 0;
+        try (var lines = Files.lines(logFile, StandardCharsets.UTF_8)) {
+            return (int) lines.count();
+        } catch (IOException e) { return 0; }
+    }
+
+    /** True se in questa sessione sono state eseguite operazioni di scrittura sui dati. */
+    public boolean hasChanges() {
+        return !getSessionEntries().isEmpty();
+    }
+
+    /**
+     * Restituisce le voci di log scritte in questa sessione, escludendo le operazioni di sistema.
+     * Ogni voce: {time, op, desc}
+     */
+    public List<Map<String, Object>> getSessionEntries() {
+        if (logFile == null || !Files.exists(logFile)) return List.of();
+        try {
+            List<String> all = Files.readAllLines(logFile, StandardCharsets.UTF_8);
+            int from = Math.min(startLineCount, all.size());
+            return all.subList(from, all.size()).stream()
+                .filter(l -> l.length() >= POS_FIELDS && !SYSTEM_ACTIONS.contains(extractAction(l)))
+                .map(l -> {
+                    String time = l.substring(POS_TIME, POS_TIME + 8).trim();
+                    String op   = extractAction(l);
+                    String desc = Arrays.stream(l.substring(POS_FIELDS).split("\\s*\\|\\s*"))
+                                        .map(String::trim).filter(s -> !s.isBlank())
+                                        .collect(Collectors.joining(" · "));
+                    return Map.<String, Object>of("time", time, "op", op, "desc", desc);
+                })
+                .collect(Collectors.toList());
+        } catch (IOException e) { return List.of(); }
     }
 
     public Path getLogFile() { return logFile; }
@@ -98,9 +146,9 @@ public class DbLogger {
      * Formato: DATE(10) + "  " + TIME(8) + "  " + ACTION(35) + ...
      */
     private static String extractAction(String line) {
-        if (line.length() < 23) return "";
-        int end = Math.min(22 + 35, line.length());
-        return line.substring(22, end).trim();
+        if (line.length() < POS_ACTION + 1) return "";
+        int end = Math.min(POS_FIELDS, line.length());
+        return line.substring(POS_ACTION, end).trim();
     }
 
     /**

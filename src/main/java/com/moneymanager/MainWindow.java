@@ -77,8 +77,8 @@ public class MainWindow {
         frame.addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosing(WindowEvent e) {
-                // Backup automatico all'uscita se abilitato
-                if ("1".equals(settings.get(Settings.BACKUP_ENABLED))) {
+                // Backup automatico all'uscita se abilitato e ci sono modifiche
+                if ("1".equals(settings.get(Settings.BACKUP_ENABLED)) && db.hasModifications()) {
                     String bDir = settings.get(Settings.BACKUP_DIR);
                     int bMax;
                     try { bMax = Integer.parseInt(settings.get(Settings.BACKUP_MAX, "10")); }

@@ -66,6 +66,9 @@ public class Database {
         }
     }
 
+    /** True se in questa sessione sono state eseguite modifiche al DB. */
+    public boolean hasModifications() { return logger.hasChanges(); }
+
     public String backup(String backupDir, int maxBackups) throws IOException {
         if (backupDir == null || backupDir.isBlank())
             throw new IOException("Cartella backup non configurata");
@@ -85,6 +88,15 @@ public class Database {
         Files.copy(src, dest, StandardCopyOption.REPLACE_EXISTING);
         logger.log("BACKUP ESEGUITO", "dest:" + dest);
 
+        // Sidecar JSON con le modifiche della sessione
+        var entries = logger.getSessionEntries();
+        if (!entries.isEmpty()) {
+            Path sidecar = dest.resolveSibling(backupName + ".json");
+            var gson = new com.google.gson.Gson();
+            Files.writeString(sidecar, gson.toJson(Map.of("entries", entries)),
+                    StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+        }
+
         // Pulizia vecchi backup (ordine cronologico, elimina i più vecchi)
         if (maxBackups > 0) {
             try (DirectoryStream<Path> ds = Files.newDirectoryStream(dir, baseName + "_*.db.bak")) {
@@ -92,7 +104,9 @@ public class Database {
                 ds.forEach(baks::add);
                 baks.sort(Comparator.comparing(Path::getFileName));
                 while (baks.size() > maxBackups) {
-                    Files.deleteIfExists(baks.remove(0));
+                    Path old = baks.remove(0);
+                    Files.deleteIfExists(old);
+                    Files.deleteIfExists(old.resolveSibling(old.getFileName() + ".json"));
                 }
             }
         }
@@ -127,13 +141,35 @@ public class Database {
                         ts = m.group(1);
                         try { displayTs = LocalDateTime.parse(ts, fmt).format(display); } catch (Exception ignored) {}
                     }
-                    result.add(Map.of(
-                        "name", name,
-                        "path", f.toAbsolutePath().toString(),
-                        "timestamp", ts != null ? ts : "",
-                        "displayTs", displayTs,
-                        "size", Files.size(f)
-                    ));
+                    // Leggi sidecar JSON con le modifiche della sessione (se presente)
+                    List<?> changes = List.of();
+                    Path sidecar = f.resolveSibling(name + ".json");
+                    if (Files.exists(sidecar)) {
+                        try {
+                            var parsed = com.google.gson.JsonParser.parseString(
+                                    Files.readString(sidecar, java.nio.charset.StandardCharsets.UTF_8))
+                                    .getAsJsonObject();
+                            var arr = parsed.getAsJsonArray("entries");
+                            var list = new ArrayList<Map<String,Object>>();
+                            for (var el : arr) {
+                                var obj = el.getAsJsonObject();
+                                list.add(Map.of(
+                                    "time", obj.get("time").getAsString(),
+                                    "op",   obj.get("op").getAsString(),
+                                    "desc", obj.get("desc").getAsString()
+                                ));
+                            }
+                            changes = list;
+                        } catch (Exception ignored) {}
+                    }
+                    var entry = new java.util.HashMap<String,Object>();
+                    entry.put("name",      name);
+                    entry.put("path",      f.toAbsolutePath().toString());
+                    entry.put("timestamp", ts != null ? ts : "");
+                    entry.put("displayTs", displayTs);
+                    entry.put("size",      Files.size(f));
+                    entry.put("changes",   changes);
+                    result.add(entry);
                 }
             }
         }

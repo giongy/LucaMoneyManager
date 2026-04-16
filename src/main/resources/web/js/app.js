@@ -8924,26 +8924,50 @@ async function settingsLoadBackupList() {
         <thead>
           <tr style="color:var(--txt2);border-bottom:1px solid var(--border)">
             <th style="text-align:left;padding:4px 8px">Data e ora</th>
-            <th style="text-align:left;padding:4px 8px">File</th>
+            <th style="text-align:left;padding:4px 8px">Modifiche</th>
             <th style="text-align:right;padding:4px 8px">Dim.</th>
             <th style="padding:4px 8px"></th>
           </tr>
         </thead>
         <tbody>
-          ${list.map((b,i) => `
-          <tr style="border-bottom:1px solid var(--border);${i%2===1?'background:rgba(255,255,255,.025)':''}">
-            <td style="padding:5px 8px;font-weight:600;color:var(--accent)">${b.displayTs}</td>
-            <td style="padding:5px 8px;color:var(--txt2);font-size:11px">${b.name}</td>
-            <td style="padding:5px 8px;text-align:right;color:var(--txt3)">${(b.size/1024).toFixed(1)} KB</td>
-            <td style="padding:5px 8px">
-              <button class="btn btn-secondary btn-restore-bak" style="font-size:11px;padding:2px 10px"
-                data-path="${b.path.replace(/\\/g,'\\\\')}" data-ts="${b.displayTs}">
-                ♻️ Ripristina
-              </button>
-            </td>
-          </tr>`).join('')}
+          ${list.map((b,i) => {
+            const changes = b.changes || [];
+            const nChanges = changes.length;
+            const rowBg = i%2===1 ? 'background:rgba(255,255,255,.025)' : '';
+            const detailId = `bak-detail-${i}`;
+            const changesCell = nChanges === 0
+              ? `<span style="color:var(--txt3)">—</span>`
+              : `<button class="btn btn-ghost" style="font-size:11px;padding:1px 7px"
+                   onclick="document.querySelectorAll('.${detailId}').forEach(r=>r.classList.toggle('hidden'))">
+                   📋 ${nChanges} ${nChanges===1?'modifica':'modifiche'}
+                 </button>`;
+            const detailRows = changes.map(c =>
+              `<tr class="bak-detail-row ${detailId}" style="background:var(--bg3)">
+                <td colspan="4" style="padding:3px 8px 3px 24px;font-size:11px;color:var(--txt2)">
+                  <span style="color:var(--txt3);margin-right:6px">${c.time}</span>
+                  <strong>${c.op}</strong>
+                  ${c.desc ? `<span style="color:var(--txt3);margin-left:6px">${c.desc}</span>` : ''}
+                </td>
+              </tr>`
+            ).join('');
+            return `
+            <tr style="border-bottom:1px solid var(--border);${rowBg}">
+              <td style="padding:5px 8px;font-weight:600;color:var(--accent)">${b.displayTs}</td>
+              <td style="padding:5px 8px">${changesCell}</td>
+              <td style="padding:5px 8px;text-align:right;color:var(--txt3)">${(b.size/1024).toFixed(1)} KB</td>
+              <td style="padding:5px 8px">
+                <button class="btn btn-secondary btn-restore-bak" style="font-size:11px;padding:2px 10px"
+                  data-path="${b.path.replace(/\\/g,'\\\\')}" data-ts="${b.displayTs}">
+                  ♻️ Ripristina
+                </button>
+              </td>
+            </tr>
+            ${detailRows}`;
+          }).join('')}
         </tbody>
       </table>`;
+    // Nascondi tutte le righe di dettaglio all'inizio
+    container.querySelectorAll('.bak-detail-row').forEach(r => r.classList.add('hidden'));
     container.querySelectorAll('.btn-restore-bak').forEach(btn => {
       btn.addEventListener('click', () => settingsConfirmRestore(btn.dataset.path, btn.dataset.ts));
     });

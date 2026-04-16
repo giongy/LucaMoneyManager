@@ -27,7 +27,7 @@ public class DbLogger {
     private static final int POS_FIELDS = 57; // 22 + 35
 
     private Path logFile;
-    private int  startLineCount; // righe nel log all'avvio della sessione
+    private long startOffset; // byte nel log all'avvio della sessione (Files.size, istantaneo)
 
     public DbLogger(String dbPath) {
         initPath(dbPath);
@@ -37,19 +37,12 @@ public class DbLogger {
     public void setDbPath(String dbPath) { initPath(dbPath); }
 
     private void initPath(String dbPath) {
-        if (dbPath == null || dbPath.isBlank()) { logFile = null; startLineCount = 0; return; }
+        if (dbPath == null || dbPath.isBlank()) { logFile = null; startOffset = 0; return; }
         Path db = Path.of(dbPath);
         String base = db.getFileName().toString().replaceAll("\\.[^.]+$", "");
         logFile = db.resolveSibling(base + ".log");
-        startLineCount = countCurrentLines();
-    }
-
-    /** Conta le righe attuali nel file di log (0 se non esiste). */
-    private int countCurrentLines() {
-        if (logFile == null || !Files.exists(logFile)) return 0;
-        try (var lines = Files.lines(logFile, StandardCharsets.UTF_8)) {
-            return (int) lines.count();
-        } catch (IOException e) { return 0; }
+        try { startOffset = Files.exists(logFile) ? Files.size(logFile) : 0; }
+        catch (IOException e) { startOffset = 0; }
     }
 
     /** True se in questa sessione sono state eseguite operazioni di scrittura sui dati. */
@@ -59,14 +52,20 @@ public class DbLogger {
 
     /**
      * Restituisce le voci di log scritte in questa sessione, escludendo le operazioni di sistema.
+     * Legge solo i byte aggiunti dopo l'avvio, non l'intero file.
      * Ogni voce: {time, op, desc}
      */
     public List<Map<String, Object>> getSessionEntries() {
         if (logFile == null || !Files.exists(logFile)) return List.of();
         try {
-            List<String> all = Files.readAllLines(logFile, StandardCharsets.UTF_8);
-            int from = Math.min(startLineCount, all.size());
-            return all.subList(from, all.size()).stream()
+            long size = Files.size(logFile);
+            if (size <= startOffset) return List.of();
+            byte[] buf = new byte[(int)(size - startOffset)];
+            try (var raf = new java.io.RandomAccessFile(logFile.toFile(), "r")) {
+                raf.seek(startOffset);
+                raf.readFully(buf);
+            }
+            return Arrays.stream(new String(buf, StandardCharsets.UTF_8).split("\\r?\\n"))
                 .filter(l -> l.length() >= POS_FIELDS && !SYSTEM_ACTIONS.contains(extractAction(l)))
                 .map(l -> {
                     String time = l.substring(POS_TIME, POS_TIME + 8).trim();

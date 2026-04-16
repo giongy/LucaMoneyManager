@@ -399,6 +399,7 @@ function evalAmount(raw) {
 /* ─── Utils ───────────────────────────────────────────────────────────────── */
 const fmt = {
   currency: v => new Intl.NumberFormat('it-IT',{style:'currency',currency:'EUR'}).format(v ?? 0),
+  price:    v => new Intl.NumberFormat('it-IT',{style:'currency',currency:'EUR',minimumFractionDigits:2,maximumFractionDigits:4}).format(v ?? 0),
   date: s => s ? new Date(s).toLocaleDateString('it-IT') : '',
   month: (m,y) => new Date(y,m-1,1).toLocaleDateString('it-IT',{month:'long',year:'numeric'}),
   pct: v => (v >= 0 ? '+' : '') + v.toFixed(2) + '%',
@@ -3922,7 +3923,7 @@ async function renderPortfolio() {
             const isBond = i.asset_type === 'bond';
             const val = i._val, cost = i._cost, pnl = i._pnl, comm = i._comm;
             const pnlP = cost ? (pnl/cost)*100 : 0;
-            const priceDisplay = isBond ? `${(i.avg_price||0).toFixed(2)} %` : fmt.currency(i.avg_price);
+            const priceDisplay = isBond ? `${(i.avg_price||0).toFixed(4)} %` : fmt.price(i.avg_price);
             const priceUnit    = isBond ? '%' : '€';
             const typeBadge    = isBond
               ? `<span class="badge" style="background:#d29922;color:#fff;font-size:10px;padding:1px 5px;border-radius:4px">OBB</span>`
@@ -4785,7 +4786,7 @@ async function showSellModal(portfolioId) {
   const regularAccounts = accounts.filter(a => a.type !== 'investment' && !a.is_closed);
   const today = _todayStr();
   const isBond = pos.asset_type === 'bond';
-  const avgDisplay = isBond ? `${(pos.avg_price||0).toFixed(2)} %` : fmt.currency(pos.avg_price);
+  const avgDisplay = isBond ? `${(pos.avg_price||0).toFixed(4)} %` : fmt.price(pos.avg_price);
   const qtyLabel   = isBond ? 'Nominale da vendere (€) *' : 'Quantità *';
   const priceLabel = isBond ? 'Prezzo di regolamento (%) *' : 'Prezzo vendita (€) *';
   const defaultSellPrice = pos.current_price || pos.avg_price;
@@ -5089,7 +5090,7 @@ async function showPortfolioHistory(portfolioId) {
           <td>${t.date}</td>
           <td><span style="color:${color};font-weight:600">${label}</span></td>
           <td>${(isCoupon || isExpense) ? '—' : t.quantity}</td>
-          <td>${(isCoupon || isExpense) ? '—' : fmt.currency(t.price)}</td>
+          <td>${(isCoupon || isExpense) ? '—' : fmt.price(t.price)}</td>
           <td class="text-right" style="color:${color}">${sign} ${fmt.currency(total)}</td>
         </tr>`;
       }).join('') : '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--txt3)">Nessuna operazione</td></tr>'}

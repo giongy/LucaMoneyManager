@@ -262,6 +262,9 @@ public class Database {
     /** Arrotonda a 2 decimali — usato per tutti i valori monetari in €. */
     private static double r2(double v) { return Math.round(v * 100.0) / 100.0; }
 
+    /** Arrotonda a 4 decimali — usato per prezzi unitari di azioni/obbligazioni. */
+    private static double r4(double v) { return Math.round(v * 10000.0) / 10000.0; }
+
     /** Legge un double da JSON e lo arrotonda a 2 decimali. */
     private Double dbl2(JsonObject p, String key) {
         Double v = dbl(p, key);
@@ -1987,11 +1990,11 @@ public class Database {
         String ticker        = p.get("ticker").getAsString().toUpperCase();
         String name          = p.get("name").getAsString();
         double qty           = p.get("quantity").getAsDouble();
-        double price         = r2(p.get("price").getAsDouble());
+        double price         = r4(p.get("price").getAsDouble());
         String date          = p.get("date").getAsString();
         String notes         = p.has("notes") && !p.get("notes").isJsonNull() ? p.get("notes").getAsString() : null;
         String assetType     = p.has("asset_type") && !p.get("asset_type").isJsonNull() ? p.get("asset_type").getAsString() : "equity";
-        double faceValue     = r2(p.has("face_value") && !p.get("face_value").isJsonNull() ? p.get("face_value").getAsDouble() : 1.0);
+        double faceValue     = r4(p.has("face_value") && !p.get("face_value").isJsonNull() ? p.get("face_value").getAsDouble() : 1.0);
         String maturityDate  = p.has("maturity_date") && !p.get("maturity_date").isJsonNull() ? p.get("maturity_date").getAsString() : null;
         double couponRate    = p.has("coupon_rate") && !p.get("coupon_rate").isJsonNull() ? p.get("coupon_rate").getAsDouble() : 0.0;
         String couponFreq    = p.has("coupon_frequency") && !p.get("coupon_frequency").isJsonNull() ? p.get("coupon_frequency").getAsString() : null;
@@ -2023,14 +2026,14 @@ public class Database {
             double existComm = existing.get("total_commissions") != null
                     ? ((Number)existing.get("total_commissions")).doubleValue() : 0.0;
             // Avg price includes commissions: per equity in €/unit, per bond in % equivalente
-            double newAvg = r2(isBond
+            double newAvg = r4(isBond
                 ? (existQty * existAvg + qty * price + commissions * 100) / (existQty + qty)
                 : (existQty * existAvg + qty * price + commissions) / (existQty + qty));
             portfolioId = ((Number)existing.get("id")).longValue();
             execute("UPDATE portfolio SET quantity=?, avg_price=?, current_price=?, total_commissions=? WHERE id=?",
                     existQty + qty, newAvg, price, r2(existComm + commissions), portfolioId);
         } else {
-            double initAvg = r2(isBond
+            double initAvg = r4(isBond
                 ? price + (commissions > 0 ? commissions * 100 / qty : 0)
                 : (commissions > 0 ? (qty * price + commissions) / qty : price));
             portfolioId = execute("""
@@ -2058,7 +2061,7 @@ public class Database {
         int portfolioId   = p.get("portfolio_id").getAsInt();
         int toAccountId   = p.get("to_account_id").getAsInt(); // regular account receiving
         double qty        = p.get("quantity").getAsDouble();
-        double price      = r2(p.get("price").getAsDouble());
+        double price      = r4(p.get("price").getAsDouble());
         String date       = p.get("date").getAsString();
         String notes      = p.has("notes") && !p.get("notes").isJsonNull() ? p.get("notes").getAsString() : null;
 
@@ -2102,7 +2105,7 @@ public class Database {
     }
 
     public Map<String, Object> updateStockPrice(int id, double price) throws SQLException {
-        execute("UPDATE portfolio SET current_price=? WHERE id=?", r2(price), id);
+        execute("UPDATE portfolio SET current_price=? WHERE id=?", r4(price), id);
         return queryOne("SELECT * FROM portfolio WHERE id=?", id);
     }
 
@@ -2112,8 +2115,8 @@ public class Database {
         String name          = p.get("name").getAsString();
         int    accountId     = p.get("account_id").getAsInt();
         double quantity      = p.get("quantity").getAsDouble();
-        double avgPrice      = r2(p.get("avg_price").getAsDouble());
-        double curPrice      = r2(p.has("current_price") && !p.get("current_price").isJsonNull()
+        double avgPrice      = r4(p.get("avg_price").getAsDouble());
+        double curPrice      = r4(p.has("current_price") && !p.get("current_price").isJsonNull()
                                ? p.get("current_price").getAsDouble() : avgPrice);
         double totalComm     = r2(p.has("total_commissions") && !p.get("total_commissions").isJsonNull()
                                ? p.get("total_commissions").getAsDouble() : 0.0);
@@ -2150,12 +2153,12 @@ public class Database {
         String ticker    = p.get("ticker").getAsString().toUpperCase();
         String name      = p.get("name").getAsString();
         double qty       = p.get("quantity").getAsDouble();
-        double avgPrice  = r2(p.get("avg_price").getAsDouble());
-        double curPrice  = r2(p.has("current_price") && !p.get("current_price").isJsonNull()
+        double avgPrice  = r4(p.get("avg_price").getAsDouble());
+        double curPrice  = r4(p.has("current_price") && !p.get("current_price").isJsonNull()
                 ? p.get("current_price").getAsDouble() : avgPrice);
         String notes     = p.has("notes") && !p.get("notes").isJsonNull() ? p.get("notes").getAsString() : null;
         String assetType = p.has("asset_type") && !p.get("asset_type").isJsonNull() ? p.get("asset_type").getAsString() : "equity";
-        double faceValue = r2(p.has("face_value") && !p.get("face_value").isJsonNull() ? p.get("face_value").getAsDouble() : 1.0);
+        double faceValue = r4(p.has("face_value") && !p.get("face_value").isJsonNull() ? p.get("face_value").getAsDouble() : 1.0);
         String maturityDate = p.has("maturity_date") && !p.get("maturity_date").isJsonNull() ? p.get("maturity_date").getAsString() : null;
         double couponRate   = p.has("coupon_rate") && !p.get("coupon_rate").isJsonNull() ? p.get("coupon_rate").getAsDouble() : 0.0;
         String couponFreq   = p.has("coupon_frequency") && !p.get("coupon_frequency").isJsonNull() ? p.get("coupon_frequency").getAsString() : null;
@@ -2173,7 +2176,7 @@ public class Database {
             double existAvg  = ((Number)existing.get("avg_price")).doubleValue();
             double existComm = existing.get("total_commissions") != null
                     ? ((Number)existing.get("total_commissions")).doubleValue() : 0.0;
-            double newAvg    = r2((existQty * existAvg + qty * avgPrice) / (existQty + qty));
+            double newAvg    = r4((existQty * existAvg + qty * avgPrice) / (existQty + qty));
             id = ((Number)existing.get("id")).longValue();
             execute("UPDATE portfolio SET quantity=?, avg_price=?, current_price=?, total_commissions=? WHERE id=?",
                     existQty + qty, newAvg, curPrice, r2(existComm + commissions), id);

@@ -2598,7 +2598,7 @@ public class Database {
         if (forecast == null) throw new SQLException("Previsione non trovata");
         String createdAt    = ((String) forecast.get("created_at")).substring(0, 10);
         String forecastDate = (String) forecast.get("forecast_date");
-        var cats = queryList("SELECT * FROM forecast_categories WHERE forecast_id=? ORDER BY category_name", id);
+        var cats = new java.util.ArrayList<>(queryList("SELECT * FROM forecast_categories WHERE forecast_id=? ORDER BY category_name", id));
         for (var cat : cats) {
             Object catId  = cat.get("category_id");
             String txType = (String) cat.get("category_type");
@@ -2636,6 +2636,7 @@ public class Database {
                 forecastDate, forecastDate);
         double actualBalance = (balRow != null && balRow.get("total") != null)
                 ? ((Number) balRow.get("total")).doubleValue() : 0.0;
+        cats.sort(java.util.Comparator.comparingDouble(c -> ((Number) c.get("diff")).doubleValue()));
         forecast.put("categories",     cats);
         forecast.put("actual_balance", actualBalance);
         return forecast;

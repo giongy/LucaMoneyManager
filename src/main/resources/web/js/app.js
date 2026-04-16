@@ -11206,6 +11206,7 @@ function _forecastsHTML(list, openCmd) {
             <td style="${tdS};color:var(--txt2)">${fmt.date(f.created_at.substring(0,10))}</td>
             ${!isArchived ? `<td style="${tdS};text-align:center">${statusBadge}</td>` : ''}
             <td style="${tdS};text-align:right;white-space:nowrap;display:flex;gap:6px;justify-content:flex-end">
+              ${!ready && !isArchived ? `<button class="btn btn-xs btn-ghost" onclick="event.stopPropagation();_showForecastPreview(${f.id})">👁 Preview</button>` : ''}
               ${!isArchived ? `<button class="btn btn-xs btn-ghost" onclick="event.stopPropagation();_archiveForecast(${f.id},()=>{${openCmd}})">Archivia</button>` : ''}
               <button class="btn btn-xs btn-danger" onclick="event.stopPropagation();_deleteForecast(${f.id},()=>{${openCmd}})">Elimina</button>
             </td>
@@ -11323,6 +11324,57 @@ async function _archiveForecast(id, refresh) {
     }
     if (refresh) refresh(); else renderForecasts();
   } catch(e) { toast(e.message, 'error'); }
+}
+
+async function _showForecastPreview(id) {
+  let d; try { d = await api.getForecastDetail({id}); } catch(e) { toast(e.message,'error'); return; }
+  const cats = d.categories || [];
+  const balDiff = d.actual_balance - d.projected_balance;
+  const tdS = 'padding:7px 12px;border-bottom:1px solid var(--border);font-size:13px';
+  const thS = `${tdS};color:var(--txt2);font-weight:500;font-size:12px`;
+  const diffColor = v => v > 0 ? 'var(--income)' : v < 0 ? 'var(--expense)' : 'var(--txt2)';
+  const diffStr  = v => (v > 0 ? '+' : '') + fmt.currency(v);
+
+  const body = `
+    <div style="margin-bottom:16px;padding:14px 16px;background:var(--bg3);border-radius:var(--radius)">
+      <div style="font-size:11px;color:var(--txt3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.4px">Saldo totale</div>
+      <div style="display:flex;gap:32px;flex-wrap:wrap">
+        <div><div style="font-size:11px;color:var(--txt3)">Previsto</div><div style="font-size:18px;font-weight:700;color:var(--accent)">${fmt.currency(d.projected_balance)}</div></div>
+        <div><div style="font-size:11px;color:var(--txt3)">Reale ad oggi</div><div style="font-size:18px;font-weight:700">${fmt.currency(d.actual_balance)}</div></div>
+        <div><div style="font-size:11px;color:var(--txt3)">Differenza</div><div style="font-size:18px;font-weight:700;color:${diffColor(balDiff)}">${diffStr(balDiff)}</div></div>
+      </div>
+    </div>
+    ${!cats.length ? `<p style="color:var(--txt3);text-align:center">Nessuna categoria salvata.</p>` :
+    `<div style="overflow-x:auto">
+    <table style="width:100%;border-collapse:collapse">
+      <thead><tr>
+        <th style="${thS};text-align:left">Categoria</th>
+        <th style="${thS};text-align:center">Tipo</th>
+        <th style="${thS};text-align:right">Previsto</th>
+        <th style="${thS};text-align:right">Reale ad oggi</th>
+        <th style="${thS};text-align:right">Differenza</th>
+      </tr></thead>
+      <tbody>
+        ${cats.map(c => {
+          const diff = c.diff;
+          const rowBg = diff > 0 ? 'rgba(63,185,80,.04)' : diff < 0 ? 'rgba(248,81,73,.04)' : '';
+          return `<tr style="background:${rowBg}">
+            <td style="${tdS}">${c.category_name}</td>
+            <td style="${tdS};text-align:center">
+              <span style="font-size:11px;padding:1px 7px;border-radius:8px;background:${c.category_type==='income'?'rgba(63,185,80,.15)':'rgba(248,81,73,.15)'};color:${c.category_type==='income'?'var(--income)':'var(--expense)'}">
+                ${c.category_type==='income'?'Entrata':'Uscita'}
+              </span>
+            </td>
+            <td style="${tdS};text-align:right;font-variant-numeric:tabular-nums">${fmt.currency(c.projected_amount)}</td>
+            <td style="${tdS};text-align:right;font-variant-numeric:tabular-nums">${fmt.currency(c.actual_amount)}</td>
+            <td style="${tdS};text-align:right;font-variant-numeric:tabular-nums;font-weight:600;color:${diffColor(diff)}">${diffStr(diff)}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table></div>`}`;
+
+  openModal(`Preview — previsione al ${fmt.date(d.forecast_date)}`, body, null, null, null, '');
+  document.getElementById('modal').style.width = '720px';
 }
 
 // Aspetta che il bridge JCEF sia pronto (in browser mode parte subito)

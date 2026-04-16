@@ -11188,6 +11188,7 @@ function _forecastsHTML(list, openCmd) {
         <th style="${thS};text-align:right">Saldo previsto</th>
         <th style="${thS};text-align:center">Categorie</th>
         <th style="${thS}">Salvata il</th>
+        <th style="${thS};text-align:center">Orizzonte</th>
         ${!isArchived ? `<th style="${thS};text-align:center">Stato</th>` : ''}
         <th style="${thS}"></th>
       </tr></thead>
@@ -11204,6 +11205,7 @@ function _forecastsHTML(list, openCmd) {
             <td style="${tdS};text-align:right;font-variant-numeric:tabular-nums">${fmt.currency(f.projected_balance)}</td>
             <td style="${tdS};text-align:center">${f.cat_count}</td>
             <td style="${tdS};color:var(--txt2)">${fmt.date(f.created_at.substring(0,10))}</td>
+            <td style="${tdS};text-align:center;color:var(--txt2)">${Math.round((new Date(f.forecast_date) - new Date(f.created_at.substring(0,10))) / 86400000)} gg</td>
             ${!isArchived ? `<td style="${tdS};text-align:center">${statusBadge}</td>` : ''}
             <td style="${tdS};text-align:right;white-space:nowrap;display:flex;gap:6px;justify-content:flex-end">
               ${!ready && !isArchived ? `<button class="btn btn-xs btn-ghost" onclick="event.stopPropagation();_showForecastPreview(${f.id})">👁 Preview</button>` : ''}

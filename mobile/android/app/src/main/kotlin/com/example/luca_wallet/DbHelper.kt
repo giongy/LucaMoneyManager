@@ -300,7 +300,7 @@ object DbHelper {
             put("account_id", accountId)
             if (toAccountId != null) put("to_account_id", toAccountId) else putNull("to_account_id")
             put("description", description)
-            put("reconciled", 0)
+            put("reconciled", 1)
         })
         db!!.insert("transaction_tags", null, ContentValues().apply {
             put("transaction_id", txId)

@@ -6961,7 +6961,7 @@ function renderReportResults(txs, groupby, chartType) {
       ${txs.map(t=>{
         const isSplitFiltered = t.filtered_split_amount != null;
         const dispAmt = effectiveAmt(t);
-        return `<tr style="cursor:pointer" onclick="navigateToTx(${t.id})">
+        return `<tr style="cursor:pointer" onclick="editTx(${t.id})">
         <td>${fmt.date(t.date)}</td>
         <td class="td-main">${t.description||'—'}${isSplitFiltered ? ` <span style="font-size:10px;opacity:.5" title="Totale transazione: ${fmt.currency(t.amount)}">(tot. ${fmt.currency(t.amount)})</span>` : ''}</td>
         <td>${effectiveCatIcon(t)} ${effectiveCatName(t)}${isSplitFiltered ? ' <span style="font-size:10px;opacity:.5">(÷)</span>' : ''}</td>

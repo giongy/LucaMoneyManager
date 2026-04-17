@@ -3560,7 +3560,7 @@ function _openBudgetDetail(catId, catName, isFirstOpen) {
       <td style="text-align:right">${a ? fmt.currency(a) : '—'}</td>
       <td style="text-align:right">${b ? fmt.currency(b) : '—'}</td>
       <td style="text-align:right;${(b||a) ? diffColor(d) : ''}">${(b||a) ? fmt.currency(d) : '—'}</td>
-      <td style="text-align:right;color:var(--txt3)">${cumA ? fmt.currency(cumA) : '—'}</td>
+      <td style="text-align:right;color:var(--txt3);border-left:2px solid var(--border)">${cumA ? fmt.currency(cumA) : '—'}</td>
       <td style="text-align:right;color:var(--txt3)">${cumB ? fmt.currency(cumB) : '—'}</td>
       <td style="text-align:right;${(cumB||cumA) ? diffColor(cumD) : ''}">${(cumB||cumA) ? fmt.currency(cumD) : '—'}</td>
     </tr>`;
@@ -3587,13 +3587,13 @@ function _openBudgetDetail(catId, catName, isFirstOpen) {
             <tr>
               <th rowspan="2">Mese</th>
               <th colspan="3" style="text-align:center;border-bottom:1px solid var(--border)">Mensile</th>
-              <th colspan="3" style="text-align:center;border-bottom:1px solid var(--border)">Cumulativo</th>
+              <th colspan="3" style="text-align:center;border-bottom:1px solid var(--border);border-left:2px solid var(--border)">Cumulativo</th>
             </tr>
             <tr>
               <th style="text-align:right">Reale</th>
               <th style="text-align:right">Budget</th>
               <th style="text-align:right">Diff.</th>
-              <th style="text-align:right">Reale</th>
+              <th style="text-align:right;border-left:2px solid var(--border)">Reale</th>
               <th style="text-align:right">Budget</th>
               <th style="text-align:right">Diff.</th>
             </tr>
@@ -3604,7 +3604,7 @@ function _openBudgetDetail(catId, catName, isFirstOpen) {
             <td style="text-align:right">${totA ? fmt.currency(totA) : '—'}</td>
             <td style="text-align:right">${totB ? fmt.currency(totB) : '—'}</td>
             <td style="text-align:right;${totDc}">${(totB||totA) ? fmt.currency(totD) : '—'}</td>
-            <td style="text-align:right;color:var(--txt3)">${totA ? fmt.currency(totA) : '—'}</td>
+            <td style="text-align:right;color:var(--txt3);border-left:2px solid var(--border)">${totA ? fmt.currency(totA) : '—'}</td>
             <td style="text-align:right;color:var(--txt3)">${totB ? fmt.currency(totB) : '—'}</td>
             <td style="text-align:right;${totDc}">${(totB||totA) ? fmt.currency(totD) : '—'}</td>
           </tr></tfoot>

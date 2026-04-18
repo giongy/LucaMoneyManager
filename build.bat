@@ -38,16 +38,12 @@ echo       OK - %JAR%
 
 :: ── jlink ───────────────────────────────────────────────────────────────────
 echo.
-echo Rilevamento moduli necessari con jdeps...
-for /f %%m in ('"%JAVA_HOME%\bin\jdeps" --multi-release 21 --ignore-missing-deps --print-module-deps "%JAR%" 2^>nul') do set MODULES=%%m
-:: jdk.unsupported: richiesto da JCEF/Gson per sun.misc.Unsafe
-:: java.management: richiesto da JCEF internamente
-set MODULES=%MODULES%,jdk.unsupported,java.management
-echo       Moduli: %MODULES%
-
 echo Creazione JRE con jlink...
 if exist "%DIST%\build" rmdir /s /q "%DIST%\build"
 if exist "%DIST%\runtime" rmdir /s /q "%DIST%\runtime"
+
+:: Moduli necessari per: Swing/AWT, JDBC/SQLite, Gson (jdk.unsupported per Unsafe), JCEF
+set MODULES=java.base,java.desktop,java.sql,java.logging,java.xml,java.naming,java.management,jdk.unsupported
 
 "%JAVA_HOME%\bin\jlink" --module-path "%JAVA_HOME%\jmods" --add-modules %MODULES% --output "%DIST%\runtime" --strip-debug --compress zip-2 --no-header-files --no-man-pages
 if errorlevel 1 ( echo [ERRORE] jlink fallito. & pause & exit /b 1 )

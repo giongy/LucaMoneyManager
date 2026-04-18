@@ -60,7 +60,7 @@ rmdir /s /q "%DIST%\input"
 :: ── Deploy ──────────────────────────────────────────────────────────────────
 echo Deploy in "%DEPLOY%"...
 if not exist "%DEPLOY%" mkdir "%DEPLOY%"
-%SystemRoot%\System32\robocopy.exe "%DIST%\build\LucaMoneyManager" "%DEPLOY%" /e /xf "*.db" "settings.properties" "*.bak" "*.properties" "*.log" /xd "backup" "jcef" /njh /njs /ndl
+%SystemRoot%\System32\robocopy.exe "%DIST%\build\LucaMoneyManager" "%DEPLOY%" /e /xf "*.db" "settings.properties" "*.bak" "*.log" /xd "backup" "jcef" /njh /njs /ndl
 if errorlevel 8 ( echo [ERRORE] Deploy fallito. & pause & exit /b 1 )
 echo       OK - deploy in %DEPLOY%
 

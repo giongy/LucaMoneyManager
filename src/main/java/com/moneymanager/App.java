@@ -72,24 +72,17 @@ public class App {
         System.setErr(logStream);
         System.setOut(logStream);
 
+        // Database SQLite
+        Database db = new Database(dbPath);
+
+        // Estrai risorse web (HTML/CSS/JS) nella cartella dati (skippato se JAR invariato)
+        String htmlUrl = WebExtractor.extract(dataDir.resolve("web"));
+
         // Dialogo di caricamento (visibile durante download JCEF al primo avvio)
         LoadingDialog loading = new LoadingDialog();
         loading.setVisible(true);
 
-        // DB e web extraction in background, sovrapposti all'avvio di JCEF (~1-3s)
-        final String finalDbPath = dbPath;
-        final java.util.concurrent.CompletableFuture<Database> dbFuture =
-            java.util.concurrent.CompletableFuture.supplyAsync(() -> {
-                try { return new Database(finalDbPath); }
-                catch (Exception e) { throw new java.util.concurrent.CompletionException(e); }
-            });
-        final java.util.concurrent.CompletableFuture<String> htmlFuture =
-            java.util.concurrent.CompletableFuture.supplyAsync(() -> {
-                try { return WebExtractor.extract(dataDir.resolve("web")); }
-                catch (Exception e) { throw new java.util.concurrent.CompletionException(e); }
-            });
-
-        // Inizializza JCEF sul thread principale (scarica ~200MB di Chromium al primo avvio)
+        // Inizializza JCEF (scarica ~200MB di Chromium al primo avvio)
         CefAppBuilder builder = new CefAppBuilder();
         builder.setInstallDir(dataDir.resolve("jcef").toFile());
         builder.addJcefArgs("--disable-gpu"); // più stabile su alcuni sistemi
@@ -109,23 +102,6 @@ public class App {
         });
 
         CefApp cefApp = builder.build(); // blocca finché JCEF non è pronto
-
-        // DB e web sono probabilmente già pronti; join con gestione errori
-        Database db;
-        String htmlUrl;
-        try {
-            db      = dbFuture.get();
-            htmlUrl = htmlFuture.get();
-        } catch (java.util.concurrent.ExecutionException | InterruptedException e) {
-            Throwable cause = e.getCause();
-            if (cause == null) cause = e;
-            loading.setVisible(false);
-            loading.dispose();
-            JOptionPane.showMessageDialog(null,
-                    "Errore avvio: " + cause.getMessage(), "Errore", JOptionPane.ERROR_MESSAGE);
-            System.exit(1);
-            return;
-        }
 
         // Aggiorna il loading (rimane visibile finché la pagina non è pronta)
         loading.update("Caricamento interfaccia...", 0);

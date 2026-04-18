@@ -14,7 +14,6 @@ public class LoadingDialog extends JWindow {
         Rectangle screen = ge.getMaximumWindowBounds();
         setBounds(screen);
         setBackground(new Color(13, 17, 23));
-        setAlwaysOnTop(true);
 
         // Pannello centrato con le info di caricamento
         JPanel card = new JPanel(new BorderLayout(10, 10));

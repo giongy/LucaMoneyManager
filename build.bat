@@ -48,10 +48,14 @@ if errorlevel 1 ( echo [ERRORE] jlink fallito. & pause & exit /b 1 )
 
 :: ── jpackage ─────────────────────────────────────────────────────────────────
 echo Creazione EXE con jpackage...
-"%JAVA_HOME%\bin\jpackage" --type app-image --runtime-image "%DIST%\runtime" --input "%ROOT%target" --main-jar moneymanager-%VERSION%.jar --name LucaMoneyManager --app-version %VERSION% --dest "%DIST%\build" --icon "%ROOT%target\icon.ico" --java-options "-Dfile.encoding=UTF-8"
+if exist "%DIST%\input" rmdir /s /q "%DIST%\input"
+mkdir "%DIST%\input"
+copy /y "%JAR%" "%DIST%\input\" >nul
+"%JAVA_HOME%\bin\jpackage" --type app-image --runtime-image "%DIST%\runtime" --input "%DIST%\input" --main-jar moneymanager-%VERSION%.jar --name LucaMoneyManager --app-version %VERSION% --dest "%DIST%\build" --icon "%ROOT%target\icon.ico" --java-options "-Dfile.encoding=UTF-8"
 if errorlevel 1 ( echo [ERRORE] jpackage fallito. & pause & exit /b 1 )
 
 rmdir /s /q "%DIST%\runtime"
+rmdir /s /q "%DIST%\input"
 
 :: ── Deploy ──────────────────────────────────────────────────────────────────
 echo Deploy in "%DEPLOY%"...

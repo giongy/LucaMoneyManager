@@ -61,10 +61,18 @@ public class App {
         if (dbPath == null || dbPath.isBlank()) {
             dbPath = dataDir.resolve("data.db").toString();
             settings.set(Settings.DB_PATH, dbPath);
+        } else {
+            // Se il percorso salvato non esiste più (es. settings copiato da altra macchina), ripristina default
+            Path dbParent = Path.of(dbPath).getParent();
+            if (dbParent == null || !Files.exists(dbParent)) {
+                dbPath = dataDir.resolve("data.db").toString();
+                settings.set(Settings.DB_PATH, dbPath);
+            }
         }
 
         // Log eccezioni Java → stessa cartella del DB (app.log)
         Path appLog = Path.of(dbPath).getParent().resolve("app.log");
+        Files.createDirectories(appLog.getParent());
         PrintStream logStream = new PrintStream(
                 new java.io.FileOutputStream(appLog.toFile(), true),
                 true, java.nio.charset.StandardCharsets.UTF_8);

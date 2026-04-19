@@ -68,6 +68,9 @@
                 <version>3.1.0</version>
                 <configuration>
                     <mainClass>com.moneymanager.App</mainClass>
+                    <jvmArgs>
+                        <jvmArg>--enable-native-access=ALL-UNNAMED</jvmArg>
+                    </jvmArgs>
                 </configuration>
                 <executions>
                     <execution>

@@ -51,7 +51,7 @@ echo Creazione EXE con jpackage...
 if exist "%DIST%\input" rmdir /s /q "%DIST%\input"
 mkdir "%DIST%\input"
 copy /y "%JAR%" "%DIST%\input\" >nul
-"%JAVA_HOME%\bin\jpackage" --type app-image --runtime-image "%DIST%\runtime" --input "%DIST%\input" --main-jar moneymanager-%VERSION%.jar --name LucaMoneyManager --app-version %VERSION% --dest "%DIST%\build" --icon "%ROOT%target\icon.ico" --java-options "-Dfile.encoding=UTF-8"
+"%JAVA_HOME%\bin\jpackage" --type app-image --runtime-image "%DIST%\runtime" --input "%DIST%\input" --main-jar moneymanager-%VERSION%.jar --name LucaMoneyManager --app-version %VERSION% --dest "%DIST%\build" --icon "%ROOT%target\icon.ico" --java-options "-Dfile.encoding=UTF-8" --java-options "--enable-native-access=ALL-UNNAMED"
 if errorlevel 1 ( echo [ERRORE] jpackage fallito. & pause & exit /b 1 )
 
 rmdir /s /q "%DIST%\runtime"

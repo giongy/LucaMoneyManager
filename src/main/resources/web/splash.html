@@ -25,11 +25,11 @@
     justify-content: center;
     position: relative;
     opacity: 0;
-    animation: fadeIn 700ms ease-out forwards;
+    animation: fadeIn 1200ms ease-out forwards;
   }
 
   .splash.fade-out {
-    animation: fadeOut 700ms ease-in forwards;
+    animation: fadeOut 1200ms ease-in forwards;
   }
 
   @keyframes fadeOut {
@@ -144,7 +144,7 @@
       document.querySelector('.splash').classList.add('fade-out');
       setTimeout(function() {
         window.location.replace('./index.html');
-      }, 700);
+      }, 1200);
     }, 800);
   </script>
 </body>

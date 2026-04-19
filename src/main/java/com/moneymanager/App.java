@@ -26,6 +26,7 @@ public class App {
     public static void main(String[] args) throws Exception {
         // Cartella dati utente
         Path dataDir = Path.of(System.getProperty("user.home"),
+        
                 "AppData", "Roaming", "LucaMoneyManager");
         Files.createDirectories(dataDir);
 

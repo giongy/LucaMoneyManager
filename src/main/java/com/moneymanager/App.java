@@ -88,9 +88,9 @@ public class App {
         String htmlUrl   = WebExtractor.extract(dataDir.resolve("web"));
         String splashUrl = htmlUrl.replace("index.html", "splash.html");
 
-        // Dialogo di caricamento (visibile durante download JCEF al primo avvio)
-        LoadingDialog loading = new LoadingDialog();
-        loading.setVisible(true);
+        // Splash Swing immediato (visibile prima ancora che JCEF si avvii)
+        SplashWindow loading = new SplashWindow();
+        SwingUtilities.invokeLater(() -> loading.setVisible(true));
 
         // Inizializza JCEF (scarica ~200MB di Chromium al primo avvio)
         CefAppBuilder builder = new CefAppBuilder();
@@ -116,7 +116,7 @@ public class App {
         // Aggiorna il loading (rimane visibile finché la pagina non è pronta)
         loading.update("Caricamento interfaccia...", 0);
 
-        final LoadingDialog ld = loading;
+        final SplashWindow ld = loading;
         SwingUtilities.invokeAndWait(() -> {
             try {
                 MainWindow window = new MainWindow(cefApp, db, settings, splashUrl, dataDir);

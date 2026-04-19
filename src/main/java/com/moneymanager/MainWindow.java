@@ -95,7 +95,7 @@ public class MainWindow {
 
     /** Mostra la finestra solo dopo che la pagina HTML è completamente caricata,
      *  poi nasconde il loading dialog. Evita il flash di schermata nera all'avvio. */
-    public void showWhenReady(LoadingDialog loading) {
+    public void showWhenReady(SplashWindow loading) {
         GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
         Rectangle screen = ge.getMaximumWindowBounds();
         int w = (int)(screen.width  * 0.70);

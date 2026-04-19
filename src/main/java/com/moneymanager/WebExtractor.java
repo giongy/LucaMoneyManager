@@ -13,6 +13,7 @@ public class WebExtractor {
 
     private static final String[] WEB_FILES = {
         "index.html",
+        "splash.html",
         "css/style.css",
         "js/app.js",
         "js/vendor/chart.min.js",

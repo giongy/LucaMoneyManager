@@ -97,21 +97,34 @@ public class MainWindow {
      *  poi nasconde il loading dialog. Evita il flash di schermata nera all'avvio. */
     public void showWhenReady(LoadingDialog loading) {
         GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
-        frame.setMaximizedBounds(ge.getMaximumWindowBounds());
-        frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
+        Rectangle screen = ge.getMaximumWindowBounds();
+        int w = (int)(screen.width  * 0.70);
+        int h = (int)(screen.height * 0.70);
+        frame.setSize(w, h);
+        frame.setLocation(screen.x + (screen.width - w) / 2, screen.y + (screen.height - h) / 2);
         frame.setVisible(true); // browser inizia a renderizzare sotto il loading
 
         client.addLoadHandler(new CefLoadHandlerAdapter() {
-            private boolean done = false;
+            private int loadCount = 0;
             @Override
             public void onLoadEnd(CefBrowser b, CefFrame f, int httpStatusCode) {
-                if (!f.isMain() || done) return;
-                done = true;
-                SwingUtilities.invokeLater(() -> {
-                    loading.setVisible(false);
-                    loading.dispose();
-                    frame.toFront();
-                });
+                if (!f.isMain()) return;
+                loadCount++;
+                if (loadCount == 1) {
+                    // splash.html caricata → nascondi loading dialog
+                    SwingUtilities.invokeLater(() -> {
+                        loading.setVisible(false);
+                        loading.dispose();
+                        frame.toFront();
+                    });
+                } else if (loadCount == 2) {
+                    // index.html caricata → massimizza la finestra
+                    SwingUtilities.invokeLater(() -> {
+                        GraphicsEnvironment ge2 = GraphicsEnvironment.getLocalGraphicsEnvironment();
+                        frame.setMaximizedBounds(ge2.getMaximumWindowBounds());
+                        frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
+                    });
+                }
             }
         });
     }

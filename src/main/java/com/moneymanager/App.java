@@ -85,7 +85,8 @@ public class App {
         Database db = new Database(dbPath);
 
         // Estrai risorse web (HTML/CSS/JS) nella cartella dati (skippato se JAR invariato)
-        String htmlUrl = WebExtractor.extract(dataDir.resolve("web"));
+        String htmlUrl   = WebExtractor.extract(dataDir.resolve("web"));
+        String splashUrl = htmlUrl.replace("index.html", "splash.html");
 
         // Dialogo di caricamento (visibile durante download JCEF al primo avvio)
         LoadingDialog loading = new LoadingDialog();
@@ -118,7 +119,7 @@ public class App {
         final LoadingDialog ld = loading;
         SwingUtilities.invokeAndWait(() -> {
             try {
-                MainWindow window = new MainWindow(cefApp, db, settings, htmlUrl, dataDir);
+                MainWindow window = new MainWindow(cefApp, db, settings, splashUrl, dataDir);
                 window.showWhenReady(ld); // nasconde ld solo dopo onLoadEnd
             } catch (Exception e) {
                 ld.setVisible(false);

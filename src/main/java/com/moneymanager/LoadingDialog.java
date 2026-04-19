@@ -13,11 +13,11 @@ public class LoadingDialog extends JWindow {
         GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
         Rectangle screen = ge.getMaximumWindowBounds();
         setBounds(screen);
-        setBackground(new Color(13, 17, 23));
+        setBackground(new Color(0, 0, 0, 0));
 
         // Pannello centrato con le info di caricamento
         JPanel card = new JPanel(new BorderLayout(10, 10));
-        card.setBackground(new Color(22, 27, 34));
+        card.setBackground(new Color(0x26, 0x5c, 0x50));
         card.setBorder(BorderFactory.createLineBorder(new Color(48, 54, 61), 1));
         card.setPreferredSize(new Dimension(400, 120));
         card.setMaximumSize(new Dimension(400, 120));
@@ -42,9 +42,9 @@ public class LoadingDialog extends JWindow {
         card.add(statusLabel, BorderLayout.CENTER);
         card.add(progressBar, BorderLayout.SOUTH);
 
-        // Wrapper scuro a schermo intero con card centrata
+        // Wrapper trasparente a schermo intero con card centrata
         JPanel bg = new JPanel(new GridBagLayout());
-        bg.setBackground(new Color(13, 17, 23));
+        bg.setOpaque(false);
         bg.add(card);
         setContentPane(bg);
     }

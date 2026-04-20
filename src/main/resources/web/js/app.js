@@ -2989,7 +2989,7 @@ function renderBudgetTable() {
       <td style="${s};font-weight:600;color:var(--txt2)">Budget</td>
       <td style="${s}"></td>
       ${Array.from({length:12},(_,i)=>numCell(mBudget[i+1], mBudget[i+1]!==0, false, false, i+1)).join('')}
-      ${numCell(totBudget, totBudget!==0, false, true)}
+      <td class="budget-total-highlight" style="${s};text-align:right;">${totBudget!==0?fmt.currency(totBudget):''}</td>
       <td style="${s}"></td>
     </tr>
     <tr class="budget-summary-row budget-row-diff">

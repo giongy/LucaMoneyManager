@@ -1082,6 +1082,12 @@ tr.tx-selected td { background:rgba(88,166,255,.07); }
   text-transform: uppercase;
   letter-spacing: .05em;
 }
+.budget-total-highlight {
+  background: var(--accent) !important;
+  color: #fff !important;
+  font-weight: 700 !important;
+  border-radius: 4px;
+}
 .budget-row-diff td {
   background: var(--bg2);
   border-bottom: 8px solid var(--bg);

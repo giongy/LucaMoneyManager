@@ -5086,7 +5086,7 @@ async function showPortfolioHistory(portfolioId) {
       <table style="font-size:12px"><thead><tr>
         <th>Data</th><th>Tipo</th><th>Quantità</th><th>Prezzo</th><th class="text-right">Totale</th>
       </tr></thead><tbody>
-      ${txs.length ? txs.map(t=>{
+      ${txs.length ? [...txs].sort((a,b)=>a.date.localeCompare(b.date)).map(t=>{
         const isBuy     = t.type === 'buy';
         const isCoupon  = t.type === 'coupon';
         const isExpense = t.type === 'expense';

@@ -10845,6 +10845,43 @@ function showScheduledModal(sched, accounts, categories, tags = []) {
 const _noticeData = []; // {type:'telefono'|'overdue'|'forecast'|'unverified', list}
 let _noticeDelay = 0; // stagger automatico tra notice successive
 
+/** Chiamata quando l'app torna visibile dal tray.
+ *  Invalida i cache JS (il DB su OneDrive potrebbe essere cambiato),
+ *  ricarica la pagina corrente e ricontrolla tutte le scadenze/notifiche. */
+async function onTrayRestore() {
+  // Invalida cache in-session: il DB potrebbe essere stato sincronizzato da Android
+  api._invalidateAccounts();
+  api._invalidateCategories();
+  api._invalidateTags();
+  // Ricarica la pagina con dati freschi
+  await renderPage();
+  // Azzera le notice stale e ricontrolla tutto da zero
+  _noticeData.length = 0;
+  _noticeDelay = 0;
+  try {
+    const daTelefono = await api.getTransactionsWithTag('phone');
+    if (daTelefono.length) showDaTelefonoNotice(daTelefono);
+  } catch(e) {}
+  try {
+    const overdue = await api.getOverdue();
+    if (overdue.length) showOverdueNotice(overdue);
+  } catch(e) {}
+  try {
+    const dueToday = await api.getDueToday();
+    if (dueToday.length) showDueTodayNotice(dueToday);
+  } catch(e) {}
+  try {
+    const forecasts = await api.getForecasts();
+    const ready = forecasts.filter(f => f.is_ready === 1 && !f.archived);
+    if (ready.length) showForecastReadyNotice(ready);
+  } catch(e) {}
+  try {
+    const unverified = await api.getTransactions({ reconciled: 0, sort_desc: true });
+    if (unverified.length) showUnverifiedNotice(unverified);
+  } catch(e) {}
+  updateNoticeBtn();
+}
+
 function _showNotice(className, html, onHeadClick) {
   const delay = _noticeDelay;
   _noticeDelay += 400;

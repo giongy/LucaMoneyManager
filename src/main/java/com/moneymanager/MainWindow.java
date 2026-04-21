@@ -147,7 +147,7 @@ public class MainWindow {
         frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
         frame.toFront();
         frame.requestFocus();
-        browser.executeJavaScript("if(typeof renderPage==='function') renderPage();", "", 0);
+        browser.executeJavaScript("if(typeof onTrayRestore==='function') onTrayRestore();", "", 0);
     }
 
     public void show() {

@@ -13,7 +13,7 @@
 :root {
   --bg:       #0d1117;
   --bg2:      #161b22;
-  --bg3:      #1c2128;
+  --bg3:      #232c38;
   --bg4:      #21262d;
   --border:   #30363d;
   --accent:   #58a6ff;
@@ -51,8 +51,8 @@
 [data-theme="carta"] {
   --bg:       #ece5d8;
   --bg2:      #f4ede0;
-  --bg3:      #e0d8cb;
-  --bg4:      #d4ccbf;
+  --bg3:      #d4cabc;
+  --bg4:      #c8bcac;
   --border:   #c2b8a6;
   --accent:   #8b5a18;
   --accent2:  #2e6e58;
@@ -78,8 +78,8 @@
 [data-theme="salvia"] {
   --bg:       #d8e4da;
   --bg2:      #e4ede6;
-  --bg3:      #c8d5ca;
-  --bg4:      #baccbe;
+  --bg3:      #baccbf;
+  --bg4:      #aebfb2;
   --border:   #a8b8aa;
   --accent:   #2563eb;
   --accent2:  #0891b2;
@@ -1275,4 +1275,4 @@ tr.tx-selected td { background:rgba(88,166,255,.07); }
 }
 
 .port-storico-row { border-radius:4px; transition:background .15s; }
-.port-storico-collapsed:hover { background:var(--bg4); }
+.port-storico-collapsed:hover { background:var(--bg3); }

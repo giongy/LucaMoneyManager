@@ -72,15 +72,7 @@ public class MainWindow {
         frame.addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosing(WindowEvent e) {
-                // Se il tray è attivo, chiudi il DB (sblocca per OneDrive) e nascondi
-                if (TrayManager.isActive()) {
-                    try { db.close(); } catch (Exception ex) {
-                        System.err.println("Errore chiusura DB al tray: " + ex.getMessage());
-                    }
-                    frame.setVisible(false);
-                    return;
-                }
-                // Backup automatico all'uscita se abilitato e ci sono modifiche
+                // Backup automatico se abilitato e ci sono modifiche (sia al tray che all'uscita)
                 if ("1".equals(settings.get(Settings.BACKUP_ENABLED)) && db.hasModifications()) {
                     String bDir = settings.get(Settings.BACKUP_DIR);
                     int bMax;
@@ -88,6 +80,14 @@ public class MainWindow {
                     catch (NumberFormatException ex) { bMax = 10; }
                     try { db.backup(bDir, bMax); }
                     catch (Exception ex) { System.err.println("Backup fallito: " + ex.getMessage()); }
+                }
+                // Se il tray è attivo, chiudi il DB (sblocca per OneDrive) e nascondi
+                if (TrayManager.isActive()) {
+                    try { db.close(); } catch (Exception ex) {
+                        System.err.println("Errore chiusura DB al tray: " + ex.getMessage());
+                    }
+                    frame.setVisible(false);
+                    return;
                 }
                 CefApp.getInstance().dispose();
                 frame.dispose();

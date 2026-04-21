@@ -47,6 +47,11 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
         this.dataDir = dataDir;
     }
 
+    /** Pulisce lo stato accumulato in sessione. Chiamato quando la finestra si nasconde al tray. */
+    public void clearSessionState() {
+        _perfBuf.clear();
+    }
+
     /** Risponde con JSON encodato in base64 — evita corruzione emoji in JCEF. */
     private void succeed(CefQueryCallback callback, Object data) {
         String json = gson.toJson(data);

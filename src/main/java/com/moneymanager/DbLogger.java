@@ -50,6 +50,15 @@ public class DbLogger {
         return !getSessionEntries().isEmpty();
     }
 
+    /** Azzera la finestra di sessione al byte corrente del file di log.
+     *  Va chiamato dopo un backup per evitare che le stesse modifiche
+     *  vengano considerate "non backuppate" alla prossima chiusura. */
+    public void resetSession() {
+        if (logFile == null) return;
+        try { startOffset = Files.exists(logFile) ? Files.size(logFile) : 0; }
+        catch (IOException e) { startOffset = 0; }
+    }
+
     /**
      * Restituisce le voci di log scritte in questa sessione, escludendo le operazioni di sistema.
      * Legge solo i byte aggiunti dopo l'avvio, non l'intero file.

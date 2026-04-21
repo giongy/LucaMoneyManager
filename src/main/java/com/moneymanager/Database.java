@@ -74,6 +74,9 @@ public class Database {
     /** True se in questa sessione sono state eseguite modifiche al DB. */
     public boolean hasModifications() { return logger.hasChanges(); }
 
+    /** Azzera il marcatore di sessione dopo un backup, evitando backup ridondanti. */
+    public void resetModifications() { logger.resetSession(); }
+
     public String backup(String backupDir, int maxBackups) throws IOException {
         if (backupDir == null || backupDir.isBlank())
             throw new IOException("Cartella backup non configurata");

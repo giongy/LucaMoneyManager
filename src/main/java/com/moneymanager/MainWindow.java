@@ -19,6 +19,7 @@ public class MainWindow {
     private final Database db;
     private final Settings settings;
     private final CefClient client;
+    private final Bridge bridge;
 
     public MainWindow(CefApp cefApp, Database db, Settings settings, String htmlUrl, java.nio.file.Path dataDir) {
         this.cefApp = cefApp;
@@ -41,7 +42,7 @@ public class MainWindow {
         routerConfig.jsCancelFunction = "cefQueryCancel";
         var router = org.cef.browser.CefMessageRouter.create(routerConfig);
 
-        Bridge bridge = new Bridge(db, settings, frame, dataDir);
+        bridge = new Bridge(db, settings, frame, dataDir);
         router.addHandler(bridge, true);
         client.addMessageRouter(router);
 
@@ -78,11 +79,12 @@ public class MainWindow {
                     int bMax;
                     try { bMax = Integer.parseInt(settings.get(Settings.BACKUP_MAX, "10")); }
                     catch (NumberFormatException ex) { bMax = 10; }
-                    try { db.backup(bDir, bMax); }
+                    try { db.backup(bDir, bMax); db.resetModifications(); }
                     catch (Exception ex) { System.err.println("Backup fallito: " + ex.getMessage()); }
                 }
-                // Se il tray è attivo, chiudi il DB (sblocca per OneDrive) e nascondi
+                // Se il tray è attivo, pulisci lo stato di sessione, chiudi il DB e nascondi
                 if (TrayManager.isActive()) {
+                    bridge.clearSessionState();
                     try { db.close(); } catch (Exception ex) {
                         System.err.println("Errore chiusura DB al tray: " + ex.getMessage());
                     }

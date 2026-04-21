@@ -222,20 +222,32 @@ const api = {
   deleteAccount:      async id    => { api._invalidateAccounts(); return callJava('deleteAccount', {id}); },
   updateAccountOrder: async items => { api._invalidateAccounts(); return callJava('updateAccountOrder', {items}); },
 
-  // Categorie
-  getCategories:   ()   => callJava('getCategories'),
-  addCategory:     data => callJava('addCategory',    data),
-  updateCategory:  data => callJava('updateCategory', data),
-  deleteCategory:    id   => callJava('deleteCategory', {id}),
-  getCategoryUsage:  id   => callJava('getCategoryUsage', {id}),
-  reassignCategory:  data => callJava('reassignCategory', data),
+  // Categorie (cache in-session: invalidata ad ogni modifica)
+  _categoriesCache: null,
+  getCategories: async function() {
+    if (this._categoriesCache) return this._categoriesCache;
+    this._categoriesCache = await callJava('getCategories');
+    return this._categoriesCache;
+  },
+  _invalidateCategories() { this._categoriesCache = null; },
+  addCategory:      async data => { api._invalidateCategories(); return callJava('addCategory',     data); },
+  updateCategory:   async data => { api._invalidateCategories(); return callJava('updateCategory',  data); },
+  deleteCategory:   async id   => { api._invalidateCategories(); return callJava('deleteCategory',  {id}); },
+  reassignCategory: async data => { api._invalidateCategories(); return callJava('reassignCategory', data); },
+  getCategoryUsage: id => callJava('getCategoryUsage', {id}),
 
-  // Tag
-  getTags:                ()     => callJava('getTags'),
-  addTag:                 data   => callJava('addTag',    data),
-  updateTag:              data   => callJava('updateTag', data),
-  deleteTag:              id     => callJava('deleteTag', {id}),
-  getTransactionsWithTag: name   => callJava('getTransactionsWithTag', {name}),
+  // Tag (cache in-session: invalidata ad ogni modifica)
+  _tagsCache: null,
+  getTags: async function() {
+    if (this._tagsCache) return this._tagsCache;
+    this._tagsCache = await callJava('getTags');
+    return this._tagsCache;
+  },
+  _invalidateTags() { this._tagsCache = null; },
+  addTag:                 async data => { api._invalidateTags(); return callJava('addTag',    data); },
+  updateTag:              async data => { api._invalidateTags(); return callJava('updateTag', data); },
+  deleteTag:              async id   => { api._invalidateTags(); return callJava('deleteTag', {id}); },
+  getTransactionsWithTag: name => callJava('getTransactionsWithTag', {name}),
 
   // Range Preset
   getRangePresets:    ()     => callJava('getRangePresets'),
@@ -286,7 +298,7 @@ const api = {
   getSettings:   ()           => callJava('getSettings'),
   setSetting:    (key, value) => callJava('setSetting', {key, value}),
   chooseDbFile:      (mode)   => callJava('chooseDbFile', {mode}),
-  reloadDb:          (path)  => callJava('reloadDb', {path}),
+  reloadDb: async path => { api._invalidateAccounts(); api._invalidateCategories(); api._invalidateTags(); return callJava('reloadDb', {path}); },
   chooseBackupDir:       ()             => callJava('chooseBackupDir', {}),
   chooseAttachmentsDir:  ()             => callJava('chooseAttachmentsDir', {}),
   chooseAttachmentFile:  ()             => callJava('chooseAttachmentFile', {}),

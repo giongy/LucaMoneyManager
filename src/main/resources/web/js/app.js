@@ -4055,7 +4055,7 @@ async function renderPortfolioStorico(items) {
     ].filter(Boolean).join('');
 
     const isBond = item.asset_type === 'bond';
-    const rows = txs.map(t => {
+    const rows = [...txs].sort((a, b) => a.date.localeCompare(b.date)).map(t => {
       const isValued = t.type !== 'coupon' && t.type !== 'expense';
       const total = isValued ? t.quantity * t.price : t.price;
       const priceDisplay = !isValued ? '—'

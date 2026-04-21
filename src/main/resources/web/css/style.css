@@ -1273,3 +1273,6 @@ tr.tx-selected td { background:rgba(88,166,255,.07); }
   * { box-shadow:none !important; }
   @page { margin:15mm; size:A4 portrait; }
 }
+
+.port-storico-row { border-radius:4px; transition:background .15s; }
+.port-storico-collapsed:hover { background:var(--bg3); }

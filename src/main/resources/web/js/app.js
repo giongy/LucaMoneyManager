@@ -4073,7 +4073,7 @@ async function renderPortfolioStorico(items) {
 
     return `
       <div class="card" style="margin-bottom:4px;${collapsed?'padding:6px 12px':''}">
-        <div style="display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none"
+        <div class="port-storico-row${collapsed?' port-storico-collapsed':''}" style="display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none"
              onclick="_togglePortStorico(${item.id})">
           <span style="font-size:10px;color:var(--txt3);flex-shrink:0">${collapsed?'▶':'▼'}</span>
           <span style="font-weight:700;font-size:var(--fs-md,12px)">${item.ticker}</span>

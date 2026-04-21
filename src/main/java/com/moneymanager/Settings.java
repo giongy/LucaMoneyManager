@@ -18,17 +18,19 @@ public class Settings {
     public static final String BACKUP_DIR      = "backup.dir";
     public static final String BACKUP_MAX      = "backup.max";
     public static final String ATTACHMENTS_DIR = "attachments.dir";
-    public static final String HTTP_PORT       = "http.port";
-    public static final String HTTP_ENABLED    = "http.enabled";
+    public static final String HTTP_PORT        = "http.port";
+    public static final String HTTP_ENABLED     = "http.enabled";
+    public static final String AUTOSTART_ENABLED = "autostart.enabled";
 
     private static final Map<String, String> DEFAULTS = Map.ofEntries(
-        Map.entry(DB_PATH,         ""),
-        Map.entry(BACKUP_ENABLED,  "0"),
-        Map.entry(BACKUP_DIR,      ""),
-        Map.entry(BACKUP_MAX,      "10"),
-        Map.entry(ATTACHMENTS_DIR, ""),
-        Map.entry(HTTP_PORT,       "7890"),
-        Map.entry(HTTP_ENABLED,    "1")
+        Map.entry(DB_PATH,           ""),
+        Map.entry(BACKUP_ENABLED,    "0"),
+        Map.entry(BACKUP_DIR,        ""),
+        Map.entry(BACKUP_MAX,        "10"),
+        Map.entry(ATTACHMENTS_DIR,   ""),
+        Map.entry(HTTP_PORT,         "7890"),
+        Map.entry(HTTP_ENABLED,      "1"),
+        Map.entry(AUTOSTART_ENABLED, "0")
     );
 
     // ──────────────────────────────────────────────────────────────────────────

@@ -1,11 +1,8 @@
 package com.moneymanager;
 
 import java.io.PrintStream;
-import java.nio.channels.FileChannel;
-import java.nio.channels.FileLock;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 
@@ -19,37 +16,22 @@ import me.friwi.jcefmaven.MavenCefAppHandlerAdapter;
 
 public class App {
 
-    // Tenuti statici per evitare che il GC li raccolga e rilasci il lock
-    private static FileChannel _lockChannel;
-    private static FileLock    _lock;
-
     public static void main(String[] args) throws Exception {
         // Cartella dati utente
         Path dataDir = Path.of(System.getProperty("user.home"),
-        
                 "AppData", "Roaming", "LucaMoneyManager");
         Files.createDirectories(dataDir);
 
-        // Istanza singola: acquisisce un file lock esclusivo
-        Path lockFile = dataDir.resolve("app.lock");
-        _lockChannel = FileChannel.open(lockFile,
-                StandardOpenOption.CREATE, StandardOpenOption.WRITE);
-        _lock = _lockChannel.tryLock();
-        if (_lock == null) {
-            _lockChannel.close();
-            JOptionPane.showMessageDialog(null,
-                    "LucaMoneyManager è già in esecuzione.",
-                    "Applicazione già aperta", JOptionPane.WARNING_MESSAGE);
+        // Istanza singola: se un'altra è già in esecuzione, le manda SHOW ed esce
+        if (!SingleInstance.tryAcquire(TrayManager::bringToFront)) {
             System.exit(0);
         }
-        // lock rimane acquisito per tutta la durata del processo
 
         // Impostazioni (settings.properties) — nella stessa cartella del JAR (o user.dir in IDE)
         Path settingsDir;
         try {
             java.net.URL loc = App.class.getProtectionDomain().getCodeSource().getLocation();
             Path p = Path.of(loc.toURI());
-            // Se stiamo girando da un JAR usa la sua cartella, altrimenti (IDE) usa user.dir
             settingsDir = p.toString().endsWith(".jar") ? p.getParent()
                                                         : Path.of(System.getProperty("user.dir"));
         } catch (Exception e) {
@@ -63,7 +45,6 @@ public class App {
             dbPath = dataDir.resolve("data.db").toString();
             settings.set(Settings.DB_PATH, dbPath);
         } else {
-            // Se il percorso salvato non esiste più (es. settings copiato da altra macchina), ripristina default
             Path dbParent = Path.of(dbPath).getParent();
             if (dbParent == null || !Files.exists(dbParent)) {
                 dbPath = dataDir.resolve("data.db").toString();
@@ -81,6 +62,16 @@ public class App {
         System.setErr(logStream);
         System.setOut(logStream);
 
+        // Rileva percorsi java.exe e JAR per la registrazione autostart
+        try {
+            ProcessHandle.current().info().command().ifPresent(cmd -> TrayManager.javaExePath = cmd);
+            java.net.URL loc = App.class.getProtectionDomain().getCodeSource().getLocation();
+            Path jarP = Path.of(loc.toURI());
+            if (jarP.toString().endsWith(".jar")) TrayManager.jarPath = jarP.toString();
+        } catch (Exception e) {
+            System.err.println("Autostart path detection fallita: " + e.getMessage());
+        }
+
         // Database SQLite
         Database db = new Database(dbPath);
 
@@ -95,7 +86,7 @@ public class App {
         // Inizializza JCEF (scarica ~200MB di Chromium al primo avvio)
         CefAppBuilder builder = new CefAppBuilder();
         builder.setInstallDir(dataDir.resolve("jcef").toFile());
-        builder.addJcefArgs("--disable-gpu"); // più stabile su alcuni sistemi
+        builder.addJcefArgs("--disable-gpu");
         builder.getCefSettings().windowless_rendering_enabled = false;
         builder.getCefSettings().root_cache_path = dataDir.resolve("jcef_cache").toAbsolutePath().toString();
         builder.getCefSettings().log_severity = org.cef.CefSettings.LogSeverity.LOGSEVERITY_DISABLE;
@@ -111,16 +102,19 @@ public class App {
             loading.update(msg, percent);
         });
 
-        CefApp cefApp = builder.build(); // blocca finché JCEF non è pronto
+        CefApp cefApp = builder.build();
 
-        // Aggiorna il loading (rimane visibile finché la pagina non è pronta)
         loading.update("Caricamento interfaccia...", 0);
 
         final SplashWindow ld = loading;
         SwingUtilities.invokeAndWait(() -> {
             try {
                 MainWindow window = new MainWindow(cefApp, db, settings, splashUrl, dataDir);
-                window.showWhenReady(ld); // nasconde ld solo dopo onLoadEnd
+                window.showWhenReady(ld);
+                // Attiva tray se l'autostart era già abilitato da una sessione precedente
+                if ("1".equals(settings.get(Settings.AUTOSTART_ENABLED))) {
+                    TrayManager.enable(window.getFrame());
+                }
             } catch (Exception e) {
                 ld.setVisible(false);
                 ld.dispose();
@@ -132,4 +126,3 @@ public class App {
         });
     }
 }
- 

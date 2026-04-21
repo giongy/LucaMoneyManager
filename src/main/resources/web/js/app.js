@@ -7897,7 +7897,26 @@ async function renderSettings() {
             </div>
           </div>
         </div>
-      </div>`,
+      </div>
+
+      ${s['_autostart_supported'] === '1' ? `
+      <div class="settings-section">
+        <div class="settings-section-title">🚀 Avvio</div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <strong>Avvia con Windows</strong>
+            <span class="settings-hint">Precarica l'app al login. La chiusura della finestra la nasconde nel tray — usa "Esci" dal tray per uscire davvero.</span>
+          </div>
+          <div class="settings-control">
+            <div class="theme-toggle-group">
+              <button class="btn theme-btn ${s['autostart.enabled']==='1'?'theme-btn-active':''}"
+                      onclick="settingsSetAutostart('1')">Attivo</button>
+              <button class="btn theme-btn ${s['autostart.enabled']!=='1'?'theme-btn-active':''}"
+                      onclick="settingsSetAutostart('0')">Disattivo</button>
+            </div>
+          </div>
+        </div>
+      </div>` : ''}`,
 
     maintenance: `
       <div class="settings-section">
@@ -8892,6 +8911,11 @@ async function settingsSetAccFilter(favOnly) {
   await api.setSetting('accounts.favorites_only', favOnly ? '1' : '0');
   renderSettings();
   updateSidebar();
+}
+
+async function settingsSetAutostart(value) {
+  await api.setSetting('autostart.enabled', value);
+  renderSettings();
 }
 
 async function settingsSetBackup(key, value) {

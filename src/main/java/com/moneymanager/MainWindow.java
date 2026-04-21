@@ -25,7 +25,6 @@ public class MainWindow {
         this.db = db;
         this.settings = settings;
 
-        // Finestra senza decorazioni (titlebar personalizzata in HTML)
         frame = new JFrame("LucaMoneyManager");
         frame.setIconImages(IconFactory.getAppIcons());
         frame.setUndecorated(true);
@@ -35,10 +34,8 @@ public class MainWindow {
         frame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
         frame.getContentPane().setBackground(new Color(13, 17, 23));
 
-        // Client JCEF
         client = cefApp.createClient();
 
-        // Message router (canale JS <-> Java)
         var routerConfig = new org.cef.browser.CefMessageRouter.CefMessageRouterConfig();
         routerConfig.jsQueryFunction = "cefQuery";
         routerConfig.jsCancelFunction = "cefQueryCancel";
@@ -66,17 +63,20 @@ public class MainWindow {
             });
         }
 
-        // Crea browser Chromium
         browser = client.createBrowser(htmlUrl, false, false);
         Component browserUI = browser.getUIComponent();
 
         frame.setLayout(new BorderLayout());
         frame.add(browserUI, BorderLayout.CENTER);
 
-        // Chiusura sicura
         frame.addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosing(WindowEvent e) {
+                // Se il tray è attivo, nascondi invece di uscire
+                if (TrayManager.isActive()) {
+                    frame.setVisible(false);
+                    return;
+                }
                 // Backup automatico all'uscita se abilitato e ci sono modifiche
                 if ("1".equals(settings.get(Settings.BACKUP_ENABLED)) && db.hasModifications()) {
                     String bDir = settings.get(Settings.BACKUP_DIR);
@@ -93,6 +93,9 @@ public class MainWindow {
         });
     }
 
+    /** Restituisce il JFrame principale (usato da TrayManager). */
+    public JFrame getFrame() { return frame; }
+
     /** Mostra la finestra solo dopo che la pagina HTML è completamente caricata,
      *  poi nasconde il loading dialog. Evita il flash di schermata nera all'avvio. */
     public void showWhenReady(SplashWindow loading) {
@@ -102,7 +105,7 @@ public class MainWindow {
         int h = (int)(screen.height * 0.70);
         frame.setSize(w, h);
         frame.setLocation(screen.x + (screen.width - w) / 2, screen.y + (screen.height - h) / 2);
-        frame.setVisible(true); // browser inizia a renderizzare sotto il loading
+        frame.setVisible(true);
 
         client.addLoadHandler(new CefLoadHandlerAdapter() {
             private int loadCount = 0;
@@ -111,14 +114,12 @@ public class MainWindow {
                 if (!f.isMain()) return;
                 loadCount++;
                 if (loadCount == 1) {
-                    // splash.html caricata → nascondi loading dialog
                     SwingUtilities.invokeLater(() -> {
                         loading.setVisible(false);
                         loading.dispose();
                         frame.toFront();
                     });
                 } else if (loadCount == 2) {
-                    // index.html caricata → massimizza la finestra
                     SwingUtilities.invokeLater(() -> {
                         GraphicsEnvironment ge2 = GraphicsEnvironment.getLocalGraphicsEnvironment();
                         frame.setMaximizedBounds(ge2.getMaximumWindowBounds());

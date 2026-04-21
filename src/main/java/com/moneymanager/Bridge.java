@@ -418,11 +418,23 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                 all.put("_dep_sqlite", mavenVersion("org.xerial",             "sqlite-jdbc"));
                 all.put("_dep_gson",   mavenVersion("com.google.code.gson",  "gson"));
                 all.put("_dep_slf4j",  mavenVersion("org.slf4j",             "slf4j-nop"));
+                all.put("_autostart_supported", java.awt.SystemTray.isSupported() ? "1" : "0");
                 yield all;
             }
 
             case "setSetting" -> {
-                settings.set(p.get("key").getAsString(), p.get("value").getAsString());
+                String key   = p.get("key").getAsString();
+                String value = p.get("value").getAsString();
+                settings.set(key, value);
+                if (Settings.AUTOSTART_ENABLED.equals(key)) {
+                    if ("1".equals(value)) {
+                        TrayManager.enable(window);
+                        TrayManager.registerAutostart();
+                    } else {
+                        TrayManager.unregisterAutostart();
+                        TrayManager.disable();
+                    }
+                }
                 yield Map.of("ok", true);
             }
 

@@ -10891,10 +10891,10 @@ function _showNotice(className, html, onHeadClick) {
     el.className = 'overdue-notice' + (className ? ' ' + className : '');
     el.innerHTML = html;
     document.getElementById('noticeStack').appendChild(el);
-    requestAnimationFrame(() => {
+    requestAnimationFrame(() => requestAnimationFrame(() => {
       el.querySelector('.overdue-notice-progress').style.transition = 'width 8s linear';
       el.querySelector('.overdue-notice-progress').style.width = '0%';
-    });
+    }));
     setTimeout(() => el.classList.add('fade-out'), 7800);
     setTimeout(() => el.remove(), 8500);
     el.querySelector('.overdue-notice-head').addEventListener('click', e => {

@@ -72,8 +72,11 @@ public class MainWindow {
         frame.addWindowListener(new WindowAdapter() {
             @Override
             public void windowClosing(WindowEvent e) {
-                // Se il tray è attivo, nascondi invece di uscire
+                // Se il tray è attivo, chiudi il DB (sblocca per OneDrive) e nascondi
                 if (TrayManager.isActive()) {
+                    try { db.close(); } catch (Exception ex) {
+                        System.err.println("Errore chiusura DB al tray: " + ex.getMessage());
+                    }
                     frame.setVisible(false);
                     return;
                 }
@@ -128,6 +131,23 @@ public class MainWindow {
                 }
             }
         });
+    }
+
+    /** Riapre il DB, porta la finestra in primo piano e aggiorna il frontend.
+     *  Usato dal tray dopo che il DB era stato chiuso per permettere la sync OneDrive. */
+    public void bringToFront() {
+        try { db.reopen(); } catch (Exception e) {
+            System.err.println("Errore riapertura DB dal tray: " + e.getMessage());
+        }
+        frame.setVisible(true);
+        if ((frame.getExtendedState() & JFrame.ICONIFIED) != 0)
+            frame.setExtendedState(frame.getExtendedState() & ~JFrame.ICONIFIED);
+        GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
+        frame.setMaximizedBounds(ge.getMaximumWindowBounds());
+        frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
+        frame.toFront();
+        frame.requestFocus();
+        browser.executeJavaScript("if(typeof renderPage==='function') renderPage();", "", 0);
     }
 
     public void show() {

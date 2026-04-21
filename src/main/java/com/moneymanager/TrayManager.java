@@ -7,26 +7,27 @@ import java.awt.*;
 public class TrayManager {
 
     private static TrayIcon trayIcon;
-    private static JFrame   managedFrame;
     private static boolean  trayActive = false;
+
+    // Azione eseguita quando si richiede di portare la finestra in primo piano.
+    // Impostata da App.java: include riapertura DB + show + refresh frontend.
+    static Runnable bringToFrontAction;
 
     // Percorsi calcolati all'avvio (usati per la registrazione autostart)
     static String javaExePath;
     static String jarPath;
 
     /** Attiva il tray: aggiunge l'icona e abilita "chiudi = nascondi al tray".
-     *  Ritorna false se SystemTray non è supportato o non è disponibile. */
+     *  Ritorna false se SystemTray non è supportato. */
     public static boolean enable(JFrame frame) {
         if (!SystemTray.isSupported()) return false;
-        managedFrame = frame;
-
-        if (trayActive) return true; // già attivo
+        if (trayActive) return true;
 
         PopupMenu menu = new PopupMenu();
         MenuItem openItem = new MenuItem("Apri LucaMoneyManager");
         MenuItem exitItem = new MenuItem("Esci");
 
-        openItem.addActionListener(e -> SwingUtilities.invokeLater(TrayManager::bringToFront));
+        openItem.addActionListener(e -> bringToFront());
         exitItem.addActionListener(e -> doExit(frame));
 
         menu.add(openItem);
@@ -35,8 +36,7 @@ public class TrayManager {
 
         trayIcon = new TrayIcon(IconFactory.create(16), "LucaMoneyManager", menu);
         trayIcon.setImageAutoSize(true);
-        // doppio clic sull'icona → apri finestra
-        trayIcon.addActionListener(e -> SwingUtilities.invokeLater(TrayManager::bringToFront));
+        trayIcon.addActionListener(e -> bringToFront());
 
         try {
             SystemTray.getSystemTray().add(trayIcon);
@@ -48,7 +48,7 @@ public class TrayManager {
         }
     }
 
-    /** Disattiva il tray: rimuove l'icona. La chiusura della finestra tornerà a uscire. */
+    /** Disattiva il tray: rimuove l'icona. */
     public static void disable() {
         if (trayIcon != null) {
             SystemTray.getSystemTray().remove(trayIcon);
@@ -60,17 +60,10 @@ public class TrayManager {
     /** true se il tray è attivo (chiudi finestra = nascondi invece di uscire). */
     public static boolean isActive() { return trayActive; }
 
-    /** Porta la finestra in primo piano dalla modalità nascosta/minimizzata. */
+    /** Porta la finestra in primo piano: delega a bringToFrontAction (impostata da App.java).
+     *  L'azione include riapertura DB, show finestra e refresh del frontend. */
     public static void bringToFront() {
-        if (managedFrame == null) return;
-        managedFrame.setVisible(true);
-        if ((managedFrame.getExtendedState() & JFrame.ICONIFIED) != 0)
-            managedFrame.setExtendedState(managedFrame.getExtendedState() & ~JFrame.ICONIFIED);
-        GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
-        managedFrame.setMaximizedBounds(ge.getMaximumWindowBounds());
-        managedFrame.setExtendedState(JFrame.MAXIMIZED_BOTH);
-        managedFrame.toFront();
-        managedFrame.requestFocus();
+        if (bringToFrontAction != null) SwingUtilities.invokeLater(bringToFrontAction);
     }
 
     /** Registra l'app nell'avvio automatico di Windows (HKCU Run). */
@@ -108,7 +101,6 @@ public class TrayManager {
     }
 
     private static void doExit(JFrame frame) {
-        // Esegui backup automatico se abilitato (stessa logica di windowClosing)
         disable();
         SingleInstance.release();
         frame.dispose();

@@ -52,6 +52,11 @@ public class Database {
 
     public void close() throws SQLException { conn.close(); }
 
+    /** Riapre il DB dopo una chiusura esplicita (es. nascosto al tray per OneDrive). */
+    public void reopen() throws SQLException {
+        conn = openConnection(currentDbPath);
+    }
+
     public String getDbPath() { return currentDbPath; }
 
     /**

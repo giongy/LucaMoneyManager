@@ -4054,15 +4054,20 @@ async function renderPortfolioStorico(items) {
       `<span class="r-chip" style="font-weight:600;color:${net>=0?'var(--income)':'var(--expense)'}">Netto ${net>=0?'+':''}${fmt.currency(net)}</span>`,
     ].filter(Boolean).join('');
 
+    const isBond = item.asset_type === 'bond';
     const rows = txs.map(t => {
-      const total = (t.type==='coupon'||t.type==='expense') ? t.price : t.quantity * t.price;
+      const isValued = t.type !== 'coupon' && t.type !== 'expense';
+      const total = isValued ? t.quantity * t.price : t.price;
+      const priceDisplay = !isValued ? '—'
+        : isBond ? `${(t.price * 100).toFixed(4)} %`
+        : `${t.price.toFixed(4)} €`;
       return `<tr>
-        <td>${fmt.date(t.date)}</td>
-        <td><span style="color:${TYPE_COLOR[t.type]||'var(--txt)'};font-weight:600">${TYPE_LABEL[t.type]||t.type}</span></td>
-        <td>${(t.type==='coupon'||t.type==='expense') ? '—' : t.quantity}</td>
-        <td>${(t.type==='coupon'||t.type==='expense') ? '—' : fmt.currency(t.price)}</td>
-        <td class="text-right" style="color:${TYPE_COLOR[t.type]||'var(--txt)'}">${TYPE_SIGN[t.type]||''}${fmt.currency(total)}</td>
-        <td style="color:var(--txt3);font-size:var(--fs-xs,10px)">${t.notes||''}</td>
+        <td style="width:130px">${fmt.date(t.date)}</td>
+        <td style="width:120px"><span style="color:${TYPE_COLOR[t.type]||'var(--txt)'};font-weight:600">${TYPE_LABEL[t.type]||t.type}</span></td>
+        <td style="width:120px;text-align:right">${isValued ? t.quantity : '—'}</td>
+        <td style="width:180px;text-align:right">${priceDisplay}</td>
+        <td style="width:180px;text-align:right;color:${TYPE_COLOR[t.type]||'var(--txt)'}">${TYPE_SIGN[t.type]||''}${fmt.currency(total)}</td>
+        <td>${t.notes||''}</td>
       </tr>`;
     }).join('');
 
@@ -4077,9 +4082,13 @@ async function renderPortfolioStorico(items) {
         </div>
         ${collapsed ? '' : `
         <div class="table-wrap" style="margin-top:10px">
-          <table><thead><tr>
-            <th>Data</th><th>Tipo</th><th>Qtà</th><th>Prezzo</th>
-            <th class="text-right">Totale</th><th>Note</th>
+          <table style="table-layout:fixed;width:100%"><thead><tr>
+            <th style="width:130px">Data</th>
+            <th style="width:120px">Tipo</th>
+            <th style="width:120px;text-align:right">Qtà</th>
+            <th style="width:180px;text-align:right">Prezzo</th>
+            <th style="width:180px;text-align:right">Totale</th>
+            <th>Note</th>
           </tr></thead><tbody>${rows}</tbody></table>
         </div>`}
       </div>`;

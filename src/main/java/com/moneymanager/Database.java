@@ -444,7 +444,7 @@ public class Database {
         """);
     }
 
-    private static final int SCHEMA_VERSION = 10;
+    private static final int SCHEMA_VERSION = 11;
 
     private void migrate() throws SQLException {
         // Crea tabella versione se non esiste
@@ -689,6 +689,12 @@ public class Database {
                 CREATE TABLE forecast_excluded (
                     transaction_id INTEGER PRIMARY KEY REFERENCES transactions(id) ON DELETE CASCADE
                 )""");
+        }
+
+        // ── v11: original_start_date su scheduled_transactions ──────────────
+        if (currentVersion < 11) {
+            try { executePlain("ALTER TABLE scheduled_transactions ADD COLUMN original_start_date TEXT"); } catch (SQLException ignored) {}
+            // Record esistenti: original_start_date=NULL → _countSchedYearOcc usa il fallback (proiezione storica)
         }
 
         // Segna il DB come aggiornato all'ultima versione
@@ -1575,8 +1581,8 @@ public class Database {
         long id = execute("""
             INSERT INTO scheduled_transactions
                 (description,amount,type,category_id,account_id,to_account_id,
-                 frequency,start_date,end_date,is_active,color,reconciled,portfolio_id)
-            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+                 frequency,start_date,end_date,is_active,color,reconciled,portfolio_id,original_start_date)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """, str(p,"description"), dbl2(p,"amount"), str(p,"type"),
                 intVal(p,"category_id"), p.get("account_id").getAsInt(),
                 intVal(p,"to_account_id"), str(p,"frequency"),
@@ -1584,7 +1590,8 @@ public class Database {
                 p.has("is_active") ? p.get("is_active").getAsInt() : 1,
                 str(p,"color"),
                 p.has("reconciled") && !p.get("reconciled").isJsonNull() ? p.get("reconciled").getAsInt() : 1,
-                intVal(p,"portfolio_id"));
+                intVal(p,"portfolio_id"),
+                str(p,"start_date"));
         saveSchedTags(id, p);
         logger.log("PIANIFICATA AGGIUNTA", "id:" + id, "descrizione:" + str(p,"description"),
                    "tipo:" + str(p,"type"), "importo:" + DbLogger.amt(dbl2(p,"amount")),

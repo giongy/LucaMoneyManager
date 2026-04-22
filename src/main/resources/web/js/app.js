@@ -9591,31 +9591,35 @@ function _prevSchedDate(dateStr, freq) {
   return d.toLocaleDateString('en-CA');
 }
 
-function _countSchedYearOcc(freq, startDate, endDate, year) {
+// origStart: data della prima occorrenza storica (original_start_date dal DB).
+// Se presente viene usata come limite inferiore così le transazioni create
+// a metà anno non vengono proiettate prima della loro vera data di inizio.
+// Se NULL (record pre-migrazione) si usa il comportamento storico (proiezione a yStart).
+function _countSchedYearOcc(freq, startDate, endDate, year, origStart) {
   const yStart = `${year}-01-01`;
   const yEnd   = `${year}-12-31`;
   if (!startDate) return 0;
   if (endDate && endDate < yStart) return 0;
-  const effEnd = (endDate && endDate < yEnd) ? endDate : yEnd;
+  const effEnd   = (endDate   && endDate   < yEnd)   ? endDate   : yEnd;
+  const effStart = (origStart && origStart > yStart)  ? origStart : yStart;
 
-  // 'once': nessuna proiezione, conta solo se la data è nell'anno
-  if (freq === 'once') return (startDate >= yStart && startDate <= effEnd) ? 1 : 0;
+  // 'once': conta solo se la data cade nel range effettivo
+  if (freq === 'once') return (startDate >= effStart && startDate <= effEnd) ? 1 : 0;
 
   // Per le ricorrenze, start_date è la PROSSIMA occorrenza futura (aggiornata dopo
   // ogni registrazione, può essere in un anno successivo).
-  // Proiettiamo a ritroso per trovare la prima occorrenza nell'anno target.
+  // Proiettiamo a ritroso fino a effStart per trovare la prima occorrenza del periodo.
   let cur = startDate;
   for (let i = 0; i < 400; i++) {
     const prev = _prevSchedDate(cur, freq);
-    if (!prev || prev < yStart) break;
+    if (!prev || prev < effStart) break;
     cur = prev;
   }
-  // Se anche dopo la proiezione siamo oltre l'anno, nessuna occorrenza
-  if (cur > yEnd) return 0;
+  if (cur > effEnd) return 0;
 
   let count = 0;
   for (let i = 0; i < 400 && cur <= effEnd; i++) {
-    if (cur >= yStart) count++;
+    if (cur >= effStart) count++;
     const next = _nextSchedDate(cur, freq);
     if (!next || next === cur) break;
     cur = next;
@@ -9675,7 +9679,7 @@ async function renderBudgetVsPianificate() {
   const schedByCat = {};
   for (const s of scheds) {
     if (!s.is_active || s.type === 'transfer' || !s.category_id) continue;
-    const occ = _countSchedYearOcc(s.frequency, s.start_date, s.end_date, budgetYear);
+    const occ = _countSchedYearOcc(s.frequency, s.start_date, s.end_date, budgetYear, s.original_start_date);
     schedByCat[s.category_id] = (schedByCat[s.category_id] || 0) + occ * s.amount;
   }
 

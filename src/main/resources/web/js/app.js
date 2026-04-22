@@ -9912,6 +9912,25 @@ async function renderSchedTab() {
   else if (schedTab === 'verificabud') await renderBudgetVsPianificate();
 }
 
+// Conta le occorrenze rimanenti da start_date a end_date inclusi.
+// Ritorna '∞' se end_date è assente, 0 se la pianificata è già terminata.
+function _schedOccurrences(startDate, freq, endDate) {
+  if (!endDate) return '∞';
+  if (!startDate) return '—';
+  const start = new Date(startDate + 'T00:00:00');
+  const end   = new Date(endDate   + 'T00:00:00');
+  if (start > end) return 0;
+  if (freq === 'once') return 1;
+  const days = Math.round((end - start) / 86400000);
+  if (freq === 'daily')    return days + 1;
+  if (freq === 'weekly')   return Math.floor(days / 7) + 1;
+  if (freq === 'biweekly') return Math.floor(days / 14) + 1;
+  const step = { monthly:1, monthly_last:1, bimonthly:2, quarterly:3, semiannual:6, yearly:12 }[freq] || 1;
+  let count = 0, cur = new Date(start);
+  while (cur <= end) { count++; cur.setMonth(cur.getMonth() + step); }
+  return count;
+}
+
 // Restituisce la prossima occorrenza di una transazione pianificata.
 // Con il sistema attuale start_date viene già avanzata ad ogni registrazione/salto,
 // quindi start_date È la prossima occorrenza (passata = scaduta, futura = in arrivo).
@@ -10022,6 +10041,7 @@ async function renderSchedLista() {
           <th class="sched-th-sort" data-scol="amount"  onclick="_schedSortBy('amount')">Importo<span class="sort-ind"></span></th>
           <th class="sched-th-sort" data-scol="next"    onclick="_schedSortBy('next')">Prossima<span class="sort-ind"></span></th>
           <th class="sched-th-sort th-sort-active" data-scol="days" onclick="_schedSortBy('days')">Giorni<span class="sort-ind">▲</span></th>
+          <th class="sched-th-sort" data-scol="occ" onclick="_schedSortBy('occ')" title="Occorrenze rimanenti fino alla data di scadenza">Occ.<span class="sort-ind"></span></th>
           <th></th>
         </tr></thead><tbody id="schedBody"></tbody></table>
       </div>
@@ -10108,6 +10128,12 @@ function _renderSchedRows(scheds) {
       case 'freq':    va = a.frequency; vb = b.frequency; break;
       case 'amount':  va = a.amount;    vb = b.amount;    break;
       case 'next':    va = a._next||'9'; vb = b._next||'9'; break;
+      case 'occ': {
+        const toN = v => v === '∞' ? Infinity : v === '—' ? -1 : Number(v);
+        va = toN(_schedOccurrences(a.start_date, a.frequency, a.end_date));
+        vb = toN(_schedOccurrences(b.start_date, b.frequency, b.end_date));
+        break;
+      }
       case 'days':
       default:
         va = a._days ?? 99999; vb = b._days ?? 99999;
@@ -10117,7 +10143,7 @@ function _renderSchedRows(scheds) {
   });
 
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="10" style="text-align:center;padding:40px;color:var(--txt3)">Nessuna transazione pianificata.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:40px;color:var(--txt3)">Nessuna transazione pianificata.</td></tr>';
     return;
   }
 
@@ -10140,6 +10166,7 @@ function _renderSchedRows(scheds) {
       <td class="text-right amount-${s.type}">${s.type==='expense'?'-':''}${fmt.currency(s.amount)}</td>
       <td>${s._next ? fmt.date(s._next) : '—'}</td>
       <td>${daysLabel(s)}</td>
+      <td style="text-align:center;color:var(--txt2)">${_schedOccurrences(s.start_date, s.frequency, s.end_date)}</td>
       <td class="sched-actions">
         <div class="sched-actions-wrap">
           ${s.is_active && s._next ? `<button class="btn btn-xs btn-success" onclick="registerSched(${s.id})" title="Inserisci transazione">✔ Inserisci</button>

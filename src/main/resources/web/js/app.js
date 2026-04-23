@@ -7982,11 +7982,14 @@ async function renderSettings() {
 
         <div class="settings-row">
           <div class="settings-label">
-            <strong>Reinstalla Chromium</strong>
-            <span class="settings-hint">Elimina la cartella JCEF e chiude l'app. Al riavvio Chromium verrà riscaricato (~200MB).</span>
+            <strong>Cartella dati applicazione</strong>
+            <span class="settings-hint">
+              Contiene DB, impostazioni, log, cache Chromium (jcef/) e file web estratti.<br>
+              Per reinstallare Chromium: <strong>chiudi l'app</strong>, poi apri questa cartella ed elimina la sottocartella <code>jcef</code>. Al riavvio verrà riscaricata (~200 MB).
+            </span>
           </div>
           <div class="settings-control maint-op-control">
-            <button class="btn btn-danger" onclick="if(confirm('Eliminare Chromium e chiudere l\\'app?')) api.resetJcef()">🗑️ Reset Chromium</button>
+            <button class="btn btn-ghost" onclick="api.openDataDir()">📂 Apri cartella</button>
           </div>
         </div>
       </div>

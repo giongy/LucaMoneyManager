@@ -536,6 +536,11 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                 yield Map.of("ok", true);
             }
 
+            case "openDataDir" -> {
+                java.awt.Desktop.getDesktop().open(dataDir.toFile());
+                yield Map.of("ok", true);
+            }
+
             case "resetJcef" -> {
                 java.nio.file.Path jcefDir = dataDir.resolve("jcef");
                 if (java.nio.file.Files.exists(jcefDir)) {

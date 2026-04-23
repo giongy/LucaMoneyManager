@@ -47,7 +47,9 @@ public class WebServer {
                         || method.equals("getWindowBounds") || method.equals("setWindowBounds")
                         || method.equals("isMaximized") || method.equals("chooseDbFile")
                         || method.equals("chooseBackupDir") || method.equals("chooseAttachmentsDir")
-                        || method.equals("chooseAttachmentFile")) {
+                        || method.equals("chooseAttachmentFile")
+                        || method.equals("openDataDir") || method.equals("openLogFolder")
+                        || method.equals("openUrl") || method.equals("resetJcef")) {
                     respond(ex, Map.of("ok", false, "webOnly", true));
                     return;
                 }

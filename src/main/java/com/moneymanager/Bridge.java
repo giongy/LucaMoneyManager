@@ -620,6 +620,11 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                 yield java.util.Map.of("ok", true);
             }
 
+            // ─── DB remoto (WebServer) ─────────────────────────────────────
+            case "dbStatus" -> java.util.Map.of("open", db.isOpen());
+            case "dbOpen"   -> { db.reopen(); yield java.util.Map.of("ok", true); }
+            case "dbClose"  -> { db.close();  yield java.util.Map.of("ok", true); }
+
             default -> throw new Exception("Metodo sconosciuto: " + method);
         };
     }

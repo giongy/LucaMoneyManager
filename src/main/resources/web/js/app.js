@@ -10913,6 +10913,41 @@ async function onTrayRestore() {
   updateNoticeBtn();
 }
 
+// ─── Toggle DB remoto (solo modalità browser/WebServer) ──────────────────────
+
+async function _updateWebDbToggle() {
+  const el = document.getElementById('webDbToggle');
+  if (!el) return;
+  let open = false;
+  try { const r = await callJava('dbStatus', {}); open = !!r.open; } catch(e) {}
+  el.innerHTML = open
+    ? `<div class="web-db-bar web-db-open">
+         <span class="web-db-dot"></span>
+         <span>Database aperto</span>
+         <button class="btn btn-xs btn-ghost" onclick="_webDbClose()" style="margin-left:auto">Chiudi</button>
+       </div>`
+    : `<div class="web-db-bar web-db-closed">
+         <span class="web-db-dot"></span>
+         <span>Database chiuso</span>
+         <button class="btn btn-xs btn-primary" onclick="_webDbOpen()" style="margin-left:auto">Apri</button>
+       </div>`;
+}
+
+async function _webDbOpen() {
+  await callJava('dbOpen', {});
+  await _updateWebDbToggle();
+  api._invalidateAccounts();
+  api._invalidateCategories();
+  api._invalidateTags();
+  await updateSidebar();
+  await renderPage();
+}
+
+async function _webDbClose() {
+  await callJava('dbClose', {});
+  await _updateWebDbToggle();
+}
+
 function _showNotice(className, html, onHeadClick) {
   const delay = _noticeDelay;
   _noticeDelay += 400;
@@ -11061,15 +11096,18 @@ async function init() {
   // Inizializza icone Lucide nella sidebar
   if (typeof lucide !== 'undefined') lucide.createIcons();
 
-  // Modalità browser (non JCEF): nascondi titlebar desktop
-  if (typeof window.cefQuery !== 'function') {
+  // Modalità browser (non JCEF): nascondi titlebar desktop, mostra toggle DB
+  const _isBrowser = typeof window.cefQuery !== 'function';
+  if (_isBrowser) {
     const tb = document.getElementById('titlebar');
     if (tb) tb.style.display = 'none';
+    const tog = document.getElementById('webDbToggle');
+    if (tog) tog.style.display = '';
   }
   // Nascondo gli handle se si parte massimizzato
   const {maximized} = await api.isMaximized();
   document.querySelectorAll('.rh').forEach(el => el.style.display = maximized ? 'none' : '');
-  // Carica preferenze persistenti
+  // Carica preferenze persistenti (non richiedono DB)
   const s = await api.getSettings();
   await _loadCustomThemes();
   if (s['appearance.theme']) applyTheme(s['appearance.theme']);
@@ -11082,6 +11120,13 @@ async function init() {
   if (s['cf.months'])    _cfMonths   = parseInt(s['cf.months'])   || 6;
   if (s['tx.range'])              txFilters           = { range: s['tx.range'], ...rangeToFilter(s['tx.range']) };
   if (s['portfolio.active_only']) _portfolioActiveOnly = s['portfolio.active_only'] !== '0';
+  // Modalità browser: aggiorna il toggle e blocca il caricamento dati se DB chiuso
+  if (_isBrowser) {
+    await _updateWebDbToggle();
+    const { open } = await callJava('dbStatus', {}).catch(() => ({ open: false }));
+    if (!open) return;
+  }
+
   await updateSidebar();
   await renderDashboard();
   // Notifica transazioni da telefono

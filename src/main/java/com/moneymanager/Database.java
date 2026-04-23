@@ -50,11 +50,17 @@ public class Database {
         logger.log("DB CAMBIATO", "db:" + dbPath);
     }
 
-    public void close() throws SQLException { conn.close(); }
+    public boolean isOpen() {
+        try { return conn != null && !conn.isClosed(); } catch (SQLException e) { return false; }
+    }
+
+    public void close() throws SQLException {
+        if (conn != null && !conn.isClosed()) conn.close();
+    }
 
     /** Riapre il DB dopo una chiusura esplicita (es. nascosto al tray per OneDrive). */
     public void reopen() throws SQLException {
-        conn = openConnection(currentDbPath);
+        if (!isOpen()) conn = openConnection(currentDbPath);
     }
 
     public String getDbPath() { return currentDbPath; }

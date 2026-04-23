@@ -7989,7 +7989,7 @@ async function renderSettings() {
             </span>
           </div>
           <div class="settings-control maint-op-control">
-            <button class="btn btn-ghost" onclick="api.openDataDir()">📂 Apri cartella</button>
+            <button class="btn btn-ghost" onclick="callJava('openDataDir')">📂 Apri cartella</button>
           </div>
         </div>
       </div>

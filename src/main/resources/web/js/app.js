@@ -520,6 +520,12 @@ document.querySelectorAll('.nav-item').forEach(el => {
   });
 });
 
+function navigateToBudgetMese() {
+  _budgetTab = 'mese';
+  if (currentPage === 'budgets') _setBudgetTab('mese');
+  else navigate('budgets');
+}
+
 function renderPage(page) {
   switch(page) {
     case 'dashboard':    renderDashboard();    break;
@@ -756,7 +762,10 @@ function _renderDashBudgetBubbles(budgetYear) {
   el.innerHTML = `
     <div class="card-header">
       <span class="card-title">Budget — ${monthName} ${curYear}</span>
-      <button class="btn btn-ghost" onclick="navigate('budgets')">Gestisci →</button>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-ghost" onclick="navigateToBudgetMese()">Analisi mese →</button>
+        <button class="btn btn-ghost" onclick="navigate('budgets')">Gestisci →</button>
+      </div>
     </div>
     <div style="padding:0 16px 8px;flex:1">
       ${expCats.length ? `
@@ -2685,6 +2694,8 @@ const MONTHS_SHORT = ['Gen','Feb','Mar','Apr','Mag','Giu','Lug','Ago','Set','Ott
 let budgetYear = new Date().getFullYear();
 let _budgetTab = 'grid';
 let _budgetAndamentoChart = null;
+let _budgetMeseSort  = 'rimasto';
+let _budgetMeseMonth = new Date().getMonth() + 1;
 
 async function renderBudgets() {
   if (_budgetAndamentoChart) { _budgetAndamentoChart.destroy(); _budgetAndamentoChart = null; }
@@ -2713,6 +2724,7 @@ async function renderBudgets() {
         <button class="sched-tab ${_budgetTab==='grid'?'active':''}"        data-btab="grid"        onclick="_setBudgetTab('grid')">📊 Budget</button>
         <button class="sched-tab ${_budgetTab==='andamento'?'active':''}"   data-btab="andamento"   onclick="_setBudgetTab('andamento')">📈 Andamento</button>
         <button class="sched-tab ${_budgetTab==='scostamenti'?'active':''}" data-btab="scostamenti" onclick="_setBudgetTab('scostamenti')">📉 Scostamenti</button>
+        <button class="sched-tab ${_budgetTab==='mese'?'active':''}"        data-btab="mese"        onclick="_setBudgetTab('mese')">🗓 Mese</button>
       </div>
     </div>
     <div id="budgetContent" style="flex:1;overflow:hidden;padding:0 16px 16px;display:flex;flex-direction:column">
@@ -2724,11 +2736,12 @@ async function renderBudgets() {
       </div>
       <div id="budgAndamentoWrap"  style="display:${_budgetTab==='andamento'  ?'block':'none'};overflow-y:auto;flex:1"></div>
       <div id="budgScostWrap"      style="display:${_budgetTab==='scostamenti'?'block':'none'};overflow-y:auto;flex:1"></div>
+      <div id="budgMeseWrap"       style="display:${_budgetTab==='mese'       ?'block':'none'};overflow-y:auto;flex:1"></div>
     </div>`;
 
   document.getElementById('budgYearLabel').textContent = budgetYear;
-  document.getElementById('budgPrev').onclick = () => { budgetYear--; renderBudgets(); };
-  document.getElementById('budgNext').onclick = () => { budgetYear++; renderBudgets(); };
+  document.getElementById('budgPrev').onclick = () => { budgetYear--; _budgetMeseMonth = new Date().getMonth() + 1; renderBudgets(); };
+  document.getElementById('budgNext').onclick = () => { budgetYear++; _budgetMeseMonth = new Date().getMonth() + 1; renderBudgets(); };
   document.getElementById('btnGenBudget').onclick = () => showGenerateBudgetModal();
   document.getElementById('btnDelBudgetYear').onclick = async () => {
     const ok = await confirm('Cancella budget', `Eliminare tutti i budget dell'anno ${budgetYear}? L'operazione non è reversibile.`);
@@ -2767,9 +2780,11 @@ window._setBudgetTab = tab => {
   document.getElementById('budgGridWrap').style.display      = tab === 'grid'        ? 'block' : 'none';
   document.getElementById('budgAndamentoWrap').style.display = tab === 'andamento'   ? 'block' : 'none';
   document.getElementById('budgScostWrap').style.display     = tab === 'scostamenti' ? 'block' : 'none';
+  document.getElementById('budgMeseWrap').style.display      = tab === 'mese'        ? 'block' : 'none';
   document.getElementById('budgGridActions').style.display   = tab === 'grid'        ? 'flex' : 'none';
   if (tab === 'andamento'   && _budgetData) renderBudgetAndamento();
   if (tab === 'scostamenti' && _budgetData) renderBudgetScostamenti();
+  if (tab === 'mese'        && _budgetData) renderBudgetMese();
 };
 
 let _accFavoritesOnly = false;
@@ -2787,6 +2802,7 @@ async function loadBudgetTable() {
   renderBudgetTable();
   if (_budgetTab === 'andamento')   renderBudgetAndamento();
   if (_budgetTab === 'scostamenti') renderBudgetScostamenti();
+  if (_budgetTab === 'mese')        renderBudgetMese();
 }
 
 /* ─── Budget: mappe condivise tra le 3 viste ─────────────────────────────── */
@@ -3386,6 +3402,342 @@ function renderBudgetScostamenti() {
           </tr>`;
         }).join('')}</tbody>
       </table>
+    </div>`;
+}
+
+/* ─── Budget Mese: zone colore (% + importo assoluto) ───────────────────── */
+function _budgetMeseZone(pctUsed, budget, spent, isExpSide) {
+  if (isExpSide) {
+    if (pctUsed <= 70) return 'dkgreen';
+    if (pctUsed <= 85) return 'green';
+    if (pctUsed < 100) return 'ltgreen';   // 85–99%
+    const absOver = spent - budget;
+    if (absOver <= 0)  return 'blue';       // esattamente 100%
+    // Sforato: combina euro assoluti e percentuale
+    // formula: absOver × (1 + pctOver/200) — la % scala senza dominare
+    const combined = absOver * (1 + (pctUsed - 100) / 200);
+    if (combined < 30)  return 'ltamber';
+    if (combined < 60)  return 'amber';
+    if (combined < 100) return 'ltred';
+    return 'red';
+  } else {
+    if (pctUsed >= 100) return 'green';
+    if (pctUsed >= 80)  return 'ltgreen';
+    const absMissing = budget - spent;
+    if (absMissing < 50)  return 'ltgreen';
+    if (absMissing < 200) return 'amber';
+    return 'red';
+  }
+}
+const _MESE_ZONE_STYLE = {
+  dkgreen: { color: '#2a7a42',        bg: 'rgba(42,122,66,.07)',   bar: '#2a7a42'        },
+  green:   { color: 'var(--income)',  bg: 'rgba(63,185,80,.05)',   bar: 'var(--income)'  },
+  ltgreen: { color: '#5a9a6a',        bg: 'rgba(90,154,106,.04)',  bar: '#5a9a6a'        },
+  blue:    { color: '#4a9cf0',        bg: 'rgba(74,156,240,.07)',  bar: '#4a9cf0'        },
+  ltamber: { color: '#b88030',        bg: 'rgba(184,128,48,.05)',  bar: '#b88030'        },
+  amber:   { color: '#e07010',        bg: 'rgba(224,112,16,.07)',  bar: '#e07010'        },
+  ltred:   { color: '#c84040',        bg: 'rgba(200,64,64,.06)',   bar: '#c84040'        },
+  red:     { color: 'var(--expense)', bg: 'rgba(248,81,73,.08)',   bar: 'var(--expense)' },
+};
+
+/* ─── Budget Mese Treemap ─────────────────────────────────────────────────── */
+function _drawBudgetMeseTreemap(rows, vw, vh, isExpSide) {
+  if (!rows.length) return `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--txt3);font-size:13px">Nessun dato</div>`;
+
+  const hesc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  const sz   = r => Math.max(r.budget, r.spent, 1);
+  const sorted = [...rows].sort((a, b) => sz(b) - sz(a));
+
+  function slice(items, x, y, w, h, horiz) {
+    if (!items.length) return [];
+    if (items.length === 1) return [{ ...items[0], x, y, w, h }];
+    const tot = items.reduce((s, r) => s + sz(r), 0);
+    let acc = 0, mid = 0;
+    for (let i = 0; i < items.length; i++) { acc += sz(items[i]); mid = i; if (acc >= tot / 2) break; }
+    const a = items.slice(0, mid + 1), b = items.slice(mid + 1);
+    const f = a.reduce((s, r) => s + sz(r), 0) / tot;
+    return horiz
+      ? [...slice(a, x,       y, w*f,       h, !horiz), ...slice(b, x+w*f, y, w*(1-f), h, !horiz)]
+      : [...slice(a, x, y,           w, h*f, !horiz), ...slice(b, x, y+h*f, w, h*(1-f), !horiz)];
+  }
+
+  const G = 3;
+  const cells = slice(sorted, 0, 0, vw, vh, vw >= vh);
+
+  return cells.map(c => {
+    const pw = c.w - G*2, ph = c.h - G*2;
+    if (pw < 6 || ph < 6) return '';
+    const pct    = c.pctUsed === Infinity ? 999 : c.pctUsed;
+    const zone   = _budgetMeseZone(pct, c.budget, c.spent, isExpSide);
+    const st     = _MESE_ZONE_STYLE[zone];
+    const isOver = c.remaining < 0;
+    const pctStr = pct === 999 ? '∞%' : pct.toFixed(0) + '%';
+    const area   = Math.sqrt(pw * ph);
+    const fsPct  = Math.min(18, Math.max(8,  area / 7));
+    const fsName = Math.min(11, Math.max(7,  area / 12));
+    const fsRem  = Math.min(10, Math.max(7,  area / 14));
+    const fillPct = Math.min(100, pct === 999 ? 100 : pct);
+    const showName = pw > 44 && ph > 30;
+    const showPct  = pw > 26 && ph > 18;
+    const showRem  = isOver && pw > 60 && ph > 58;
+    const bgHi   = st.bg.replace(/[\d.]+\)$/, '0.22)');
+    const bgLo   = st.bg.replace(/[\d.]+\)$/, '0.07)');
+    const border = isOver ? `2px solid ${st.color}` : `1px solid ${st.color}55`;
+    const tooltip = `${c.cat.icon} ${hesc(c.cat.name)} — ${pctStr} | Speso: ${hesc(fmt.currency(c.spent))} / Budget: ${hesc(fmt.currency(c.budget))} | Rimasto: ${hesc(fmt.currency(Math.abs(c.remaining)))}`;
+    const lx = ((c.x + G) / vw * 100).toFixed(3);
+    const ly = ((c.y + G) / vh * 100).toFixed(3);
+    const lw = (pw / vw * 100).toFixed(3);
+    const lh = (ph / vh * 100).toFixed(3);
+    return `<div class="tm-cell" title="${tooltip}"
+      style="position:absolute;left:${lx}%;top:${ly}%;width:${lw}%;height:${lh}%;
+        background:linear-gradient(135deg,${bgHi} 0%,${bgLo} 100%);
+        border:${border};border-radius:6px;overflow:hidden;box-sizing:border-box;
+        display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px">
+      ${showName ? `<span style="font-size:${fsName.toFixed(1)}px;color:${st.color};opacity:0.7;padding:0 5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;text-align:center;line-height:1.2">${c.cat.icon} ${hesc(c.cat.name)}</span>` : ''}
+      ${showPct  ? `<span style="font-size:${fsPct.toFixed(1)}px;color:${st.color};font-weight:700;line-height:1;letter-spacing:-.5px">${pctStr}</span>` : ''}
+      ${showRem  ? `<span style="font-size:${fsRem.toFixed(1)}px;color:${st.color};opacity:0.6;line-height:1">−${hesc(fmt.currency(Math.abs(c.remaining)))}</span>` : ''}
+      <div style="position:absolute;bottom:0;left:0;right:0;height:5px;background:rgba(0,0,0,0.15)">
+        <div style="height:100%;width:${fillPct.toFixed(1)}%;background:${st.bar};opacity:0.75"></div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function _showBudgetMeseTreemap() {
+  if (!_budgetData) return;
+  const { actualMap, catById, leafCats, getEffective } = _buildBudgetMaps();
+  const viewMonth = _budgetMeseMonth;
+  const MONTHS_IT = ['Gennaio','Febbraio','Marzo','Aprile','Maggio','Giugno',
+                     'Luglio','Agosto','Settembre','Ottobre','Novembre','Dicembre'];
+  const allRows = leafCats.map(cat => {
+    const eff = getEffective(cat.id);
+    const budget = eff[viewMonth] || 0;
+    const spent  = (actualMap[cat.id] || {})[viewMonth] || 0;
+    if (budget === 0 && spent === 0) return null;
+    const pctUsed   = budget > 0 ? (spent / budget) * 100 : (spent > 0 ? Infinity : 0);
+    const remaining = cat.type === 'expense' ? budget - spent : spent - budget;
+    return { cat, budget, spent, remaining, pctUsed, isExp: cat.type === 'expense' };
+  }).filter(r => r !== null);
+
+  const expRows = allRows.filter(r => r.isExp);
+  const incRows = allRows.filter(r => !r.isExp);
+  const VW = 1000, VH = 700;
+  const body = `
+    <div id="tmWrap" data-tmactive="exp" style="display:flex;flex-direction:column;height:calc(90vh - 100px);overflow:hidden">
+      <div style="display:flex;border-bottom:1px solid var(--border);margin-bottom:10px;flex-shrink:0">
+        <button id="tmTab_exp" class="tm-tab" onclick="_tmSwitchTab('exp')">Uscite</button>
+        <button id="tmTab_inc" class="tm-tab" onclick="_tmSwitchTab('inc')">Entrate</button>
+      </div>
+      <div id="tmPane_exp" class="tm-pane">
+        <div style="position:relative;flex:1;border-radius:10px;background:var(--bg3);overflow:hidden">
+          ${_drawBudgetMeseTreemap(expRows, VW, VH, true)}
+        </div>
+      </div>
+      <div id="tmPane_inc" class="tm-pane">
+        <div style="position:relative;flex:1;border-radius:10px;background:var(--bg3);overflow:hidden">
+          ${_drawBudgetMeseTreemap(incRows, VW, VH, false)}
+        </div>
+      </div>
+    </div>`;
+
+  openModal(`Mappa di impatto — ${MONTHS_IT[viewMonth - 1]} ${budgetYear}`, body, null, '', '', 'modal-treemap');
+  const mb = document.getElementById('modalBody');
+  mb.style.overflow = 'hidden';
+  mb.style.padding  = '12px 16px';
+}
+
+window._tmSwitchTab = id => {
+  const wrap = document.getElementById('tmWrap');
+  if (wrap) wrap.dataset.tmactive = id;
+};
+
+/* ─── Budget Mese Corrente ───────────────────────────────────────────────── */
+function renderBudgetMese() {
+  const el = document.getElementById('budgMeseWrap');
+  if (!el || !_budgetData) return;
+
+  const { actualMap, catById, leafCats, getEffective } = _buildBudgetMaps();
+
+  const now = new Date();
+  const curYear = now.getFullYear(), curMonth = now.getMonth() + 1;
+  const MONTHS_IT = ['Gennaio','Febbraio','Marzo','Aprile','Maggio','Giugno',
+                     'Luglio','Agosto','Settembre','Ottobre','Novembre','Dicembre'];
+
+  const viewMonth = _budgetMeseMonth;
+  const monthName = MONTHS_IT[viewMonth - 1];
+
+  // Costruisce righe per ogni categoria foglia
+  const allRows = leafCats.map(cat => {
+    const eff    = getEffective(cat.id);
+    const budget = eff[viewMonth] || 0;
+    const spent  = (actualMap[cat.id] || {})[viewMonth] || 0;
+    if (budget === 0 && spent === 0) return null;
+    const isExp    = cat.type === 'expense';
+    const pctUsed  = budget > 0 ? (spent / budget) * 100 : (spent > 0 ? Infinity : 0);
+    // remaining: expense = budget - spent (positivo = libero); income = spent - budget (positivo = extra)
+    const remaining = isExp ? budget - spent : spent - budget;
+    const absOver   = remaining < 0 ? Math.abs(remaining) : 0;
+    const parent    = cat.parent_id ? catById[cat.parent_id] : null;
+    return { cat, parent, budget, spent, remaining, pctUsed, absOver, isExp };
+  }).filter(r => r !== null);
+
+  const expRows = allRows.filter(r => r.cat.type === 'expense');
+  const incRows = allRows.filter(r => r.cat.type === 'income');
+
+  const sortRows = rows => [...rows].sort((a, b) => {
+    switch (_budgetMeseSort) {
+      case 'rimasto': return a.remaining - b.remaining; // più negativo (sforo) prima
+      case 'usage':   return b.pctUsed - a.pctUsed;
+      case 'abs':     return b.absOver - a.absOver;
+      case 'budget':  return b.budget - a.budget;
+      case 'cat':     return a.cat.name.localeCompare(b.cat.name);
+      default:       return b.pctUsed - a.pctUsed;
+    }
+  });
+
+  // Totali per le card di riepilogo
+  const expBudget  = expRows.reduce((s, r) => s + r.budget, 0);
+  const expSpent   = expRows.reduce((s, r) => s + r.spent, 0);
+  const expOver    = expRows.filter(r => r.remaining < 0).length;
+  const incBudget  = incRows.reduce((s, r) => s + r.budget, 0);
+  const incSpent   = incRows.reduce((s, r) => s + r.spent, 0);
+  const incUnder   = incRows.filter(r => r.remaining < 0).length;
+
+  const thS = 'padding:6px 10px;border-bottom:2px solid var(--border);color:var(--txt2);font-weight:600;white-space:nowrap;font-size:12px';
+  const tdS = 'padding:5px 10px;border-bottom:1px solid var(--border);white-space:nowrap;font-size:13px';
+
+  const makeRows = (rows, isExpSide) => sortRows(rows).map(r => {
+    const pct = r.pctUsed === Infinity ? 999 : r.pctUsed;
+    const zone = _budgetMeseZone(pct, r.budget, r.spent, isExpSide);
+    const { color: zoneColor, bg: zoneBg, bar: barColor } = _MESE_ZONE_STYLE[zone];
+    const barW     = Math.min(100, pct === 999 ? 100 : pct).toFixed(1);
+    const pctStr   = pct === 999 ? '∞%' : pct.toFixed(0) + '%';
+    const remColor = r.remaining >= 0 ? (isExpSide ? 'var(--income)' : 'var(--income)') : 'var(--expense)';
+    const remLabel = r.remaining >= 0
+      ? (isExpSide ? fmt.currency(r.remaining) : '+' + fmt.currency(r.remaining))
+      : (isExpSide ? '−' + fmt.currency(-r.remaining) : '−' + fmt.currency(-r.remaining));
+
+    const macroEl = r.parent
+      ? `<div style="font-size:10px;color:var(--txt3);line-height:1.2">${r.parent.icon} ${r.parent.name}</div>`
+      : '';
+    return `<tr style="background:${zoneBg}">
+      <td style="${tdS}">
+        ${macroEl}<span style="color:${r.cat.color}">${r.cat.icon}</span> ${r.cat.name}
+        <button class="btn-budget-detail" title="Grafico categoria" onclick="_budgetShowDetail(${r.cat.id},'${r.cat.name.replace(/'/g,"\\'")}')">📊</button>
+      </td>
+      <td style="${tdS};text-align:right;font-variant-numeric:tabular-nums">${fmt.currency(r.budget)}</td>
+      <td style="${tdS};text-align:right;font-variant-numeric:tabular-nums">${fmt.currency(r.spent)}</td>
+      <td style="${tdS};text-align:right;font-variant-numeric:tabular-nums;color:${remColor};font-weight:600">${remLabel}</td>
+      <td style="${tdS};min-width:130px">
+        <div style="display:flex;align-items:center;gap:6px">
+          <div style="flex:1;height:11px;background:var(--bg3);border-radius:3px;overflow:hidden">
+            <div style="height:100%;width:${barW}%;background:${barColor};border-radius:3px"></div>
+          </div>
+          <span style="font-size:11px;color:${zoneColor};font-weight:700;min-width:36px;text-align:right">${pctStr}</span>
+        </div>
+      </td>
+    </tr>`;
+  }).join('');
+
+  const cardStyle = (bg, col) =>
+    `style="flex:1;min-width:0;background:${bg};border-radius:10px;padding:12px 16px;display:flex;flex-direction:column;gap:2px"`;
+
+  const expRemaining = expBudget - expSpent;
+  const incRemaining = incSpent - incBudget;
+  const expRemColor  = expRemaining >= 0 ? 'var(--income)' : 'var(--expense)';
+  const incRemColor  = incRemaining >= 0 ? 'var(--income)' : 'var(--expense)';
+
+  const sortSelect = `
+    <div style="display:flex;align-items:center;gap:6px">
+      <span style="font-size:12px;color:var(--txt2)">Ordina:</span>
+      <select class="form-control" style="font-size:12px;padding:3px 8px;width:auto"
+        onchange="_budgetMeseSort=this.value;renderBudgetMese()">
+        <option value="rimasto" ${_budgetMeseSort==='rimasto'?'selected':''}>Rimasto</option>
+        <option value="usage"   ${_budgetMeseSort==='usage' ?'selected':''}>% usato</option>
+        <option value="abs"     ${_budgetMeseSort==='abs'   ?'selected':''}>Sforamento €</option>
+        <option value="budget"  ${_budgetMeseSort==='budget'?'selected':''}>Budget</option>
+        <option value="cat"     ${_budgetMeseSort==='cat'   ?'selected':''}>Categoria</option>
+      </select>
+    </div>`;
+
+  el.innerHTML = `
+    <div style="padding:14px 0 10px;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+      <div style="display:flex;align-items:center;gap:8px">
+        <h3 style="margin:0;font-size:15px;white-space:nowrap">Stato budget</h3>
+        <select class="form-control" style="font-size:13px;padding:3px 10px;width:auto;font-weight:600"
+          onchange="_budgetMeseMonth=+this.value;renderBudgetMese()">
+          ${MONTHS_IT.map((m,i) => `<option value="${i+1}" ${viewMonth===i+1?'selected':''}>${m}</option>`).join('')}
+        </select>
+        <span style="font-size:14px;color:var(--txt2);font-weight:600">${budgetYear}</span>
+        <button class="btn btn-primary" style="font-size:13px;padding:6px 14px" onclick="_showBudgetMeseTreemap()">📊 Treemap</button>
+      </div>
+      ${sortSelect}
+    </div>
+
+    <div class="budget-mese-cols">
+
+      <!-- ── USCITE ── -->
+      <div class="budget-mese-col">
+        <div style="display:flex;gap:8px;margin-bottom:12px">
+          <div ${cardStyle('color-mix(in srgb,var(--expense) 10%,var(--bg2))', 'var(--expense)')}>
+            <span style="font-size:11px;color:var(--txt2)">Budget uscite</span>
+            <span style="font-size:16px;font-weight:700">${fmt.currency(-expBudget)}</span>
+          </div>
+          <div ${cardStyle('color-mix(in srgb,var(--txt3) 8%,var(--bg2))', 'var(--txt)')}>
+            <span style="font-size:11px;color:var(--txt2)">Speso</span>
+            <span style="font-size:16px;font-weight:700">${fmt.currency(-expSpent)}</span>
+          </div>
+          <div ${cardStyle('color-mix(in srgb,' + expRemColor + ' 10%,var(--bg2))', expRemColor)}>
+            <span style="font-size:11px;color:var(--txt2)">${expRemaining >= 0 ? 'Rimasto' : 'Sforo totale'}</span>
+            <span style="font-size:16px;font-weight:700;color:${expRemColor}">${fmt.currency(Math.abs(expRemaining))}</span>
+            ${expOver > 0 ? `<span style="font-size:11px;color:var(--expense)">${expOver} ${expOver===1?'categoria':'categorie'} in sforamento</span>` : ''}
+          </div>
+        </div>
+        <div style="overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:13px">
+            <thead><tr>
+              <th style="${thS};text-align:left">Categoria</th>
+              <th style="${thS};text-align:right">Budget</th>
+              <th style="${thS};text-align:right">Speso</th>
+              <th style="${thS};text-align:right">Rimasto</th>
+              <th style="${thS};text-align:left;min-width:130px">Utilizzo</th>
+            </tr></thead>
+            <tbody>${makeRows(expRows, true)}</tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ── ENTRATE ── -->
+      <div class="budget-mese-col">
+        <div style="display:flex;gap:8px;margin-bottom:12px">
+          <div ${cardStyle('color-mix(in srgb,var(--income) 10%,var(--bg2))', 'var(--income)')}>
+            <span style="font-size:11px;color:var(--txt2)">Budget entrate</span>
+            <span style="font-size:16px;font-weight:700">${fmt.currency(incBudget)}</span>
+          </div>
+          <div ${cardStyle('color-mix(in srgb,var(--txt3) 8%,var(--bg2))', 'var(--txt)')}>
+            <span style="font-size:11px;color:var(--txt2)">Incassato</span>
+            <span style="font-size:16px;font-weight:700">${fmt.currency(incSpent)}</span>
+          </div>
+          <div ${cardStyle('color-mix(in srgb,' + incRemColor + ' 10%,var(--bg2))', incRemColor)}>
+            <span style="font-size:11px;color:var(--txt2)">${incRemaining >= 0 ? 'Extra' : 'Mancanti'}</span>
+            <span style="font-size:16px;font-weight:700;color:${incRemColor}">${fmt.currency(Math.abs(incRemaining))}</span>
+            ${incUnder > 0 ? `<span style="font-size:11px;color:var(--expense)">${incUnder} ${incUnder===1?'categoria':'categorie'} sotto target</span>` : ''}
+          </div>
+        </div>
+        <div style="overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:13px">
+            <thead><tr>
+              <th style="${thS};text-align:left">Categoria</th>
+              <th style="${thS};text-align:right">Budget</th>
+              <th style="${thS};text-align:right">Incassato</th>
+              <th style="${thS};text-align:right">Diff</th>
+              <th style="${thS};text-align:left;min-width:130px">Utilizzo</th>
+            </tr></thead>
+            <tbody>${makeRows(incRows, false)}</tbody>
+          </table>
+        </div>
+      </div>
+
     </div>`;
 }
 

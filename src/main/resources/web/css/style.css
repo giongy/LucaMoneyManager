@@ -537,8 +537,17 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
   box-shadow:var(--shadow); animation:slideUp .2s ease;
 }
 @keyframes slideUp { from { transform:translateY(16px); opacity:0; } to { transform:translateY(0); opacity:1; } }
-.modal-wide { width:640px; }
-.modal-sm   { width:380px; }
+.modal-wide    { width:640px; }
+.modal-sm      { width:380px; }
+.modal-treemap { width:90vw; max-width:90vw; height:90vh; max-height:90vh; display:flex; flex-direction:column; }
+.tm-tab                              { padding:6px 18px; border:none; border-bottom:2px solid transparent; background:none; color:var(--txt2); font-weight:400; font-size:13px; cursor:pointer; }
+[data-tmactive="exp"] #tmTab_exp,
+[data-tmactive="inc"] #tmTab_inc    { border-bottom-color:var(--accent); color:var(--txt); font-weight:700; }
+.tm-pane                             { display:none; flex:1; min-height:0; }
+[data-tmactive="exp"] #tmPane_exp,
+[data-tmactive="inc"] #tmPane_inc   { display:flex; }
+.tm-cell                             { transition:filter .12s; cursor:default; }
+.tm-cell:hover                       { filter:brightness(1.4); }
 .modal-header {
   display:flex; align-items:center; justify-content:space-between;
   padding:12px 16px; border-bottom:1px solid var(--border);
@@ -1145,6 +1154,11 @@ tr.tx-selected td { background:rgba(88,166,255,.07); }
 }
 .budget-cat-cell:hover .btn-budget-detail { opacity: 0.7; }
 .btn-budget-detail:hover { opacity: 1 !important; background: var(--bg4); }
+
+/* ─── Budget: tab Mese Corrente layout a due colonne ─────────────────────── */
+.budget-mese-cols { display:flex; gap:20px; align-items:flex-start; }
+.budget-mese-col  { flex:1; min-width:0; }
+@media (max-width: 900px) { .budget-mese-cols { flex-direction:column; } }
 
 /* ─── Sidebar nav groups (Resoconti collapsible) ─────────────────────────── */
 .nav-group { display:flex; flex-direction:column; }

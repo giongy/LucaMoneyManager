@@ -1,3 +1,5 @@
+.hidden { display:none !important; }
+
 /* ─── Resize handles ─────────────────────────────────────────────────────── */
 .rh { position:fixed; z-index:9999; }
 .rh-n  { top:0;    left:6px;  right:6px;  height:5px; cursor:n-resize;  }
@@ -398,6 +400,16 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
   width:60px; line-height:1.2; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
 }
 .budget-bubble-amounts { text-align:center; line-height:1.3; }
+
+/* ─── Backup list — badge modifiche ──────────────────────────────────────── */
+.btn-bak-changes {
+  display:inline-block; cursor:pointer; border:none; outline:none;
+  background:rgba(63,185,80,.15); color:var(--income);
+  border-radius:12px; padding:1px 9px; font-size:11px; font-weight:600;
+  transition:background .15s;
+}
+.btn-bak-changes:hover  { background:rgba(63,185,80,.28); }
+.btn-bak-changes.active { background:var(--income); color:#fff; }
 
 /* ─── Dashboard bubble tooltip ───────────────────────────────────────────── */
 #dash-tooltip {

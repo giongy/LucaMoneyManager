@@ -9352,9 +9352,8 @@ async function settingsLoadBackupList() {
             const detailId = `bak-detail-${i}`;
             const changesCell = nChanges === 0
               ? `<span style="color:var(--txt3)">—</span>`
-              : `<button class="btn btn-ghost" style="font-size:11px;padding:1px 7px"
-                   onclick="document.querySelectorAll('.${detailId}').forEach(r=>r.classList.toggle('hidden'))">
-                   📋 ${nChanges} ${nChanges===1?'modifica':'modifiche'}
+              : `<button class="btn-bak-changes" data-detail="${detailId}">
+                   ${nChanges} ${nChanges===1?'modifica':'modifiche'}
                  </button>`;
             const detailRows = changes.map(c =>
               `<tr class="bak-detail-row ${detailId}" style="background:var(--bg3)">
@@ -9381,8 +9380,15 @@ async function settingsLoadBackupList() {
           }).join('')}
         </tbody>
       </table>`;
-    // Nascondi tutte le righe di dettaglio all'inizio
     container.querySelectorAll('.bak-detail-row').forEach(r => r.classList.add('hidden'));
+    container.querySelectorAll('.btn-bak-changes').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const rows = container.querySelectorAll(`.${btn.dataset.detail}`);
+        const open = !rows[0]?.classList.contains('hidden');
+        rows.forEach(r => r.classList.toggle('hidden', open));
+        btn.classList.toggle('active', !open);
+      });
+    });
     container.querySelectorAll('.btn-restore-bak').forEach(btn => {
       btn.addEventListener('click', () => settingsConfirmRestore(btn.dataset.path, btn.dataset.ts));
     });

@@ -732,11 +732,20 @@ function _renderDashBudgetBubbles(budgetYear) {
       : c.type === 'income'
         ? (c.actual > c.budget ? 'var(--income)' : c.actual < c.budget ? 'var(--expense)' : 'var(--txt3)')
         : (c.actual < c.budget ? 'var(--income)' : c.actual > c.budget ? 'var(--expense)' : 'var(--txt3)');
-    const hexColor = c.color?.startsWith('#') ? c.color : null;
-    const bg       = hexColor ? hexColor + '28' : 'rgba(255,255,255,0.07)';
-    const fullName = c.parent_name ? `${c.parent_name} : ${c.name}` : c.name;
+    const hexColor  = c.color?.startsWith('#') ? c.color : null;
+    const bg        = hexColor ? hexColor + '28' : 'rgba(255,255,255,0.07)';
+    const catLine   = c.parent_name ? `${c.parent_name} : ${c.name}` : c.name;
+    const remaining = c.budget > 0
+      ? (c.type === 'income' ? c.actual - c.budget : c.budget - c.actual)
+      : null;
+    const hesc = s => String(s).replace(/"/g, '&quot;');
     return `<div class="budget-bubble" onclick="_dashBubbleDetail(${c.id})"
-        title="${fullName} — ${fmt.currency(c.actual)} / ${fmt.currency(c.budget)} (${pct}%)">
+        data-tt-cat="${hesc(catLine)}"
+        data-tt-budget="${hesc(c.budget > 0 ? fmt.currency(c.budget) : '—')}"
+        data-tt-actual="${hesc(fmt.currency(c.actual))}"
+        data-tt-rem="${hesc(remaining !== null ? fmt.currency(remaining) : '—')}"
+        data-tt-over="${remaining !== null && remaining < 0 ? '1' : '0'}"
+        data-tt-l2="Reale">
       <div class="budget-bubble-icon" style="background:${bg}">
         <span style="position:relative;z-index:1;font-size:18px;line-height:1">${c.icon || '📁'}</span>
         ${_ring(c.actual, c.budget, hexColor, 44, c.type === 'income')}
@@ -810,6 +819,7 @@ function _initBubbleDrag() {
       el.scrollLeft = scrollLeft - (e.pageX - el.offsetLeft - startX) * 1.5;
     });
   });
+  _initGlobalTooltip();
 }
 
 function _renderDashAccountsWidget(accounts) {
@@ -3483,12 +3493,17 @@ function _drawBudgetMeseTreemap(rows, vw, vh, isExpSide) {
     const bgHi   = st.bg.replace(/[\d.]+\)$/, '0.22)');
     const bgLo   = st.bg.replace(/[\d.]+\)$/, '0.07)');
     const border = isOver ? `2px solid ${st.color}` : `1px solid ${st.color}55`;
-    const tooltip = `${c.cat.icon} ${hesc(c.cat.name)} — ${pctStr} | Speso: ${hesc(fmt.currency(c.spent))} / Budget: ${hesc(fmt.currency(c.budget))} | Rimasto: ${hesc(fmt.currency(Math.abs(c.remaining)))}`;
     const lx = ((c.x + G) / vw * 100).toFixed(3);
     const ly = ((c.y + G) / vh * 100).toFixed(3);
     const lw = (pw / vw * 100).toFixed(3);
     const lh = (ph / vh * 100).toFixed(3);
-    return `<div class="tm-cell" title="${tooltip}"
+    return `<div class="tm-cell"
+      data-tt-cat="${hesc(c.cat.icon + ' ' + c.cat.name)}"
+      data-tt-budget="${hesc(fmt.currency(c.budget))}"
+      data-tt-actual="${hesc(fmt.currency(c.spent))}"
+      data-tt-rem="${hesc(fmt.currency(Math.abs(c.remaining)))}"
+      data-tt-over="${c.remaining < 0 ? '1' : '0'}"
+      data-tt-l2="Speso"
       style="position:absolute;left:${lx}%;top:${ly}%;width:${lw}%;height:${lh}%;
         background:linear-gradient(135deg,${bgHi} 0%,${bgLo} 100%);
         border:${border};border-radius:6px;overflow:hidden;box-sizing:border-box;
@@ -11447,7 +11462,58 @@ function showUnverifiedNotice(list, save=true) {
 Chart.defaults.font.family = "'Segoe UI', system-ui, sans-serif";
 Chart.defaults.font.size   = 13;
 
+function _initGlobalTooltip() {
+  if (_initGlobalTooltip._done) return;
+  _initGlobalTooltip._done = true;
+
+  const tt = document.createElement('div');
+  tt.id = 'dash-tooltip';
+  document.body.appendChild(tt);
+
+  let timer = null, cur = null, mx = 0, my = 0;
+
+  const _place = () => {
+    let x = mx + 16, y = my + 16;
+    if (x + tt.offsetWidth  > window.innerWidth  - 8) x = mx - tt.offsetWidth  - 8;
+    if (y + tt.offsetHeight > window.innerHeight - 8) y = my - tt.offsetHeight - 8;
+    tt.style.left = x + 'px';
+    tt.style.top  = y + 'px';
+  };
+  const _hide = () => { clearTimeout(timer); cur = null; tt.style.display = 'none'; };
+
+  document.addEventListener('mouseover', e => {
+    mx = e.clientX; my = e.clientY;
+    const el = e.target.closest('[data-tt-cat]');
+    if (el === cur) return;
+    cur = el;
+    clearTimeout(timer);
+    tt.style.display = 'none';
+    if (!el) return;
+    timer = setTimeout(() => {
+      const isOver = el.dataset.ttOver === '1';
+      const l2     = el.dataset.ttL2 || 'Reale';
+      tt.innerHTML =
+        `<div class="tt-name">${el.dataset.ttCat}</div>` +
+        `<div class="tt-row"><span class="tt-label">Budget</span><span class="tt-val">${el.dataset.ttBudget}</span></div>` +
+        `<div class="tt-row"><span class="tt-label">${l2}</span><span class="tt-val">${el.dataset.ttActual}</span></div>` +
+        `<div class="tt-row tt-rem${isOver ? ' over' : ''}"><span class="tt-label">Rimasto</span><span class="tt-val">${el.dataset.ttRem}</span></div>`;
+      tt.style.display = 'block';
+      _place();
+    }, 300);
+  });
+
+  document.addEventListener('mousemove', e => {
+    mx = e.clientX; my = e.clientY;
+    if (tt.style.display === 'block') _place();
+  });
+
+  document.addEventListener('mouseout', e => {
+    if (!e.relatedTarget || !e.relatedTarget.closest('[data-tt-cat]')) _hide();
+  });
+}
+
 async function init() {
+  _initGlobalTooltip();
   // Inizializza icone Lucide nella sidebar
   if (typeof lucide !== 'undefined') lucide.createIcons();
 

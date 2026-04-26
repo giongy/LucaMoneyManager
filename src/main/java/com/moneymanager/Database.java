@@ -450,7 +450,7 @@ public class Database {
         """);
     }
 
-    private static final int SCHEMA_VERSION = 11;
+    private static final int SCHEMA_VERSION = 12;
 
     private void migrate() throws SQLException {
         // Crea tabella versione se non esiste
@@ -703,9 +703,44 @@ public class Database {
             // Record esistenti: original_start_date=NULL → _countSchedYearOcc usa il fallback (proiezione storica)
         }
 
+        // ── v12: impostazioni app nel DB ─────────────────────────────────────
+        if (currentVersion < 12) {
+            executePlain("""
+                CREATE TABLE IF NOT EXISTS app_settings (
+                    key   TEXT PRIMARY KEY,
+                    value TEXT NOT NULL DEFAULT ''
+                )""");
+        }
+
         // Segna il DB come aggiornato all'ultima versione
         executePlain("DELETE FROM schema_version");
         executePlain("INSERT INTO schema_version(version) VALUES(" + SCHEMA_VERSION + ")");
+    }
+
+    // ─── App settings nel DB ──────────────────────────────────────────────────
+
+    public String getAppSetting(String key, String def) {
+        try {
+            Map<String, Object> row = queryOne("SELECT value FROM app_settings WHERE key=?", key);
+            return row != null ? (String) row.get("value") : def;
+        } catch (Exception e) { return def; }
+    }
+
+    public Map<String, String> getAllAppSettings() {
+        try {
+            List<Map<String, Object>> rows = queryList("SELECT key, value FROM app_settings");
+            Map<String, String> out = new java.util.LinkedHashMap<>();
+            for (Map<String, Object> r : rows) out.put((String) r.get("key"), (String) r.get("value"));
+            return out;
+        } catch (Exception e) { return Map.of(); }
+    }
+
+    public void setAppSetting(String key, String value) {
+        try {
+            execute("INSERT INTO app_settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", key, value);
+        } catch (Exception e) {
+            System.err.println("Database.setAppSetting: " + e.getMessage());
+        }
     }
 
     private void ensureSystemTags() throws SQLException {

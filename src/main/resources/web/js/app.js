@@ -306,7 +306,6 @@ const api = {
   openAttachment:        (path)         => callJava('openAttachment', {path}),
   removeAttachment:      (tx_id, path)  => callJava('removeAttachment', {tx_id, path: path||null}),
   openSettingsFile:      ()             => callJava('openSettingsFile', {}),
-  openCustomThemesFile:  ()             => callJava('openCustomThemesFile', {}),
   openAppLog:            ()             => callJava('openAppLog', {}),
   openUrl:           (url)   => callJava('openUrl', {url}),
   resetJcef:         ()      => callJava('resetJcef', {}),
@@ -8434,12 +8433,6 @@ async function renderSettings() {
             <span style="word-break:break-all">${s['_settings_path'] || '—'}</span>
             <button class="btn btn-ghost" style="white-space:nowrap;padding:2px 8px;font-size:11px"
                     onclick="api.openSettingsFile()">Apri ↗</button>
-          </span>
-          <span class="settings-info-label">Temi personalizzati</span>
-          <span class="settings-info-value flex-center-8">
-            <span style="word-break:break-all">${s['_custom_themes_path'] || '—'}</span>
-            <button class="btn btn-ghost" style="white-space:nowrap;padding:2px 8px;font-size:11px"
-                    onclick="api.openCustomThemesFile()">Apri ↗</button>
           </span>
           <span class="settings-info-label">Log Java</span>
           <span class="settings-info-value flex-center-8">

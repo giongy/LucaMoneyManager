@@ -74,10 +74,10 @@ public class MainWindow {
             @Override
             public void windowClosing(WindowEvent e) {
                 // Backup automatico se abilitato e ci sono modifiche (sia al tray che all'uscita)
-                if ("1".equals(settings.get(Settings.BACKUP_ENABLED)) && db.hasModifications()) {
-                    String bDir = settings.get(Settings.BACKUP_DIR);
+                if ("1".equals(db.getAppSetting("backup.enabled", "0")) && db.hasModifications()) {
+                    String bDir = db.getAppSetting("backup.dir", "");
                     int bMax;
-                    try { bMax = Integer.parseInt(settings.get(Settings.BACKUP_MAX, "10")); }
+                    try { bMax = Integer.parseInt(db.getAppSetting("backup.max", "10")); }
                     catch (NumberFormatException ex) { bMax = 10; }
                     try { db.backup(bDir, bMax); db.resetModifications(); }
                     catch (Exception ex) { System.err.println("Backup fallito: " + ex.getMessage()); }

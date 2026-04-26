@@ -45,6 +45,19 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
         this.settings = settings;
         this.window = window;
         this.dataDir = dataDir;
+        migrateSettingsToDB();
+    }
+
+    /** Sposta le chiavi non-bootstrap da settings.properties al DB (migrazione una tantum). */
+    private void migrateSettingsToDB() {
+        Map<String, String> all = settings.getAll();
+        for (Map.Entry<String, String> e : all.entrySet()) {
+            String k = e.getKey();
+            if (Settings.BOOTSTRAP_KEYS.contains(k)) continue;
+            String existing = db.getAppSetting(k, null);
+            if (existing == null) db.setAppSetting(k, e.getValue());
+            settings.remove(k);
+        }
     }
 
     /** Pulisce lo stato accumulato in sessione. Chiamato quando la finestra si nasconde al tray. */
@@ -137,7 +150,7 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
     private void handleChooseBackupDirAsync(CefQueryCallback callback) {
         Thread.ofVirtual().start(() -> {
             try {
-                String cur = settings.get(Settings.BACKUP_DIR);
+                String cur = db.getAppSetting("backup.dir", "");
                 String path = winPickFolder("Seleziona cartella backup", cur);
                 if (path == null) succeed(callback, Map.of("path", "", "cancelled", true));
                 else              succeed(callback, Map.of("path", path, "cancelled", false));
@@ -148,7 +161,7 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
     private void handleChooseAttachmentsDirAsync(CefQueryCallback callback) {
         Thread.ofVirtual().start(() -> {
             try {
-                String cur = settings.get(Settings.ATTACHMENTS_DIR);
+                String cur = db.getAppSetting("attachments.dir", "");
                 String path = winPickFolder("Seleziona cartella allegati", cur);
                 if (path == null) succeed(callback, Map.of("path", "", "cancelled", true));
                 else              succeed(callback, Map.of("path", path, "cancelled", false));
@@ -393,8 +406,8 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             // ─── Impostazioni ──────────────────────────────────────────────
             case "getSettings" -> {
                 java.util.Map<String, String> all = new java.util.LinkedHashMap<>(settings.getAll());
+                all.putAll(db.getAllAppSettings());
                 all.put("_settings_path", settings.getPath().toAbsolutePath().toString());
-                all.put("_custom_themes_path", settings.getCustomThemesPath().toAbsolutePath().toString());
                 String ver = Bridge.class.getPackage().getImplementationVersion();
                 if (ver == null) {
                     // Fallback: version.properties generato da Maven con resource filtering
@@ -431,7 +444,8 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             case "setSetting" -> {
                 String key   = p.get("key").getAsString();
                 String value = p.get("value").getAsString();
-                settings.set(key, value);
+                if (Settings.BOOTSTRAP_KEYS.contains(key)) settings.set(key, value);
+                else db.setAppSetting(key, value);
                 if (Settings.AUTOSTART_ENABLED.equals(key)) {
                     if ("1".equals(value)) {
                         TrayManager.enable(window);
@@ -449,16 +463,9 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                 yield Map.of("ok", true);
             }
 
-            case "openCustomThemesFile" -> {
-                java.nio.file.Path ct = settings.getCustomThemesPath();
-                if (java.nio.file.Files.exists(ct))
-                    java.awt.Desktop.getDesktop().open(ct.toFile());
-                yield Map.of("ok", true);
-            }
-
             // ─── Allegati ─────────────────────────────────────────────────────
             case "attachFile" -> {
-                String attDir = settings.get(Settings.ATTACHMENTS_DIR);
+                String attDir = db.getAppSetting("attachments.dir", "");
                 if (attDir == null || attDir.isBlank())
                     yield Map.of("error", "Cartella allegati non configurata. Configurala in Impostazioni > Preferenze.");
                 int txId       = p.get("tx_id").getAsInt();
@@ -480,9 +487,9 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             }
 
             case "openAttachment" -> {
-                String attDir = settings.get(Settings.ATTACHMENTS_DIR);
+                String attDir = db.getAppSetting("attachments.dir", "");
                 String relPath = p.get("path").getAsString();
-                if (attDir == null || attDir.isBlank())
+                if (attDir.isBlank())
                     yield Map.of("error", "Cartella allegati non configurata");
                 java.nio.file.Path file = java.nio.file.Path.of(attDir).resolve(relPath);
                 if (!java.nio.file.Files.exists(file))
@@ -496,8 +503,8 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                 String relPath = p.has("path") && !p.get("path").isJsonNull()
                                  ? p.get("path").getAsString() : null;
                 if (relPath != null && !relPath.isBlank()) {
-                    String attDir = settings.get(Settings.ATTACHMENTS_DIR);
-                    if (attDir != null && !attDir.isBlank()) {
+                    String attDir = db.getAppSetting("attachments.dir", "");
+                    if (!attDir.isBlank()) {
                         try { java.nio.file.Files.deleteIfExists(
                                 java.nio.file.Path.of(attDir).resolve(relPath)); }
                         catch (Exception ignored) {}
@@ -576,19 +583,19 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             }
 
             case "doBackup" -> {
-                String bDir = settings.get(Settings.BACKUP_DIR);
-                int bMax = Integer.parseInt(settings.get(Settings.BACKUP_MAX, "10"));
+                String bDir = db.getAppSetting("backup.dir", "");
+                int bMax = Integer.parseInt(db.getAppSetting("backup.max", "10"));
                 String dest = db.backup(bDir, bMax);
                 yield Map.of("ok", true, "path", dest);
             }
 
             case "listBackups" -> {
-                String bDir = settings.get(Settings.BACKUP_DIR);
+                String bDir = db.getAppSetting("backup.dir", "");
                 yield Map.of("backups", db.listBackups(bDir));
             }
 
             case "restoreBackup" -> {
-                String bDir = settings.get(Settings.BACKUP_DIR);
+                String bDir = db.getAppSetting("backup.dir", "");
                 yield db.restoreBackup(p.get("path").getAsString(), bDir);
             }
 

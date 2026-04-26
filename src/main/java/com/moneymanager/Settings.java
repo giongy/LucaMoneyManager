@@ -71,6 +71,9 @@ public class Settings {
     /** Percorso assoluto del file usato. */
     public Path getPath() { return settingsFile; }
 
+    /** Percorso assoluto del file JSON dei temi personalizzati. */
+    public Path getCustomThemesPath() { return customThemesFile; }
+
     /** Restituisce tutte le impostazioni come Map (per invio a JS). */
     public Map<String, String> getAll() {
         Map<String, String> all = new LinkedHashMap<>();

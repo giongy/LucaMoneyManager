@@ -394,6 +394,7 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             case "getSettings" -> {
                 java.util.Map<String, String> all = new java.util.LinkedHashMap<>(settings.getAll());
                 all.put("_settings_path", settings.getPath().toAbsolutePath().toString());
+                all.put("_custom_themes_path", settings.getCustomThemesPath().toAbsolutePath().toString());
                 String ver = Bridge.class.getPackage().getImplementationVersion();
                 if (ver == null) {
                     // Fallback: version.properties generato da Maven con resource filtering
@@ -445,6 +446,13 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
 
             case "openSettingsFile" -> {
                 java.awt.Desktop.getDesktop().open(settings.getPath().toFile());
+                yield Map.of("ok", true);
+            }
+
+            case "openCustomThemesFile" -> {
+                java.nio.file.Path ct = settings.getCustomThemesPath();
+                if (java.nio.file.Files.exists(ct))
+                    java.awt.Desktop.getDesktop().open(ct.toFile());
                 yield Map.of("ok", true);
             }
 

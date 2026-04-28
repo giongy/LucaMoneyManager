@@ -686,12 +686,13 @@ function _renderDashBudgetBubbles(budgetYear) {
   const leafCats  = categories.filter(c => !parentIds.has(c.id));
   const catMap    = Object.fromEntries(categories.map(c => [c.id, c]));
 
-  const catData = leafCats.map(c => ({
+  const allCatData = leafCats.map(c => ({
     ...c,
     budget: _getEff(c.id)[curMonth] || 0,
     actual: actualMap[c.id] || 0,
     parent_name: c.parent_id ? (catMap[c.parent_id]?.name || '') : '',
-  })).filter(c => c.actual > 0 || c.type === 'income');
+  }));
+  const catData = allCatData.filter(c => c.actual > 0 || c.type === 'income');
 
   if (!catData.length) { el.innerHTML = ''; el.style.display = 'none'; return; }
   el.style.display = '';
@@ -699,10 +700,10 @@ function _renderDashBudgetBubbles(budgetYear) {
   const expCats = catData.filter(c => c.type === 'expense').sort((a, b) => b.budget - a.budget);
   const incCats = catData.filter(c => c.type === 'income').sort((a, b) => b.budget - a.budget);
 
-  // Totali
-  const totExpBudget = expCats.reduce((s, c) => s + c.budget, 0);
+  // Totali: actual solo dalle categorie visibili, budget da tutte le foglie
+  const totExpBudget = allCatData.filter(c => c.type === 'expense').reduce((s, c) => s + c.budget, 0);
   const totExpActual = expCats.reduce((s, c) => s + c.actual, 0);
-  const totIncBudget = incCats.reduce((s, c) => s + c.budget, 0);
+  const totIncBudget = allCatData.filter(c => c.type === 'income').reduce((s, c) => s + c.budget, 0);
   const totIncActual = incCats.reduce((s, c) => s + c.actual, 0);
   const netActual    = totIncActual - totExpActual;
   const netBudget    = totIncBudget - totExpBudget;

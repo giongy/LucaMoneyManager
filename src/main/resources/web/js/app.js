@@ -3048,8 +3048,9 @@ function renderBudgetTable() {
 
   document.getElementById('budgetBody').innerHTML = rows;
 
-  // Sticky: calcola top offset di ogni riga del thead dopo il render
-  setTimeout(() => {
+  // Sticky: calcola top offset di ogni riga del thead dopo il layout
+  // Il double-rAF garantisce che il browser abbia completato il layout prima di leggere le altezze
+  requestAnimationFrame(() => requestAnimationFrame(() => {
     const thead = document.getElementById('budgetThead');
     if (!thead) return;
     let top = 0;
@@ -3061,7 +3062,7 @@ function renderBudgetTable() {
       });
       top += tr.getBoundingClientRect().height;
     });
-  }, 0);
+  }));
 }
 
 /* ─── Budget Andamento ───────────────────────────────────────────────────── */

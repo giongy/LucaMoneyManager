@@ -1831,15 +1831,11 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
       </div>
       <div class="form-group">
         <label class="form-label">Stato</label>
-        <div style="display:flex;align-items:center;gap:10px;padding-top:6px">
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-            <input type="radio" name="f_reconciled" id="f_rec_pending"  value="0" ${tx?.reconciled==0?'checked':''}>
-            <span>🔲 Da verificare</span>
-          </label>
-          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-            <input type="radio" name="f_reconciled" id="f_rec_done"     value="1" ${tx==null||tx.reconciled==1?'checked':''}>
-            <span>✅ Conciliata</span>
-          </label>
+        <div class="recon-toggle" id="reconToggle">
+          <input type="radio" name="f_reconciled" id="f_rec_pending" value="0" ${tx?.reconciled==0?'checked':''} hidden>
+          <input type="radio" name="f_reconciled" id="f_rec_done"    value="1" ${tx==null||tx.reconciled==1?'checked':''} hidden>
+          <button type="button" class="recon-opt${tx?.reconciled==0?' active':''}" data-val="0" data-radio="f_rec_pending">🔲 Da verificare</button>
+          <button type="button" class="recon-opt${tx==null||tx.reconciled==1?' active':''}" data-val="1" data-radio="f_rec_done">✅ Conciliata</button>
         </div>
       </div>
     </div>
@@ -2065,6 +2061,14 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
   };
 
   refreshTagChips();
+
+  document.querySelectorAll('#reconToggle .recon-opt').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#reconToggle .recon-opt').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById(btn.dataset.radio).checked = true;
+    });
+  });
 
   // Popola subito il select con le categorie del tipo iniziale
   updateCatSelect(tx?.category_id);
@@ -11145,15 +11149,11 @@ function showScheduledModal(sched, accounts, categories, tags = []) {
     </div>
     <div class="form-group">
       <label class="form-label">Stato alla registrazione</label>
-      <div style="display:flex;align-items:center;gap:16px;padding-top:4px">
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-          <input type="radio" name="sc_reconciled" value="0" ${sched?.reconciled==0?'checked':''}>
-          <span>🔲 Da verificare</span>
-        </label>
-        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
-          <input type="radio" name="sc_reconciled" value="1" ${sched==null||sched?.reconciled!=0?'checked':''}>
-          <span>✅ Conciliata</span>
-        </label>
+      <div class="recon-toggle" id="scReconToggle">
+        <input type="radio" name="sc_reconciled" id="sc_rec_pending" value="0" ${sched?.reconciled==0?'checked':''} hidden>
+        <input type="radio" name="sc_reconciled" id="sc_rec_done"    value="1" ${sched==null||sched?.reconciled!=0?'checked':''} hidden>
+        <button type="button" class="recon-opt${sched?.reconciled==0?' active':''}" data-val="0" data-radio="sc_rec_pending">🔲 Da verificare</button>
+        <button type="button" class="recon-opt${sched==null||sched?.reconciled!=0?' active':''}" data-val="1" data-radio="sc_rec_done">✅ Conciliata</button>
       </div>
     </div>`;
 
@@ -11234,6 +11234,14 @@ function showScheduledModal(sched, accounts, categories, tags = []) {
 
   initCatPicker('sc_cat_input', 'sc_cat', 'sc_catPickerList');
   updateSchedCatSelect(sched?.category_id);
+
+  document.querySelectorAll('#scReconToggle .recon-opt').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#scReconToggle .recon-opt').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      document.getElementById(btn.dataset.radio).checked = true;
+    });
+  });
 
   // Enter su importo → salva; blur → valuta espressione
   const scAmtEl = document.getElementById('sc_amount');

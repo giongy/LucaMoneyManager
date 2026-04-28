@@ -994,7 +994,8 @@ public class Database {
             "                (SELECT COUNT(*) FROM transaction_splits ts WHERE ts.transaction_id = t.id) AS split_count,\n" +
             "                (SELECT GROUP_CONCAT(COALESCE(sc.icon,'') || ' ' || COALESCE(sc.name,'?') || ' (' || PRINTF('%.2f', ts.amount) || '\u20ac)', ' \u00b7 ')\n" +
             "                 FROM transaction_splits ts LEFT JOIN categories sc ON sc.id = ts.category_id\n" +
-            "                 WHERE ts.transaction_id = t.id) AS splits_summary" +
+            "                 WHERE ts.transaction_id = t.id) AS splits_summary,\n" +
+            "                (SELECT pt.portfolio_id FROM portfolio_transactions pt WHERE pt.transaction_id = t.id LIMIT 1) AS portfolio_id" +
             filteredSplitCol + "\n" +
             "            FROM transactions t\n" +
             "            LEFT JOIN categories c  ON t.category_id    = c.id\n" +

@@ -1759,6 +1759,7 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
   const today = _todayStr();
 
   const body = `
+    ${tx?.portfolio_id ? `<div class="portfolio-link-banner">📈 Collegata a posizione portfolio</div>` : ''}
     <div class="form-row">
       <div class="form-group">
         <label class="form-label">Tipo</label>
@@ -11057,6 +11058,7 @@ function showScheduledModal(sched, accounts, categories, tags = []) {
   const incCats = categories.filter(c=>c.type==='income');
 
   const body = `
+    ${sched?.portfolio_id ? `<div class="portfolio-link-banner">📈 Collegata a posizione portfolio</div>` : ''}
     <div class="form-row">
       <div class="form-group">
         <label class="form-label">Tipo</label>

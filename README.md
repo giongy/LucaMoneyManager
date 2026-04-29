@@ -1,4 +1,5 @@
 # LucaMoneyManager
+<img width="1333" height="720" alt="image" src="https://github.com/user-attachments/assets/b4ab0684-6870-4422-90cb-8d5684ee053d" />
 
 A personal finance desktop application built with Java + Chromium (JCEF), backed by a SQLite database shared across devices via OneDrive. Available on **Windows** (primary) and **Android** (companion app).
 

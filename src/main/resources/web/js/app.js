@@ -5929,10 +5929,11 @@ function _buildMonthsForYear(year, fromYm, toYm, selectedMonth) {
 }
 
 function _renderCurrentAnalyticsTab() {
-  if (_analyticsTab === 'balance')   renderAnalyticsBalance();
-  else if (_analyticsTab === 'trend')    renderAnalyticsTrend();
-  else if (_analyticsTab === 'health')   renderAnalyticsHealth();
-  else if (_analyticsTab === 'forecast') renderAnalyticsForecast();
+  if (_analyticsTab === 'balance')     renderAnalyticsBalance();
+  else if (_analyticsTab === 'trend')      renderAnalyticsTrend();
+  else if (_analyticsTab === 'health')     renderAnalyticsHealth();
+  else if (_analyticsTab === 'forecast')   renderAnalyticsForecast();
+  else if (_analyticsTab === 'accbalance') renderAnalyticsAccBalance();
   else renderAnalyticsCatMonth();
 }
 
@@ -6051,7 +6052,7 @@ window._setAnalyticsTab = (tab, btn) => {
   document.querySelectorAll('[data-atab]').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   const dc = document.getElementById('aDateControls');
-  if (dc) dc.style.visibility = (tab === 'forecast' || tab === 'accbalance') ? 'hidden' : '';
+  if (dc) dc.style.visibility = tab === 'forecast' ? 'hidden' : '';
   if (tab === 'catmonth')   renderAnalyticsCatMonth();
   if (tab === 'balance')    renderAnalyticsBalance();
   if (tab === 'trend')      renderAnalyticsTrend();
@@ -6754,37 +6755,33 @@ function _renderAccBalChart() {
 
   // Dataset: stacked area per conto
   const datasets = selAccounts.map((a, i) => ({
+    type: 'bar',
     label: `${a.icon||''} ${a.name}`,
     data: monthCols.map(m => {
       const b = byAccount[a.id]?.[m.ym];
-      return b !== undefined ? Math.round(b * 100) / 100 : null;
+      return b !== undefined ? Math.round(b * 100) / 100 : 0;
     }),
+    backgroundColor: accColor(a, i) + 'cc',
     borderColor: accColor(a, i),
-    backgroundColor: accColor(a, i) + '55',
-    fill: true,
-    tension: .3,
-    pointRadius: monthCols.length <= 18 ? 3 : 1,
-    pointHoverRadius: 5,
-    borderWidth: 2,
-    spanGaps: true,
+    borderWidth: 1,
+    stack: 'saldo',
   }));
 
-  // Totale
+  // Totale come linea sopra le barre
   const totals = monthCols.map(m =>
     selAccounts.reduce((s, a) => s + (byAccount[a.id]?.[m.ym] ?? 0), 0)
   );
   datasets.push({
+    type: 'line',
     label: 'Totale',
     data: totals,
-    borderColor: '#fff',
+    borderColor: 'rgba(255,255,255,0.7)',
     backgroundColor: 'transparent',
-    fill: false,
-    tension: .3,
     pointRadius: monthCols.length <= 18 ? 3 : 1,
     pointHoverRadius: 5,
     borderWidth: 2,
-    borderDash: [6, 3],
-    spanGaps: true,
+    borderDash: [5, 3],
+    tension: .3,
     order: -1,
   });
 
@@ -6844,7 +6841,6 @@ function _renderAccBalChart() {
 
   if (_accBalChart) { _accBalChart.destroy(); _accBalChart = null; }
   _accBalChart = new Chart(document.getElementById('accBalChart'), {
-    type: 'line',
     data: { labels, datasets },
     options: {
       responsive: true, maintainAspectRatio: false,
@@ -6855,12 +6851,8 @@ function _renderAccBalChart() {
         zoom: zoomOpts(),
       },
       scales: {
-        x: { ticks: { color: cc.tick }, grid: { color: cc.grid } },
-        y: {
-          stacked: false,
-          ticks: { color: cc.tick, callback: v => fmt.currency(v) },
-          grid: { color: cc.grid },
-        },
+        x: { stacked: true, ticks: { color: cc.tick }, grid: { color: cc.grid } },
+        y: { stacked: true, ticks: { color: cc.tick, callback: v => fmt.currency(v) }, grid: { color: cc.grid } },
       },
     },
   });

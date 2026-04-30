@@ -3,7 +3,6 @@ setlocal enabledelayedexpansion
 
 set JAVA_HOME=C:\Program Files\Java\jdk-25
 set MVN=C:\Tools\apache-maven-3.9.6\bin\mvn.cmd
-set LAUNCH4J=D:\launch4j\launch4jc.exe
 set ROOT=%~dp0
 for /f %%a in ('call "%MVN%" -f "%ROOT%pom.xml" help:evaluate -Dexpression^=project.version -q -DforceStdout') do set VERSION=%%a
 set JAR=%ROOT%target\moneymanager-%VERSION%.jar
@@ -18,7 +17,6 @@ echo.
 
 if not exist "%JAVA_HOME%\bin\java.exe" ( echo [ERRORE] Java non trovato in %JAVA_HOME% & pause & exit /b 1 )
 if not exist "%MVN%" ( echo [ERRORE] Maven non trovato in %MVN% & pause & exit /b 1 )
-if not exist "%LAUNCH4J%" ( echo [ERRORE] Launch4j non trovato in %LAUNCH4J% & pause & exit /b 1 )
 
 echo Scegli il tipo di build:
 echo.

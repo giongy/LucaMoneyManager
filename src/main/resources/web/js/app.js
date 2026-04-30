@@ -6725,9 +6725,11 @@ async function renderAnalyticsAccBalance() {
   if (!raw || !raw.accounts) { el.innerHTML = `<p style="padding:20px;color:var(--expense)">Dati non disponibili</p>`; return; }
   const accounts = raw.accounts;
 
-  // Inizializza selezione: tutti tranne i chiusi
-  if (!_accBalSel)
-    _accBalSel = new Set(accounts.filter(a => !a.is_closed).map(a => a.id));
+  // Inizializza selezione: solo conti correnti (checking) non chiusi
+  if (!_accBalSel) {
+    const checking = accounts.filter(a => !a.is_closed && a.type === 'checking');
+    _accBalSel = new Set((checking.length ? checking : accounts.filter(a => !a.is_closed)).map(a => a.id));
+  }
 
   // byAccount: aid -> ym -> balance
   const byAccount = {};
@@ -6797,20 +6799,6 @@ function _renderAccBalChart() {
     return `<tr><td>${m.label}</td>${cells}<td class="text-right" style="font-weight:700">${fmt.currency(tot)}</td></tr>`;
   }).join('');
 
-  // Ultima riga: saldo attuale
-  const lastRow = (() => {
-    const cells = selAccounts.map(a => {
-      const vals = monthCols.map(m => byAccount[a.id]?.[m.ym]).filter(v => v !== undefined);
-      const last = vals.length ? vals[vals.length-1] : 0;
-      return `<td class="text-right" style="font-weight:600">${fmt.currency(last)}</td>`;
-    }).join('');
-    const tot = selAccounts.reduce((s, a) => {
-      const vals = monthCols.map(m => byAccount[a.id]?.[m.ym]).filter(v => v !== undefined);
-      return s + (vals.length ? vals[vals.length-1] : 0);
-    }, 0);
-    return `<tr class="analytics-subtotal"><td>Ultimo valore</td>${cells}<td class="text-right" style="font-weight:700">${fmt.currency(tot)}</td></tr>`;
-  })();
-
   const headerCells = selAccounts.map((a,i) =>
     `<th class="text-right" style="color:${accColor(a,i)}">${a.icon||''} ${a.name}</th>`
   ).join('');
@@ -6835,7 +6823,7 @@ function _renderAccBalChart() {
         <thead><tr>
           <th>Mese</th>${headerCells}<th class="text-right">Totale</th>
         </tr></thead>
-        <tbody>${tableRows}${lastRow}</tbody>
+        <tbody>${tableRows}</tbody>
       </table>
     </div>`;
 

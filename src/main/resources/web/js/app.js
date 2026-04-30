@@ -6718,7 +6718,10 @@ async function renderAnalyticsAccBalance() {
     (now.getFullYear() - new Date(startYm+'-01').getFullYear()) * 12 +
     (now.getMonth()    - new Date(startYm+'-01').getMonth()) + 1);
 
-  const raw = await api.getAccountBalanceHistory(fetchMonths);
+  let raw;
+  try { raw = await api.getAccountBalanceHistory(fetchMonths); }
+  catch(e) { el.innerHTML = `<p style="padding:20px;color:var(--expense)">Errore: ${e.message}</p>`; return; }
+  if (!raw || !raw.accounts) { el.innerHTML = `<p style="padding:20px;color:var(--expense)">Dati non disponibili</p>`; return; }
   const accounts = raw.accounts;
 
   // Inizializza selezione: tutti tranne i chiusi

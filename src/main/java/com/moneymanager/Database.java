@@ -2659,8 +2659,8 @@ public class Database {
                             ELSE 0 END) AS qty_delta
             FROM portfolio_transactions pt
             WHERE pt.type IN ('buy','sell') AND pt.date >= ?
-            GROUP BY pt.portfolio_id, pt.ym
-            ORDER BY pt.portfolio_id, pt.ym
+            GROUP BY pt.portfolio_id, strftime('%Y-%m', pt.date)
+            ORDER BY pt.portfolio_id, strftime('%Y-%m', pt.date)
             """;
         Map<Integer, Map<String, Double>> ptDeltasByPos = new HashMap<>();
         try (PreparedStatement ps = conn.prepareStatement(ptSql)) {

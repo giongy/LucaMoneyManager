@@ -335,6 +335,7 @@ const api = {
   getCategoryMonthTable: (months) => callJava('getCategoryMonthTable', { months }),
   getMonthlyBalance:          (months) => callJava('getMonthlyBalance',         { months }),
   getOldestTransactionMonth: ()       => callJava('getOldestTransactionMonth',  {}),
+  getAccountBalanceHistory: (months) => callJava('getAccountBalanceHistory', { months }),
   getForecastExcluded:   ()           => callJava('getForecastExcluded',   {}),
   addForecastExcluded:   (id) => callJava('addForecastExcluded', {id}),
   removeForecastExcluded:(id)         => callJava('removeForecastExcluded', {id}),
@@ -5966,6 +5967,7 @@ async function renderAnalytics() {
           <button class="sched-tab${_analyticsTab==='catmonth'?' active':''}" data-atab="catmonth" onclick="_setAnalyticsTab('catmonth',this)">Categorie / Mese</button>
           <button class="sched-tab${_analyticsTab==='balance'?' active':''}" data-atab="balance" onclick="_setAnalyticsTab('balance',this)">Bilancio Mensile</button>
           <button class="sched-tab${_analyticsTab==='trend'?' active':''}" data-atab="trend" onclick="_setAnalyticsTab('trend',this)">Andamento Categoria</button>
+          <button class="sched-tab${_analyticsTab==='accbalance'?' active':''}" data-atab="accbalance" onclick="_setAnalyticsTab('accbalance',this)">Saldo Conti</button>
           <button class="sched-tab${_analyticsTab==='forecast'?' active':''}" data-atab="forecast" onclick="_setAnalyticsTab('forecast',this)">📊 Previsione Saldo</button>
         </div>
         <div id="aDateControls" style="margin-left:auto;display:flex;gap:6px;align-items:center;white-space:nowrap;${_analyticsTab==='forecast'?'visibility:hidden':''}">
@@ -6049,12 +6051,13 @@ window._setAnalyticsTab = (tab, btn) => {
   document.querySelectorAll('[data-atab]').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   const dc = document.getElementById('aDateControls');
-  if (dc) dc.style.visibility = tab === 'forecast' ? 'hidden' : '';
-  if (tab === 'catmonth')  renderAnalyticsCatMonth();
-  if (tab === 'balance')   renderAnalyticsBalance();
-  if (tab === 'trend')     renderAnalyticsTrend();
-  if (tab === 'health')    renderAnalyticsHealth();
-  if (tab === 'forecast')  renderAnalyticsForecast();
+  if (dc) dc.style.visibility = (tab === 'forecast' || tab === 'accbalance') ? 'hidden' : '';
+  if (tab === 'catmonth')   renderAnalyticsCatMonth();
+  if (tab === 'balance')    renderAnalyticsBalance();
+  if (tab === 'trend')      renderAnalyticsTrend();
+  if (tab === 'health')     renderAnalyticsHealth();
+  if (tab === 'forecast')   renderAnalyticsForecast();
+  if (tab === 'accbalance') renderAnalyticsAccBalance();
 };
 
 let _analyticsCatSort = { col: null, dir: -1 };
@@ -6688,6 +6691,186 @@ async function renderAnalyticsHealth() {
   });
 
 }
+
+/* ─── Analytics: Saldo Conti ────────────────────────────────────────────── */
+let _accBalChart = null;
+let _accBalData  = null;   // { accounts, byAccount: {aid: {ym: balance}}, monthCols }
+let _accBalSel   = null;   // Set di account_id selezionati
+
+async function renderAnalyticsAccBalance() {
+  const el = document.getElementById('analyticsContent');
+  if (!el) return;
+  el.innerHTML = '<p style="padding:20px;color:var(--txt2)">Caricamento…</p>';
+
+  const now = new Date();
+  const toYm = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+  const prevYm = toYm(new Date(now.getFullYear(), now.getMonth()-1, 1));
+  const oldestYm = _analyticsOldestYm || prevYm;
+  const startYm = _analyticsStartYm  || oldestYm;
+  const endYm   = _analyticsEndYm    || prevYm;
+
+  // Mesi da mostrare
+  const monthCols = [];
+  for (let d = new Date(startYm + '-01'), end = new Date(endYm + '-01'); d <= end; d = new Date(d.getFullYear(), d.getMonth()+1, 1))
+    monthCols.push({ ym: toYm(d), label: d.toLocaleDateString('it-IT', { month:'short', year:'2-digit' }) });
+
+  const fetchMonths = Math.max(1,
+    (now.getFullYear() - new Date(startYm+'-01').getFullYear()) * 12 +
+    (now.getMonth()    - new Date(startYm+'-01').getMonth()) + 1);
+
+  const raw = await api.getAccountBalanceHistory(fetchMonths);
+  const accounts = raw.accounts;
+
+  // Inizializza selezione: tutti tranne i chiusi
+  if (!_accBalSel)
+    _accBalSel = new Set(accounts.filter(a => !a.is_closed).map(a => a.id));
+
+  // byAccount: aid -> ym -> balance
+  const byAccount = {};
+  for (const r of raw.monthly) {
+    if (!byAccount[r.account_id]) byAccount[r.account_id] = {};
+    byAccount[r.account_id][r.ym] = r.balance;
+  }
+
+  _accBalData = { accounts, byAccount, monthCols };
+  _renderAccBalChart();
+}
+
+function _renderAccBalChart() {
+  const el = document.getElementById('analyticsContent');
+  if (!el || !_accBalData) return;
+  const { accounts, byAccount, monthCols } = _accBalData;
+  const sel = _accBalSel;
+
+  const selAccounts = accounts.filter(a => sel.has(a.id));
+  const labels = monthCols.map(m => m.label);
+
+  // Colori per conto (usa color dal DB, altrimenti palette)
+  const palette = ['#58a6ff','#3fb950','#ff7b72','#e3b341','#bc8cff','#79c0ff','#56d364','#ffa657','#f78166','#d2a8ff'];
+  const accColor = (a, i) => a.color || palette[i % palette.length];
+
+  // Dataset: stacked area per conto
+  const datasets = selAccounts.map((a, i) => ({
+    label: `${a.icon||''} ${a.name}`,
+    data: monthCols.map(m => {
+      const b = byAccount[a.id]?.[m.ym];
+      return b !== undefined ? Math.round(b * 100) / 100 : null;
+    }),
+    borderColor: accColor(a, i),
+    backgroundColor: accColor(a, i) + '55',
+    fill: true,
+    tension: .3,
+    pointRadius: monthCols.length <= 18 ? 3 : 1,
+    pointHoverRadius: 5,
+    borderWidth: 2,
+    spanGaps: true,
+  }));
+
+  // Totale
+  const totals = monthCols.map(m =>
+    selAccounts.reduce((s, a) => s + (byAccount[a.id]?.[m.ym] ?? 0), 0)
+  );
+  datasets.push({
+    label: 'Totale',
+    data: totals,
+    borderColor: '#fff',
+    backgroundColor: 'transparent',
+    fill: false,
+    tension: .3,
+    pointRadius: monthCols.length <= 18 ? 3 : 1,
+    pointHoverRadius: 5,
+    borderWidth: 2,
+    borderDash: [6, 3],
+    spanGaps: true,
+    order: -1,
+  });
+
+  const cc = chartColors();
+
+  // Costruisce la tabella
+  const tableRows = monthCols.map(m => {
+    const cells = selAccounts.map(a => {
+      const v = byAccount[a.id]?.[m.ym];
+      return `<td class="text-right">${v !== undefined ? fmt.currency(v) : '—'}</td>`;
+    }).join('');
+    const tot = selAccounts.reduce((s, a) => s + (byAccount[a.id]?.[m.ym] ?? 0), 0);
+    return `<tr><td>${m.label}</td>${cells}<td class="text-right" style="font-weight:700">${fmt.currency(tot)}</td></tr>`;
+  }).join('');
+
+  // Ultima riga: saldo attuale
+  const lastRow = (() => {
+    const cells = selAccounts.map(a => {
+      const vals = monthCols.map(m => byAccount[a.id]?.[m.ym]).filter(v => v !== undefined);
+      const last = vals.length ? vals[vals.length-1] : 0;
+      return `<td class="text-right" style="font-weight:600">${fmt.currency(last)}</td>`;
+    }).join('');
+    const tot = selAccounts.reduce((s, a) => {
+      const vals = monthCols.map(m => byAccount[a.id]?.[m.ym]).filter(v => v !== undefined);
+      return s + (vals.length ? vals[vals.length-1] : 0);
+    }, 0);
+    return `<tr class="analytics-subtotal"><td>Ultimo valore</td>${cells}<td class="text-right" style="font-weight:700">${fmt.currency(tot)}</td></tr>`;
+  })();
+
+  const headerCells = selAccounts.map((a,i) =>
+    `<th class="text-right" style="color:${accColor(a,i)}">${a.icon||''} ${a.name}</th>`
+  ).join('');
+
+  // Selettore conti
+  const accButtons = accounts.map((a, i) => {
+    const on = sel.has(a.id);
+    const col = accColor(a, i);
+    return `<button type="button" onclick="_toggleAccBal(${a.id})"
+      style="padding:4px 12px;font-size:12px;border-radius:16px;border:1.5px solid ${col};cursor:pointer;
+             background:${on ? col+'33' : 'transparent'};color:${on ? col : 'var(--txt2)'};
+             font-weight:${on ? '600' : '400'};transition:all .15s;white-space:nowrap">
+      ${a.icon||''} ${a.name}${a.is_closed ? ' ✕' : ''}
+    </button>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div style="padding:12px 0 8px">
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">${accButtons}</div>
+      <div style="height:380px;margin-bottom:20px"><canvas id="accBalChart"></canvas></div>
+      <table class="analytics-table">
+        <thead><tr>
+          <th>Mese</th>${headerCells}<th class="text-right">Totale</th>
+        </tr></thead>
+        <tbody>${tableRows}${lastRow}</tbody>
+      </table>
+    </div>`;
+
+  if (_accBalChart) { _accBalChart.destroy(); _accBalChart = null; }
+  _accBalChart = new Chart(document.getElementById('accBalChart'), {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${fmt.currency(ctx.parsed.y)}` } },
+        legend: { labels: { color: cc.tick, boxWidth: 12 } },
+        zoom: zoomOpts(),
+      },
+      scales: {
+        x: { ticks: { color: cc.tick }, grid: { color: cc.grid } },
+        y: {
+          stacked: false,
+          ticks: { color: cc.tick, callback: v => fmt.currency(v) },
+          grid: { color: cc.grid },
+        },
+      },
+    },
+  });
+}
+
+window._toggleAccBal = (aid) => {
+  if (_accBalSel.has(aid)) {
+    if (_accBalSel.size > 1) _accBalSel.delete(aid);
+  } else {
+    _accBalSel.add(aid);
+  }
+  _renderAccBalChart();
+};
 
 /* ─── Analytics: Andamento Categoria ─────────────────────────────────────── */
 let _analyticsTrendCatId  = null;

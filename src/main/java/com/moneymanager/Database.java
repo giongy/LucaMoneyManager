@@ -2598,6 +2598,148 @@ public class Database {
         }
     }
 
+    public Map<String, Object> getAccountBalanceHistory(int months) throws SQLException {
+        LocalDate today = LocalDate.now();
+        LocalDate startDate = today.withDayOfMonth(1).minusMonths(months - 1);
+        String startStr = startDate.toString();
+
+        // Lista completa mesi: startDate → mese corrente
+        List<String> allMonths = new ArrayList<>();
+        for (LocalDate d = startDate; !d.isAfter(today); d = d.plusMonths(1))
+            allMonths.add(d.toString().substring(0, 7));
+
+        // Saldi correnti e metadati conti
+        List<Map<String, Object>> allAccounts = getAccounts();
+        Map<Integer, Double> currentBalances = new HashMap<>();
+        for (var a : allAccounts)
+            currentBalances.put(((Number) a.get("id")).intValue(), ((Number) a.get("balance")).doubleValue());
+
+        // Delta mensili per conti non-investment
+        String deltaSql = """
+            SELECT sub.account_id, sub.ym, SUM(sub.net) AS net_delta
+            FROM (
+                SELECT t.account_id,
+                       strftime('%Y-%m', t.date) AS ym,
+                       CASE WHEN t.type='income'   THEN  ABS(t.amount)
+                            WHEN t.type='expense'  THEN -ABS(t.amount)
+                            WHEN t.type='transfer' THEN -ABS(t.amount)
+                            ELSE 0 END AS net
+                FROM transactions t
+                JOIN accounts a ON a.id = t.account_id AND a.type != 'investment'
+                WHERE t.date >= ?
+                UNION ALL
+                SELECT t.to_account_id AS account_id,
+                       strftime('%Y-%m', t.date) AS ym,
+                       ABS(t.amount) AS net
+                FROM transactions t
+                JOIN accounts a ON a.id = t.to_account_id AND a.type != 'investment'
+                WHERE t.type = 'transfer' AND t.date >= ?
+            ) sub
+            GROUP BY sub.account_id, sub.ym
+            ORDER BY sub.account_id, sub.ym
+            """;
+        Map<Integer, Map<String, Double>> deltasByAccount = new HashMap<>();
+        try (PreparedStatement ps = conn.prepareStatement(deltaSql)) {
+            ps.setString(1, startStr); ps.setString(2, startStr);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    int aid = rs.getInt("account_id");
+                    deltasByAccount.computeIfAbsent(aid, k -> new HashMap<>())
+                        .put(rs.getString("ym"), rs.getDouble("net_delta"));
+                }
+            }
+        }
+
+        // Delta qty mensili per posizioni portfolio (conti investment)
+        String ptSql = """
+            SELECT pt.portfolio_id,
+                   strftime('%Y-%m', pt.date) AS ym,
+                   SUM(CASE WHEN pt.type='buy'  THEN  pt.quantity
+                            WHEN pt.type='sell' THEN -pt.quantity
+                            ELSE 0 END) AS qty_delta
+            FROM portfolio_transactions pt
+            WHERE pt.type IN ('buy','sell') AND pt.date >= ?
+            GROUP BY pt.portfolio_id, pt.ym
+            ORDER BY pt.portfolio_id, pt.ym
+            """;
+        Map<Integer, Map<String, Double>> ptDeltasByPos = new HashMap<>();
+        try (PreparedStatement ps = conn.prepareStatement(ptSql)) {
+            ps.setString(1, startStr);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    int pid = rs.getInt("portfolio_id");
+                    ptDeltasByPos.computeIfAbsent(pid, k -> new HashMap<>())
+                        .put(rs.getString("ym"), rs.getDouble("qty_delta"));
+                }
+            }
+        }
+
+        // Posizioni portfolio per account
+        List<Map<String, Object>> positions = queryList(
+            "SELECT id, account_id, asset_type, current_price, avg_price, face_value, quantity AS current_qty FROM portfolio");
+        Map<Integer, List<Map<String, Object>>> possByAccount = new HashMap<>();
+        for (var pos : positions)
+            possByAccount.computeIfAbsent(((Number) pos.get("account_id")).intValue(), k -> new ArrayList<>()).add(pos);
+
+        int n = allMonths.size();
+        List<Map<String, Object>> monthly = new ArrayList<>();
+
+        for (var acc : allAccounts) {
+            int aid = ((Number) acc.get("id")).intValue();
+            boolean isInv = "investment".equals(acc.get("type"));
+            double[] vals = new double[n];
+
+            if (isInv) {
+                // Ricostruzione valore portfolio a ritroso per ogni posizione
+                for (var pos : possByAccount.getOrDefault(aid, Collections.emptyList())) {
+                    int pid = ((Number) pos.get("id")).intValue();
+                    double curQty = ((Number) pos.get("current_qty")).doubleValue();
+                    String at = (String) pos.get("asset_type");
+                    double cp = pos.get("current_price") != null ? ((Number) pos.get("current_price")).doubleValue() : 0;
+                    double ap = pos.get("avg_price")     != null ? ((Number) pos.get("avg_price")).doubleValue()     : 0;
+                    double fv = pos.get("face_value")    != null ? ((Number) pos.get("face_value")).doubleValue()    : 1.0;
+                    // obbligazioni: prezzo = face_value (par = 100%); azioni: prezzo di mercato
+                    double price = "bond".equals(at) ? (fv > 0 ? fv : 1.0) : (cp > 0 ? cp : ap);
+                    var ptMap = ptDeltasByPos.getOrDefault(pid, Collections.emptyMap());
+
+                    double[] qtys = new double[n];
+                    qtys[n - 1] = curQty;
+                    for (int i = n - 2; i >= 0; i--)
+                        qtys[i] = qtys[i + 1] - ptMap.getOrDefault(allMonths.get(i + 1), 0.0);
+                    for (int i = 0; i < n; i++)
+                        vals[i] += Math.max(0, qtys[i]) * price;
+                }
+            } else {
+                // Ricostruzione saldo a ritroso dai delta mensili
+                var deltaMap = deltasByAccount.getOrDefault(aid, Collections.emptyMap());
+                vals[n - 1] = currentBalances.get(aid);
+                for (int i = n - 2; i >= 0; i--)
+                    vals[i] = vals[i + 1] - deltaMap.getOrDefault(allMonths.get(i + 1), 0.0);
+            }
+
+            for (int i = 0; i < n; i++) {
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("account_id", aid);
+                row.put("ym", allMonths.get(i));
+                row.put("balance", vals[i]);
+                monthly.add(row);
+            }
+        }
+
+        List<Map<String, Object>> accountMeta = allAccounts.stream().map(a -> {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", a.get("id")); m.put("name", a.get("name"));
+            m.put("color", a.get("color")); m.put("icon", a.get("icon"));
+            m.put("type", a.get("type")); m.put("is_closed", a.get("is_closed"));
+            return m;
+        }).collect(Collectors.toList());
+
+        Map<String, Object> ret = new LinkedHashMap<>();
+        ret.put("accounts", accountMeta);
+        ret.put("monthly", monthly);
+        return ret;
+    }
+
     public String getOldestTransactionMonth() throws SQLException {
         String sql = "SELECT strftime('%Y-%m', MIN(date)) AS ym FROM transactions WHERE type IN ('income','expense')";
         try (Statement s = conn.createStatement(); ResultSet rs = s.executeQuery(sql)) {

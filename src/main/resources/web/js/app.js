@@ -778,17 +778,19 @@ function _renderDashBudgetBubbles(budgetYear) {
         <button class="btn btn-ghost" onclick="navigate('budgets')">Gestisci →</button>
       </div>
     </div>
-    <div style="padding:0 16px 8px;flex:1">
-      ${expCats.length ? `
-        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--txt3);margin-bottom:8px">Uscite</div>
-        <div class="dash-bubbles-scroll-wrap" style="margin-bottom:${incCats.length ? '14' : '0'}px">
-          <div class="dash-budget-bubbles">${expCats.map(_bubble).join('')}</div>
+    <div style="padding:0 16px 8px;flex:1;display:flex;flex-direction:column;min-height:0">
+      <div class="dash-budget-cols">
+        ${expCats.length ? `
+        <div class="dash-budget-col-exp">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--txt3);margin-bottom:8px">Uscite</div>
+          <div class="dash-budget-bubbles-wrap">${expCats.map(_bubble).join('')}</div>
         </div>` : ''}
-      ${incCats.length ? `
-        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--txt3);margin-bottom:8px">Entrate</div>
-        <div class="dash-bubbles-scroll-wrap">
-          <div class="dash-budget-bubbles">${incCats.map(_bubble).join('')}</div>
+        ${incCats.length ? `
+        <div class="dash-budget-col-inc">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--txt3);margin-bottom:8px">Entrate</div>
+          <div class="dash-budget-bubbles-grid">${incCats.map(_bubble).join('')}</div>
         </div>` : ''}
+      </div>
     </div>
     <div style="display:flex;justify-content:flex-end;gap:24px;padding:10px 16px;margin-top:auto;border-top:1px solid var(--border)">
       ${expCats.length ? _tot('Uscite',  totExpActual, totExpBudget, 'var(--expense)') : ''}

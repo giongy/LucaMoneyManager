@@ -403,9 +403,9 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 }
 .budget-bubble-amounts { text-align:center; line-height:1.3; }
 .dash-budget-bubbles-wrap { display:flex; flex-wrap:wrap; gap:8px 10px; padding:2px 2px 6px; }
-.dash-budget-bubbles-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:8px 10px; padding:2px 2px 6px; }
-.dash-budget-cols { display:flex; gap:12px; flex:1; min-height:0; }
-.dash-budget-col-exp { flex:3; min-width:0; }
+.dash-budget-bubbles-grid { display:flex; flex-wrap:wrap; gap:8px 10px; padding:2px 2px 6px; justify-content:flex-start; }
+.dash-budget-cols { display:flex; gap:0; flex:1; min-height:0; }
+.dash-budget-col-exp { flex:3; min-width:0; padding-right:12px; }
 .dash-budget-col-inc { flex:1; min-width:0; border-left:1px solid var(--border); padding-left:12px; }
 
 /* ─── Backup list — badge modifiche ──────────────────────────────────────── */

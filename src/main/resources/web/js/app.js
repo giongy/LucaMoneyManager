@@ -780,16 +780,18 @@ function _renderDashBudgetBubbles(budgetYear) {
     </div>
     <div style="padding:0 16px 8px;flex:1;display:flex;flex-direction:column;min-height:0">
       <div class="dash-budget-cols">
-        ${expCats.length ? `
         <div class="dash-budget-col-exp">
           <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--txt3);margin-bottom:8px">Uscite</div>
-          <div class="dash-budget-bubbles-wrap">${expCats.map(_bubble).join('')}</div>
-        </div>` : ''}
-        ${incCats.length ? `
+          ${expCats.length
+            ? `<div class="dash-budget-bubbles-wrap">${expCats.map(_bubble).join('')}</div>`
+            : `<div style="color:var(--txt3);font-size:12px;padding:8px 0">—</div>`}
+        </div>
         <div class="dash-budget-col-inc">
           <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--txt3);margin-bottom:8px">Entrate</div>
-          <div class="dash-budget-bubbles-grid">${incCats.map(_bubble).join('')}</div>
-        </div>` : ''}
+          ${incCats.length
+            ? `<div class="dash-budget-bubbles-grid">${incCats.map(_bubble).join('')}</div>`
+            : `<div style="color:var(--txt3);font-size:12px;padding:8px 0">—</div>`}
+        </div>
       </div>
     </div>
     <div style="display:flex;justify-content:flex-end;gap:24px;padding:10px 16px;margin-top:auto;border-top:1px solid var(--border)">

@@ -794,7 +794,7 @@ function _renderDashBudgetBubbles(budgetYear) {
         </div>
       </div>
     </div>
-    <div style="display:flex;justify-content:flex-end;gap:24px;padding:10px 16px;margin-top:auto;border-top:1px solid var(--border)">
+    <div style="display:flex;justify-content:flex-end;gap:24px;padding:5px 16px;margin-top:auto;border-top:1px solid var(--border)">
       ${expCats.length ? _tot('Uscite',  totExpActual, totExpBudget, 'var(--expense)') : ''}
       ${incCats.length ? _tot('Entrate', totIncActual, totIncBudget, 'var(--income)')  : ''}
       ${expCats.length && incCats.length ? _tot('Netto', netActual, netBudget, netColor) : ''}

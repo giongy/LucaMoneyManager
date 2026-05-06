@@ -906,7 +906,7 @@ tr.tx-selected td { background:rgba(88,166,255,.07); }
 .maint-result { font-size:var(--fs-md,12px); font-family:monospace; }
 
 /* ─── Bottoni aggiungi transazione ──────────────────────────────────────── */
-.tx-add-group { display:flex; gap:6px; padding:8px 16px; border-top:1px solid var(--border); background:var(--bg); position:sticky; bottom:0; z-index:2; }
+.tx-add-group { display:flex; gap:6px; padding:8px 16px; background:var(--bg); position:sticky; bottom:0; z-index:2; }
 .btn-add-income   { background:rgba(63,185,80,.15);  color:var(--income);  border:1px solid rgba(63,185,80,.35);  }
 .btn-add-expense  { background:rgba(248,81,73,.15);  color:var(--expense); border:1px solid rgba(248,81,73,.35);  }
 .btn-add-transfer { background:rgba(88,166,255,.12); color:var(--accent);  border:1px solid rgba(88,166,255,.3);  }

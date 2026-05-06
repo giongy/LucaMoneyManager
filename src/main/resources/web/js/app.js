@@ -869,17 +869,16 @@ function _renderDashAccountsWidget(accounts) {
       <tbody>
         <tr class="acc-total-row">
           <td colspan="3">
-            <div style="display:flex;align-items:center;gap:0">
-              <span class="flex-center-8" style="flex:1">
-                <span>Totale Conti:</span>
-                <span class="acc-bal" style="color:${contiBalance<0?'var(--expense)':'var(--income)'}">${fmt.currency(contiBalance)}</span>
-              </span>
+            <div style="display:flex;align-items:baseline;gap:16px">
+              <div style="display:flex;align-items:baseline;gap:6px">
+                <span style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--txt3)">Totale Conti</span>
+                <span class="acc-bal" style="font-size:13px;font-weight:700;color:${contiBalance<0?'var(--expense)':'var(--income)'}">${fmt.currency(contiBalance)}</span>
+              </div>
               ${investBalance !== 0 ? `
-
-              <span style="flex:1;display:flex;align-items:center;justify-content:flex-end;gap:8px">
-                <span style="color:var(--txt2)">Investimenti</span>
-                <span class="acc-bal" style="color:var(--accent2)">${fmt.currency(investBalance)}</span>
-              </span>` : ''}
+              <div style="display:flex;align-items:baseline;gap:6px">
+                <span style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--txt3)">Investimenti</span>
+                <span class="acc-bal" style="font-size:13px;font-weight:700;color:var(--accent2)">${fmt.currency(investBalance)}</span>
+              </div>` : ''}
             </div>
           </td>
         </tr>

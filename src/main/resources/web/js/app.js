@@ -1432,11 +1432,11 @@ async function renderTransactions() {
             <th></th>
           </tr></thead><tbody id="txBody"></tbody></table>
       </div>
-    </div>
-    <div class="tx-add-group">
-      <button class="btn btn-add-income"   id="btnAddIncome">📥 Entrata</button>
-      <button class="btn btn-add-expense"  id="btnAddExpense">📤 Uscita</button>
-      <button class="btn btn-add-transfer" id="btnAddTransfer">🔁 Trasferimento</button>
+      <div class="tx-add-group">
+        <button class="btn btn-add-income"   id="btnAddIncome">📥 Entrata</button>
+        <button class="btn btn-add-expense"  id="btnAddExpense">📤 Uscita</button>
+        <button class="btn btn-add-transfer" id="btnAddTransfer">🔁 Trasferimento</button>
+      </div>
     </div>`;
 
   const applyFilters = () => {

@@ -1416,7 +1416,7 @@ async function renderTransactions() {
       </div>
     </div>
     <div id="txSummaryBar" style="flex-shrink:0;padding:4px 16px 10px;background:var(--bg);display:flex;align-items:center;gap:12px;font-size:13px;color:var(--txt2)"></div>
-    <div id="txScrollWrap" style="flex:1;overflow:auto;padding:0 16px 16px">
+    <div id="txScrollWrap" style="flex:1;overflow:auto;padding:0 16px 0">
       <div class="card">
         <table id="txTable"><thead><tr>
             <th class="th-sort th-sort-active" data-col="date"        onclick="_txSortBy('date')">Data<span class="sort-ind">▲</span></th>
@@ -1431,12 +1431,12 @@ async function renderTransactions() {
             <th class="text-right th-balance" id="thBalance" style="display:none">Saldo</th>
             <th></th>
           </tr></thead><tbody id="txBody"></tbody></table>
-        <div class="tx-add-group">
-          <button class="btn btn-add-income"   id="btnAddIncome">📥 Entrata</button>
-          <button class="btn btn-add-expense"  id="btnAddExpense">📤 Uscita</button>
-          <button class="btn btn-add-transfer" id="btnAddTransfer">🔁 Trasferimento</button>
-        </div>
       </div>
+    </div>
+    <div class="tx-add-group">
+      <button class="btn btn-add-income"   id="btnAddIncome">📥 Entrata</button>
+      <button class="btn btn-add-expense"  id="btnAddExpense">📤 Uscita</button>
+      <button class="btn btn-add-transfer" id="btnAddTransfer">🔁 Trasferimento</button>
     </div>`;
 
   const applyFilters = () => {

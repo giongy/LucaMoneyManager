@@ -5476,23 +5476,33 @@ async function showPortfolioHistory(portfolioId) {
       <table style="font-size:12px"><thead><tr>
         <th>Data</th><th>Tipo</th><th>Quantità</th><th>Prezzo</th><th class="text-right">Totale</th>
       </tr></thead><tbody>
-      ${txs.length ? [...txs].sort((a,b)=>a.date.localeCompare(b.date)).map(t=>{
-        const isBuy     = t.type === 'buy';
-        const isCoupon  = t.type === 'coupon';
-        const isExpense = t.type === 'expense';
-        const isSell    = t.type === 'sell';
-        const color = isBuy || isExpense ? 'var(--expense)' : 'var(--income)';
-        const label = isBuy ? 'Acquisto' : isCoupon ? 'Cedola' : isExpense ? (t.notes || 'Spesa') : 'Vendita';
-        const sign  = isBuy || isExpense ? '-' : '+';
-        const total = (isCoupon || isExpense) ? t.price : t.quantity * t.price;
-        return `<tr>
-          <td>${t.date}</td>
-          <td><span style="color:${color};font-weight:600">${label}</span></td>
-          <td>${(isCoupon || isExpense) ? '—' : t.quantity}</td>
-          <td>${(isCoupon || isExpense) ? '—' : fmt.price(t.price)}</td>
-          <td class="text-right" style="color:${color}">${sign} ${fmt.currency(total)}</td>
+      ${txs.length ? (() => {
+        const sorted = [...txs].sort((a,b)=>a.date.localeCompare(b.date));
+        let grandTotal = 0;
+        const rows = sorted.map(t=>{
+          const isBuy     = t.type === 'buy';
+          const isCoupon  = t.type === 'coupon';
+          const isExpense = t.type === 'expense';
+          const color = isBuy || isExpense ? 'var(--expense)' : 'var(--income)';
+          const label = isBuy ? 'Acquisto' : isCoupon ? 'Cedola' : isExpense ? (t.notes || 'Spesa') : 'Vendita';
+          const sign  = isBuy || isExpense ? -1 : 1;
+          const total = (isCoupon || isExpense) ? t.price : t.quantity * t.price;
+          grandTotal += sign * total;
+          return `<tr>
+            <td>${t.date}</td>
+            <td><span style="color:${color};font-weight:600">${label}</span></td>
+            <td>${(isCoupon || isExpense) ? '—' : t.quantity}</td>
+            <td>${(isCoupon || isExpense) ? '—' : fmt.price(t.price)}</td>
+            <td class="text-right" style="color:${color}">${sign<0?'-':'+'} ${fmt.currency(total)}</td>
+          </tr>`;
+        }).join('');
+        const totColor = grandTotal <= 0 ? 'var(--expense)' : 'var(--income)';
+        const totRow = `<tr style="border-top:2px solid var(--border)">
+          <td colspan="4" style="font-weight:700;padding-top:6px">Totale</td>
+          <td class="text-right" style="font-weight:700;color:${totColor};padding-top:6px">${grandTotal<=0?'-':'+'} ${fmt.currency(Math.abs(grandTotal))}</td>
         </tr>`;
-      }).join('') : '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--txt3)">Nessuna operazione</td></tr>'}
+        return rows + totRow;
+      })() : '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--txt3)">Nessuna operazione</td></tr>'}
       </tbody></table>
     </div>`;
   openModal('Storico operazioni', body, null);

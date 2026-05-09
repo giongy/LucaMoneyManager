@@ -9550,15 +9550,27 @@ async function settingsLoadBackupList() {
               : `<button class="btn-bak-changes" data-detail="${detailId}">
                    ${nChanges} ${nChanges===1?'modifica':'modifiche'}
                  </button>`;
-            const detailRows = changes.map(c =>
-              `<tr class="bak-detail-row ${detailId}" style="background:var(--bg3)">
+            const detailRows = changes.map(c => {
+              let descHtml = '';
+              if (c.desc) {
+                descHtml = c.desc.split(' · ').map(part => {
+                  const colon = part.indexOf(':');
+                  if (colon === -1) return `<span style="color:var(--txt3)">${part}</span>`;
+                  const key = part.slice(0, colon);
+                  const val = part.slice(colon + 1);
+                  if (key === 'importo') return `<span style="color:var(--txt3)">${key}:</span><span style="color:var(--income);font-weight:700"> ${val}</span>`;
+                  if (key === 'categoria') return `<span style="color:var(--txt3)">${key}:</span><span style="color:var(--accent);font-weight:600"> ${val}</span>`;
+                  return `<span style="color:var(--txt3)">${part}</span>`;
+                }).join('<span style="color:var(--border)"> · </span>');
+              }
+              return `<tr class="bak-detail-row ${detailId}" style="background:var(--bg3)">
                 <td colspan="4" style="padding:3px 8px 3px 24px;font-size:11px;color:var(--txt2)">
                   <span style="color:var(--txt3);margin-right:6px">${c.time}</span>
                   <strong>${c.op}</strong>
-                  ${c.desc ? `<span style="color:var(--txt3);margin-left:6px">${c.desc}</span>` : ''}
+                  ${descHtml ? `<span style="margin-left:6px">${descHtml}</span>` : ''}
                 </td>
-              </tr>`
-            ).join('');
+              </tr>`;
+            }).join('');
             return `
             <tr style="border-bottom:1px solid var(--border);${rowBg}">
               <td style="padding:5px 8px;font-weight:600;color:var(--accent)">${b.displayTs}</td>

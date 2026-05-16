@@ -6068,7 +6068,7 @@ window._setAnalyticsTab = (tab, btn) => {
   document.querySelectorAll('[data-atab]').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   const dc = document.getElementById('aDateControls');
-  if (dc) dc.style.visibility = (tab === 'forecast' || tab === 'nature') ? 'hidden' : '';
+  if (dc) dc.style.visibility = tab === 'forecast' ? 'hidden' : '';
   if (tab === 'catmonth')   renderAnalyticsCatMonth();
   if (tab === 'balance')    renderAnalyticsBalance();
   if (tab === 'trend')      renderAnalyticsTrend();
@@ -7081,16 +7081,16 @@ async function renderReports() {
 }
 
 
-let _natureRange = 'cur_month';
-let _natureFrom  = '';
-let _natureTo    = '';
-
 async function renderNatureReport() {
   const el = document.getElementById('analyticsContent') || document.getElementById('rNatureContent');
   if (!el) return;
   el.innerHTML = '<div style="padding:40px;text-align:center;color:var(--txt3)">⏳ Caricamento...</div>';
 
-  const filter = rangeToFilter(_natureRange, _natureFrom, _natureTo);
+  const startYm = _analyticsStartYm || _analyticsOldestYm;
+  const endYm   = _analyticsEndYm;
+  const filter  = (startYm && endYm)
+    ? { date_from: startYm + '-01', date_to: endYm + '-31' }
+    : {};
   const data   = await api.getExpenseNatureReport(filter);
   const byNature = data.by_nature   || [];
   const byCat    = data.by_category || [];
@@ -7103,16 +7103,6 @@ async function renderNatureReport() {
     '':         { label: 'Non classificata', color: 'var(--txt3)', icon: '⬜' },
   };
   const ORDER = ['essenziale', 'variabile', 'superflua', ''];
-
-  const rangeOpts = [
-    {v:'cur_month',  l:'Mese corrente'},
-    {v:'prev_month', l:'Mese precedente'},
-    {v:'3m',         l:'Ultimi 3 mesi'},
-    {v:'ytd',        l:'Quest\'anno'},
-    {v:'last_year',  l:'Anno scorso'},
-    {v:'all',        l:'Tutto'},
-    {v:'custom',     l:'Personalizza…'},
-  ].map(o => `<option value="${o.v}" ${_natureRange===o.v?'selected':''}>${o.l}</option>`).join('');
 
   const cards = ORDER.map(n => {
     const row  = byNature.find(r => r.nature === n);
@@ -7173,22 +7163,6 @@ async function renderNatureReport() {
   }).join('');
 
   el.innerHTML = `
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
-      <select class="form-input" style="width:auto;font-size:13px" onchange="
-        _natureRange=this.value;
-        document.getElementById('rNatureCustom').classList.toggle('hidden',this.value!=='custom');
-        if(this.value!=='custom') renderNatureReport()">
-        ${rangeOpts}
-      </select>
-      <div id="rNatureCustom" style="display:flex;gap:6px;align-items:center" class="${_natureRange!=='custom'?'hidden':''}">
-        <input type="date" class="form-input" style="font-size:12px;width:140px" value="${_natureFrom}"
-          onchange="_natureFrom=this.value">
-        <span style="color:var(--txt3)">→</span>
-        <input type="date" class="form-input" style="font-size:12px;width:140px" value="${_natureTo}"
-          onchange="_natureTo=this.value">
-        <button class="btn btn-secondary" style="font-size:12px;padding:4px 10px" onclick="renderNatureReport()">Applica</button>
-      </div>
-    </div>
     ${totalAll > 0 ? `
     <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">${cards}</div>
     <div class="card" style="padding:12px 16px;margin-bottom:4px">

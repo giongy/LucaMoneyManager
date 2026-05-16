@@ -5948,6 +5948,7 @@ function _renderCurrentAnalyticsTab() {
   else if (_analyticsTab === 'health')     renderAnalyticsHealth();
   else if (_analyticsTab === 'forecast')   renderAnalyticsForecast();
   else if (_analyticsTab === 'accbalance') renderAnalyticsAccBalance();
+  else if (_analyticsTab === 'nature')     renderNatureReport();
   else renderAnalyticsCatMonth();
 }
 
@@ -5984,6 +5985,7 @@ async function renderAnalytics() {
           <button class="sched-tab${_analyticsTab==='trend'?' active':''}" data-atab="trend" onclick="_setAnalyticsTab('trend',this)">Andamento Categoria</button>
           <button class="sched-tab${_analyticsTab==='accbalance'?' active':''}" data-atab="accbalance" onclick="_setAnalyticsTab('accbalance',this)">Saldo Conti</button>
           <button class="sched-tab${_analyticsTab==='forecast'?' active':''}" data-atab="forecast" onclick="_setAnalyticsTab('forecast',this)">📊 Previsione Saldo</button>
+          <button class="sched-tab${_analyticsTab==='nature'?' active':''}" data-atab="nature" onclick="_setAnalyticsTab('nature',this)">🌿 Natura Spese</button>
         </div>
         <div id="aDateControls" style="margin-left:auto;display:flex;gap:6px;align-items:center;white-space:nowrap;${_analyticsTab==='forecast'?'visibility:hidden':''}">
           <button class="btn btn-xs btn-ghost" id="aPreset6m">6 mesi</button>
@@ -6066,13 +6068,14 @@ window._setAnalyticsTab = (tab, btn) => {
   document.querySelectorAll('[data-atab]').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   const dc = document.getElementById('aDateControls');
-  if (dc) dc.style.visibility = tab === 'forecast' ? 'hidden' : '';
+  if (dc) dc.style.visibility = (tab === 'forecast' || tab === 'nature') ? 'hidden' : '';
   if (tab === 'catmonth')   renderAnalyticsCatMonth();
   if (tab === 'balance')    renderAnalyticsBalance();
   if (tab === 'trend')      renderAnalyticsTrend();
   if (tab === 'health')     renderAnalyticsHealth();
   if (tab === 'forecast')   renderAnalyticsForecast();
   if (tab === 'accbalance') renderAnalyticsAccBalance();
+  if (tab === 'nature')     renderNatureReport();
 };
 
 let _analyticsCatSort = { col: null, dir: -1 };
@@ -7103,7 +7106,7 @@ let _natureFrom  = '';
 let _natureTo    = '';
 
 async function renderNatureReport() {
-  const el = document.getElementById('rNatureContent');
+  const el = document.getElementById('analyticsContent') || document.getElementById('rNatureContent');
   if (!el) return;
   el.innerHTML = '<div style="padding:40px;text-align:center;color:var(--txt3)">⏳ Caricamento...</div>';
 

@@ -7057,30 +7057,17 @@ function _renderAnalyticsTrendChart() {
   });
 }
 
-let _activeReportTab = 'custom';
-
 async function renderReports() {
   const pg = document.getElementById('pg-reports');
   pg.innerHTML = `
-    <div style="display:flex;gap:4px;margin-bottom:20px;border-bottom:1px solid var(--border);padding-bottom:0">
-      <button class="sched-tab ${_activeReportTab==='custom'?'active':''}" data-rtab="custom" onclick="switchReportTab('custom')">📊 Resoconti</button>
-      <button class="sched-tab ${_activeReportTab==='nature'?'active':''}" data-rtab="nature" onclick="switchReportTab('nature')">🌿 Natura Spese</button>
-    </div>
-    <div id="rTabCustom" ${_activeReportTab!=='custom'?'class="hidden"':''}>
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-        <h2 style="font-size:var(--fs-xl,18px);font-weight:700">Resoconti</h2>
-        <div class="flex-center-8">
-          <button class="btn btn-primary" onclick="showReportModal()">＋ Nuovo resoconto</button>
-        </div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+      <h2 style="font-size:var(--fs-xl,18px);font-weight:700">Resoconti</h2>
+      <div class="flex-center-8">
+        <button class="btn btn-primary" onclick="showReportModal()">＋ Nuovo resoconto</button>
       </div>
-      <div id="rReportHeader" style="margin-bottom:16px"></div>
-      <div id="rResults"></div>
     </div>
-    <div id="rTabNature" ${_activeReportTab!=='nature'?'class="hidden"':''}>
-      <div id="rNatureContent"></div>
-    </div>`;
-
-  if (_activeReportTab === 'nature') { renderNatureReport(); return; }
+    <div id="rReportHeader" style="margin-bottom:16px"></div>
+    <div id="rResults"></div>`;
 
   if (_currentReportId !== null) {
     const reports = await api.getReports();
@@ -7093,13 +7080,6 @@ async function renderReports() {
   }
 }
 
-function switchReportTab(tab) {
-  _activeReportTab = tab;
-  document.querySelectorAll('#pg-reports [data-rtab]').forEach(b => b.classList.toggle('active', b.dataset.rtab === tab));
-  document.getElementById('rTabCustom')?.classList.toggle('hidden', tab !== 'custom');
-  document.getElementById('rTabNature')?.classList.toggle('hidden', tab !== 'nature');
-  if (tab === 'nature') renderNatureReport();
-}
 
 let _natureRange = 'cur_month';
 let _natureFrom  = '';

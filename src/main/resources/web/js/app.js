@@ -9786,7 +9786,7 @@ async function renderCategories() {
                   <span class="cat-icon" style="background:${k.color}22;color:${k.color}">${k.icon}</span>
                   <span class="cat-color-dot" style="background:${k.color}" title="${k.color}"></span>
                   <span class="cat-name">${k.name}</span>
-                  ${k.expense_nature ? `<span class="nature-badge nature-${k.expense_nature}">${{essenziale:'🟢',variabile:'🟡',superflua:'🔴'}[k.expense_nature]||''}</span>` : ''}
+                  ${(() => { const n = k.expense_nature || k.parent_expense_nature; const inh = !k.expense_nature && n; return n ? `<span class="nature-badge nature-${n}" title="${inh?'ereditata dal parent':''}">${{essenziale:'🟢',variabile:'🟡',superflua:'🔴'}[n]||''}${inh?' ↑':''}</span>` : ''; })()}
                   <span class="cat-inherited">eredita ${typeLabel(k.type)}</span>
                   <div class="cat-actions">
                     <button class="btn btn-ghost btn-icon" onclick="editCategory(${k.id})" title="Modifica">✏️</button>
@@ -9911,6 +9911,10 @@ async function showCategoryModal(cat, type, parentId) {
   const isEdit   = !!cat;
   const isChild  = !!parentId || (cat && !!cat.parent_id);
   const pId      = parentId ?? (cat?.parent_id ?? null);
+  const parentCat = pId ? allCats.find(c => c.id === pId) : null;
+  const inheritedNature = parentCat?.expense_nature ?? null;
+  // Natura effettiva da mostrare preselezionata: propria se presente, altrimenti ereditata
+  const effectiveNature = cat?.expense_nature ?? inheritedNature ?? '';
 
   const parentOpts = parents.map(p =>
     `<option value="${p.id}" ${pId === p.id ? 'selected' : ''}>${p.icon} ${p.name}</option>`
@@ -9951,12 +9955,13 @@ async function showCategoryModal(cat, type, parentId) {
         <input type="hidden" id="c_nature" value="${cat?.expense_nature ?? ''}">
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           ${[['','⬜ Non classif.','var(--txt3)'],['essenziale','🟢 Essenziale','#3fb950'],['variabile','🟡 Variabile','#e3b341'],['superflua','🔴 Superflua','#f85149']].map(([v,l,c]) => `
-            <button type="button" class="pill-nature ${(cat?.expense_nature??'')===v?'active':''}"
+            <button type="button" class="pill-nature ${effectiveNature===v?'active':''}"
               data-nature="${v}" style="--nc:${c}"
               onclick="document.querySelectorAll('.pill-nature').forEach(b=>b.classList.remove('active'));this.classList.add('active');document.getElementById('c_nature').value=this.dataset.nature">
               ${l}
             </button>`).join('')}
         </div>
+        ${inheritedNature && !cat?.expense_nature ? `<div style="font-size:11px;color:var(--txt3);margin-top:4px">↑ Ereditata dal parent — seleziona un'altra opzione per sovrascrivere</div>` : ''}
       </div>` : ''}
     </div>
   `, async () => {

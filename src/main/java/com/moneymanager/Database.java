@@ -889,9 +889,10 @@ public class Database {
     public List<Map<String, Object>> getCategories() throws SQLException {
         return queryList("""
             SELECT c.*,
-                   p.name  AS parent_name,
-                   p.type  AS parent_type,
-                   p.color AS parent_color,
+                   p.name           AS parent_name,
+                   p.type           AS parent_type,
+                   p.color          AS parent_color,
+                   p.expense_nature AS parent_expense_nature,
                    (SELECT COUNT(*) FROM transactions t WHERE t.category_id = c.id) AS usage_count
             FROM categories c
             LEFT JOIN categories p ON c.parent_id = p.id
@@ -953,15 +954,17 @@ public class Database {
             where.append(" AND t.date <= ?"); params.add(str(p,"date_to"));
         }
         String byNatureSQL =
-            "SELECT COALESCE(c.expense_nature,'') AS nature, SUM(t.amount) AS total, COUNT(*) AS tx_count " +
-            "FROM transactions t LEFT JOIN categories c ON t.category_id = c.id" + where +
-            " GROUP BY COALESCE(c.expense_nature,'') ORDER BY total DESC";
+            "SELECT COALESCE(c.expense_nature, pc.expense_nature, '') AS nature, SUM(t.amount) AS total, COUNT(*) AS tx_count " +
+            "FROM transactions t LEFT JOIN categories c ON t.category_id = c.id " +
+            "LEFT JOIN categories pc ON c.parent_id = pc.id" + where +
+            " GROUP BY COALESCE(c.expense_nature, pc.expense_nature, '') ORDER BY total DESC";
         String byCatSQL =
-            "SELECT COALESCE(c.expense_nature,'') AS nature, COALESCE(c.name,'—') AS cat_name, " +
+            "SELECT COALESCE(c.expense_nature, pc.expense_nature, '') AS nature, COALESCE(c.name,'—') AS cat_name, " +
             "COALESCE(c.color,'#888') AS color, COALESCE(c.icon,'📁') AS icon, " +
             "SUM(t.amount) AS total, COUNT(*) AS tx_count " +
-            "FROM transactions t LEFT JOIN categories c ON t.category_id = c.id" + where +
-            " GROUP BY c.id, COALESCE(c.expense_nature,'') ORDER BY nature, total DESC";
+            "FROM transactions t LEFT JOIN categories c ON t.category_id = c.id " +
+            "LEFT JOIN categories pc ON c.parent_id = pc.id" + where +
+            " GROUP BY c.id, COALESCE(c.expense_nature, pc.expense_nature, '') ORDER BY nature, total DESC";
         Object[] args = params.toArray();
         Map<String, Object> result = new java.util.HashMap<>();
         result.put("by_nature",   queryList(byNatureSQL, args));

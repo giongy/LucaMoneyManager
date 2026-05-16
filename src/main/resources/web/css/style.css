@@ -865,6 +865,20 @@ tr.tx-selected td { background:rgba(88,166,255,.07); }
 .cat-indent { color:var(--txt3); font-size:var(--fs-lg,14px); margin-left:10px; }
 .cat-actions { display:flex; gap:4px; margin-left:auto; }
 .cat-children { border-top:1px solid var(--border); }
+.nature-badge {
+  font-size:10px; padding:2px 7px; border-radius:10px;
+  background:var(--bg3); color:var(--txt2); white-space:nowrap; flex-shrink:0;
+}
+.nature-badge.nature-essenziale { background:#3fb95022; color:#3fb950; }
+.nature-badge.nature-variabile  { background:#e3b34122; color:#c49a20; }
+.nature-badge.nature-superflua  { background:#f8514922; color:#f85149; }
+.pill-nature {
+  padding:5px 14px; border-radius:16px; border:1px solid var(--border);
+  background:transparent; color:var(--txt2); cursor:pointer; font-size:12px;
+  transition:background .15s, color .15s, border-color .15s;
+}
+.pill-nature:hover  { background:var(--bg3); }
+.pill-nature.active { background:var(--nc,var(--accent))22; color:var(--nc,var(--accent)); border-color:var(--nc,var(--accent)); font-weight:600; }
 
 /* ─── Impostazioni ───────────────────────────────────────────────────────── */
 .settings-tabs { display:flex; gap:0; margin-bottom:20px; border-bottom:1px solid var(--border); }

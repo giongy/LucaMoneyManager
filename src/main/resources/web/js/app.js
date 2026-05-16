@@ -342,6 +342,7 @@ const api = {
   getForecastExpenseSplit:(months)    => callJava('getForecastExpenseSplit', {months}),
 
   // Resoconti
+  getExpenseNatureReport: p => callJava('getExpenseNatureReport', p || {}),
   getReports:   ()     => callJava('getReports'),
   saveReport:   data   => callJava('saveReport',   data),
   deleteReport: id     => callJava('deleteReport', {id}),
@@ -7053,17 +7054,30 @@ function _renderAnalyticsTrendChart() {
   });
 }
 
+let _activeReportTab = 'custom';
+
 async function renderReports() {
   const pg = document.getElementById('pg-reports');
   pg.innerHTML = `
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
-      <h2 style="font-size:var(--fs-xl,18px);font-weight:700">Resoconti</h2>
-      <div class="flex-center-8">
-        <button class="btn btn-primary" onclick="showReportModal()">＋ Nuovo resoconto</button>
-      </div>
+    <div style="display:flex;gap:4px;margin-bottom:20px;border-bottom:1px solid var(--border);padding-bottom:0">
+      <button class="sched-tab ${_activeReportTab==='custom'?'active':''}" data-rtab="custom" onclick="switchReportTab('custom')">📊 Resoconti</button>
+      <button class="sched-tab ${_activeReportTab==='nature'?'active':''}" data-rtab="nature" onclick="switchReportTab('nature')">🌿 Natura Spese</button>
     </div>
-    <div id="rReportHeader" style="margin-bottom:16px"></div>
-    <div id="rResults"></div>`;
+    <div id="rTabCustom" ${_activeReportTab!=='custom'?'class="hidden"':''}>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+        <h2 style="font-size:var(--fs-xl,18px);font-weight:700">Resoconti</h2>
+        <div class="flex-center-8">
+          <button class="btn btn-primary" onclick="showReportModal()">＋ Nuovo resoconto</button>
+        </div>
+      </div>
+      <div id="rReportHeader" style="margin-bottom:16px"></div>
+      <div id="rResults"></div>
+    </div>
+    <div id="rTabNature" ${_activeReportTab!=='nature'?'class="hidden"':''}>
+      <div id="rNatureContent"></div>
+    </div>`;
+
+  if (_activeReportTab === 'nature') { renderNatureReport(); return; }
 
   if (_currentReportId !== null) {
     const reports = await api.getReports();
@@ -7075,6 +7089,132 @@ async function renderReports() {
     runReport();
   }
 }
+
+function switchReportTab(tab) {
+  _activeReportTab = tab;
+  document.querySelectorAll('#pg-reports [data-rtab]').forEach(b => b.classList.toggle('active', b.dataset.rtab === tab));
+  document.getElementById('rTabCustom')?.classList.toggle('hidden', tab !== 'custom');
+  document.getElementById('rTabNature')?.classList.toggle('hidden', tab !== 'nature');
+  if (tab === 'nature') renderNatureReport();
+}
+
+let _natureRange = 'cur_month';
+let _natureFrom  = '';
+let _natureTo    = '';
+
+async function renderNatureReport() {
+  const el = document.getElementById('rNatureContent');
+  if (!el) return;
+  el.innerHTML = '<div style="padding:40px;text-align:center;color:var(--txt3)">⏳ Caricamento...</div>';
+
+  const filter = rangeToFilter(_natureRange, _natureFrom, _natureTo);
+  const data   = await api.getExpenseNatureReport(filter);
+  const byNature = data.by_nature   || [];
+  const byCat    = data.by_category || [];
+  const totalAll = byNature.reduce((s, r) => s + (Number(r.total) || 0), 0);
+
+  const NATURE = {
+    essenziale: { label: 'Essenziale', color: '#3fb950', icon: '🟢' },
+    variabile:  { label: 'Variabile',  color: '#e3b341', icon: '🟡' },
+    superflua:  { label: 'Superflua',  color: '#f85149', icon: '🔴' },
+    '':         { label: 'Non classificata', color: 'var(--txt3)', icon: '⬜' },
+  };
+  const ORDER = ['essenziale', 'variabile', 'superflua', ''];
+
+  const rangeOpts = [
+    {v:'cur_month',  l:'Mese corrente'},
+    {v:'prev_month', l:'Mese precedente'},
+    {v:'3m',         l:'Ultimi 3 mesi'},
+    {v:'ytd',        l:'Quest\'anno'},
+    {v:'last_year',  l:'Anno scorso'},
+    {v:'all',        l:'Tutto'},
+    {v:'custom',     l:'Personalizza…'},
+  ].map(o => `<option value="${o.v}" ${_natureRange===o.v?'selected':''}>${o.l}</option>`).join('');
+
+  const cards = ORDER.map(n => {
+    const row  = byNature.find(r => r.nature === n);
+    const tot  = Number(row?.total || 0);
+    const cnt  = Number(row?.tx_count || 0);
+    const pct  = totalAll > 0 ? (tot / totalAll * 100).toFixed(1) : '0.0';
+    const m    = NATURE[n];
+    return `
+      <div class="card" style="padding:16px;flex:1;min-width:130px">
+        <div style="font-size:18px;margin-bottom:4px">${m.icon}</div>
+        <div style="font-size:12px;font-weight:700;color:var(--txt2);text-transform:uppercase;letter-spacing:.5px">${m.label}</div>
+        <div style="font-size:22px;font-weight:700;color:${m.color};margin:6px 0">${fmt.currency(tot)}</div>
+        <div style="font-size:11px;color:var(--txt3)">${pct}% · ${cnt} transazioni</div>
+        <div style="margin-top:8px;height:4px;background:var(--bg3);border-radius:2px">
+          <div style="height:4px;background:${m.color};border-radius:2px;width:${pct}%"></div>
+        </div>
+      </div>`;
+  }).join('');
+
+  const barSegments = ORDER
+    .filter(n => { const r = byNature.find(x => x.nature === n); return r && Number(r.total) > 0; })
+    .map(n => {
+      const tot = Number(byNature.find(x => x.nature === n).total);
+      const pct = (tot / totalAll * 100).toFixed(1);
+      return `<div title="${NATURE[n].label}: ${pct}% (${fmt.currency(tot)})"
+        style="flex:${pct};background:${NATURE[n].color};min-width:3px;transition:flex .4s"></div>`;
+    }).join('');
+
+  const sections = ORDER.map(n => {
+    const cats = byCat.filter(r => r.nature === n);
+    if (!cats.length) return '';
+    const m = NATURE[n];
+    const rows = cats.map(c => {
+      const tot  = Number(c.total);
+      const pct  = totalAll > 0 ? (tot / totalAll * 100).toFixed(1) : '0.0';
+      return `<tr>
+        <td style="padding:5px 8px">
+          <span style="background:${c.color}22;color:${c.color};padding:2px 8px;border-radius:4px;font-size:12px">${c.icon} ${c.cat_name}</span>
+        </td>
+        <td style="padding:5px 8px;text-align:right;font-weight:600">${fmt.currency(tot)}</td>
+        <td style="padding:5px 8px;text-align:right;color:var(--txt3);font-size:11px">${c.tx_count} tx</td>
+        <td style="padding:5px 8px;text-align:right;color:var(--txt3);font-size:11px">${pct}%</td>
+      </tr>`;
+    }).join('');
+    return `
+      <div style="margin-top:20px">
+        <div style="font-size:13px;font-weight:700;color:${m.color};margin-bottom:8px">${m.icon} ${m.label}</div>
+        <table style="width:100%;border-collapse:collapse;font-size:12px">
+          <thead><tr style="color:var(--txt3);border-bottom:1px solid var(--border)">
+            <th style="text-align:left;padding:4px 8px">Categoria</th>
+            <th style="text-align:right;padding:4px 8px">Importo</th>
+            <th style="text-align:right;padding:4px 8px">Tx</th>
+            <th style="text-align:right;padding:4px 8px">%</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
+      <select class="form-input" style="width:auto;font-size:13px" onchange="
+        _natureRange=this.value;
+        document.getElementById('rNatureCustom').classList.toggle('hidden',this.value!=='custom');
+        if(this.value!=='custom') renderNatureReport()">
+        ${rangeOpts}
+      </select>
+      <div id="rNatureCustom" style="display:flex;gap:6px;align-items:center" class="${_natureRange!=='custom'?'hidden':''}">
+        <input type="date" class="form-input" style="font-size:12px;width:140px" value="${_natureFrom}"
+          onchange="_natureFrom=this.value">
+        <span style="color:var(--txt3)">→</span>
+        <input type="date" class="form-input" style="font-size:12px;width:140px" value="${_natureTo}"
+          onchange="_natureTo=this.value">
+        <button class="btn btn-secondary" style="font-size:12px;padding:4px 10px" onclick="renderNatureReport()">Applica</button>
+      </div>
+    </div>
+    ${totalAll > 0 ? `
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">${cards}</div>
+    <div class="card" style="padding:12px 16px;margin-bottom:4px">
+      <div style="font-size:11px;color:var(--txt3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Ripartizione totale · ${fmt.currency(totalAll)}</div>
+      <div style="display:flex;height:14px;border-radius:7px;overflow:hidden;gap:2px">${barSegments}</div>
+    </div>
+    ${sections}` : '<div style="text-align:center;color:var(--txt3);padding:60px">Nessuna uscita nel periodo selezionato.</div>'}`;
+}
+
 
 async function _updateReportHeader(r) {
   const headerEl = document.getElementById('rReportHeader');
@@ -9671,6 +9811,7 @@ async function renderCategories() {
             <span class="cat-color-dot" style="background:${p.color}" title="${p.color}"></span>
             <span class="cat-name">${p.name}</span>
             <span class="badge ${typeCls(p.type)}">${typeLabel(p.type)}</span>
+            ${p.expense_nature ? `<span class="nature-badge nature-${p.expense_nature}">${{essenziale:'🟢 Essenziale',variabile:'🟡 Variabile',superflua:'🔴 Superflua'}[p.expense_nature]||''}</span>` : ''}
             <span class="cat-sub-count">${kids.length} sottocategorie</span>
             <div class="cat-actions">
               ${!isTransfer ? `
@@ -9688,6 +9829,7 @@ async function renderCategories() {
                   <span class="cat-icon" style="background:${k.color}22;color:${k.color}">${k.icon}</span>
                   <span class="cat-color-dot" style="background:${k.color}" title="${k.color}"></span>
                   <span class="cat-name">${k.name}</span>
+                  ${k.expense_nature ? `<span class="nature-badge nature-${k.expense_nature}">${{essenziale:'🟢',variabile:'🟡',superflua:'🔴'}[k.expense_nature]||''}</span>` : ''}
                   <span class="cat-inherited">eredita ${typeLabel(k.type)}</span>
                   <div class="cat-actions">
                     <button class="btn btn-ghost btn-icon" onclick="editCategory(${k.id})" title="Modifica">✏️</button>
@@ -9846,15 +9988,29 @@ async function showCategoryModal(cat, type, parentId) {
         <label class="form-label">Colore</label>
         <input id="c_color" type="color" class="form-input form-color" value="${cat?.color ?? '#58a6ff'}">
       </div>
+      ${type === 'expense' ? `
+      <div class="form-group" style="grid-column:1/-1">
+        <label class="form-label">Natura spesa</label>
+        <input type="hidden" id="c_nature" value="${cat?.expense_nature ?? ''}">
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          ${[['','⬜ Non classif.','var(--txt3)'],['essenziale','🟢 Essenziale','#3fb950'],['variabile','🟡 Variabile','#e3b341'],['superflua','🔴 Superflua','#f85149']].map(([v,l,c]) => `
+            <button type="button" class="pill-nature ${(cat?.expense_nature??'')===v?'active':''}"
+              data-nature="${v}" style="--nc:${c}"
+              onclick="document.querySelectorAll('.pill-nature').forEach(b=>b.classList.remove('active'));this.classList.add('active');document.getElementById('c_nature').value=this.dataset.nature">
+              ${l}
+            </button>`).join('')}
+        </div>
+      </div>` : ''}
     </div>
   `, async () => {
     const data = {
-      name:      document.getElementById('c_name').value.trim(),
+      name:           document.getElementById('c_name').value.trim(),
       type,
-      icon:      document.getElementById('c_icon').value || '📁',
-      color:     document.getElementById('c_color').value,
-      parent_id: document.getElementById('c_parent').value
-                   ? parseInt(document.getElementById('c_parent').value) : null,
+      icon:           document.getElementById('c_icon').value || '📁',
+      color:          document.getElementById('c_color').value,
+      parent_id:      document.getElementById('c_parent').value
+                        ? parseInt(document.getElementById('c_parent').value) : null,
+      expense_nature: document.getElementById('c_nature')?.value || null,
     };
     if (!data.name) { toast('Inserisci un nome', 'error'); return false; }
     try {

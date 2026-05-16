@@ -281,10 +281,11 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             }
 
             // ─── Categorie ─────────────────────────────────────────────────
-            case "getCategories"     -> db.getCategories();
-            case "addCategory"       -> db.addCategory(p);
-            case "updateCategory"    -> db.updateCategory(p.get("id").getAsInt(), p);
-            case "deleteCategory"    -> db.deleteCategory(p.get("id").getAsInt());
+            case "getCategories"          -> db.getCategories();
+            case "addCategory"            -> db.addCategory(p);
+            case "updateCategory"         -> db.updateCategory(p.get("id").getAsInt(), p);
+            case "deleteCategory"         -> db.deleteCategory(p.get("id").getAsInt());
+            case "getExpenseNatureReport" -> db.getExpenseNatureReport(p);
             case "getCategoryUsage"  -> db.getCategoryUsage(p.get("id").getAsInt());
             case "reassignCategory"  -> {
                 db.reassignCategory(p.get("from_id").getAsInt(), p.get("to_id").getAsInt());

@@ -450,7 +450,7 @@ public class Database {
         """);
     }
 
-    private static final int SCHEMA_VERSION = 12;
+    private static final int SCHEMA_VERSION = 13;
 
     private void migrate() throws SQLException {
         // Crea tabella versione se non esiste
@@ -712,6 +712,11 @@ public class Database {
                 )""");
         }
 
+        // ── v13: expense_nature su categories ───────────────────────────────
+        if (currentVersion < 13) {
+            try { executePlain("ALTER TABLE categories ADD COLUMN expense_nature TEXT"); } catch (SQLException ignored) {}
+        }
+
         // Segna il DB come aggiornato all'ultima versione
         executePlain("DELETE FROM schema_version");
         executePlain("INSERT INTO schema_version(version) VALUES(" + SCHEMA_VERSION + ")");
@@ -906,8 +911,8 @@ public class Database {
             if (parent != null) type = (String) parent.get("type");
         }
         long id = execute(
-            "INSERT INTO categories(name,type,icon,color,parent_id) VALUES(?,?,?,?,?)",
-            str(p,"name"), type, str(p,"icon"), str(p,"color"), parentId);
+            "INSERT INTO categories(name,type,icon,color,parent_id,expense_nature) VALUES(?,?,?,?,?,?)",
+            str(p,"name"), type, str(p,"icon"), str(p,"color"), parentId, str(p,"expense_nature"));
         logger.log("CATEGORIA AGGIUNTA", "id:" + id, "nome:" + str(p,"name"), "tipo:" + type);
         return queryOne("SELECT * FROM categories WHERE id=?", id);
     }
@@ -923,8 +928,8 @@ public class Database {
             Map<String, Object> parent = queryOne("SELECT type FROM categories WHERE id=?", parentId);
             if (parent != null) type = (String) parent.get("type");
         }
-        execute("UPDATE categories SET name=?,type=?,icon=?,color=?,parent_id=? WHERE id=?",
-                str(p,"name"), type, str(p,"icon"), str(p,"color"), parentId, id);
+        execute("UPDATE categories SET name=?,type=?,icon=?,color=?,parent_id=?,expense_nature=? WHERE id=?",
+                str(p,"name"), type, str(p,"icon"), str(p,"color"), parentId, str(p,"expense_nature"), id);
         logger.log("CATEGORIA MODIFICATA", "id:" + id, "nome:" + str(p,"name"), "tipo:" + type);
         return queryOne("SELECT * FROM categories WHERE id=?", id);
     }
@@ -936,6 +941,32 @@ public class Database {
         logger.log("CATEGORIA ELIMINATA", "id:" + id, "nome:" + DbLogger.s(existing != null ? existing.get("name") : null));
         execute("DELETE FROM categories WHERE id=?", id);
         return Map.of("id", id, "deleted", true);
+    }
+
+    public Map<String, Object> getExpenseNatureReport(JsonObject p) throws SQLException {
+        List<Object> params = new ArrayList<>();
+        StringBuilder where = new StringBuilder(" WHERE t.type='expense'");
+        if (p.has("date_from") && !str(p,"date_from").isBlank()) {
+            where.append(" AND t.date >= ?"); params.add(str(p,"date_from"));
+        }
+        if (p.has("date_to") && !str(p,"date_to").isBlank()) {
+            where.append(" AND t.date <= ?"); params.add(str(p,"date_to"));
+        }
+        String byNatureSQL =
+            "SELECT COALESCE(c.expense_nature,'') AS nature, SUM(t.amount) AS total, COUNT(*) AS tx_count " +
+            "FROM transactions t LEFT JOIN categories c ON t.category_id = c.id" + where +
+            " GROUP BY COALESCE(c.expense_nature,'') ORDER BY total DESC";
+        String byCatSQL =
+            "SELECT COALESCE(c.expense_nature,'') AS nature, COALESCE(c.name,'—') AS cat_name, " +
+            "COALESCE(c.color,'#888') AS color, COALESCE(c.icon,'📁') AS icon, " +
+            "SUM(t.amount) AS total, COUNT(*) AS tx_count " +
+            "FROM transactions t LEFT JOIN categories c ON t.category_id = c.id" + where +
+            " GROUP BY c.id, COALESCE(c.expense_nature,'') ORDER BY nature, total DESC";
+        Object[] args = params.toArray();
+        Map<String, Object> result = new java.util.HashMap<>();
+        result.put("by_nature",   queryList(byNatureSQL, args));
+        result.put("by_category", queryList(byCatSQL,    args));
+        return result;
     }
 
     /** Conta transazioni, budget e figli associati a questa categoria (e ai suoi figli). */

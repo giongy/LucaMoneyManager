@@ -959,7 +959,7 @@ public class Database {
             "LEFT JOIN categories pc ON c.parent_id = pc.id" + where +
             " GROUP BY COALESCE(c.expense_nature, pc.expense_nature, '') ORDER BY total DESC";
         String byCatSQL =
-            "SELECT COALESCE(c.expense_nature, pc.expense_nature, '') AS nature, COALESCE(c.name,'—') AS cat_name, " +
+            "SELECT COALESCE(c.expense_nature, pc.expense_nature, '') AS nature, c.id AS cat_id, COALESCE(c.name,'—') AS cat_name, " +
             "COALESCE(c.color,'#888') AS color, COALESCE(c.icon,'📁') AS icon, " +
             "SUM(t.amount) AS total, COUNT(*) AS tx_count " +
             "FROM transactions t LEFT JOIN categories c ON t.category_id = c.id " +

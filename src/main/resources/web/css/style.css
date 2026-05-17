@@ -865,6 +865,8 @@ tr.tx-selected td { background:rgba(88,166,255,.07); }
 .cat-indent { color:var(--txt3); font-size:var(--fs-lg,14px); margin-left:10px; }
 .cat-actions { display:flex; gap:4px; margin-left:auto; }
 .cat-children { border-top:1px solid var(--border); }
+.nature-cat-row { cursor:pointer; transition:background .12s; }
+.nature-cat-row:hover { background:var(--bg3); }
 .nature-badge {
   font-size:10px; padding:2px 7px; border-radius:10px;
   background:var(--bg3); color:var(--txt2); white-space:nowrap; flex-shrink:0;

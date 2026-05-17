@@ -7138,7 +7138,9 @@ async function renderNatureReport() {
     const rows = cats.map(c => {
       const tot  = Number(c.total);
       const pct  = totalAll > 0 ? (tot / totalAll * 100).toFixed(1) : '0.0';
-      return `<tr>
+      const df   = filter.date_from || '';
+      const dt   = filter.date_to   || '';
+      return `<tr class="nature-cat-row" onclick="txFilters={range:'custom',date_from:'${df}',date_to:'${dt}',category_id:${c.cat_id},type:'expense'};navigate('transactions')" title="Vedi transazioni">
         <td style="padding:5px 8px">
           <span style="background:${c.color}22;color:${c.color};padding:2px 8px;border-radius:4px;font-size:12px">${c.icon} ${c.cat_name}</span>
         </td>

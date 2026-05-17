@@ -945,30 +945,67 @@ public class Database {
     }
 
     public Map<String, Object> getExpenseNatureReport(JsonObject p) throws SQLException {
-        List<Object> params = new ArrayList<>();
-        StringBuilder where = new StringBuilder(" WHERE t.type='expense'");
-        if (p.has("date_from") && !str(p,"date_from").isBlank()) {
-            where.append(" AND t.date >= ?"); params.add(str(p,"date_from"));
-        }
-        if (p.has("date_to") && !str(p,"date_to").isBlank()) {
-            where.append(" AND t.date <= ?"); params.add(str(p,"date_to"));
-        }
+        String df = p.has("date_from") && !str(p,"date_from").isBlank() ? str(p,"date_from") : null;
+        String dt = p.has("date_to")   && !str(p,"date_to").isBlank()   ? str(p,"date_to")   : null;
+
+        // Filtro data per le transazioni (usato in entrambi i rami UNION)
+        String dateWhere = "";
+        List<Object> dp = new ArrayList<>();
+        if (df != null) { dateWhere += " AND t.date >= ?"; dp.add(df); }
+        if (dt != null) { dateWhere += " AND t.date <= ?"; dp.add(dt); }
+
+        // Ogni UNION ha lo stesso filtro data → params duplicati
+        List<Object> p2 = new ArrayList<>(dp); p2.addAll(dp);
+
         String byNatureSQL =
-            "SELECT COALESCE(c.expense_nature, pc.expense_nature, '') AS nature, SUM(t.amount) AS total, COUNT(*) AS tx_count " +
-            "FROM transactions t LEFT JOIN categories c ON t.category_id = c.id " +
-            "LEFT JOIN categories pc ON c.parent_id = pc.id" + where +
-            " GROUP BY COALESCE(c.expense_nature, pc.expense_nature, '') ORDER BY total DESC";
+            "SELECT nature, SUM(total) AS total, SUM(tx_count) AS tx_count FROM (" +
+            // ramo 1: transazioni normali (senza split)
+            "SELECT COALESCE(c.expense_nature,pc.expense_nature,'') AS nature," +
+            " SUM(t.amount) AS total, COUNT(*) AS tx_count" +
+            " FROM transactions t LEFT JOIN categories c ON t.category_id=c.id" +
+            " LEFT JOIN categories pc ON c.parent_id=pc.id" +
+            " WHERE t.type='expense' AND NOT EXISTS(SELECT 1 FROM transaction_splits ts WHERE ts.transaction_id=t.id)" +
+            dateWhere +
+            " GROUP BY COALESCE(c.expense_nature,pc.expense_nature,'')" +
+            " UNION ALL " +
+            // ramo 2: righe split
+            "SELECT COALESCE(sc.expense_nature,spc.expense_nature,'') AS nature," +
+            " SUM(ts.amount) AS total, COUNT(DISTINCT t.id) AS tx_count" +
+            " FROM transactions t JOIN transaction_splits ts ON ts.transaction_id=t.id" +
+            " LEFT JOIN categories sc ON ts.category_id=sc.id" +
+            " LEFT JOIN categories spc ON sc.parent_id=spc.id" +
+            " WHERE t.type='expense'" + dateWhere +
+            " GROUP BY COALESCE(sc.expense_nature,spc.expense_nature,'')" +
+            ") GROUP BY nature ORDER BY total DESC";
+
         String byCatSQL =
-            "SELECT COALESCE(c.expense_nature, pc.expense_nature, '') AS nature, c.id AS cat_id, COALESCE(c.name,'—') AS cat_name, " +
-            "COALESCE(c.color,'#888') AS color, COALESCE(c.icon,'📁') AS icon, " +
-            "SUM(t.amount) AS total, COUNT(*) AS tx_count " +
-            "FROM transactions t LEFT JOIN categories c ON t.category_id = c.id " +
-            "LEFT JOIN categories pc ON c.parent_id = pc.id" + where +
-            " GROUP BY c.id, COALESCE(c.expense_nature, pc.expense_nature, '') ORDER BY nature, total DESC";
-        Object[] args = params.toArray();
+            "SELECT nature, cat_id, cat_name, color, icon, SUM(total) AS total, SUM(tx_count) AS tx_count FROM (" +
+            // ramo 1: transazioni normali
+            "SELECT COALESCE(c.expense_nature,pc.expense_nature,'') AS nature," +
+            " c.id AS cat_id, COALESCE(c.name,'—') AS cat_name," +
+            " COALESCE(c.color,'#888') AS color, COALESCE(c.icon,'📁') AS icon," +
+            " SUM(t.amount) AS total, COUNT(*) AS tx_count" +
+            " FROM transactions t LEFT JOIN categories c ON t.category_id=c.id" +
+            " LEFT JOIN categories pc ON c.parent_id=pc.id" +
+            " WHERE t.type='expense' AND NOT EXISTS(SELECT 1 FROM transaction_splits ts WHERE ts.transaction_id=t.id)" +
+            dateWhere +
+            " GROUP BY c.id, COALESCE(c.expense_nature,pc.expense_nature,'')" +
+            " UNION ALL " +
+            // ramo 2: righe split
+            "SELECT COALESCE(sc.expense_nature,spc.expense_nature,'') AS nature," +
+            " sc.id AS cat_id, COALESCE(sc.name,'—') AS cat_name," +
+            " COALESCE(sc.color,'#888') AS color, COALESCE(sc.icon,'📁') AS icon," +
+            " SUM(ts.amount) AS total, COUNT(DISTINCT t.id) AS tx_count" +
+            " FROM transactions t JOIN transaction_splits ts ON ts.transaction_id=t.id" +
+            " LEFT JOIN categories sc ON ts.category_id=sc.id" +
+            " LEFT JOIN categories spc ON sc.parent_id=spc.id" +
+            " WHERE t.type='expense'" + dateWhere +
+            " GROUP BY sc.id, COALESCE(sc.expense_nature,spc.expense_nature,'')" +
+            ") GROUP BY cat_id, nature ORDER BY nature, total DESC";
+
         Map<String, Object> result = new java.util.HashMap<>();
-        result.put("by_nature",   queryList(byNatureSQL, args));
-        result.put("by_category", queryList(byCatSQL,    args));
+        result.put("by_nature",   queryList(byNatureSQL, p2.toArray()));
+        result.put("by_category", queryList(byCatSQL,    p2.toArray()));
         return result;
     }
 

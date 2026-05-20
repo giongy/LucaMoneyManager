@@ -775,8 +775,8 @@ function _renderDashBudgetBubbles(budgetYear) {
     <div class="card-header">
       <span class="card-title">Budget — ${monthName} ${curYear}</span>
       <div style="display:flex;gap:6px">
-        <button class="btn btn-ghost" onclick="navigateToBudgetMese()">Analisi mese →</button>
-        <button class="btn btn-ghost" onclick="navigate('budgets')">Gestisci →</button>
+        <button class="btn btn-ghost" onclick="navigateToBudgetMese()">Analisi mese corrente →</button>
+        <button class="btn btn-ghost" onclick="navigate('budgets')">Gestisci Budget →</button>
       </div>
     </div>
     <div style="padding:0 16px 8px;flex:1;display:flex;flex-direction:column;min-height:0">

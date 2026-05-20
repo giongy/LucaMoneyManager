@@ -1905,34 +1905,36 @@ public class Database {
         Map<String, Object> s = queryOne(
                 "SELECT frequency, start_date, description, portfolio_id FROM scheduled_transactions WHERE id=?", scheduledId);
         if (s == null) return;
-        String freq = (String) s.get("frequency");
-
-        // Se la pianificata è collegata a un titolo e abbiamo il transaction_id, registra nello storico portfolio
-        if (transactionId != null && s.get("portfolio_id") != null) {
-            int portfolioId = ((Number) s.get("portfolio_id")).intValue();
-            var tx = queryOne("SELECT amount, date FROM transactions WHERE id=?", transactionId);
-            if (tx != null) {
-                execute("""
-                    INSERT INTO portfolio_transactions(portfolio_id,type,quantity,price,date,transaction_id,notes)
-                    VALUES(?,?,?,?,?,?,?)
-                """, portfolioId, "coupon", 0, tx.get("amount"), tx.get("date"), transactionId,
-                        DbLogger.s(s.get("description")));
-            }
-        }
-
-        if ("once".equals(freq)) {
-            execute("UPDATE scheduled_transactions SET is_active=0 WHERE id=?", scheduledId);
-            logger.log("PIANIFICATA COMPLETATA", "id:" + scheduledId,
-                       "descrizione:" + DbLogger.s(s.get("description")));
-            return;
-        }
+        String freq      = (String) s.get("frequency");
         LocalDate registered = LocalDate.parse(registeredDate);
-        LocalDate next = advanceDate(registered, freq);
-        if (next == null) return;
-        execute("UPDATE scheduled_transactions SET start_date=? WHERE id=?", next.toString(), scheduledId);
-        logger.log("PIANIFICATA AVANZATA", "id:" + scheduledId,
-                   "descrizione:" + DbLogger.s(s.get("description")),
-                   "registrata:" + registeredDate, "prossima:" + next);
+        LocalDate next       = "once".equals(freq) ? null : advanceDate(registered, freq);
+
+        inTx(() -> {
+            // Se la pianificata è collegata a un titolo e abbiamo il transaction_id, registra nello storico portfolio
+            if (transactionId != null && s.get("portfolio_id") != null) {
+                int portfolioId = ((Number) s.get("portfolio_id")).intValue();
+                var tx = queryOne("SELECT amount, date FROM transactions WHERE id=?", transactionId);
+                if (tx != null) {
+                    execute("""
+                        INSERT INTO portfolio_transactions(portfolio_id,type,quantity,price,date,transaction_id,notes)
+                        VALUES(?,?,?,?,?,?,?)
+                    """, portfolioId, "coupon", 0, tx.get("amount"), tx.get("date"), transactionId,
+                            DbLogger.s(s.get("description")));
+                }
+            }
+
+            if ("once".equals(freq)) {
+                execute("UPDATE scheduled_transactions SET is_active=0 WHERE id=?", scheduledId);
+                logger.log("PIANIFICATA COMPLETATA", "id:" + scheduledId,
+                           "descrizione:" + DbLogger.s(s.get("description")));
+            } else if (next != null) {
+                execute("UPDATE scheduled_transactions SET start_date=? WHERE id=?", next.toString(), scheduledId);
+                logger.log("PIANIFICATA AVANZATA", "id:" + scheduledId,
+                           "descrizione:" + DbLogger.s(s.get("description")),
+                           "registrata:" + registeredDate, "prossima:" + next);
+            }
+            return null;
+        });
     }
 
     /** Next N upcoming occurrences across all active scheduled transactions. */

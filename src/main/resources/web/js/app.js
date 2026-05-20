@@ -285,16 +285,16 @@ const api = {
   // Portafoglio
   getPortfolio:             ()      => callJava('getPortfolio', {}),
   getPortfolioTransactions: (id)    => callJava('getPortfolioTransactions', {portfolio_id: id}),
-  buyStock:                 (data)  => callJava('buyStock', data),
-  sellStock:                (data)  => callJava('sellStock', data),
-  updateStockPrice:         (id, p) => callJava('updateStockPrice', {id, price: p}),
+  buyStock:                 async (data)  => { api._invalidateAccounts(); return callJava('buyStock', data); },
+  sellStock:                async (data)  => { api._invalidateAccounts(); return callJava('sellStock', data); },
+  updateStockPrice:         async (id, p) => { api._invalidateAccounts(); return callJava('updateStockPrice', {id, price: p}); },
   fetchOnlinePrice:         (isin)  => callJava('fetchOnlinePrice', {isin}),
-  importPosition:           (data)  => callJava('importPosition', data),
-  registerCoupon:           (data)  => callJava('registerCoupon', data),
-  registerPortfolioExpense: (data)  => callJava('registerPortfolioExpense', data),
-  updatePortfolioItem:      (data)  => callJava('updatePortfolioItem', data),
-  deletePortfolioItem:        (id)  => callJava('deletePortfolioItem', {id}),
-  deletePortfolioTransaction: (id)  => callJava('deletePortfolioTransaction', {id}),
+  importPosition:           async (data)  => { api._invalidateAccounts(); return callJava('importPosition', data); },
+  registerCoupon:           async (data)  => { api._invalidateAccounts(); return callJava('registerCoupon', data); },
+  registerPortfolioExpense: async (data)  => { api._invalidateAccounts(); return callJava('registerPortfolioExpense', data); },
+  updatePortfolioItem:      async (data)  => { api._invalidateAccounts(); return callJava('updatePortfolioItem', data); },
+  deletePortfolioItem:      async (id)    => { api._invalidateAccounts(); return callJava('deletePortfolioItem', {id}); },
+  deletePortfolioTransaction: async (id)  => { api._invalidateAccounts(); return callJava('deletePortfolioTransaction', {id}); },
 
   // Stats
   getDashboardStats:   y          => callJava('getDashboardStats',   {year:y}),
@@ -11634,7 +11634,7 @@ async function onTrayRestore() {
   api._invalidateCategories();
   api._invalidateTags();
   // Ricarica la pagina con dati freschi
-  await renderPage();
+  await renderPage(currentPage);
   // Azzera le notice stale e ricontrolla tutto da zero
   _noticeData.length = 0;
   _noticeDelay = 0;
@@ -11689,7 +11689,7 @@ async function _webDbOpen() {
   api._invalidateCategories();
   api._invalidateTags();
   await updateSidebar();
-  await renderPage();
+  await renderPage(currentPage);
 }
 
 async function _webDbClose() {

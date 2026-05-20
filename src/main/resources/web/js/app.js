@@ -4177,7 +4177,7 @@ async function renderPortfolio() {
   const investAccounts = accounts.filter(a => a.type === 'investment' && !a.is_closed);
 
   const visibleItems = items
-    .filter(i => _portfolioActiveOnly ? i.quantity > 0 : true)
+    .filter(i => _portfolioActiveOnly === 'active' ? i.quantity > 0 : _portfolioActiveOnly === 'closed' ? i.quantity === 0 : true)
     .filter(i => _portfolioTypeFilter === 'all' ? true : (i.asset_type || 'equity') === _portfolioTypeFilter);
 
   const totalInvested    = visibleItems.reduce((s,i) => s + portfolioItemValue(i, true), 0);
@@ -4205,8 +4205,9 @@ async function renderPortfolio() {
           <div style="display:flex;flex-direction:column;align-items:center;gap:3px;padding:4px 8px;background:var(--bg3);border-radius:8px">
             <span style="font-size:10px;color:var(--txt3);text-transform:uppercase;letter-spacing:.5px;line-height:1">Visualizza</span>
             <div class="theme-toggle-group" style="margin:0">
-              <button class="btn theme-btn ${_portfolioActiveOnly?'theme-btn-active':''}"  onclick="_setPortfolioFilter(true)">Solo attivi</button>
-              <button class="btn theme-btn ${!_portfolioActiveOnly?'theme-btn-active':''}" onclick="_setPortfolioFilter(false)">Tutti</button>
+              <button class="btn theme-btn ${_portfolioActiveOnly==='active'?'theme-btn-active':''}"  onclick="_setPortfolioFilter('active')">Solo attivi</button>
+              <button class="btn theme-btn ${_portfolioActiveOnly==='closed'?'theme-btn-active':''}" onclick="_setPortfolioFilter('closed')">Chiusi</button>
+              <button class="btn theme-btn ${_portfolioActiveOnly==='all'?'theme-btn-active':''}"    onclick="_setPortfolioFilter('all')">Tutti</button>
             </div>
           </div>
           <div style="display:flex;flex-direction:column;align-items:center;gap:3px;padding:4px 8px;background:var(--bg3);border-radius:8px">
@@ -5815,9 +5816,9 @@ async function showAddCouponToScheduled(portfolioId) {
 window.showAddCouponToScheduled = showAddCouponToScheduled;
 
 window._setPortfolioTab = _setPortfolioTab;
-window._setPortfolioFilter = async (activeOnly) => {
-  _portfolioActiveOnly = activeOnly;
-  await api.setSetting('portfolio.active_only', activeOnly ? '1' : '0');
+window._setPortfolioFilter = async (val) => {
+  _portfolioActiveOnly = val;
+  await api.setSetting('portfolio.active_only', val);
   renderPortfolio();
 };
 window._setPortfolioTypeFilter = type => {
@@ -5837,7 +5838,7 @@ window.showPortfolioHistory = showPortfolioHistory;
 async function refreshPortfolioPrices() {
   const btn = document.getElementById('btnRefreshPrices');
   const items = (_portfolioItems || [])
-    .filter(i => _portfolioActiveOnly ? i.quantity > 0 : true)
+    .filter(i => _portfolioActiveOnly === 'active' ? i.quantity > 0 : _portfolioActiveOnly === 'closed' ? i.quantity === 0 : true)
     .filter(i => _portfolioTypeFilter === 'all' ? true : (i.asset_type || 'equity') === _portfolioTypeFilter);
   if (!items.length) { toast('Nessun titolo da aggiornare', 'info'); return; }
 
@@ -10649,7 +10650,7 @@ function computeSchedNext(startDate, _freq, endDate) {
 }
 
 let _settingsTab = 'data';
-let _portfolioActiveOnly = true;
+let _portfolioActiveOnly = 'active'; // 'active' | 'closed' | 'all'
 let _portfolioTypeFilter = 'all'; // 'all' | 'equity' | 'bond'
 let _portfolioSort = { col: 'ticker', dir: 1 };
 let _portfolioTab = 'portfolio';
@@ -11891,7 +11892,7 @@ async function init() {
   if (s['cf.range'])     _cfRange    = s['cf.range'];
   if (s['cf.months'])    _cfMonths   = parseInt(s['cf.months'])   || 6;
   if (s['tx.range'])              txFilters           = { range: s['tx.range'], ...rangeToFilter(s['tx.range']) };
-  if (s['portfolio.active_only']) _portfolioActiveOnly = s['portfolio.active_only'] !== '0';
+  if (s['portfolio.active_only']) _portfolioActiveOnly = ['active','closed','all'].includes(s['portfolio.active_only']) ? s['portfolio.active_only'] : (s['portfolio.active_only'] !== '0' ? 'active' : 'all');
   // Modalità browser: aggiorna il toggle e blocca il caricamento dati se DB chiuso
   if (_isBrowser) {
     await _updateWebDbToggle();

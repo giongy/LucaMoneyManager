@@ -1240,7 +1240,18 @@ public class Database {
     }
 
     public Map<String, Object> getAccountSummary(int accountId) throws SQLException {
-        Map<String, Object> acc = queryOne("SELECT initial_balance FROM accounts WHERE id=?", accountId);
+        Map<String, Object> acc = queryOne("SELECT initial_balance, type FROM accounts WHERE id=?", accountId);
+        // Per i conti investment il saldo è il valore di mercato del portfolio, non le transazioni
+        if (acc != null && "investment".equals(acc.get("type"))) {
+            Map<String, Object> portVal = queryOne("""
+                SELECT COALESCE(SUM(CASE WHEN p.asset_type='bond'
+                                   THEN p.quantity
+                                   ELSE p.quantity * COALESCE(NULLIF(p.current_price,0), p.avg_price) END), 0) AS val
+                FROM portfolio p WHERE p.account_id=?
+            """, accountId);
+            double val = portVal != null ? ((Number) portVal.get("val")).doubleValue() : 0.0;
+            return Map.of("balance", val, "reconciled_balance", val);
+        }
         double init = acc != null && acc.get("initial_balance") != null
                 ? ((Number) acc.get("initial_balance")).doubleValue() : 0.0;
         Map<String, Object> tot = queryOne("""

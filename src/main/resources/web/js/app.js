@@ -418,6 +418,11 @@ function evalAmount(raw) {
 }
 
 /* ─── Utils ───────────────────────────────────────────────────────────────── */
+function _leafCats(cats) {
+  const pids = new Set(cats.filter(c => c.parent_id).map(c => c.parent_id));
+  return cats.filter(c => !pids.has(c.id));
+}
+
 const fmt = {
   currency: v => new Intl.NumberFormat('it-IT',{style:'currency',currency:'EUR'}).format(v ?? 0),
   price:    v => new Intl.NumberFormat('it-IT',{style:'currency',currency:'EUR',minimumFractionDigits:2,maximumFractionDigits:4}).format(v ?? 0),
@@ -681,8 +686,7 @@ function _renderDashBudgetBubbles(budgetYear) {
   actuals.forEach(a => { if (a.month === curMonth) actualMap[a.category_id] = a.total; });
 
   // Categorie foglia (senza figli)
-  const parentIds = new Set(categories.filter(c => c.parent_id).map(c => c.parent_id));
-  const leafCats  = categories.filter(c => !parentIds.has(c.id));
+  const leafCats  = _leafCats(categories);
   const catMap    = Object.fromEntries(categories.map(c => [c.id, c]));
 
   const allCatData = leafCats.map(c => ({
@@ -1050,8 +1054,7 @@ async function renderDashboard() {
     const _getEff = catId => _budgetEffective(_cfgMap[catId], _bMap[catId] || {});
 
     // Tutte le categorie foglia (income e expense) — stesso approccio della riga sommario pagina budget
-    const parentIds = new Set(budgetYear.categories.filter(c => c.parent_id).map(c => c.parent_id));
-    const leafCats = budgetYear.categories.filter(c => !parentIds.has(c.id));
+    const leafCats = _leafCats(budgetYear.categories);
 
     // Net per mese: income contribuisce positivamente, expense negativamente
     const budgetByMonth = Array(12).fill(0);
@@ -1734,9 +1737,7 @@ function initCatPicker(inputId, hiddenId, listId) {
 }
 
 function buildCatOptions(cats, selectedId) {
-  const parentIds = new Set(cats.filter(c => c.parent_id).map(c => c.parent_id));
-  // foglie = sottocategorie (parent_id!=null) OPPURE macrocategorie senza figli
-  const leafs = cats.filter(c => c.parent_id || !parentIds.has(c.id));
+  const leafs = _leafCats(cats);
   return leafs.map(c => {
     const label = c.parent_id ? `${c.parent_name} › ${c.icon} ${c.name}` : `${c.icon} ${c.name}`;
     return `<option value="${c.id}" ${selectedId==c.id?'selected':''}>${label}</option>`;
@@ -1867,8 +1868,7 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
     if (!input?._catPickerSetItems) return;
     if (type === 'transfer') { input._catPickerSetItems([], null); return; }
     const cats = type === 'expense' ? expCats : incCats;
-    const parentIds = new Set(cats.filter(c => c.parent_id).map(c => c.parent_id));
-    const leafs = cats.filter(c => c.parent_id || !parentIds.has(c.id));
+    const leafs = _leafCats(cats);
     const toItem = c => ({
       id: c.id,
       label: c.parent_id ? `${c.parent_name} › ${c.icon} ${c.name}` : `${c.icon} ${c.name}`,
@@ -2092,8 +2092,7 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
 
   function _splitCatOptions(type, selId) {
     const cats = type === 'income' ? incCats : expCats;
-    const parentIds = new Set(cats.filter(c => c.parent_id).map(c => c.parent_id));
-    const leaves = cats.filter(c => c.parent_id || !parentIds.has(c.id));
+    const leaves = _leafCats(cats);
     return leaves.map(c => {
       const label = c.parent_name ? `${c.parent_name} › ${c.icon||''} ${c.name}` : `${c.icon||''} ${c.name}`;
       return `<option value="${c.id}" ${c.id==selId?'selected':''}>${label}</option>`;
@@ -2167,7 +2166,7 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
           document.getElementById('splitRows').innerHTML = '';
           splits.forEach(s => window.addSplitRow(s.category_id, s.amount));
         }
-      } catch(e) { /* ignora */ }
+      } catch(e) { toast('Errore caricamento split: ' + e.message, 'error'); }
     })();
   }
 }
@@ -7145,12 +7144,13 @@ async function renderNatureReport() {
   }).join('');
 
   const barSegments = ORDER
-    .filter(n => { const r = byNature.find(x => x.nature === n); return r && Number(r.total) > 0; })
-    .map(n => {
-      const tot = Number(byNature.find(x => x.nature === n).total);
+    .flatMap(n => {
+      const r = byNature.find(x => x.nature === n);
+      if (!r || !(Number(r.total) > 0)) return [];
+      const tot = Number(r.total);
       const pct = (tot / totalAll * 100).toFixed(1);
-      return `<div title="${NATURE[n].label}: ${pct}% (${fmt.currency(tot)})"
-        style="flex:${pct};background:${NATURE[n].color};min-width:3px;transition:flex .4s"></div>`;
+      return [`<div title="${NATURE[n].label}: ${pct}% (${fmt.currency(tot)})"
+        style="flex:${pct};background:${NATURE[n].color};min-width:3px;transition:flex .4s"></div>`];
     }).join('');
 
   const sections = ORDER.map(n => {
@@ -11521,8 +11521,7 @@ function showScheduledModal(sched, accounts, categories, tags = []) {
     if (!input?._catPickerSetItems) return;
     if (type === 'transfer') { input._catPickerSetItems([], null); return; }
     const cats = type === 'expense' ? expCats : incCats;
-    const parentIds = new Set(cats.filter(c => c.parent_id).map(c => c.parent_id));
-    const items = cats.filter(c => c.parent_id || !parentIds.has(c.id)).map(c => ({
+    const items = _leafCats(cats).map(c => ({
       id: c.id,
       label: c.parent_id ? `${c.parent_name} › ${c.icon} ${c.name}` : `${c.icon} ${c.name}`
     }));

@@ -4160,6 +4160,7 @@ async function renderPortfolio() {
   const totalCommissions = visibleItems.reduce((s,i) => s + (i.total_commissions || 0), 0);
   const totalPnL         = totalCurrent - totalInvested;
   const pnlPct           = totalInvested ? (totalPnL/totalInvested)*100 : 0;
+  const totalNominal     = visibleItems.filter(i => i.asset_type === 'bond').reduce((s,i) => s + (i.quantity || 0), 0);
 
   pg.innerHTML = `
     <div style="display:flex;align-items:center;gap:0;border-bottom:1px solid var(--border);margin-bottom:16px">
@@ -4226,6 +4227,11 @@ async function renderPortfolio() {
         <div class="stat-value ${totalPnL>=0?'pnl-positive':'pnl-negative'}">${fmt.currency(totalPnL)}</div>
         <div class="stat-sub ${totalPnL>=0?'pnl-positive':'pnl-negative'}">${fmt.pct(pnlPct)}</div>
       </div>
+      ${totalNominal > 0 ? `
+      <div class="stat-card">
+        <div class="stat-label">🏷️ Nominale (a 100)</div>
+        <div class="stat-value" style="color:var(--txt2)">${fmt.currency(totalNominal)}</div>
+      </div>` : ''}
       ${totalCommissions > 0 ? `
       <div class="stat-card">
         <div class="stat-label">💸 Commissioni</div>

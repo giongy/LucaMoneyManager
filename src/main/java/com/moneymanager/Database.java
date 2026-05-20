@@ -2274,7 +2274,8 @@ public class Database {
         if (qty > existQty + 0.00001)
             throw new SQLException("Quantità venduta (" + qty + ") superiore alla disponibile (" + existQty + ")");
 
-        double amount = r2(qty * price);
+        boolean isBond = "bond".equals((String)position.get("asset_type"));
+        double amount = r2(isBond ? qty * price / 100.0 : qty * price);
 
         return inTx(() -> {
             var cat = queryOne("SELECT id FROM categories WHERE type='transfer' LIMIT 1");

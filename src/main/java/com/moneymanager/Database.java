@@ -2235,11 +2235,12 @@ public class Database {
 
     public Map<String, Object> sellStock(JsonObject p) throws SQLException {
         int portfolioId   = p.get("portfolio_id").getAsInt();
-        int toAccountId   = p.get("to_account_id").getAsInt(); // regular account receiving
+        int toAccountId   = p.get("to_account_id").getAsInt();
         double qty        = p.get("quantity").getAsDouble();
         double price      = r4(p.get("price").getAsDouble());
         String date       = p.get("date").getAsString();
         String notes      = p.has("notes") && !p.get("notes").isJsonNull() ? p.get("notes").getAsString() : null;
+        double commission = p.has("commission") && !p.get("commission").isJsonNull() ? r2(p.get("commission").getAsDouble()) : 0.0;
 
         var position = queryOne("SELECT * FROM portfolio WHERE id=?", portfolioId);
         if (position == null) throw new SQLException("Posizione non trovata");
@@ -2253,31 +2254,81 @@ public class Database {
 
         double amount = r2(qty * price);
 
-        // Get transfer category
+        // Transfer: conto investimento → conto regolare (importo lordo)
         var cat = queryOne("SELECT id FROM categories WHERE type='transfer' LIMIT 1");
         Integer catId = cat != null ? ((Number)cat.get("id")).intValue() : null;
-
-        // Create transfer transaction: investment → regular account
         long txId = execute("""
             INSERT INTO transactions(date,amount,type,category_id,account_id,to_account_id,description,reconciled)
             VALUES(?,?,?,?,?,?,?,0)
         """, date, amount, "transfer", catId, investAccountId, toAccountId,
             "Vendita " + ticker + " x" + qty);
 
-        // Update portfolio position
-        double newQty = existQty - qty;
-        execute("UPDATE portfolio SET quantity=? WHERE id=?", newQty, portfolioId);
+        // Aggiorna quantità posizione
+        execute("UPDATE portfolio SET quantity=? WHERE id=?", r4(existQty - qty), portfolioId);
 
-        // Record portfolio transaction
+        // Registra operazione di vendita nello storico portfolio
         execute("""
             INSERT INTO portfolio_transactions(portfolio_id,type,quantity,price,date,transaction_id,notes)
             VALUES(?,?,?,?,?,?,?)
         """, portfolioId, "sell", qty, price, date, txId, notes);
 
+        // Commissioni: spesa separata addebitata sul conto di accredito
+        if (commission > 0) {
+            var expCat = queryOne("SELECT id FROM categories WHERE type='expense' AND name LIKE '%nvestiment%' LIMIT 1");
+            if (expCat == null) expCat = queryOne("SELECT id FROM categories WHERE type='expense' LIMIT 1");
+            Integer expCatId = expCat != null ? ((Number)expCat.get("id")).intValue() : null;
+            long commTxId = execute("""
+                INSERT INTO transactions(date,amount,type,category_id,account_id,description,reconciled)
+                VALUES(?,?,?,?,?,?,0)
+            """, date, commission, "expense", expCatId, toAccountId, "Commissione vendita " + ticker);
+            execute("""
+                INSERT INTO portfolio_transactions(portfolio_id,type,quantity,price,date,transaction_id,notes)
+                VALUES(?,?,?,?,?,?,?)
+            """, portfolioId, "expense", 0, commission, date, commTxId, "Commissione");
+            logger.log("COMMISSIONE VENDITA", "ticker:" + ticker, "importo:" + DbLogger.amt(commission));
+        }
+
         logger.log("TITOLO VENDUTO", "ticker:" + ticker,
                    "quantita:" + qty, "prezzo:" + DbLogger.amt(price),
-                   "controvalore:" + DbLogger.amt(qty * price), "data:" + date);
+                   "controvalore:" + DbLogger.amt(amount),
+                   "commissione:" + DbLogger.amt(commission), "data:" + date);
         return queryOne("SELECT * FROM portfolio WHERE id=?", portfolioId);
+    }
+
+    public Map<String, Object> deletePortfolioTransaction(int ptId) throws SQLException {
+        var pt = queryOne("SELECT * FROM portfolio_transactions WHERE id=?", ptId);
+        if (pt == null) throw new SQLException("Operazione non trovata (id:" + ptId + ")");
+
+        int portfolioId = ((Number)pt.get("portfolio_id")).intValue();
+        String type     = (String)pt.get("type");
+        double qty      = ((Number)pt.get("quantity")).doubleValue();
+        Object txIdObj  = pt.get("transaction_id");
+
+        // Ripristina quantità per buy/sell
+        if ("sell".equals(type)) {
+            execute("UPDATE portfolio SET quantity = quantity + ? WHERE id=?", qty, portfolioId);
+        } else if ("buy".equals(type)) {
+            var pos = queryOne("SELECT quantity FROM portfolio WHERE id=?", portfolioId);
+            if (pos == null) throw new SQLException("Posizione non trovata");
+            double curQty = ((Number)pos.get("quantity")).doubleValue();
+            if (r4(curQty - qty) < -0.00001)
+                throw new SQLException("Impossibile annullare: la quantità risultante sarebbe negativa (" + r4(curQty - qty) + ")");
+            execute("UPDATE portfolio SET quantity = quantity - ? WHERE id=?", qty, portfolioId);
+        }
+
+        // Elimina transazione finanziaria collegata (ON DELETE SET NULL già gestita da SQLite)
+        if (txIdObj != null) {
+            long txId = ((Number)txIdObj).longValue();
+            execute("DELETE FROM transactions WHERE id=?", txId);
+        }
+
+        // Elimina record portfolio
+        execute("DELETE FROM portfolio_transactions WHERE id=?", ptId);
+
+        var pos = queryOne("SELECT ticker FROM portfolio WHERE id=?", portfolioId);
+        String ticker = pos != null ? (String)pos.get("ticker") : "?";
+        logger.log("OPERAZIONE PORTFOLIO ANNULLATA", "pt_id:" + ptId, "tipo:" + type, "ticker:" + ticker);
+        return Map.of("ok", true, "portfolio_id", portfolioId);
     }
 
     public Map<String, Object> updateStockPrice(int id, double price) throws SQLException {

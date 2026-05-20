@@ -182,11 +182,17 @@ function callJava(method, params = {}) {
     return result;
   };
 
+  const _checkError = result => {
+    if (result && typeof result === 'object' && result.error)
+      throw new Error(result.error);
+    return result;
+  };
+
   if (typeof window.cefQuery === 'function') {
     return new Promise((resolve, reject) => {
       window.cefQuery({
         request: payload,
-        onSuccess: r => resolve(finish(JSON.parse(_fromB64(r)))),
+        onSuccess: r => { try { resolve(finish(_checkError(JSON.parse(_fromB64(r))))); } catch(e) { reject(e); } },
         onFailure: (_code, msg) => { finish(null); reject(new Error(msg)); }
       });
     });
@@ -194,7 +200,7 @@ function callJava(method, params = {}) {
   // Modalità browser: usa HTTP bridge
   return fetch('/bridge', { method: 'POST', body: payload })
     .then(r => r.text())
-    .then(b64 => finish(JSON.parse(_fromB64(b64))));
+    .then(b64 => finish(_checkError(JSON.parse(_fromB64(b64)))));
 }
 
 const api = {
@@ -287,7 +293,8 @@ const api = {
   registerCoupon:           (data)  => callJava('registerCoupon', data),
   registerPortfolioExpense: (data)  => callJava('registerPortfolioExpense', data),
   updatePortfolioItem:      (data)  => callJava('updatePortfolioItem', data),
-  deletePortfolioItem:      (id)    => callJava('deletePortfolioItem', {id}),
+  deletePortfolioItem:        (id)  => callJava('deletePortfolioItem', {id}),
+  deletePortfolioTransaction: (id)  => callJava('deletePortfolioTransaction', {id}),
 
   // Stats
   getDashboardStats:   y          => callJava('getDashboardStats',   {year:y}),
@@ -529,21 +536,22 @@ function navigateToBudgetMese() {
 }
 
 function renderPage(page) {
+  const _run = fn => { try { const r = fn(); if (r && typeof r.catch === 'function') r.catch(e => toast('Errore: ' + e.message, 'error')); } catch(e) { toast('Errore: ' + e.message, 'error'); } };
   switch(page) {
-    case 'dashboard':    renderDashboard();    break;
-    case 'transactions': renderTransactions(); break;
-    case 'accounts':     renderAccounts();     break;
-    case 'budgets':      renderBudgets();      break;
-    case 'portfolio':    renderPortfolio();    break;
-    case 'analytics':    renderAnalytics();    break;
-    case 'reports':      renderReports();      break;
-    case 'categories':   renderCategories();   break;
-    case 'tags':         renderTags();         break;
-    case 'ranges':       renderRangePresets(); break;
-    case 'settings':     renderSettings();     break;
-    case 'scheduled':    renderScheduled();    break;
-    case 'forecasts':    renderForecasts();    break;
-    case 'logviewer':    renderLogViewer();    break;
+    case 'dashboard':    _run(renderDashboard);    break;
+    case 'transactions': _run(renderTransactions); break;
+    case 'accounts':     _run(renderAccounts);     break;
+    case 'budgets':      _run(renderBudgets);      break;
+    case 'portfolio':    _run(renderPortfolio);    break;
+    case 'analytics':    _run(renderAnalytics);    break;
+    case 'reports':      _run(renderReports);      break;
+    case 'categories':   _run(renderCategories);   break;
+    case 'tags':         _run(renderTags);         break;
+    case 'ranges':       _run(renderRangePresets); break;
+    case 'settings':     _run(renderSettings);     break;
+    case 'scheduled':    _run(renderScheduled);    break;
+    case 'forecasts':    _run(renderForecasts);    break;
+    case 'logviewer':    _run(renderLogViewer);    break;
   }
 }
 
@@ -666,18 +674,7 @@ function _renderDashBudgetBubbles(budgetYear) {
   budgets.forEach(b => { if (!_bMap[b.category_id]) _bMap[b.category_id] = {}; _bMap[b.category_id][b.month] = b.amount; });
   const _cfgMap = {};
   configs.forEach(c => { _cfgMap[c.category_id] = c; });
-  const _getEff = catId => {
-    const cfg = _cfgMap[catId], stored = _bMap[catId] || {};
-    if (!cfg || !cfg.master_amount) return stored;
-    const locked = cfg.mode === 'annuale' ? cfg.master_amount : cfg.master_amount * 12;
-    const pinned = Object.keys(stored).map(Number);
-    const pinnedSum = pinned.reduce((s, m) => s + (stored[m] || 0), 0);
-    const free = 12 - pinned.length;
-    const freeVal = free > 0 ? Math.round((locked - pinnedSum) / free * 100) / 100 : 0;
-    const res = { ...stored };
-    for (let m = 1; m <= 12; m++) if (res[m] === undefined) res[m] = Math.max(0, freeVal);
-    return res;
-  };
+  const _getEff = catId => _budgetEffective(_cfgMap[catId], _bMap[catId] || {});
 
   // Speso questo mese per categoria
   const actualMap = {};
@@ -1050,18 +1047,7 @@ async function renderDashboard() {
     budgetYear.budgets.forEach(b => { if (!_bMap[b.category_id]) _bMap[b.category_id] = {}; _bMap[b.category_id][b.month] = b.amount; });
     const _cfgMap = {};
     (budgetYear.configs || []).forEach(c => { _cfgMap[c.category_id] = c; });
-    const _getEff = catId => {
-      const cfg = _cfgMap[catId], stored = _bMap[catId] || {};
-      if (!cfg || !cfg.master_amount) return stored;
-      const locked = cfg.mode === 'annuale' ? cfg.master_amount : cfg.master_amount * 12;
-      const pinned = Object.keys(stored).map(Number);
-      const pinnedSum = pinned.reduce((s, m) => s + (stored[m] || 0), 0);
-      const free = 12 - pinned.length;
-      const freeVal = free > 0 ? Math.round((locked - pinnedSum) / free * 100) / 100 : 0;
-      const res = {...stored};
-      for (let m = 1; m <= 12; m++) { if (res[m] === undefined) res[m] = Math.max(0, freeVal); }
-      return res;
-    };
+    const _getEff = catId => _budgetEffective(_cfgMap[catId], _bMap[catId] || {});
 
     // Tutte le categorie foglia (income e expense) — stesso approccio della riga sommario pagina budget
     const parentIds = new Set(budgetYear.categories.filter(c => c.parent_id).map(c => c.parent_id));
@@ -2826,6 +2812,20 @@ async function loadBudgetTable() {
   if (_budgetTab === 'mese')        renderBudgetMese();
 }
 
+/* ─── Budget: calcolo distribuzione mensile da master_amount ─────────────── */
+// Dati cfg (da budget_config) e stored ({mese: importo}) → mappa {1..12: importo}
+function _budgetEffective(cfg, stored) {
+  if (!cfg || !cfg.master_amount) return { ...stored };
+  const lockedTotal = cfg.mode === 'annuale' ? cfg.master_amount : cfg.master_amount * 12;
+  const pinnedMonths = Object.keys(stored).map(Number);
+  const pinnedSum = pinnedMonths.reduce((s, m) => s + (stored[m] || 0), 0);
+  const freeCount = 12 - pinnedMonths.length;
+  const freeVal = freeCount > 0 ? Math.round((lockedTotal - pinnedSum) / freeCount * 100) / 100 : 0;
+  const result = { ...stored };
+  for (let m = 1; m <= 12; m++) if (result[m] === undefined) result[m] = Math.max(0, freeVal);
+  return result;
+}
+
 /* ─── Budget: mappe condivise tra le 3 viste ─────────────────────────────── */
 function _buildBudgetMaps() {
   const { budgets, actuals, categories, configs } = _budgetData;
@@ -2846,19 +2846,7 @@ function _buildBudgetMaps() {
   categories.forEach(c => { if (c.parent_id) (childrenOf[c.parent_id] ??= []).push(c); });
   const leafCats = categories.filter(c => !parentIds.has(c.id));
 
-  // Ritorna i 12 valori mensili effettivi: DB per i mesi manuali, distribuiti per i liberi
-  const getEffective = catId => {
-    const cfg = configMap[catId], stored = budgetMap[catId] || {};
-    if (!cfg || !cfg.master_amount) return stored;
-    const lockedTotal = cfg.mode === 'annuale' ? cfg.master_amount : cfg.master_amount * 12;
-    const pinnedMonths = Object.keys(stored).map(Number);
-    const pinnedSum = pinnedMonths.reduce((s, m) => s + (stored[m] || 0), 0);
-    const freeCount = 12 - pinnedMonths.length;
-    const freeVal = freeCount > 0 ? Math.round((lockedTotal - pinnedSum) / freeCount * 100) / 100 : 0;
-    const result = {...stored};
-    for (let m = 1; m <= 12; m++) if (result[m] === undefined) result[m] = Math.max(0, freeVal);
-    return result;
-  };
+  const getEffective = catId => _budgetEffective(configMap[catId], budgetMap[catId] || {});
 
   return { budgetMap, actualMap, configMap, catById, parentIds, childrenOf, leafCats, getEffective };
 }
@@ -3900,19 +3888,7 @@ function _openBudgetDetail(catId, catName, isFirstOpen) {
   const childrenOf = {};
   categories.forEach(c => { if (c.parent_id) (childrenOf[c.parent_id] ??= []).push(c); });
 
-  const getEffective = catId => {
-    const cfg = configMap[catId];
-    const stored = budgetMap[catId] || {};
-    if (!cfg || !cfg.master_amount) return stored;
-    const lockedTotal = cfg.mode === 'annuale' ? cfg.master_amount : cfg.master_amount * 12;
-    const pinnedMonths = Object.keys(stored).map(Number);
-    const pinnedSum = pinnedMonths.reduce((s, m) => s + (stored[m] || 0), 0);
-    const freeCount = 12 - pinnedMonths.length;
-    const freeVal = freeCount > 0 ? Math.round((lockedTotal - pinnedSum) / freeCount * 100) / 100 : 0;
-    const result = {...stored};
-    for (let m = 1; m <= 12; m++) { if (result[m] === undefined) result[m] = Math.max(0, freeVal); }
-    return result;
-  };
+  const getEffective = catId => _budgetEffective(configMap[catId], budgetMap[catId] || {});
 
   const catObj = categories.find(c => c.id === catId);
   const isIncome = catObj ? catObj.type === 'income' : false;
@@ -4453,13 +4429,21 @@ async function renderPortfolioStorico(items) {
       const priceDisplay = !isValued ? '—'
         : isBond ? `${(t.price * 100).toFixed(4)} %`
         : `${t.price.toFixed(4)} €`;
+      const typeLabel = t.type === 'expense' && t.notes === 'Commissione'
+        ? `<span style="color:${TYPE_COLOR.expense};font-weight:600">Commissione</span>`
+        : `<span style="color:${TYPE_COLOR[t.type]||'var(--txt)'};font-weight:600">${TYPE_LABEL[t.type]||t.type}</span>`;
       return `<tr>
-        <td style="width:130px">${fmt.date(t.date)}</td>
-        <td style="width:120px"><span style="color:${TYPE_COLOR[t.type]||'var(--txt)'};font-weight:600">${TYPE_LABEL[t.type]||t.type}</span></td>
-        <td style="width:120px;text-align:right">${isValued ? t.quantity : '—'}</td>
-        <td style="width:180px;text-align:right">${priceDisplay}</td>
-        <td style="width:180px;text-align:right;color:${TYPE_COLOR[t.type]||'var(--txt)'}">${TYPE_SIGN[t.type]||''}${fmt.currency(total)}</td>
-        <td>${t.notes||''}</td>
+        <td style="width:110px">${fmt.date(t.date)}</td>
+        <td style="width:130px">${typeLabel}</td>
+        <td style="width:100px;text-align:right">${isValued ? t.quantity : '—'}</td>
+        <td style="width:160px;text-align:right">${priceDisplay}</td>
+        <td style="width:160px;text-align:right;color:${TYPE_COLOR[t.type]||'var(--txt)'}">${TYPE_SIGN[t.type]||''}${fmt.currency(total)}</td>
+        <td>${t.notes && t.notes !== 'Commissione' ? t.notes : ''}</td>
+        <td style="width:36px;text-align:center">
+          <button class="btn btn-ghost" style="padding:2px 6px;font-size:11px;color:var(--txt3)"
+                  onclick="deletePortfolioTransactionConfirm(${t.id},'${t.type}','${item.ticker}')"
+                  title="Annulla operazione">✕</button>
+        </td>
       </tr>`;
     }).join('');
 
@@ -4475,12 +4459,13 @@ async function renderPortfolioStorico(items) {
         ${collapsed ? '' : `
         <div class="table-wrap" style="margin-top:10px">
           <table style="table-layout:fixed;width:100%"><thead><tr>
-            <th style="width:130px">Data</th>
-            <th style="width:120px">Tipo</th>
-            <th style="width:120px;text-align:right">Qtà</th>
-            <th style="width:180px;text-align:right">Prezzo</th>
-            <th style="width:180px;text-align:right">Totale</th>
+            <th style="width:110px">Data</th>
+            <th style="width:130px">Tipo</th>
+            <th style="width:100px;text-align:right">Qtà</th>
+            <th style="width:160px;text-align:right">Prezzo</th>
+            <th style="width:160px;text-align:right">Totale</th>
             <th>Note</th>
+            <th style="width:36px"></th>
           </tr></thead><tbody>${rows}</tbody></table>
         </div>`}
       </div>`;
@@ -5223,11 +5208,18 @@ async function showSellModal(portfolioId) {
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label class="form-label">Totale incasso</label>
+        <label class="form-label">Commissioni (€)</label>
+        <input type="text" inputmode="decimal" class="form-control" id="s_commission" placeholder="0,00">
+      </div>
+      <div class="form-group"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Totale incasso lordo</label>
         <input type="text" class="form-control" id="s_total" readonly style="background:var(--bg3)">
       </div>
       <div class="form-group">
-        <label class="form-label">P&L stimato</label>
+        <label class="form-label">P&L stimato (netto comm.)</label>
         <input type="text" class="form-control" id="s_pnl" readonly style="background:var(--bg3)">
       </div>
     </div>
@@ -5237,6 +5229,7 @@ async function showSellModal(portfolioId) {
     </div>`;
 
   openModal('Vendita Titolo', body, async () => {
+    const commission = evalAmount(document.getElementById('s_commission').value) || 0;
     const data = {
       portfolio_id:  portfolioId,
       to_account_id: parseInt(document.getElementById('s_to_account').value),
@@ -5244,6 +5237,7 @@ async function showSellModal(portfolioId) {
       price:         evalAmount(document.getElementById('s_price').value),
       date:          document.getElementById('s_date').value,
       notes:         document.getElementById('s_notes').value.trim() || null,
+      commission:    commission > 0 ? commission : null,
     };
     if (!data.to_account_id)            { toast('Seleziona il conto di accredito','error'); return; }
     if (!data.quantity || data.quantity <= 0) { toast('Inserisci una quantità valida','error'); return; }
@@ -5252,19 +5246,21 @@ async function showSellModal(portfolioId) {
     try {
       await api.sellStock(data);
       closeModal();
-      toast('Vendita registrata');
+      const msg = commission > 0 ? `Vendita registrata (comm. ${fmt.currency(commission)})` : 'Vendita registrata';
+      toast(msg);
       renderPortfolio();
       if (currentPage === 'dashboard') renderDashboard();
     } catch(e) { toast(e.message,'error'); }
   });
 
   const calcSell = () => {
-    const q = evalAmount(document.getElementById('s_qty')?.value)||0;
-    const p = evalAmount(document.getElementById('s_price')?.value)||0;
+    const q    = evalAmount(document.getElementById('s_qty')?.value) || 0;
+    const p    = evalAmount(document.getElementById('s_price')?.value) || 0;
+    const comm = evalAmount(document.getElementById('s_commission')?.value) || 0;
     // Bond: q = nominale €, p = prezzo% → valore = q*p/100
     const totalVal = isBond ? q * p / 100 : q * p;
     const costVal  = isBond ? q * pos.avg_price / 100 : q * pos.avg_price;
-    const pnl      = q && p ? totalVal - costVal : null;
+    const pnl      = q && p ? totalVal - costVal - comm : null;
     const totalEl  = document.getElementById('s_total');
     const pnlEl    = document.getElementById('s_pnl');
     if (totalEl) totalEl.value = q && p ? fmt.currency(totalVal) : '—';
@@ -5276,6 +5272,7 @@ async function showSellModal(portfolioId) {
   setTimeout(() => {
     document.getElementById('s_qty')?.addEventListener('input', calcSell);
     document.getElementById('s_price')?.addEventListener('input', calcSell);
+    document.getElementById('s_commission')?.addEventListener('input', calcSell);
     calcSell();
   }, 50);
 }
@@ -5830,6 +5827,29 @@ window._portfolioSortBy = col => {
   else _portfolioSort = { col, dir: 1 };
   renderPortfolio();
 };
+async function deletePortfolioTransactionConfirm(ptId, type, ticker) {
+  const TYPE_IT = { buy: 'acquisto', sell: 'vendita', coupon: 'cedola', expense: 'commissione/spesa' };
+  const label = TYPE_IT[type] || type;
+  const warn = (type === 'buy' || type === 'sell')
+    ? `<p style="margin:8px 0 0;font-size:12px;color:var(--txt2)">La quantità di ${ticker} verrà ripristinata.</p>`
+    : '';
+  openModal(
+    'Annulla operazione',
+    `<p style="margin:0">Annullare la registrazione di <b>${label}</b> per <b>${ticker}</b>?${warn}</p>`,
+    async () => {
+      try {
+        await api.deletePortfolioTransaction(ptId);
+        closeModal();
+        toast('Operazione annullata');
+        renderPortfolio();
+        if (currentPage === 'dashboard') renderDashboard();
+      } catch(e) { toast(e.message, 'error'); }
+    },
+    'Annulla operazione', 'btn-danger'
+  );
+}
+window.deletePortfolioTransactionConfirm = deletePortfolioTransactionConfirm;
+
 window.showBuyModal         = showBuyModal;
 window.showSellModal        = showSellModal;
 window.showCouponModal      = showCouponModal;
@@ -7548,7 +7568,8 @@ function renderReportResults(txs, groupby, chartType) {
   if (groupby === 'month') {
     const byM = {};
     txs.forEach(t => {
-      const k = t.date.slice(0,7);
+      const k = t.date?.slice(0, 7);
+      if (!k) return;
       const a = effectiveAmt(t);
       if (!byM[k]) byM[k] = {income:0,expense:0,count:0};
       byM[k].count++;
@@ -7691,9 +7712,10 @@ function renderReportResults(txs, groupby, chartType) {
 }
 
 function _fmtMonth(yyyyMM) {
-  const [y,m] = yyyyMM.split('-');
-  return new Date(parseInt(y), parseInt(m)-1, 1)
-    .toLocaleString('it-IT', {month:'long', year:'numeric'});
+  if (!yyyyMM || !/^\d{4}-\d{2}$/.test(yyyyMM)) return yyyyMM || '—';
+  const [y, m] = yyyyMM.split('-');
+  return new Date(parseInt(y), parseInt(m) - 1, 1)
+    .toLocaleString('it-IT', { month: 'long', year: 'numeric' });
 }
 
 
@@ -11128,7 +11150,7 @@ async function loadProjectionChart(accounts) {
       </table>`;
   } else {
     // ── Tabella saldo mensile ──────────────────────────────────────────────────
-    const monthKeys = [...new Set(dates.map(d=>d.slice(0,7)))].sort();
+    const monthKeys = [...new Set(dates.map(d => d?.slice(0, 7)).filter(Boolean))].sort();
     if (!monthKeys.length) { tbl.innerHTML = ''; return; }
 
     const monthTotals = monthKeys.map(m => {

@@ -882,11 +882,14 @@ public class Database {
     }
 
     public void updateAccountOrder(JsonArray items) throws SQLException {
-        for (var el : items) {
-            JsonObject obj = el.getAsJsonObject();
-            execute("UPDATE accounts SET sort_order=? WHERE id=?",
-                    obj.get("sort_order").getAsInt(), obj.get("id").getAsInt());
-        }
+        inTx(() -> {
+            for (var el : items) {
+                JsonObject obj = el.getAsJsonObject();
+                execute("UPDATE accounts SET sort_order=? WHERE id=?",
+                        obj.get("sort_order").getAsInt(), obj.get("id").getAsInt());
+            }
+            return null;
+        });
     }
 
     public Map<String, Object> deleteAccount(int id) throws SQLException {

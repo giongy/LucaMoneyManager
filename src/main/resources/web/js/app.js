@@ -426,7 +426,7 @@ function _leafCats(cats) {
 const fmt = {
   currency: v => new Intl.NumberFormat('it-IT',{style:'currency',currency:'EUR'}).format(v ?? 0),
   price:    v => new Intl.NumberFormat('it-IT',{style:'currency',currency:'EUR',minimumFractionDigits:2,maximumFractionDigits:4}).format(v ?? 0),
-  date: s => s ? new Date(s).toLocaleDateString('it-IT') : '',
+  date: s => s ? new Date(s + 'T00:00:00').toLocaleDateString('it-IT') : '',
   month: (m,y) => new Date(y,m-1,1).toLocaleDateString('it-IT',{month:'long',year:'numeric'}),
   pct: v => (v >= 0 ? '+' : '') + v.toFixed(2) + '%',
 };

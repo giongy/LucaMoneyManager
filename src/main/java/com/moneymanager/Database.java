@@ -2342,6 +2342,18 @@ public class Database {
                 execute("UPDATE portfolio SET quantity = quantity + ? WHERE id=?", qty, portfolioId);
             } else if ("buy".equals(type)) {
                 execute("UPDATE portfolio SET quantity = quantity - ? WHERE id=?", qty, portfolioId);
+                // Ricalcola avg_price dai buy rimanenti (esclude quello che stiamo cancellando)
+                var remaining = queryList(
+                    "SELECT quantity, price FROM portfolio_transactions WHERE portfolio_id=? AND type='buy' AND id!=?",
+                    portfolioId, ptId);
+                if (!remaining.isEmpty()) {
+                    double tqty  = remaining.stream().mapToDouble(r -> ((Number)r.get("quantity")).doubleValue()).sum();
+                    double tcost = remaining.stream().mapToDouble(r ->
+                        ((Number)r.get("quantity")).doubleValue() * ((Number)r.get("price")).doubleValue()).sum();
+                    execute("UPDATE portfolio SET avg_price=? WHERE id=?", tqty > 0 ? r4(tcost / tqty) : 0.0, portfolioId);
+                } else {
+                    execute("UPDATE portfolio SET avg_price=0 WHERE id=?", portfolioId);
+                }
             }
 
             if (txIdObj != null) {

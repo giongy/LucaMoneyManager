@@ -1994,10 +1994,13 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
 
     try {
       const txResult = isEdit ? await api.updateTransaction(data) : await api.addTransaction(data);
-      if (onAfterSave) await onAfterSave(txResult);
       closeModal();
       toast(isEdit ? 'Transazione aggiornata' : 'Transazione aggiunta');
       refreshAfterTxChange();
+      if (onAfterSave) {
+        try { await onAfterSave(txResult); }
+        catch(e) { toast('Errore post-salvataggio: ' + e.message, 'error'); }
+      }
     } catch(e) { toast(e.message, 'error'); return false; }
   });
 

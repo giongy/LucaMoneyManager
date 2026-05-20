@@ -2527,8 +2527,11 @@ public class Database {
                               FROM portfolio p WHERE p.account_id = a.id), 0)
                 ELSE
                     a.initial_balance + COALESCE((
-                        SELECT SUM(CASE WHEN t.type='income' THEN t.amount
-                                        WHEN t.type='expense' THEN -t.amount ELSE 0 END)
+                        SELECT SUM(CASE WHEN t.type='income'                             THEN  t.amount
+                                        WHEN t.type='expense'                            THEN -t.amount
+                                        WHEN t.type='transfer' AND t.account_id    = a.id THEN -t.amount
+                                        WHEN t.type='transfer' AND t.to_account_id = a.id THEN  t.amount
+                                        ELSE 0 END)
                         FROM transactions t WHERE t.account_id = a.id OR t.to_account_id = a.id
                     ), 0)
                 END), 0) AS total

@@ -325,6 +325,24 @@ public class Database {
         return p.has(key) && !p.get(key).isJsonNull() ? p.get(key).getAsInt() : null;
     }
 
+    @FunctionalInterface
+    private interface SqlSupplier<T> { T get() throws SQLException; }
+
+    /** Esegue fn in un'unica transazione SQLite: commit se va bene, rollback se lancia. */
+    private <T> T inTx(SqlSupplier<T> fn) throws SQLException {
+        conn.setAutoCommit(false);
+        try {
+            T result = fn.get();
+            conn.commit();
+            return result;
+        } catch (SQLException e) {
+            try { conn.rollback(); } catch (SQLException re) { e.addSuppressed(re); }
+            throw e;
+        } finally {
+            conn.setAutoCommit(true);
+        }
+    }
+
     // ─── sync_meta ────────────────────────────────────────────────────────────
 
     private void touchSyncMeta() throws SQLException {
@@ -1025,13 +1043,16 @@ public class Database {
 
     /** Sposta transazioni (e quelle dei figli) su toId, poi elimina la categoria. */
     public void reassignCategory(int fromId, int toId) throws SQLException {
-        Map<String, Object> from = queryOne("SELECT name FROM categories WHERE id=?", fromId);
-        Map<String, Object> to   = queryOne("SELECT name FROM categories WHERE id=?", toId);
-        execute("UPDATE transactions SET category_id=? WHERE category_id=?", toId, fromId);
-        execute("UPDATE transactions SET category_id=? WHERE category_id IN (SELECT id FROM categories WHERE parent_id=?)", toId, fromId);
-        execute("DELETE FROM categories WHERE id=?", fromId);
-        logger.log("CATEGORIA RIASSEGNATA", "da:" + DbLogger.s(from != null ? from.get("name") : fromId),
-                   "a:" + DbLogger.s(to != null ? to.get("name") : toId));
+        inTx(() -> {
+            Map<String, Object> from = queryOne("SELECT name FROM categories WHERE id=?", fromId);
+            Map<String, Object> to   = queryOne("SELECT name FROM categories WHERE id=?", toId);
+            execute("UPDATE transactions SET category_id=? WHERE category_id=?", toId, fromId);
+            execute("UPDATE transactions SET category_id=? WHERE category_id IN (SELECT id FROM categories WHERE parent_id=?)", toId, fromId);
+            execute("DELETE FROM categories WHERE id=?", fromId);
+            logger.log("CATEGORIA RIASSEGNATA", "da:" + DbLogger.s(from != null ? from.get("name") : fromId),
+                       "a:" + DbLogger.s(to != null ? to.get("name") : toId));
+            return null;
+        });
     }
 
     // ─── Transazioni ──────────────────────────────────────────────────────────
@@ -1179,58 +1200,62 @@ public class Database {
     }
 
     public Map<String, Object> addTransaction(JsonObject p) throws SQLException {
-        int reconciled = p.has("reconciled") && !p.get("reconciled").isJsonNull()
-                ? p.get("reconciled").getAsInt() : 0;
-        long id = execute("""
-            INSERT INTO transactions(date,amount,type,category_id,account_id,to_account_id,description,color,reconciled)
-            VALUES(?,?,?,?,?,?,?,?,?)
-        """, str(p,"date"), dbl2(p,"amount"), str(p,"type"),
-                intVal(p,"category_id"), p.get("account_id").getAsInt(),
-                intVal(p,"to_account_id"),
-                str(p,"description") != null ? str(p,"description") : "",
-                str(p,"color"), reconciled);
-        saveTags(id, p);
-        saveSplits(id, p);
-        touchSyncMeta();
-        Map<String, Object> tx = getTransactionById(id);
-        logger.log("TRANSAZIONE AGGIUNTA",
-            "id:" + id,
-            "data:" + str(p,"date"),
-            "tipo:" + str(p,"type"),
-            "importo:" + DbLogger.amt(dbl2(p,"amount")),
-            "conto:" + DbLogger.s(tx != null ? tx.get("account_name") : null),
-            "categoria:" + DbLogger.s(tx != null ? tx.get("category_name") : null),
-            "descrizione:" + DbLogger.s(str(p,"description")));
-        return tx;
+        return inTx(() -> {
+            int reconciled = p.has("reconciled") && !p.get("reconciled").isJsonNull()
+                    ? p.get("reconciled").getAsInt() : 0;
+            long id = execute("""
+                INSERT INTO transactions(date,amount,type,category_id,account_id,to_account_id,description,color,reconciled)
+                VALUES(?,?,?,?,?,?,?,?,?)
+            """, str(p,"date"), dbl2(p,"amount"), str(p,"type"),
+                    intVal(p,"category_id"), p.get("account_id").getAsInt(),
+                    intVal(p,"to_account_id"),
+                    str(p,"description") != null ? str(p,"description") : "",
+                    str(p,"color"), reconciled);
+            saveTags(id, p);
+            saveSplits(id, p);
+            touchSyncMeta();
+            Map<String, Object> tx = getTransactionById(id);
+            logger.log("TRANSAZIONE AGGIUNTA",
+                "id:" + id,
+                "data:" + str(p,"date"),
+                "tipo:" + str(p,"type"),
+                "importo:" + DbLogger.amt(dbl2(p,"amount")),
+                "conto:" + DbLogger.s(tx != null ? tx.get("account_name") : null),
+                "categoria:" + DbLogger.s(tx != null ? tx.get("category_name") : null),
+                "descrizione:" + DbLogger.s(str(p,"description")));
+            return tx;
+        });
     }
 
     public Map<String, Object> updateTransaction(int id, JsonObject p) throws SQLException {
-        int reconciled = p.has("reconciled") && !p.get("reconciled").isJsonNull()
-                ? p.get("reconciled").getAsInt() : 0;
-        execute("""
-            UPDATE transactions SET date=?,amount=?,type=?,category_id=?,account_id=?,
-                to_account_id=?,description=?,color=?,reconciled=? WHERE id=?
-        """, str(p,"date"), dbl2(p,"amount"), str(p,"type"),
-                intVal(p,"category_id"), p.get("account_id").getAsInt(),
-                intVal(p,"to_account_id"),
-                str(p,"description") != null ? str(p,"description") : "",
-                str(p,"color"), reconciled, id);
-        saveTags(id, p);
-        saveSplits(id, p);
-        // Aggiorna il prezzo nello storico portfolio se collegato (cedola/spesa)
-        execute("UPDATE portfolio_transactions SET price=? WHERE transaction_id=? AND type IN ('coupon','expense')",
-                dbl2(p,"amount"), id);
-        touchSyncMeta();
-        Map<String, Object> tx = getTransactionById(id);
-        logger.log("TRANSAZIONE MODIFICATA",
-            "id:" + id,
-            "data:" + str(p,"date"),
-            "tipo:" + str(p,"type"),
-            "importo:" + DbLogger.amt(dbl2(p,"amount")),
-            "conto:" + DbLogger.s(tx != null ? tx.get("account_name") : null),
-            "categoria:" + DbLogger.s(tx != null ? tx.get("category_name") : null),
-            "descrizione:" + DbLogger.s(str(p,"description")));
-        return tx;
+        return inTx(() -> {
+            int reconciled = p.has("reconciled") && !p.get("reconciled").isJsonNull()
+                    ? p.get("reconciled").getAsInt() : 0;
+            execute("""
+                UPDATE transactions SET date=?,amount=?,type=?,category_id=?,account_id=?,
+                    to_account_id=?,description=?,color=?,reconciled=? WHERE id=?
+            """, str(p,"date"), dbl2(p,"amount"), str(p,"type"),
+                    intVal(p,"category_id"), p.get("account_id").getAsInt(),
+                    intVal(p,"to_account_id"),
+                    str(p,"description") != null ? str(p,"description") : "",
+                    str(p,"color"), reconciled, id);
+            saveTags(id, p);
+            saveSplits(id, p);
+            // Aggiorna il prezzo nello storico portfolio se collegato (cedola/spesa)
+            execute("UPDATE portfolio_transactions SET price=? WHERE transaction_id=? AND type IN ('coupon','expense')",
+                    dbl2(p,"amount"), id);
+            touchSyncMeta();
+            Map<String, Object> tx = getTransactionById(id);
+            logger.log("TRANSAZIONE MODIFICATA",
+                "id:" + id,
+                "data:" + str(p,"date"),
+                "tipo:" + str(p,"type"),
+                "importo:" + DbLogger.amt(dbl2(p,"amount")),
+                "conto:" + DbLogger.s(tx != null ? tx.get("account_name") : null),
+                "categoria:" + DbLogger.s(tx != null ? tx.get("category_name") : null),
+                "descrizione:" + DbLogger.s(str(p,"description")));
+            return tx;
+        });
     }
 
     public Map<String, Object> updateTransactionReconciled(int id, boolean reconciled) throws SQLException {
@@ -2161,8 +2186,8 @@ public class Database {
     }
 
     public Map<String, Object> buyStock(JsonObject p) throws SQLException {
-        int investAccountId  = p.get("account_id").getAsInt();    // investment account
-        int fromAccountId    = p.get("from_account_id").getAsInt(); // regular account paying
+        int investAccountId  = p.get("account_id").getAsInt();
+        int fromAccountId    = p.get("from_account_id").getAsInt();
         String ticker        = p.get("ticker").getAsString().toUpperCase();
         String name          = p.get("name").getAsString();
         double qty           = p.get("quantity").getAsDouble();
@@ -2177,60 +2202,56 @@ public class Database {
         double couponTax     = p.has("coupon_tax") && !p.get("coupon_tax").isJsonNull() ? p.get("coupon_tax").getAsDouble() : 12.5;
         double commissions   = r2(p.has("commissions") && !p.get("commissions").isJsonNull() ? p.get("commissions").getAsDouble() : 0.0);
         boolean isBond       = "bond".equals(assetType);
-        // Controvalore puro + commissioni = totale trasferito
-        double pureAmount = r2(isBond ? qty * price / 100.0 : qty * price);
-        double amount     = r2(pureAmount + commissions);
+        double pureAmount    = r2(isBond ? qty * price / 100.0 : qty * price);
+        double amount        = r2(pureAmount + commissions);
 
-        // Get transfer category
-        var cat = queryOne("SELECT id FROM categories WHERE type='transfer' LIMIT 1");
-        Integer catId = cat != null ? ((Number)cat.get("id")).intValue() : null;
+        return inTx(() -> {
+            var cat = queryOne("SELECT id FROM categories WHERE type='transfer' LIMIT 1");
+            Integer catId = cat != null ? ((Number)cat.get("id")).intValue() : null;
 
-        // Create transfer transaction: from regular → investment account (include commissions)
-        long txId = execute("""
-            INSERT INTO transactions(date,amount,type,category_id,account_id,to_account_id,description,reconciled)
-            VALUES(?,?,?,?,?,?,?,0)
-        """, date, amount, "transfer", catId, fromAccountId, investAccountId,
-            "Acquisto " + ticker + (commissions > 0 ? String.format(" (comm. %.2f)", commissions) : ""));
+            long txId = execute("""
+                INSERT INTO transactions(date,amount,type,category_id,account_id,to_account_id,description,reconciled)
+                VALUES(?,?,?,?,?,?,?,0)
+            """, date, amount, "transfer", catId, fromAccountId, investAccountId,
+                "Acquisto " + ticker + (commissions > 0 ? String.format(" (comm. %.2f)", commissions) : ""));
 
-        // Find or create portfolio position
-        var existing = queryOne("SELECT * FROM portfolio WHERE account_id=? AND ticker=?",
-                investAccountId, ticker);
-        long portfolioId;
-        if (existing != null) {
-            double existQty  = ((Number)existing.get("quantity")).doubleValue();
-            double existAvg  = ((Number)existing.get("avg_price")).doubleValue();
-            double existComm = existing.get("total_commissions") != null
-                    ? ((Number)existing.get("total_commissions")).doubleValue() : 0.0;
-            // Avg price includes commissions: per equity in €/unit, per bond in % equivalente
-            double newAvg = r4(isBond
-                ? (existQty * existAvg + qty * price + commissions * 100) / (existQty + qty)
-                : (existQty * existAvg + qty * price + commissions) / (existQty + qty));
-            portfolioId = ((Number)existing.get("id")).longValue();
-            execute("UPDATE portfolio SET quantity=?, avg_price=?, current_price=?, total_commissions=? WHERE id=?",
-                    existQty + qty, newAvg, price, r2(existComm + commissions), portfolioId);
-        } else {
-            double initAvg = r4(isBond
-                ? price + (commissions > 0 ? commissions * 100 / qty : 0)
-                : (commissions > 0 ? (qty * price + commissions) / qty : price));
-            portfolioId = execute("""
-                INSERT INTO portfolio(account_id,ticker,name,quantity,avg_price,current_price,notes,
-                                      asset_type,face_value,maturity_date,coupon_rate,coupon_frequency,coupon_tax,total_commissions)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """, investAccountId, ticker, name, qty, initAvg, price, notes,
-                 assetType, faceValue, maturityDate, couponRate, couponFreq, couponTax, commissions);
-        }
+            var existing = queryOne("SELECT * FROM portfolio WHERE account_id=? AND ticker=?",
+                    investAccountId, ticker);
+            long portfolioId;
+            if (existing != null) {
+                double existQty  = ((Number)existing.get("quantity")).doubleValue();
+                double existAvg  = ((Number)existing.get("avg_price")).doubleValue();
+                double existComm = existing.get("total_commissions") != null
+                        ? ((Number)existing.get("total_commissions")).doubleValue() : 0.0;
+                double newAvg = r4(isBond
+                    ? (existQty * existAvg + qty * price + commissions * 100) / (existQty + qty)
+                    : (existQty * existAvg + qty * price + commissions) / (existQty + qty));
+                portfolioId = ((Number)existing.get("id")).longValue();
+                execute("UPDATE portfolio SET quantity=?, avg_price=?, current_price=?, total_commissions=? WHERE id=?",
+                        existQty + qty, newAvg, price, r2(existComm + commissions), portfolioId);
+            } else {
+                double initAvg = r4(isBond
+                    ? price + (commissions > 0 ? commissions * 100 / qty : 0)
+                    : (commissions > 0 ? (qty * price + commissions) / qty : price));
+                portfolioId = execute("""
+                    INSERT INTO portfolio(account_id,ticker,name,quantity,avg_price,current_price,notes,
+                                          asset_type,face_value,maturity_date,coupon_rate,coupon_frequency,coupon_tax,total_commissions)
+                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """, investAccountId, ticker, name, qty, initAvg, price, notes,
+                     assetType, faceValue, maturityDate, couponRate, couponFreq, couponTax, commissions);
+            }
 
-        // Record portfolio transaction
-        execute("""
-            INSERT INTO portfolio_transactions(portfolio_id,type,quantity,price,date,transaction_id,notes)
-            VALUES(?,?,?,?,?,?,?)
-        """, portfolioId, "buy", qty, price, date, txId,
-             commissions > 0 ? String.format("comm. %.2f", commissions) : notes);
+            execute("""
+                INSERT INTO portfolio_transactions(portfolio_id,type,quantity,price,date,transaction_id,notes)
+                VALUES(?,?,?,?,?,?,?)
+            """, portfolioId, "buy", qty, price, date, txId,
+                 commissions > 0 ? String.format("comm. %.2f", commissions) : notes);
 
-        logger.log("TITOLO ACQUISTATO", "ticker:" + ticker, "nome:" + name,
-                   "quantita:" + qty, "prezzo:" + DbLogger.amt(price),
-                   "commissioni:" + DbLogger.amt(commissions), "data:" + date);
-        return queryOne("SELECT * FROM portfolio WHERE id=?", portfolioId);
+            logger.log("TITOLO ACQUISTATO", "ticker:" + ticker, "nome:" + name,
+                       "quantita:" + qty, "prezzo:" + DbLogger.amt(price),
+                       "commissioni:" + DbLogger.amt(commissions), "data:" + date);
+            return queryOne("SELECT * FROM portfolio WHERE id=?", portfolioId);
+        });
     }
 
     public Map<String, Object> sellStock(JsonObject p) throws SQLException {
@@ -2242,57 +2263,54 @@ public class Database {
         String notes      = p.has("notes") && !p.get("notes").isJsonNull() ? p.get("notes").getAsString() : null;
         double commission = p.has("commission") && !p.get("commission").isJsonNull() ? r2(p.get("commission").getAsDouble()) : 0.0;
 
+        // Valida prima di aprire la transazione
         var position = queryOne("SELECT * FROM portfolio WHERE id=?", portfolioId);
         if (position == null) throw new SQLException("Posizione non trovata");
-
-        double existQty       = ((Number)position.get("quantity")).doubleValue();
-        int investAccountId   = ((Number)position.get("account_id")).intValue();
-        String ticker         = (String)position.get("ticker");
-
+        double existQty     = ((Number)position.get("quantity")).doubleValue();
+        int investAccountId = ((Number)position.get("account_id")).intValue();
+        String ticker       = (String)position.get("ticker");
         if (qty > existQty + 0.00001)
             throw new SQLException("Quantità venduta (" + qty + ") superiore alla disponibile (" + existQty + ")");
 
         double amount = r2(qty * price);
 
-        // Transfer: conto investimento → conto regolare (importo lordo)
-        var cat = queryOne("SELECT id FROM categories WHERE type='transfer' LIMIT 1");
-        Integer catId = cat != null ? ((Number)cat.get("id")).intValue() : null;
-        long txId = execute("""
-            INSERT INTO transactions(date,amount,type,category_id,account_id,to_account_id,description,reconciled)
-            VALUES(?,?,?,?,?,?,?,0)
-        """, date, amount, "transfer", catId, investAccountId, toAccountId,
-            "Vendita " + ticker + " x" + qty);
+        return inTx(() -> {
+            var cat = queryOne("SELECT id FROM categories WHERE type='transfer' LIMIT 1");
+            Integer catId = cat != null ? ((Number)cat.get("id")).intValue() : null;
+            long txId = execute("""
+                INSERT INTO transactions(date,amount,type,category_id,account_id,to_account_id,description,reconciled)
+                VALUES(?,?,?,?,?,?,?,0)
+            """, date, amount, "transfer", catId, investAccountId, toAccountId,
+                "Vendita " + ticker + " x" + qty);
 
-        // Aggiorna quantità posizione
-        execute("UPDATE portfolio SET quantity=? WHERE id=?", r4(existQty - qty), portfolioId);
+            execute("UPDATE portfolio SET quantity=? WHERE id=?", r4(existQty - qty), portfolioId);
 
-        // Registra operazione di vendita nello storico portfolio
-        execute("""
-            INSERT INTO portfolio_transactions(portfolio_id,type,quantity,price,date,transaction_id,notes)
-            VALUES(?,?,?,?,?,?,?)
-        """, portfolioId, "sell", qty, price, date, txId, notes);
-
-        // Commissioni: spesa separata addebitata sul conto di accredito
-        if (commission > 0) {
-            var expCat = queryOne("SELECT id FROM categories WHERE type='expense' AND name LIKE '%nvestiment%' LIMIT 1");
-            if (expCat == null) expCat = queryOne("SELECT id FROM categories WHERE type='expense' LIMIT 1");
-            Integer expCatId = expCat != null ? ((Number)expCat.get("id")).intValue() : null;
-            long commTxId = execute("""
-                INSERT INTO transactions(date,amount,type,category_id,account_id,description,reconciled)
-                VALUES(?,?,?,?,?,?,0)
-            """, date, commission, "expense", expCatId, toAccountId, "Commissione vendita " + ticker);
             execute("""
                 INSERT INTO portfolio_transactions(portfolio_id,type,quantity,price,date,transaction_id,notes)
                 VALUES(?,?,?,?,?,?,?)
-            """, portfolioId, "expense", 0, commission, date, commTxId, "Commissione");
-            logger.log("COMMISSIONE VENDITA", "ticker:" + ticker, "importo:" + DbLogger.amt(commission));
-        }
+            """, portfolioId, "sell", qty, price, date, txId, notes);
 
-        logger.log("TITOLO VENDUTO", "ticker:" + ticker,
-                   "quantita:" + qty, "prezzo:" + DbLogger.amt(price),
-                   "controvalore:" + DbLogger.amt(amount),
-                   "commissione:" + DbLogger.amt(commission), "data:" + date);
-        return queryOne("SELECT * FROM portfolio WHERE id=?", portfolioId);
+            if (commission > 0) {
+                var expCat = queryOne("SELECT id FROM categories WHERE type='expense' AND name LIKE '%nvestiment%' LIMIT 1");
+                if (expCat == null) expCat = queryOne("SELECT id FROM categories WHERE type='expense' LIMIT 1");
+                Integer expCatId = expCat != null ? ((Number)expCat.get("id")).intValue() : null;
+                long commTxId = execute("""
+                    INSERT INTO transactions(date,amount,type,category_id,account_id,description,reconciled)
+                    VALUES(?,?,?,?,?,?,0)
+                """, date, commission, "expense", expCatId, toAccountId, "Commissione vendita " + ticker);
+                execute("""
+                    INSERT INTO portfolio_transactions(portfolio_id,type,quantity,price,date,transaction_id,notes)
+                    VALUES(?,?,?,?,?,?,?)
+                """, portfolioId, "expense", 0, commission, date, commTxId, "Commissione");
+                logger.log("COMMISSIONE VENDITA", "ticker:" + ticker, "importo:" + DbLogger.amt(commission));
+            }
+
+            logger.log("TITOLO VENDUTO", "ticker:" + ticker,
+                       "quantita:" + qty, "prezzo:" + DbLogger.amt(price),
+                       "controvalore:" + DbLogger.amt(amount),
+                       "commissione:" + DbLogger.amt(commission), "data:" + date);
+            return queryOne("SELECT * FROM portfolio WHERE id=?", portfolioId);
+        });
     }
 
     public Map<String, Object> deletePortfolioTransaction(int ptId) throws SQLException {
@@ -2304,31 +2322,34 @@ public class Database {
         double qty      = ((Number)pt.get("quantity")).doubleValue();
         Object txIdObj  = pt.get("transaction_id");
 
-        // Ripristina quantità per buy/sell
-        if ("sell".equals(type)) {
-            execute("UPDATE portfolio SET quantity = quantity + ? WHERE id=?", qty, portfolioId);
-        } else if ("buy".equals(type)) {
+        // Valida prima di aprire la transazione
+        if ("buy".equals(type)) {
             var pos = queryOne("SELECT quantity FROM portfolio WHERE id=?", portfolioId);
             if (pos == null) throw new SQLException("Posizione non trovata");
             double curQty = ((Number)pos.get("quantity")).doubleValue();
             if (r4(curQty - qty) < -0.00001)
                 throw new SQLException("Impossibile annullare: la quantità risultante sarebbe negativa (" + r4(curQty - qty) + ")");
-            execute("UPDATE portfolio SET quantity = quantity - ? WHERE id=?", qty, portfolioId);
         }
 
-        // Elimina transazione finanziaria collegata (ON DELETE SET NULL già gestita da SQLite)
-        if (txIdObj != null) {
-            long txId = ((Number)txIdObj).longValue();
-            execute("DELETE FROM transactions WHERE id=?", txId);
-        }
+        return inTx(() -> {
+            if ("sell".equals(type)) {
+                execute("UPDATE portfolio SET quantity = quantity + ? WHERE id=?", qty, portfolioId);
+            } else if ("buy".equals(type)) {
+                execute("UPDATE portfolio SET quantity = quantity - ? WHERE id=?", qty, portfolioId);
+            }
 
-        // Elimina record portfolio
-        execute("DELETE FROM portfolio_transactions WHERE id=?", ptId);
+            if (txIdObj != null) {
+                long txId = ((Number)txIdObj).longValue();
+                execute("DELETE FROM transactions WHERE id=?", txId);
+            }
 
-        var pos = queryOne("SELECT ticker FROM portfolio WHERE id=?", portfolioId);
-        String ticker = pos != null ? (String)pos.get("ticker") : "?";
-        logger.log("OPERAZIONE PORTFOLIO ANNULLATA", "pt_id:" + ptId, "tipo:" + type, "ticker:" + ticker);
-        return Map.of("ok", true, "portfolio_id", portfolioId);
+            execute("DELETE FROM portfolio_transactions WHERE id=?", ptId);
+
+            var pos = queryOne("SELECT ticker FROM portfolio WHERE id=?", portfolioId);
+            String ticker = pos != null ? (String)pos.get("ticker") : "?";
+            logger.log("OPERAZIONE PORTFOLIO ANNULLATA", "pt_id:" + ptId, "tipo:" + type, "ticker:" + ticker);
+            return Map.of("ok", true, "portfolio_id", portfolioId);
+        });
     }
 
     public Map<String, Object> updateStockPrice(int id, double price) throws SQLException {
@@ -2424,7 +2445,7 @@ public class Database {
     /** Registra il pagamento di una cedola come transazione income. */
     public Map<String, Object> registerCoupon(JsonObject p) throws SQLException {
         int portfolioId = p.get("portfolio_id").getAsInt();
-        int accountId   = p.get("account_id").getAsInt();  // conto su cui accreditare
+        int accountId   = p.get("account_id").getAsInt();
         double amount   = r2(p.get("amount").getAsDouble());
         String date     = p.get("date").getAsString();
         String notes    = p.has("notes") && !p.get("notes").isJsonNull() ? p.get("notes").getAsString() : null;
@@ -2433,30 +2454,31 @@ public class Database {
         if (pos == null) throw new SQLException("Posizione non trovata");
         String ticker = (String)pos.get("ticker");
 
-        // Cerca categoria "Investimenti" income, fallback alla prima income disponibile
-        var incCat = queryOne("SELECT id FROM categories WHERE type='income' AND name LIKE '%nvestiment%' LIMIT 1");
-        if (incCat == null) incCat = queryOne("SELECT id FROM categories WHERE type='income' LIMIT 1");
-        Integer catId = incCat != null ? ((Number)incCat.get("id")).intValue() : null;
+        return inTx(() -> {
+            var incCat = queryOne("SELECT id FROM categories WHERE type='income' AND name LIKE '%nvestiment%' LIMIT 1");
+            if (incCat == null) incCat = queryOne("SELECT id FROM categories WHERE type='income' LIMIT 1");
+            Integer catId = incCat != null ? ((Number)incCat.get("id")).intValue() : null;
 
-        String desc = notes != null ? notes : "Cedola " + ticker;
-        long txId = execute("""
-            INSERT INTO transactions(date,amount,type,category_id,account_id,description,reconciled)
-            VALUES(?,?,?,?,?,?,0)
-        """, date, amount, "income", catId, accountId, desc);
+            String desc = notes != null ? notes : "Cedola " + ticker;
+            long txId = execute("""
+                INSERT INTO transactions(date,amount,type,category_id,account_id,description,reconciled)
+                VALUES(?,?,?,?,?,?,0)
+            """, date, amount, "income", catId, accountId, desc);
 
-        execute("""
-            INSERT INTO portfolio_transactions(portfolio_id,type,quantity,price,date,transaction_id,notes)
-            VALUES(?,?,?,?,?,?,?)
-        """, portfolioId, "coupon", 0, amount, date, txId, notes);
+            execute("""
+                INSERT INTO portfolio_transactions(portfolio_id,type,quantity,price,date,transaction_id,notes)
+                VALUES(?,?,?,?,?,?,?)
+            """, portfolioId, "coupon", 0, amount, date, txId, notes);
 
-        Integer investTagId = getSystemTagIdByKey("investment");
-        if (investTagId != null)
-            executePlain("INSERT OR IGNORE INTO transaction_tags(transaction_id,tag_id) VALUES(" + txId + "," + investTagId + ")");
+            Integer investTagId = getSystemTagIdByKey("investment");
+            if (investTagId != null)
+                execute("INSERT OR IGNORE INTO transaction_tags(transaction_id,tag_id) VALUES(?,?)", txId, investTagId);
 
-        logger.log("CEDOLA REGISTRATA", "ticker:" + ticker,
-                   "importo:" + DbLogger.amt(amount), "data:" + date,
-                   "note:" + DbLogger.s(notes));
-        return Map.of("ok", true, "transaction_id", txId);
+            logger.log("CEDOLA REGISTRATA", "ticker:" + ticker,
+                       "importo:" + DbLogger.amt(amount), "data:" + date,
+                       "note:" + DbLogger.s(notes));
+            return Map.of("ok", true, "transaction_id", txId);
+        });
     }
 
     public Map<String, Object> registerPortfolioExpense(JsonObject p) throws SQLException {
@@ -2471,33 +2493,36 @@ public class Database {
         if (pos == null) throw new SQLException("Posizione non trovata");
         String ticker = (String)pos.get("ticker");
 
-        // Usa categoria scelta dall'utente, altrimenti cerca "Investimenti" expense, fallback alla prima expense
-        Integer catId = p.has("category_id") && !p.get("category_id").isJsonNull()
+        Integer catIdResolved = p.has("category_id") && !p.get("category_id").isJsonNull()
                 ? p.get("category_id").getAsInt() : null;
-        if (catId == null) {
-            var expCat = queryOne("SELECT id FROM categories WHERE type='expense' AND name LIKE '%nvestiment%' LIMIT 1");
-            if (expCat == null) expCat = queryOne("SELECT id FROM categories WHERE type='expense' LIMIT 1");
-            catId = expCat != null ? ((Number)expCat.get("id")).intValue() : null;
-        }
 
-        String desc = notes != null ? notes : label + " " + ticker;
-        long txId = execute("""
-            INSERT INTO transactions(date,amount,type,category_id,account_id,description,reconciled)
-            VALUES(?,?,?,?,?,?,0)
-        """, date, amount, "expense", catId, accountId, desc);
+        return inTx(() -> {
+            Integer catId = catIdResolved;
+            if (catId == null) {
+                var expCat = queryOne("SELECT id FROM categories WHERE type='expense' AND name LIKE '%nvestiment%' LIMIT 1");
+                if (expCat == null) expCat = queryOne("SELECT id FROM categories WHERE type='expense' LIMIT 1");
+                catId = expCat != null ? ((Number)expCat.get("id")).intValue() : null;
+            }
 
-        execute("""
-            INSERT INTO portfolio_transactions(portfolio_id,type,quantity,price,date,transaction_id,notes)
-            VALUES(?,?,?,?,?,?,?)
-        """, portfolioId, "expense", 0, amount, date, txId, notes != null ? notes : label);
+            String desc = notes != null ? notes : label + " " + ticker;
+            long txId = execute("""
+                INSERT INTO transactions(date,amount,type,category_id,account_id,description,reconciled)
+                VALUES(?,?,?,?,?,?,0)
+            """, date, amount, "expense", catId, accountId, desc);
 
-        Integer investTagId = getSystemTagIdByKey("investment");
-        if (investTagId != null)
-            executePlain("INSERT OR IGNORE INTO transaction_tags(transaction_id,tag_id) VALUES(" + txId + "," + investTagId + ")");
+            execute("""
+                INSERT INTO portfolio_transactions(portfolio_id,type,quantity,price,date,transaction_id,notes)
+                VALUES(?,?,?,?,?,?,?)
+            """, portfolioId, "expense", 0, amount, date, txId, notes != null ? notes : label);
 
-        logger.log("SPESA PORTFOLIO REGISTRATA", "ticker:" + ticker,
-                   "label:" + DbLogger.s(label), "importo:" + DbLogger.amt(amount), "data:" + date);
-        return Map.of("ok", true, "transaction_id", txId);
+            Integer investTagId = getSystemTagIdByKey("investment");
+            if (investTagId != null)
+                execute("INSERT OR IGNORE INTO transaction_tags(transaction_id,tag_id) VALUES(?,?)", txId, investTagId);
+
+            logger.log("SPESA PORTFOLIO REGISTRATA", "ticker:" + ticker,
+                       "label:" + DbLogger.s(label), "importo:" + DbLogger.amt(amount), "data:" + date);
+            return Map.of("ok", true, "transaction_id", txId);
+        });
     }
 
     public Map<String, Object> deletePortfolioItem(int id) throws SQLException {

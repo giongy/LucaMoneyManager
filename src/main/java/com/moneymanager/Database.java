@@ -1142,11 +1142,12 @@ public class Database {
 
         List<Map<String, Object>> rows = parseTags(queryList(sql.toString(), params.toArray()));
 
-        // Calcola saldo progressivo quando si filtra per un singolo conto
+        // Calcola saldo progressivo quando si filtra per un singolo conto (non investment)
         if (f.has("account_id") && !f.get("account_id").isJsonNull()
                 && !f.get("account_id").getAsString().isBlank()) {
             int accountId = f.get("account_id").getAsInt();
-            Map<String, Object> acc = queryOne("SELECT initial_balance FROM accounts WHERE id=?", accountId);
+            Map<String, Object> acc = queryOne("SELECT initial_balance, type FROM accounts WHERE id=?", accountId);
+            if ("investment".equals(acc != null ? acc.get("type") : null)) return rows; // saldo progressivo non applicabile
             double init = acc != null && acc.get("initial_balance") != null
                     ? ((Number) acc.get("initial_balance")).doubleValue() : 0.0;
             // Tutte le transazioni del conto in ordine ASC per costruire mappa saldo

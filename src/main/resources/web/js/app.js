@@ -1809,7 +1809,7 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
       <div class="form-group">
         <label class="form-label">Conto</label>
         <select class="form-control" id="f_account">
-          ${accounts.filter(a => isAccountActive(a) && a.type !== 'investment').map(a=>`<option value="${a.id}" ${(tx ? tx.account_id==a.id : String(a.id)===String(txFilters.account_id))?'selected':''}>${a.icon} ${a.name}</option>`).join('')}
+          ${accounts.filter(a => isAccountActive(a) && (a.type !== 'investment' || (tx && tx.account_id == a.id))).map(a=>`<option value="${a.id}" ${(tx ? tx.account_id==a.id : String(a.id)===String(txFilters.account_id))?'selected':''}>${a.icon} ${a.name}</option>`).join('')}
         </select>
       </div>
       <div class="form-group" id="toAccGroup" style="${(tx?.type ?? initType)!=='transfer'?'display:none':''}">
@@ -5253,6 +5253,7 @@ async function showSellModal(portfolioId) {
       closeModal();
       toast('Vendita registrata');
       renderPortfolio();
+      if (currentPage === 'dashboard') renderDashboard();
     } catch(e) { toast(e.message,'error'); }
   });
 

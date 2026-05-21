@@ -79,3 +79,148 @@ function toast(msg, type='success') {
   c.appendChild(t);
   setTimeout(() => t.remove(), 3500);
 }
+
+/* ─── Emoji picker (estratto da app.js, stadio 9 del refactor) ─────────── */
+const EMOJI_LIST = [
+  // Cibo & Ristoranti
+  {e:'🍕',k:'pizza cibo ristorante'},{e:'🍔',k:'hamburger fast food burger'},
+  {e:'🍜',k:'pasta noodle cibo ristorante'},{e:'🍣',k:'sushi pesce ristorante'},
+  {e:'🥗',k:'insalata verdura pranzo'},{e:'🥩',k:'carne bistecca grill'},
+  {e:'🍱',k:'pranzo box bento cibo'},{e:'🥐',k:'croissant colazione bar'},
+  {e:'☕',k:'caffe bar colazione'},{e:'🍺',k:'birra bar locale'},
+  {e:'🍷',k:'vino ristorante cena'},{e:'🍸',k:'cocktail aperitivo bar'},
+  {e:'🍰',k:'torta dolci pasticceria'},{e:'🍦',k:'gelato dolci'},
+  {e:'🍿',k:'popcorn cinema snack'},{e:'🥤',k:'bibita drink takeaway'},
+  {e:'🧃',k:'succo bevanda'},{e:'🫖',k:'te infuso bevanda'},
+  {e:'🥪',k:'panino sandwich pranzo'},{e:'🍞',k:'pane forno bakery'},
+  // Supermercato & Spesa
+  {e:'🛒',k:'spesa supermercato alimentari'},{e:'🧺',k:'spesa acquisti'},
+  {e:'🥛',k:'latte spesa alimenti'},{e:'🥚',k:'uova spesa alimenti'},
+  {e:'🧀',k:'formaggio spesa alimenti'},{e:'🫙',k:'conserve dispensa'},
+  // Trasporti
+  {e:'🚗',k:'auto macchina trasporto'},{e:'⛽',k:'benzina carburante auto'},
+  {e:'🚌',k:'bus autobus trasporto pubblico'},{e:'🚇',k:'metro metropolitana'},
+  {e:'🚂',k:'treno ferrovia'},{e:'✈️',k:'aereo volo viaggio'},
+  {e:'🚕',k:'taxi uber trasporto'},{e:'🛵',k:'scooter moto'},
+  {e:'🚲',k:'bici bicicletta'},{e:'🛳️',k:'nave traghetto'},
+  {e:'🅿️',k:'parcheggio sosta'},
+  // Casa & Abitazione
+  {e:'🏠',k:'casa affitto mutuo abitazione'},{e:'🔧',k:'manutenzione riparazioni'},
+  {e:'💡',k:'elettricita luce bolletta'},{e:'💧',k:'acqua bolletta idrico'},
+  {e:'🔥',k:'gas riscaldamento bolletta'},{e:'🔌',k:'elettricita energia'},
+  {e:'🛋️',k:'arredamento mobili casa'},{e:'🪴',k:'piante giardino'},
+  {e:'🧹',k:'pulizie casa domestico'},{e:'🪣',k:'pulizie casa'},
+  {e:'🔑',k:'affitto casa chiavi'},{e:'🏗️',k:'ristrutturazione lavori'},
+  {e:'📦',k:'trasloco spedizione pacco'},
+  // Salute & Benessere
+  {e:'💊',k:'medicine farmacia salute'},{e:'🏥',k:'ospedale medico visita'},
+  {e:'🩺',k:'medico visita salute'},{e:'🦷',k:'dentista odontoiatra'},
+  {e:'👁️',k:'oculista vista occhi'},{e:'💪',k:'palestra fitness sport'},
+  {e:'🧘',k:'yoga meditazione benessere'},{e:'💆',k:'massaggio benessere spa'},
+  {e:'🧴',k:'cosmetici igiene cura'},{e:'🧼',k:'igiene personale'},
+  // Abbigliamento & Shopping
+  {e:'👗',k:'vestiti abbigliamento shopping'},{e:'👔',k:'camicia vestiti lavoro'},
+  {e:'👟',k:'scarpe sneaker abbigliamento'},{e:'👜',k:'borsa accessori'},
+  {e:'💄',k:'trucco cosmetici bellezza'},{e:'🛍️',k:'shopping acquisti'},
+  {e:'👒',k:'cappello accessori'},{e:'🧥',k:'giacca cappotto'},
+  {e:'👓',k:'occhiali accessori'},{e:'⌚',k:'orologio accessori'},
+  // Intrattenimento
+  {e:'🎬',k:'cinema film intrattenimento'},{e:'🎵',k:'musica concerto spotify'},
+  {e:'🎮',k:'videogiochi gaming intrattenimento'},{e:'📺',k:'tv streaming netflix'},
+  {e:'🎭',k:'teatro spettacolo'},{e:'🎨',k:'arte hobby'},
+  {e:'📚',k:'libri lettura cultura'},{e:'🎲',k:'giochi hobby'},
+  {e:'🎤',k:'karaoke musica concerto'},{e:'🎸',k:'musica strumento hobby'},
+  {e:'🎰',k:'gioco azzardo scommesse'},{e:'🎳',k:'bowling svago'},
+  // Finanza & Banca
+  {e:'💰',k:'soldi risparmio finanza'},{e:'💳',k:'carta credito banca pagamento'},
+  {e:'💵',k:'contanti soldi'},{e:'🏦',k:'banca istituto finanziario'},
+  {e:'📈',k:'investimenti borsa azioni'},{e:'📉',k:'perdita spese'},
+  {e:'💹',k:'investimenti finanza'},{e:'💸',k:'spese uscite soldi'},
+  {e:'🤑',k:'guadagno entrate soldi'},{e:'🪙',k:'moneta risparmio'},
+  {e:'🏧',k:'bancomat prelievo'},
+  // Lavoro & Professione
+  {e:'💼',k:'lavoro ufficio professione'},{e:'🖥️',k:'computer lavoro tech'},
+  {e:'📱',k:'telefono cellulare abbonamento'},{e:'📊',k:'report lavoro'},
+  {e:'📋',k:'documenti burocrazia'},{e:'🖊️',k:'scrittura ufficio'},
+  {e:'🏢',k:'ufficio azienda lavoro'},{e:'📞',k:'telefono comunicazione'},
+  {e:'💻',k:'laptop lavoro freelance'},{e:'🖨️',k:'stampa ufficio'},
+  {e:'✉️',k:'posta spedizione busta'},
+  // Famiglia & Persone
+  {e:'👶',k:'bambino figlio neonato'},{e:'🧒',k:'figlio bambino scuola'},
+  {e:'👨‍👩‍👧‍👦',k:'famiglia'},{e:'❤️',k:'amore regalo donazione'},
+  {e:'🎁',k:'regalo dono compleanno'},{e:'🎂',k:'compleanno festa'},
+  {e:'🎓',k:'istruzione universita diploma'},{e:'🏫',k:'scuola istruzione'},
+  {e:'🧸',k:'giocattoli bambini'},{e:'🍼',k:'bebé neonato'},
+  // Viaggi & Vacanze
+  {e:'🌍',k:'viaggio estero vacanza'},{e:'🏖️',k:'vacanza mare spiaggia'},
+  {e:'⛺',k:'camping vacanza'},{e:'🏔️',k:'montagna escursione'},
+  {e:'🗺️',k:'viaggio tour'},{e:'🎒',k:'zaino vacanza'},
+  {e:'🏨',k:'hotel albergo soggiorno'},{e:'🗼',k:'turismo viaggio'},
+  {e:'🌴',k:'vacanza tropici'},{e:'🎡',k:'parco divertimenti'},
+  // Sport & Fitness
+  {e:'⚽',k:'calcio sport'},{e:'🏀',k:'basket sport'},
+  {e:'🎾',k:'tennis sport'},{e:'🏊',k:'nuoto piscina sport'},
+  {e:'🚴',k:'ciclismo bici sport'},{e:'🏋️',k:'palestra pesi fitness'},
+  {e:'⛷️',k:'sci montagna sport invernale'},{e:'🧗',k:'arrampicata sport'},
+  {e:'🏄',k:'surf mare sport'},{e:'⛳',k:'golf sport'},
+  {e:'🎿',k:'sci sport invernale'},{e:'🥊',k:'boxe sport'},
+  // Animali
+  {e:'🐶',k:'cane animale domestico'},{e:'🐱',k:'gatto animale domestico'},
+  {e:'🐟',k:'pesce acquario animale'},{e:'🐰',k:'coniglio animale'},
+  {e:'🐾',k:'veterinario animale cura'},
+  // Istruzione
+  {e:'✏️',k:'matita scuola istruzione'},{e:'📝',k:'appunti studio'},
+  {e:'🔬',k:'scienza laboratorio corso'},{e:'🧮',k:'matematica calcolo'},
+  // Generici / Varie
+  {e:'📁',k:'cartella generale'},{e:'⭐',k:'preferito speciale'},
+  {e:'🔔',k:'abbonamento notifica'},{e:'🌱',k:'ambiente ecologia'},
+  {e:'♻️',k:'riciclaggio ambiente'},{e:'🌞',k:'energia solare'},
+  {e:'🎪',k:'eventi fiera'},{e:'🏛️',k:'comune burocrazia tasse'},
+  {e:'⚖️',k:'legale avvocato tasse'},{e:'🧾',k:'ricevuta scontrino tasse'},
+  {e:'📮',k:'posta corrispondenza'},{e:'🖼️',k:'arte quadri arredamento'},
+  {e:'🕯️',k:'decorazione casa'},{e:'🧰',k:'attrezzi bricolage'},
+  {e:'🪟',k:'finestre casa'},{e:'🚿',k:'bagno idraulico'},
+  {e:'📷',k:'foto fotografia hobby'},{e:'🎥',k:'video riprese hobby'},
+  {e:'🕹️',k:'gaming videogiochi hobby'},{e:'🧩',k:'hobby passatempo'},
+  {e:'🌐',k:'internet web abbonamento'},{e:'☁️',k:'cloud storage servizi'},
+  {e:'🔐',k:'sicurezza assicurazione'},
+];
+
+function _iconPickerBuild(containerId, currentEmoji) {
+  const wrap = document.getElementById(containerId);
+  if (!wrap) return;
+  wrap.innerHTML = `
+    <div class="icon-picker-preview" onclick="_iconPickerToggle('${containerId}')">
+      <span id="${containerId}_preview" style="font-size:22px">${currentEmoji}</span>
+      <span class="icon-picker-hint">Clicca per cambiare</span>
+    </div>
+    <div id="${containerId}_panel" class="icon-picker-panel" style="display:none">
+      <input type="text" class="form-input" style="margin-bottom:6px"
+             placeholder="Cerca icona…" oninput="_iconPickerSearch('${containerId}',this.value)">
+      <div id="${containerId}_grid" class="icon-grid"></div>
+    </div>`;
+  _iconPickerSearch(containerId, '');
+}
+
+function _iconPickerToggle(cid) {
+  const panel = document.getElementById(cid + '_panel');
+  const open = panel.style.display === 'none';
+  panel.style.display = open ? '' : 'none';
+  if (open) panel.querySelector('input').focus();
+}
+
+function _iconPickerSearch(cid, q) {
+  const ql = q.toLowerCase().trim();
+  const list = ql ? EMOJI_LIST.filter(e => e.k.includes(ql)) : EMOJI_LIST;
+  document.getElementById(cid + '_grid').innerHTML =
+    list.slice(0, 150).map(e =>
+      `<button type="button" class="icon-btn" title="${e.k}"
+               onclick="_iconPickerSelect('${cid}','${e.e}')">${e.e}</button>`
+    ).join('');
+}
+
+function _iconPickerSelect(cid, emoji) {
+  document.getElementById('c_icon').value = emoji;
+  document.getElementById(cid + '_preview').textContent = emoji;
+  document.getElementById(cid + '_panel').style.display = 'none';
+}

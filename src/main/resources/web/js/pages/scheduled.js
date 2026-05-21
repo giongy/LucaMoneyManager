@@ -78,17 +78,9 @@ function computeSchedNext(startDate, _freq, endDate) {
   return d;
 }
 
-// FIXME: queste globali appartengono semanticamente a Settings/Portfolio,
-// le sposteremo negli stadi 7 e 8 quando estrarremo quelle pagine.
+// FIXME: _settingsTab appartiene a Settings, da spostare allo stadio 8a.
+// Le globali _portfolio* sono state spostate in pages/portfolio.js (stadio 7d).
 let _settingsTab = 'data';
-let _portfolioActiveOnly = 'active'; // 'active' | 'closed' | 'all'
-let _portfolioTypeFilter = 'all'; // 'all' | 'equity' | 'bond'
-let _portfolioSort = { col: 'ticker', dir: 1 };
-let _portfolioTab = 'portfolio';
-let _portfolioItems = [];
-let _portStoricoExp    = new Set();
-let _portStoricoFilter = 'all'; // 'all' | 'active' | 'closed'
-let _portfolioPriceStatus = {}; // id → 'ok' | 'fail' | undefined (grigio)
 let _schedSort   = { col: 'days', dir: 'asc' };
 let _schedFilter = { type: '', active: '1', category: '', tags: new Set() };
 

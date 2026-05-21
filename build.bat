@@ -108,12 +108,14 @@ if errorlevel 8 ( echo [ERRORE] Copia web fallita. & pause & exit /b 1 )
 echo       OK - web/ nel build
 
 :: ── 5a) Deploy ──────────────────────────────────────────────────────────────
-:: Sincronizza l'app-image verso la cartella di deploy. Esclude i file utente
-:: (DB, settings, log, backup, cache JCEF) che vengono creati a runtime e che
-:: NON devono essere sovrascritti dalla build.
+:: Sincronizza l'app-image verso la cartella di deploy. /purge rimuove dal
+:: destination i file non piu' presenti alla sorgente (es. vecchio JAR di
+:: una versione precedente). Le esclusioni /xf e /xd proteggono i file
+:: utente (DB, settings, log, backup, cache JCEF) sia dalla copia sia dal
+:: purge -> non vengono mai toccati.
 echo Deploy in "%DEPLOY%"...
 if not exist "%DEPLOY%" mkdir "%DEPLOY%"
-%SystemRoot%\System32\robocopy.exe "%DIST%\build\LucaMoneyManager" "%DEPLOY%" /e /xf "*.db" "settings.properties" "*.bak" "*.log" /xd "backup" "jcef" /njh /njs /ndl
+%SystemRoot%\System32\robocopy.exe "%DIST%\build\LucaMoneyManager" "%DEPLOY%" /e /purge /xf "*.db" "settings.properties" "*.bak" "*.log" /xd "backup" "jcef" /njh /njs /ndl
 if errorlevel 8 ( echo [ERRORE] Deploy fallito. & pause & exit /b 1 )
 echo       OK - deploy in %DEPLOY%
 

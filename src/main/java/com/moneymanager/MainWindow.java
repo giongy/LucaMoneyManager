@@ -21,7 +21,8 @@ public class MainWindow {
     private final CefClient client;
     private final Bridge bridge;
 
-    public MainWindow(CefApp cefApp, Database db, Settings settings, String htmlUrl, java.nio.file.Path dataDir) {
+    public MainWindow(CefApp cefApp, Database db, Settings settings, String htmlUrl,
+                      java.nio.file.Path dataDir, java.nio.file.Path webDir) {
         this.cefApp = cefApp;
         this.db = db;
         this.settings = settings;
@@ -56,7 +57,7 @@ public class MainWindow {
             final int finalPort = httpPort;
             Thread.ofVirtual().start(() -> {
                 try {
-                    WebServer.start(dataDir.resolve("web"), bridge, finalPort);
+                    WebServer.start(webDir, bridge, finalPort);
                     System.out.println("WebServer avviato su http://0.0.0.0:" + finalPort);
                 } catch (Exception e) {
                     System.err.println("WebServer non avviato: " + e.getMessage());

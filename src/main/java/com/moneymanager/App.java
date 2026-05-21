@@ -16,6 +16,37 @@ import me.friwi.jcefmaven.MavenCefAppHandlerAdapter;
 
 public class App {
 
+    /**
+     * Trova la cartella web/ con i file HTML/CSS/JS.
+     * Produzione (jpackage): web/ accanto al .exe (sibling della dir app/ che contiene il JAR).
+     * IDE: src/main/resources/web/ rispetto alla project root.
+     */
+    private static Path findWebDir() throws Exception {
+        java.net.URL loc = App.class.getProtectionDomain().getCodeSource().getLocation();
+        Path codeSrc = Path.of(loc.toURI());
+
+        // Produzione: JAR in <deploy>/app/moneymanager.jar → cerca <deploy>/web/
+        if (Files.isRegularFile(codeSrc)) {
+            Path web = codeSrc.getParent().resolveSibling("web");
+            if (Files.exists(web.resolve("index.html"))) return web.toAbsolutePath().normalize();
+            // Fallback: web/ allo stesso livello del JAR
+            Path web2 = codeSrc.resolveSibling("web");
+            if (Files.exists(web2.resolve("index.html"))) return web2.toAbsolutePath().normalize();
+        }
+
+        // IDE: codeSrc è target/classes → usa target/classes/web (file filtrati da Maven,
+        // es. ${project.version} risolto). Fallback su src/main/resources/web/ se non
+        // ancora compilato.
+        Path webClasses = codeSrc.resolve("web");
+        if (Files.exists(webClasses.resolve("index.html"))) return webClasses.toAbsolutePath().normalize();
+        Path projectRoot = codeSrc;
+        if (projectRoot.endsWith("classes")) projectRoot = projectRoot.getParent().getParent();
+        Path web3 = projectRoot.resolve("src/main/resources/web");
+        if (Files.exists(web3.resolve("index.html"))) return web3.toAbsolutePath().normalize();
+
+        throw new RuntimeException("Risorse web non trovate. Cerca near: " + codeSrc);
+    }
+
     public static void main(String[] args) throws Exception {
         // Cartella dati utente
         Path dataDir = Path.of(System.getProperty("user.home"),
@@ -75,9 +106,10 @@ public class App {
         // Database SQLite
         Database db = new Database(dbPath);
 
-        // Estrai risorse web (HTML/CSS/JS) nella cartella dati (skippato se JAR invariato)
-        String htmlUrl   = WebExtractor.extract(dataDir.resolve("web"));
-        String splashUrl = htmlUrl.replace("index.html", "splash.html");
+        // Risorse web (HTML/CSS/JS): cartella web/ accanto all'eseguibile (produzione)
+        // o src/main/resources/web/ (modalità IDE)
+        Path webDir      = findWebDir();
+        String splashUrl = webDir.resolve("splash.html").toUri().toString();
 
         // Splash Swing immediato (visibile prima ancora che JCEF si avvii)
         SplashWindow loading = new SplashWindow();
@@ -109,7 +141,7 @@ public class App {
         final SplashWindow ld = loading;
         SwingUtilities.invokeAndWait(() -> {
             try {
-                MainWindow window = new MainWindow(cefApp, db, settings, splashUrl, dataDir);
+                MainWindow window = new MainWindow(cefApp, db, settings, splashUrl, dataDir, webDir);
                 window.showWhenReady(ld);
                 // Registra l'azione "porta in primo piano" (include reopen DB + refresh JS)
                 TrayManager.bringToFrontAction = window::bringToFront;

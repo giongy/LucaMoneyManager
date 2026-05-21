@@ -78,9 +78,6 @@ function computeSchedNext(startDate, _freq, endDate) {
   return d;
 }
 
-// FIXME: _settingsTab appartiene a Settings, da spostare allo stadio 8a.
-// Le globali _portfolio* sono state spostate in pages/portfolio.js (stadio 7d).
-let _settingsTab = 'data';
 let _schedSort   = { col: 'days', dir: 'asc' };
 let _schedFilter = { type: '', active: '1', category: '', tags: new Set() };
 

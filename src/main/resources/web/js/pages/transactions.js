@@ -11,23 +11,7 @@
 
 let txFilters = { range: '30d' };
 
-// FIXME: queste globali appartengono semanticamente a Resoconti/Analytics e Forecasts,
-// erano "parcheggiate" qui. Verranno spostate in pages/analytics.js (stadio 7e).
-let _reportsGroupOpen = false;
-let _currentReportId  = null;
-let _reportFilters    = {};
-let _reportGroupby    = 'none';
-let _reportChartType  = 'none';
-let _reportChart      = null;
-let _reportsTab       = 'resoconti';
-let _fcChart          = null;
-let _fcParams         = { histMonths: 12, horizonMonths: 6, sensitivity: 'media' };
-let _fcManualExcl     = new Set();   // mesi forzatamente esclusi dall'utente
-let _fcManualIncl     = new Set();   // mesi forzatamente reintegrati dall'utente
-let _fcExcludedTxIds  = new Set();   // IDs transazioni escluse dal calcolo
-let _fcTxAdjustments  = {};          // { ym: { incAdj, expAdj } } — aggiustamenti tx
-let _fcMonthTxCache   = {};          // { ym: tx[] } — cache transazioni per mese
-let _fcExpandedMonths = new Set();   // mesi espansi nella tabella storica
+// Le globali _reports* e _fc* sono state spostate in pages/analytics.js (stadio 7e).
 
 // Formatta una Date come YYYY-MM-DD nel fuso locale (toISOString userebbe UTC e sfaserebbe di 1 giorno)
 // FIXME: appartengono semanticamente a utils.js, verranno spostate in una pulizia finale.

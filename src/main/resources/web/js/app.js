@@ -3705,7 +3705,7 @@ function renderBudgetMese() {
             <span style="font-size:16px;font-weight:700">${fmt.currency(-expSpent)}</span>
           </div>
           <div ${cardStyle('color-mix(in srgb,' + expRemColor + ' 10%,var(--bg2))', expRemColor)}>
-            <span style="font-size:11px;color:var(--txt2)">${expRemaining >= 0 ? 'Rimasto' : 'Sforo totale'}</span>
+            <span style="font-size:11px;color:var(--txt2)">${expRemaining >= 0 ? 'Rimasto' : 'Superamento totale'}</span>
             <span style="font-size:16px;font-weight:700;color:${expRemColor}">${fmt.currency(Math.abs(expRemaining))}</span>
             ${expOver > 0 ? `<span style="font-size:11px;color:var(--expense)">${expOver} ${expOver===1?'categoria':'categorie'} in sforamento</span>` : ''}
           </div>

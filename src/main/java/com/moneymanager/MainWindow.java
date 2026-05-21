@@ -102,36 +102,22 @@ public class MainWindow {
     /** Restituisce il JFrame principale (usato da TrayManager). */
     public JFrame getFrame() { return frame; }
 
-    /** Mostra la finestra solo dopo che la pagina HTML è completamente caricata,
-     *  poi nasconde il loading dialog. Evita il flash di schermata nera all'avvio. */
+    /** Mostra la finestra solo dopo che index.html è completamente caricato,
+     *  poi nasconde la splash Swing. La finestra parte già massimizzata dietro
+     *  la splash, così non si vede alcuno scatto di ridimensionamento. */
     public void showWhenReady(SplashWindow loading) {
         GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
-        Rectangle screen = ge.getMaximumWindowBounds();
-        int w = (int)(screen.width  * 0.70);
-        int h = (int)(screen.height * 0.70);
-        frame.setSize(w, h);
-        frame.setLocation(screen.x + (screen.width - w) / 2, screen.y + (screen.height - h) / 2);
+        frame.setMaximizedBounds(ge.getMaximumWindowBounds());
+        frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
         frame.setVisible(true);
 
         client.addLoadHandler(new CefLoadHandlerAdapter() {
-            private int loadCount = 0;
+            private boolean shown = false;
             @Override
             public void onLoadEnd(CefBrowser b, CefFrame f, int httpStatusCode) {
-                if (!f.isMain()) return;
-                loadCount++;
-                if (loadCount == 1) {
-                    SwingUtilities.invokeLater(() -> {
-                        loading.setVisible(false);
-                        loading.dispose();
-                        frame.toFront();
-                    });
-                } else if (loadCount == 2) {
-                    SwingUtilities.invokeLater(() -> {
-                        GraphicsEnvironment ge2 = GraphicsEnvironment.getLocalGraphicsEnvironment();
-                        frame.setMaximizedBounds(ge2.getMaximumWindowBounds());
-                        frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
-                    });
-                }
+                if (!f.isMain() || shown) return;
+                shown = true;
+                SwingUtilities.invokeLater(() -> loading.fadeOut(700, frame::toFront));
             }
         });
     }

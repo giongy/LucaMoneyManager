@@ -95,11 +95,11 @@ rmdir /s /q "%DIST%\runtime"
 rmdir /s /q "%DIST%\input"
 
 :: ── 4) Copia risorse web ────────────────────────────────────────────────────
-:: Dopo la rimozione di WebExtractor, i file HTML/CSS/JS NON sono piu' dentro
-:: il JAR: devono stare accanto al .exe. App.findWebDir() li cerca in
-:: <deploy>\web\ e li passa sia a JCEF (file://) sia al WebServer (HTTP LAN).
+:: I file HTML/CSS/JS NON sono dentro il JAR (esclusi dal maven-shade-plugin):
+:: devono stare accanto al .exe. App.findWebDir() li cerca in <deploy>\web\ e
+:: li passa sia a JCEF (file://) sia al WebServer (HTTP LAN).
 :: Sorgente: target\classes\web (NON src\main\resources\web) -> Maven ha gia'
-:: applicato il filtering, quindi ${project.version} in splash.html e' risolto.
+:: applicato il filtering, quindi eventuali ${project.version} sono risolti.
 :: /e = sottocartelle, /purge = elimina file rimossi alla sorgente,
 :: /njh /njs /ndl = output piu' compatto. robocopy ritorna 0-7 = OK, >=8 = errore.
 echo Copia risorse web in build...

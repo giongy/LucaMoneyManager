@@ -95,6 +95,51 @@ public class SplashWindow extends JWindow {
         });
     }
 
+    /** Sfuma l'opacità della splash a 0 in durationMs, poi la chiude e invoca onDone.
+     *  Se il sistema non supporta la traslucenza, chiude immediatamente. */
+    public void fadeOut(int durationMs, Runnable onDone) {
+        GraphicsDevice gd = GraphicsEnvironment.getLocalGraphicsEnvironment().getDefaultScreenDevice();
+        if (!gd.isWindowTranslucencySupported(GraphicsDevice.WindowTranslucency.TRANSLUCENT)) {
+            setVisible(false);
+            dispose();
+            if (onDone != null) onDone.run();
+            return;
+        }
+
+        // La JFrame principale è stata appena resa visibile e maximizzata: si trova
+        // sopra la JWindow nello z-order Windows. Riportiamo la splash in primo piano
+        // così il fade è effettivamente visibile.
+        setAlwaysOnTop(true);
+        toFront();
+
+        final int steps = 30;
+        final int delay = Math.max(16, durationMs / steps);
+        final int[] i = {0};
+        javax.swing.Timer timer = new javax.swing.Timer(delay, null);
+        timer.setInitialDelay(0);
+        timer.addActionListener(e -> {
+            i[0]++;
+            float op = Math.max(0f, 1f - (i[0] / (float) steps));
+            try {
+                setOpacity(op);
+            } catch (Exception ex) {
+                System.err.println("Fade splash fallito: " + ex.getMessage());
+                timer.stop();
+                setVisible(false);
+                dispose();
+                if (onDone != null) onDone.run();
+                return;
+            }
+            if (op <= 0f) {
+                timer.stop();
+                setVisible(false);
+                dispose();
+                if (onDone != null) onDone.run();
+            }
+        });
+        timer.start();
+    }
+
     // Disegna testo centrato con spaziatura extra tra caratteri
     private static void drawCentered(Graphics2D g2, String text, Font font,
                                      int cx, int y, int spacing) {

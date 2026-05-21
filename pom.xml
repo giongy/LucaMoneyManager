@@ -6,7 +6,7 @@
 
     <groupId>com.moneymanager</groupId>
     <artifactId>moneymanager</artifactId>
-    <version>1.14.0</version>
+    <version>1.14.1</version>
     <packaging>jar</packaging>
     <name>LucaMoneyManager</name>
 
@@ -116,6 +116,13 @@
                                         <exclude>META-INF/*.SF</exclude>
                                         <exclude>META-INF/*.DSA</exclude>
                                         <exclude>META-INF/*.RSA</exclude>
+                                    </excludes>
+                                </filter>
+                                <!-- web/ è servita dal filesystem (cartella accanto al .exe), non dal JAR -->
+                                <filter>
+                                    <artifact>com.moneymanager:moneymanager</artifact>
+                                    <excludes>
+                                        <exclude>web/**</exclude>
                                     </excludes>
                                 </filter>
                             </filters>

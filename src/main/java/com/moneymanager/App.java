@@ -108,8 +108,8 @@ public class App {
 
         // Risorse web (HTML/CSS/JS): cartella web/ accanto all'eseguibile (produzione)
         // o src/main/resources/web/ (modalità IDE)
-        Path webDir      = findWebDir();
-        String splashUrl = webDir.resolve("splash.html").toUri().toString();
+        Path webDir   = findWebDir();
+        String indexUrl = webDir.resolve("index.html").toUri().toString();
 
         // Splash Swing immediato (visibile prima ancora che JCEF si avvii)
         SplashWindow loading = new SplashWindow();
@@ -141,7 +141,7 @@ public class App {
         final SplashWindow ld = loading;
         SwingUtilities.invokeAndWait(() -> {
             try {
-                MainWindow window = new MainWindow(cefApp, db, settings, splashUrl, dataDir, webDir);
+                MainWindow window = new MainWindow(cefApp, db, settings, indexUrl, dataDir, webDir);
                 window.showWhenReady(ld);
                 // Registra l'azione "porta in primo piano" (include reopen DB + refresh JS)
                 TrayManager.bringToFrontAction = window::bringToFront;

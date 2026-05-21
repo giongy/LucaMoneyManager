@@ -70,6 +70,11 @@ const fmt = {
   pct: v => (v >= 0 ? '+' : '') + v.toFixed(2) + '%',
 };
 
+/* ─── Date helpers ────────────────────────────────────────────────────────── */
+// Formatta una Date come YYYY-MM-DD nel fuso locale (toISOString userebbe UTC e sfaserebbe di 1 giorno)
+const _dateStr  = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+const _todayStr = () => _dateStr(new Date());
+
 function toast(msg, type='success') {
   const c = document.getElementById('toastContainer');
   const t = document.createElement('div');

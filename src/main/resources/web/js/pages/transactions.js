@@ -12,11 +12,7 @@
 let txFilters = { range: '30d' };
 
 // Le globali _reports* e _fc* sono state spostate in pages/analytics.js (stadio 7e).
-
-// Formatta una Date come YYYY-MM-DD nel fuso locale (toISOString userebbe UTC e sfaserebbe di 1 giorno)
-// FIXME: appartengono semanticamente a utils.js, verranno spostate in una pulizia finale.
-const _dateStr  = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-const _todayStr = () => _dateStr(new Date());
+// Le funzioni _dateStr / _todayStr sono state spostate in utils.js (cleanup finale).
 
 function rangeToFilter(range, from, to) {
   const today = new Date();

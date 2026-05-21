@@ -297,6 +297,7 @@ async function init() {
   document.querySelectorAll('.rh').forEach(el => el.style.display = maximized ? 'none' : '');
   // Carica preferenze persistenti (non richiedono DB)
   const s = await api.getSettings();
+  window._appVersion = s['_app_version'] || '';
   await _loadCustomThemes();
   if (s['appearance.theme']) applyTheme(s['appearance.theme']);
   if (s['accounts.favorites_only']) _accFavoritesOnly = s['accounts.favorites_only'] === '1';

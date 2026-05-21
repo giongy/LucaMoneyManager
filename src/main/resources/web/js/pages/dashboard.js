@@ -251,7 +251,7 @@ window._dashQuickTx = async (accountId, type) => {
 async function renderDashboard() {
   api.getDbPath().then(r => {
     const el = document.getElementById('pageTitleSub');
-    if (el) el.textContent = '(' + r.path + ')';
+    if (el) el.textContent = '(' + r.path + ')' + (window._appVersion ? '  v' + window._appVersion : '');
   }).catch(() => {});
   const dashYear = new Date().getFullYear();
   const pg = document.getElementById('pg-dashboard');

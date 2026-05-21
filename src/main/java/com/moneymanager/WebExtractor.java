@@ -15,6 +15,7 @@ public class WebExtractor {
         "index.html",
         "splash.html",
         "css/style.css",
+        "js/bridge.js",
         "js/app.js",
         "js/vendor/chart.min.js",
         "js/vendor/hammer.min.js",

@@ -1677,8 +1677,8 @@ async function renderBudgetVsPianificate() {
 
 window.showBudgetIntegraModal = async function(catId) {
   const { catLabel, catType, diff } = window._budgSyncData[catId] || {};
-  const wrap = document.getElementById('budgPianWrap');
-  const accs = (wrap._budgAccounts || []).filter(a => a.type !== 'investment');
+  const wrap = document.getElementById('schedContent') || document.getElementById('budgPianWrap');
+  const accs = (wrap?._budgAccounts || []).filter(a => a.type !== 'investment');
 
   const tags = await api.getTags();
   let tag = tags.find(t => t.name === 'Da Budget');

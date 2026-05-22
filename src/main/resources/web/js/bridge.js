@@ -202,6 +202,7 @@ const api = {
   addForecastExcluded:   (id) => callJava('addForecastExcluded', {id}),
   removeForecastExcluded:(id)         => callJava('removeForecastExcluded', {id}),
   getForecastExpenseSplit:(months)    => callJava('getForecastExpenseSplit', {months}),
+  getScheduledForecast:  (months)    => callJava('getScheduledForecast',   {months}),
 
   // Resoconti
   getExpenseNatureReport: p => callJava('getExpenseNatureReport', p || {}),

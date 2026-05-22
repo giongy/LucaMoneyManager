@@ -373,6 +373,7 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                 yield Map.of("ok", true);
             }
             case "getForecastExpenseSplit" -> db.getForecastExpenseSplit(p.get("months").getAsInt());
+            case "getScheduledForecast"    -> db.getScheduledForecast(p.get("months").getAsInt());
 
             // ─── Portafoglio ───────────────────────────────────────────────
             case "getPortfolio"             -> db.getPortfolio();

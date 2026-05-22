@@ -20,8 +20,12 @@ let _reportChart      = null;
 let _reportsTab       = 'resoconti';
 
 // Stato Previsione Saldo (era in transactions.js con FIXME)
+// histFromYm   = primo mese dello storico (incluso) → fino al mese precedente al corrente
+// horizonToYm  = ultimo mese della proiezione (incluso) → mese corrente o successivi
+// Valori derivati a runtime via _fcDeriveMonths() — l'utente sceglie le date,
+// noi calcoliamo quanti mesi richiedere al backend.
 let _fcChart          = null;
-let _fcParams         = { histMonths: 12, horizonMonths: 6, sensitivity: 'media' };
+let _fcParams         = { histFromYm: null, horizonToYm: null, sensitivity: 'media' };
 let _fcManualExcl     = new Set();   // mesi forzatamente esclusi dall'utente
 let _fcManualIncl     = new Set();   // mesi forzatamente reintegrati dall'utente
 let _fcExcludedTxIds  = new Set();   // IDs transazioni escluse dal calcolo
@@ -422,43 +426,10 @@ let _healthVolChart  = null;
 async function renderAnalyticsForecast() {
   const el = document.getElementById('analyticsContent');
   if (!el) return;
-  const { histMonths, horizonMonths, sensitivity } = _fcParams;
-  el.innerHTML = `
-    <div class="card" style="padding:16px;margin-bottom:16px">
-      <div style="display:flex;flex-wrap:wrap;gap:20px;align-items:flex-end">
-        <div>
-          <label style="font-size:12px;color:var(--txt2);display:block;margin-bottom:6px">Storico analizzato</label>
-          <div style="display:flex;align-items:center;gap:8px">
-            <input type="range" id="fcHistR" min="3" max="60" value="${histMonths}" style="width:130px"
-              oninput="_fcParams.histMonths=+this.value;document.getElementById('fcHistN').textContent=this.value;_fcSetDirty()">
-            <span id="fcHistN" style="font-weight:700;min-width:22px">${histMonths}</span>
-            <span style="color:var(--txt2);font-size:13px">mesi</span>
-          </div>
-        </div>
-        <div>
-          <label style="font-size:12px;color:var(--txt2);display:block;margin-bottom:6px">Orizzonte previsione</label>
-          <div style="display:flex;align-items:center;gap:8px">
-            <input type="range" id="fcHorizR" min="1" max="36" value="${horizonMonths}" style="width:130px"
-              oninput="_fcParams.horizonMonths=+this.value;document.getElementById('fcHorizN').textContent=this.value;_fcSetDirty()">
-            <span id="fcHorizN" style="font-weight:700;min-width:22px">${horizonMonths}</span>
-            <span style="color:var(--txt2);font-size:13px">mesi</span>
-          </div>
-        </div>
-        <div>
-          <label style="font-size:12px;color:var(--txt2);display:block;margin-bottom:6px">Sensibilità outlier</label>
-          <select id="fcSens" class="form-control" onchange="_fcParams.sensitivity=this.value;_fcSetDirty()">
-            <option value="bassa" ${sensitivity==='bassa'?'selected':''}>Bassa  (k = 3.0)</option>
-            <option value="media" ${sensitivity==='media'?'selected':''}>Media  (k = 1.5)</option>
-            <option value="alta"  ${sensitivity==='alta' ?'selected':''}>Alta   (k = 1.0)</option>
-          </select>
-        </div>
-        <div style="display:flex;align-items:center;gap:10px">
-          <button class="btn btn-primary" onclick="_runForecastSaldo(true)">Aggiorna</button>
-          <span id="fcDirtyBadge" style="display:none;font-size:11px;color:var(--warn)">● modifiche in attesa</span>
-        </div>
-      </div>
-    </div>
-    <div id="fcOutput"></div>`;
+  // Inizializza default con il primo mese disponibile in DB (caricato a livello Analytics)
+  _fcInitDefaults(_analyticsOldestYm);
+  el.innerHTML = _fcControlsHtml() + `<div id="fcOutput"></div>`;
+  _fcBindControls();
   // Carica dal DB le transazioni escluse persistite
   await _fcLoadExcludedFromDb();
   await _runForecastSaldo();
@@ -1846,47 +1817,59 @@ async function deleteReportConfirm(id, name) {
 
 /* ─── Previsione Saldo ───────────────────────────────────────────────────── */
 
+// Costanti del modello forecast (raccolte in un solo posto per chiarezza)
+const _FC = {
+  Z90:            1.645,        // z-score IC 90%
+  TREND_HALFLIFE: 12,           // mesi: dopo questo periodo il trend dimezza
+  TREND_DECAY:    Math.log(2)/12, // ln(2)/halflife → 0.0578 per halflife=12
+  K_BY_SENS:      { bassa: 3.0, media: 1.5, alta: 1.0 },
+  HIST_MIN:       3,            // mesi minimi di storico richiesti
+  HORIZON_MAX:    36,           // mesi massimi di proiezione futura
+};
+
+// Helper: util mese/anno (riusa _MONTHS_IT, parseYm, fmtYm già usati altrove)
+const _fcParseYm = ym => ({ y: parseInt(ym.slice(0,4)), m: parseInt(ym.slice(5,7)) });
+const _fcFmtYm   = (y, m) => `${y}-${String(m).padStart(2,'0')}`;
+const _fcCurYm   = () => { const d = new Date(); return _fcFmtYm(d.getFullYear(), d.getMonth()+1); };
+const _fcPrevYm  = () => { const d = new Date(); const p = new Date(d.getFullYear(), d.getMonth()-1, 1); return _fcFmtYm(p.getFullYear(), p.getMonth()+1); };
+
+// Conta i mesi inclusivi tra fromYm e toYm (toYm >= fromYm)
+function _fcMonthsBetween(fromYm, toYm) {
+  const a = _fcParseYm(fromYm), b = _fcParseYm(toYm);
+  return (b.y - a.y) * 12 + (b.m - a.m) + 1;
+}
+
+// Inizializza i default di _fcParams in base a oggi + primo mese in DB
+function _fcInitDefaults(oldestYm) {
+  const d = new Date();
+  // Storico: 12 mesi indietro, ma clamp a oldestYm
+  const startStorico = new Date(d.getFullYear(), d.getMonth() - 12, 1);
+  const startYm = _fcFmtYm(startStorico.getFullYear(), startStorico.getMonth()+1);
+  if (!_fcParams.histFromYm)  _fcParams.histFromYm  = (oldestYm && startYm < oldestYm) ? oldestYm : startYm;
+  // Orizzonte: 6 mesi avanti dal mese corrente
+  if (!_fcParams.horizonToYm) {
+    const end = new Date(d.getFullYear(), d.getMonth() + 5, 1);
+    _fcParams.horizonToYm = _fcFmtYm(end.getFullYear(), end.getMonth()+1);
+  }
+}
+
+// Deriva i numeri (histMonths, horizonMonths) da _fcParams + clamp di sicurezza
+function _fcDeriveMonths() {
+  const curYm  = _fcCurYm();
+  const prevYm = _fcPrevYm();
+  const histFrom = _fcParams.histFromYm || prevYm;
+  const horizTo  = _fcParams.horizonToYm || curYm;
+  const histMonths    = Math.max(_FC.HIST_MIN, _fcMonthsBetween(histFrom, prevYm));
+  const horizonMonths = Math.max(1, Math.min(_FC.HORIZON_MAX, _fcMonthsBetween(curYm, horizTo)));
+  return { histMonths, horizonMonths };
+}
+
 async function renderForecastSaldo() {
   const container = document.getElementById('rResults');
-  const { histMonths, horizonMonths, sensitivity } = _fcParams;
-
-  container.innerHTML = `
-    <div class="card" style="padding:16px;margin-bottom:16px">
-      <div style="display:flex;flex-wrap:wrap;gap:20px;align-items:flex-end">
-        <div>
-          <label style="font-size:12px;color:var(--txt2);display:block;margin-bottom:6px">Storico analizzato</label>
-          <div style="display:flex;align-items:center;gap:8px">
-            <input type="range" id="fcHistR" min="3" max="60" value="${histMonths}" style="width:130px"
-              oninput="_fcParams.histMonths=+this.value;document.getElementById('fcHistN').textContent=this.value;_fcSetDirty()">
-            <span id="fcHistN" style="font-weight:700;min-width:22px">${histMonths}</span>
-            <span style="color:var(--txt2);font-size:13px">mesi</span>
-          </div>
-        </div>
-        <div>
-          <label style="font-size:12px;color:var(--txt2);display:block;margin-bottom:6px">Orizzonte previsione</label>
-          <div style="display:flex;align-items:center;gap:8px">
-            <input type="range" id="fcHorizR" min="1" max="36" value="${horizonMonths}" style="width:130px"
-              oninput="_fcParams.horizonMonths=+this.value;document.getElementById('fcHorizN').textContent=this.value;_fcSetDirty()">
-            <span id="fcHorizN" style="font-weight:700;min-width:22px">${horizonMonths}</span>
-            <span style="color:var(--txt2);font-size:13px">mesi</span>
-          </div>
-        </div>
-        <div>
-          <label style="font-size:12px;color:var(--txt2);display:block;margin-bottom:6px">Sensibilità outlier</label>
-          <select id="fcSens" class="form-control" onchange="_fcParams.sensitivity=this.value;_fcSetDirty()">
-            <option value="bassa" ${sensitivity==='bassa'?'selected':''}>Bassa  (k = 3.0)</option>
-            <option value="media" ${sensitivity==='media'?'selected':''}>Media  (k = 1.5)</option>
-            <option value="alta"  ${sensitivity==='alta' ?'selected':''}>Alta   (k = 1.0)</option>
-          </select>
-        </div>
-        <div style="display:flex;align-items:center;gap:10px">
-          <button class="btn btn-primary" onclick="_runForecastSaldo(true)">Aggiorna</button>
-          <span id="fcDirtyBadge" style="display:none;font-size:11px;color:var(--warn)">● modifiche in attesa</span>
-        </div>
-      </div>
-    </div>
-    <div id="fcOutput"></div>`;
-
+  if (!container) return;
+  _fcInitDefaults(_analyticsOldestYm);
+  container.innerHTML = _fcControlsHtml() + `<div id="fcOutput"></div>`;
+  _fcBindControls();
   await _runForecastSaldo();
 }
 
@@ -1895,10 +1878,130 @@ function _fcSetDirty() {
   if (badge) badge.style.display = '';
 }
 
+// ── HTML controlli (stesso pattern degli altri report Analytics) ────────────
+// Preset | Da: [Y][M] | A: [Y][M] | Sensibilità: [select]
+function _fcControlsHtml() {
+  _fcInitDefaults(_analyticsOldestYm);
+  const oldestYm = _analyticsOldestYm || _fcPrevYm();
+  const prevYm   = _fcPrevYm();
+  const curYm    = _fcCurYm();
+  const d = new Date();
+  const maxHorizonDate = new Date(d.getFullYear(), d.getMonth() + _FC.HORIZON_MAX, 1);
+  const maxHorizonYm   = _fcFmtYm(maxHorizonDate.getFullYear(), maxHorizonDate.getMonth()+1);
+
+  const hf  = _fcParseYm(_fcParams.histFromYm);
+  const ht  = _fcParseYm(_fcParams.horizonToYm);
+  const sensitivity = _fcParams.sensitivity;
+
+  return `
+    <div class="card" style="padding:10px 14px;margin-bottom:16px">
+      <div style="display:flex;align-items:center;gap:6px;flex-wrap:nowrap;white-space:nowrap;overflow-x:auto">
+        <label style="font-size:13px;color:var(--txt2)" title="Inizio dello storico analizzato">Da:</label>
+        <select id="fcHistY" class="form-control" style="font-size:12px;padding:3px 8px;width:72px">
+          ${_buildYearOptions(oldestYm, prevYm, hf.y)}
+        </select>
+        <select id="fcHistM" class="form-control" style="font-size:12px;padding:3px 8px;width:60px">
+          ${_buildMonthsForYear(hf.y, oldestYm, prevYm, hf.m)}
+        </select>
+        <button class="btn btn-xs btn-ghost" id="fcPresetHist3"  title="Storico ultimi 3 mesi">3m</button>
+        <button class="btn btn-xs btn-ghost" id="fcPresetHist6"  title="Storico ultimi 6 mesi">6m</button>
+        <button class="btn btn-xs btn-ghost" id="fcPresetHist12" title="Storico ultimi 12 mesi">12m</button>
+        <div style="width:1px;height:20px;background:var(--border);margin:0 10px"></div>
+        <label style="font-size:13px;color:var(--txt2)" title="Fine della previsione">A:</label>
+        <select id="fcHorizY" class="form-control" style="font-size:12px;padding:3px 8px;width:72px">
+          ${_buildYearOptions(curYm, maxHorizonYm, ht.y)}
+        </select>
+        <select id="fcHorizM" class="form-control" style="font-size:12px;padding:3px 8px;width:60px">
+          ${_buildMonthsForYear(ht.y, curYm, maxHorizonYm, ht.m)}
+        </select>
+        <button class="btn btn-xs btn-ghost" id="fcPresetHoriz3"  title="Previsione prossimi 3 mesi">3m</button>
+        <button class="btn btn-xs btn-ghost" id="fcPresetHoriz6"  title="Previsione prossimi 6 mesi">6m</button>
+        <button class="btn btn-xs btn-ghost" id="fcPresetHoriz12" title="Previsione prossimi 12 mesi">12m</button>
+        <div style="width:1px;height:20px;background:var(--border);margin:0 10px"></div>
+        <label style="font-size:13px;color:var(--txt2)" title="Quanto un mese deve essere atipico per essere flaggato come outlier">Sensibilità:</label>
+        <select id="fcSens" class="form-control" style="font-size:12px;padding:3px 8px">
+          <option value="bassa" ${sensitivity==='bassa'?'selected':''}>Bassa  (k=3.0)</option>
+          <option value="media" ${sensitivity==='media'?'selected':''}>Media  (k=1.5)</option>
+          <option value="alta"  ${sensitivity==='alta' ?'selected':''}>Alta   (k=1.0)</option>
+        </select>
+        <span id="fcDirtyBadge" style="display:none;font-size:11px;color:var(--warn);margin-left:8px">● modifiche in attesa</span>
+      </div>
+    </div>`;
+}
+
+// Bind handlers ai controlli (chiamato dopo aver inserito _fcControlsHtml nel DOM)
+function _fcBindControls() {
+  const oldestYm = _analyticsOldestYm || _fcPrevYm();
+  const prevYm   = _fcPrevYm();
+  const curYm    = _fcCurYm();
+  const d = new Date();
+  const maxHorizonDate = new Date(d.getFullYear(), d.getMonth() + _FC.HORIZON_MAX, 1);
+  const maxHorizonYm   = _fcFmtYm(maxHorizonDate.getFullYear(), maxHorizonDate.getMonth()+1);
+
+  // Clamp helper: assicura che value selezionato sia dentro [min, max]
+  const _clampYm = (ym, minYm, maxYm) => ym < minYm ? minYm : (ym > maxYm ? maxYm : ym);
+
+  const _onHist = () => {
+    const y = parseInt(document.getElementById('fcHistY').value);
+    const m = parseInt(document.getElementById('fcHistM').value);
+    _fcParams.histFromYm = _clampYm(_fcFmtYm(y, m), oldestYm, prevYm);
+    // Ricostruisci i mesi disponibili per il nuovo anno
+    const hf2 = _fcParseYm(_fcParams.histFromYm);
+    document.getElementById('fcHistM').innerHTML = _buildMonthsForYear(hf2.y, oldestYm, prevYm, hf2.m);
+    _runForecastSaldo(true);
+  };
+  const _onHoriz = () => {
+    const y = parseInt(document.getElementById('fcHorizY').value);
+    const m = parseInt(document.getElementById('fcHorizM').value);
+    _fcParams.horizonToYm = _clampYm(_fcFmtYm(y, m), curYm, maxHorizonYm);
+    const ht2 = _fcParseYm(_fcParams.horizonToYm);
+    document.getElementById('fcHorizM').innerHTML = _buildMonthsForYear(ht2.y, curYm, maxHorizonYm, ht2.m);
+    _runForecastSaldo(true);
+  };
+  const _onSens = function() {
+    _fcParams.sensitivity = this.value;
+    _runForecastSaldo(true);
+  };
+  document.getElementById('fcHistY').onchange  = _onHist;
+  document.getElementById('fcHistM').onchange  = _onHist;
+  document.getElementById('fcHorizY').onchange = _onHoriz;
+  document.getElementById('fcHorizM').onchange = _onHoriz;
+  document.getElementById('fcSens').onchange   = _onSens;
+
+  // Preset Storico: ultimi N mesi prima del corrente
+  const _applyHistPreset = (months) => {
+    const today = new Date();
+    const histStart = new Date(today.getFullYear(), today.getMonth() - months, 1);
+    const newYm = _clampYm(_fcFmtYm(histStart.getFullYear(), histStart.getMonth()+1), oldestYm, prevYm);
+    _fcParams.histFromYm = newYm;
+    const hf2 = _fcParseYm(newYm);
+    document.getElementById('fcHistY').innerHTML = _buildYearOptions(oldestYm, prevYm, hf2.y);
+    document.getElementById('fcHistM').innerHTML = _buildMonthsForYear(hf2.y, oldestYm, prevYm, hf2.m);
+    _runForecastSaldo(true);
+  };
+  // Preset Previsione: prossimi N mesi dal corrente
+  const _applyHorizPreset = (months) => {
+    const today = new Date();
+    const horizonEnd = new Date(today.getFullYear(), today.getMonth() + months - 1, 1);
+    const newYm = _clampYm(_fcFmtYm(horizonEnd.getFullYear(), horizonEnd.getMonth()+1), curYm, maxHorizonYm);
+    _fcParams.horizonToYm = newYm;
+    const ht2 = _fcParseYm(newYm);
+    document.getElementById('fcHorizY').innerHTML = _buildYearOptions(curYm, maxHorizonYm, ht2.y);
+    document.getElementById('fcHorizM').innerHTML = _buildMonthsForYear(ht2.y, curYm, maxHorizonYm, ht2.m);
+    _runForecastSaldo(true);
+  };
+  document.getElementById('fcPresetHist3').onclick   = () => _applyHistPreset(3);
+  document.getElementById('fcPresetHist6').onclick   = () => _applyHistPreset(6);
+  document.getElementById('fcPresetHist12').onclick  = () => _applyHistPreset(12);
+  document.getElementById('fcPresetHoriz3').onclick  = () => _applyHorizPreset(3);
+  document.getElementById('fcPresetHoriz6').onclick  = () => _applyHorizPreset(6);
+  document.getElementById('fcPresetHoriz12').onclick = () => _applyHorizPreset(12);
+}
+
 async function _runForecastSaldo(keepExclusions = false) {
-  const { histMonths, horizonMonths, sensitivity } = _fcParams;
-  const kMap = { bassa: 3.0, media: 1.5, alta: 1.0 };
-  const k    = kMap[sensitivity] || 1.5;
+  const { sensitivity } = _fcParams;
+  const { histMonths, horizonMonths } = _fcDeriveMonths();
+  const k    = _FC.K_BY_SENS[sensitivity] || 1.5;
   const out  = document.getElementById('fcOutput');
   if (!out) return;
   // Nascondi badge "modifiche in attesa"
@@ -1912,12 +2015,14 @@ async function _runForecastSaldo(keepExclusions = false) {
     // tx exclusions persistite in DB — non si resettano con "Calcola previsione"
   }
 
-  // ── Carica dati mensili + struttura spese + transazioni mesi espansi ────────
+  // ── Carica dati mensili + struttura spese + scheduled + tx mesi espansi ────
+  // schedForecast copre mese corrente + horizonMonths mesi futuri
   const toFetch = [..._fcExpandedMonths].filter(ym => !_fcMonthTxCache[ym]);
-  const [monthlyData, dashStats, expSplit] = await Promise.all([
+  const [monthlyData, dashStats, expSplit, schedForecast] = await Promise.all([
     api.getMonthlyBalance(histMonths),
     api.getDashboardStats(new Date().getFullYear()),
     api.getForecastExpenseSplit(histMonths),
+    api.getScheduledForecast(horizonMonths + 1),
     ...toFetch.map(async ym => {
       const [y, mo] = ym.split('-');
       const lastDay = new Date(+y, +mo, 0).getDate();
@@ -1955,10 +2060,13 @@ async function _runForecastSaldo(keepExclusions = false) {
   const adjExp = expenses.map((v, i) => v - (_fcTxAdjustments[months[i]]?.expAdj || 0));
   const adjNet = months.map((_, i) => adjInc[i] - adjExp[i]);
 
-  // ── IQR outlier sui valori aggiustati ────────────────────────────────────
+  // ── IQR outlier sui valori aggiustati (entrate, uscite e netto) ─────────
+  // Aggiungere il netto cattura mesi con entrate+uscite singolarmente normali
+  // ma combinazione anomala (es. due spese grosse non outlier da sole).
   const incOut       = _fcIqrOutliers(adjInc, k);
   const expOut       = _fcIqrOutliers(adjExp, k);
-  const autoExcluded = new Set(months.filter((_, i) => incOut[i] || expOut[i]));
+  const netOut       = _fcIqrOutliersSigned(adjNet, k);
+  const autoExcluded = new Set(months.filter((_, i) => incOut[i] || expOut[i] || netOut[i]));
 
   // ── Esclusioni finali: (auto ∪ manuali-esclusi) − manuali-inclusi ─────────
   const finalExcl = new Set([...autoExcluded, ..._fcManualExcl].filter(m => !_fcManualIncl.has(m)));
@@ -2023,36 +2131,80 @@ async function _runForecastSaldo(keepExclusions = false) {
     histBal[i] = histBal[i + 1] - nets[i + 1];
   }
 
+  // ── Pianificate future: delta per mese rispetto alla media scheduled ─────
+  // schedForecast = [{ ym, sched_income, sched_expense, sched_income_remaining,
+  //                   sched_expense_remaining }, …] indice 0 = mese corrente
+  const schedFc        = Array.isArray(schedForecast) ? schedForecast : [];
+  const schedNet       = schedFc.map(r => Number(r.sched_income)           - Number(r.sched_expense));
+  const schedRemNet    = schedFc.map(r => Number(r.sched_income_remaining) - Number(r.sched_expense_remaining));
+  // Media calcolata sui soli mesi pieni futuri (escluso il corrente parziale)
+  const _fullFutSched  = schedNet.slice(1);
+  const schedAvg       = _fullFutSched.length
+    ? _fullFutSched.reduce((a, b) => a + b, 0) / _fullFutSched.length : 0;
+  // Componente "residuale" = parte di meanNet attribuibile al non-scheduled.
+  // Assumiamo che le scheduled future siano rappresentative del flusso scheduled
+  // storico — se così è, sottraendo schedAvg dal meanNet otteniamo il flusso
+  // saltuario + variabile. Su questa base aggiungiamo poi i singoli mesi.
+  const residualMean   = meanNet - schedAvg;
+
   // ── Proiezione futura con IC 90% (crescita errore √t) ───────────────────
-  // Flusso mensile = meanNet + trend ammortizzato.
-  // Il trend è scalato per R² (affidabilità fit) e decade esponenzialmente
-  // nel tempo (dimezza ogni 12 mesi): evita estrapolazioni irrealistiche
-  // su orizzonti lunghi o con pochi dati, riportando verso meanNet nel lungo periodo.
-  // Con slope=0 o R²=0: flusso = meanNet puro.
-  const projLabels= [], projBal = [], projHigh = [], projLow = [];
-  let   bal       = balAtEndOfLastMonth;
-  for (let i = 1; i <= horizonMonths; i++) {
+  // Modello per ogni mese futuro m (incluso il mese corrente al primo punto):
+  //   Δbal(m) = residualMean + schedNet(m) + slope * R² * exp(-λ·(τ-1))
+  // dove τ è il tempo trascorso dal momento "saldo attuale" misurato in mesi
+  // (mese corrente parziale = fractionRemaining, mese m completo = m).
+  // schedNet(m) sostituisce il "valor medio scheduled": i picchi (rate annuali,
+  // tredicesime) escono come spike/scalini nella curva, invece di essere mediati.
+  // Il trend decade esponenzialmente (dimezza ogni TREND_HALFLIFE mesi) per
+  // evitare estrapolazioni irrealistiche su orizzonti lunghi.
+  //
+  // Primo punto = fine del mese corrente:
+  //   parte già accaduta è in currentBalance (ricavata da dashStats),
+  //   aggiungiamo scheduled rimanenti del mese corrente + residuo prorata.
+  const daysInCurMonth   = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
+  const daysRemaining    = Math.max(0, daysInCurMonth - now.getDate() + 1);
+  const fractionRemaining = daysRemaining / daysInCurMonth;
+  const schedRemCur      = schedRemNet[0] || 0;
+  // residuo + trend (anch'esso prorata per la frazione rimanente, decay=1 perché τ≈0)
+  const balEndCurMonth   = currentBalance
+                          + schedRemCur
+                          + (residualMean + reg.slope * reg.r2) * fractionRemaining;
+  const curYm            = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+
+  const projLabels = [], projBal = [], projHigh = [], projLow = [];
+  // Primo punto: mese corrente completato
+  projLabels.push(curYm);
+  projBal.push(balEndCurMonth);
+  const m0Margin = _FC.Z90 * stdBaseline * Math.sqrt(Math.max(fractionRemaining, 0.0001));
+  projHigh.push(balEndCurMonth + m0Margin);
+  projLow .push(balEndCurMonth - m0Margin);
+  let bal = balEndCurMonth;
+
+  // Mesi successivi: parte da i=1 (= mese corrente+1) fino a horizonMonths-1
+  for (let i = 1; i < horizonMonths; i++) {
     const d  = new Date(now.getFullYear(), now.getMonth() + i, 1);
     const ym = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
-    const trendDecay = reg.r2 * Math.exp(-0.058 * (i - 1));  // R²-scaled, dimezza ogni 12 mesi
-    bal += meanNet + reg.slope * trendDecay;
-    const margin = 1.645 * stdBaseline * Math.sqrt(i);   // IC 90% — usa stdBaseline (senza rumore saltuario)
+    const trendDecay = reg.r2 * Math.exp(-_FC.TREND_DECAY * (i - 1));
+    const monthSchedNet = schedNet[i] != null ? schedNet[i] : schedAvg;
+    bal += residualMean + monthSchedNet + reg.slope * trendDecay;
+    const margin = _FC.Z90 * stdBaseline * Math.sqrt(fractionRemaining + i);
     projLabels.push(ym);
     projBal.push(bal);
     projHigh.push(bal + margin);
-    projLow.push(bal  - margin);
+    projLow .push(bal - margin);
   }
 
   // ── Affidabilità composita ────────────────────────────────────────────────
-  // 45% stabilità strutturale (cvBaseline — senza rumore saltuario)
-  // 25% bontà del trend (R²)
-  // 30% quantità dati
-  const cvScore   = Math.max(0, 1 - Math.min(cvBaseline, 2) / 2);
-  const r2Score   = Math.max(0, reg.r2);
-  const nScore    = Math.min(n / histMonths, 1);
+  // Compone tre fattori che pesano in modo complementare:
+  //   45% stabilità strutturale (cvBaseline — al netto del rumore saltuario)
+  //   25% bontà del fit lineare (R²)
+  //   30% quantità di dati storici usati
+  const cvScore     = Math.max(0, 1 - Math.min(cvBaseline, 2) / 2);
+  const r2Score     = Math.max(0, reg.r2);
+  const nScore      = Math.min(n / histMonths, 1);
   const reliability = (cvScore * 0.45 + r2Score * 0.25 + nScore * 0.30) * 100;
-  // Precisione del flusso: variabilità totale vissuta (cv su stdNet, non baseline)
-  const precision = Math.max(0, Math.min(100, (1 - cv) * 100));
+  // Precisione del flusso: stima della variabilità "vissuta" (cv totale).
+  // Va mostrata come info diagnostica, non come metrica primaria.
+  const precision   = Math.max(0, Math.min(100, (1 - cv) * 100));
 
   const outlierCount  = isOutlier.filter(Boolean).length;
   const autoNormCnt   = months.filter(m => autoExcluded.has(m) && !finalExcl.has(m)).length;
@@ -2067,7 +2219,64 @@ async function _runForecastSaldo(keepExclusions = false) {
   const netColor   = meanNet  >= 0 ? 'var(--income)' : 'var(--expense)';
   const slopeColor = reg.slope >= 0 ? 'var(--income)' : 'var(--expense)';
   const finalBal   = projBal.at(-1);
-  const finalColor = finalBal >= currentBalance ? 'var(--income)' : 'var(--expense)';
+  const finalDelta = finalBal - currentBalance;
+  const finalColor = finalDelta >= 0 ? 'var(--income)' : 'var(--expense)';
+
+  // ── Insight automatici ───────────────────────────────────────────────────
+  // Bullet-style messaggi che evidenziano la previsione in linguaggio umano.
+  const insights = [];
+  const _absDelta = Math.abs(finalDelta);
+  const _deltaSign = finalDelta >= 0 ? '+' : '−';
+  const _trendVerbo = finalDelta >=  500 ? 'crescerà'
+                    : finalDelta <= -500 ? 'calerà'
+                                         : 'resterà stabile';
+  insights.push({
+    icon: finalDelta >=  500 ? '📈'
+        : finalDelta <= -500 ? '📉' : '→',
+    color: finalColor,
+    text: `Saldo previsto a ${horizonMonths} mesi: <b>${fmt.currency(finalBal)}</b> ` +
+          `(${_trendVerbo} di <b>${_deltaSign}${fmt.currency(_absDelta)}</b> vs oggi).`
+  });
+  // Range IC al termine dell'orizzonte
+  insights.push({
+    icon: '🎯',
+    color: 'var(--txt2)',
+    text: `Range realistico (90% di confidenza): da <b>${fmt.currency(projLow.at(-1))}</b> ` +
+          `a <b>${fmt.currency(projHigh.at(-1))}</b>.`
+  });
+  // Rischio sotto zero entro l'orizzonte (stima sul limite inferiore IC)
+  const _firstBelowZero = projLow.findIndex(v => v < 0);
+  if (_firstBelowZero >= 0) {
+    insights.push({
+      icon: '⚠',
+      color: 'var(--expense)',
+      text: `Possibile rischio saldo negativo entro <b>${_firstBelowZero + 1} mesi</b> ` +
+            `(scenario sfavorevole IC 90%).`
+    });
+  } else if (projBal.at(-1) < currentBalance * 0.5 && currentBalance > 0) {
+    insights.push({
+      icon: '⚠',
+      color: 'var(--warn)',
+      text: `Saldo previsto < 50% di quello attuale: valutare se ridurre spese o aumentare entrate.`
+    });
+  }
+  // Affidabilità bassa → invita ad allargare lo storico
+  if (reliability < 45) {
+    insights.push({
+      icon: '🔍',
+      color: 'var(--warn)',
+      text: `Affidabilità modello bassa (${reliability.toFixed(0)}%). ` +
+            `Allarga lo storico o normalizza i mesi anomali per stime più solide.`
+    });
+  }
+  // Picchi scheduled future (delta > 1.5x stdBaseline) — colonna a parte
+  const _schedPeaks = [];
+  for (let i = 1; i < schedNet.length && i <= horizonMonths; i++) {
+    const delta = schedNet[i] - schedAvg;
+    if (Math.abs(delta) > 1.5 * stdBaseline && Math.abs(delta) > 300) {
+      _schedPeaks.push({ ym: schedFc[i].ym, delta });
+    }
+  }
 
   // ── Helper: etichetta stato cella mese ────────────────────────────────────
   const _monthStato = m => {
@@ -2084,14 +2293,80 @@ async function _runForecastSaldo(keepExclusions = false) {
   // sub-tabella tx: usa la funzione di modulo _fcBuildTxSubrow
 
   // ── Render ────────────────────────────────────────────────────────────────
+  // Hero card: la previsione è la cosa principale, sta in alto e grande
+  const heroBg = finalDelta >= 0
+    ? 'linear-gradient(135deg, rgba(80,200,120,.10), rgba(80,200,120,.02))'
+    : 'linear-gradient(135deg, rgba(240,80,80,.10), rgba(240,80,80,.02))';
+  const heroBorder = finalDelta >= 0 ? 'rgba(80,200,120,.35)' : 'rgba(240,80,80,.35)';
+
   out.innerHTML = `
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:12px;margin-bottom:18px">
+    <div class="card" style="padding:18px 20px;margin-bottom:16px;background:${heroBg};border-left:4px solid ${heroBorder}">
+      <div style="display:flex;flex-wrap:wrap;gap:24px;align-items:center;justify-content:space-between">
+        <div style="flex:1;min-width:240px">
+          <div style="font-size:11px;color:var(--txt2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">
+            Saldo previsto fra ${horizonMonths} mesi
+          </div>
+          <div style="font-size:26px;font-weight:700;color:var(--txt);line-height:1.1">
+            ${fmt.currency(finalBal)}
+          </div>
+          <div style="font-size:13px;color:${finalColor};margin-top:4px;font-weight:600">
+            ${finalDelta>=0?'▲ +':'▼ '}${fmt.currency(finalDelta)} vs oggi (${fmt.currency(currentBalance)})
+          </div>
+        </div>
+        <div style="text-align:right;min-width:200px">
+          <div style="font-size:11px;color:var(--txt2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">
+            Range (IC 90%)
+          </div>
+          <div style="font-size:15px;font-weight:600;color:var(--txt)">
+            ${fmt.currency(projLow.at(-1))} ↔ ${fmt.currency(projHigh.at(-1))}
+          </div>
+          <div style="font-size:12px;color:var(--txt2);margin-top:4px">
+            Affidabilità: <b style="color:${relColor}">${reliability.toFixed(0)}%</b>
+            <span style="opacity:.7;font-size:11px">(prec. ${precision.toFixed(0)}%)</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    ${insights.length || _schedPeaks.length ? `
+    <div class="card" style="padding:12px 16px;margin-bottom:16px">
+      <div style="display:grid;grid-template-columns:${_schedPeaks.length ? '1fr 1fr' : '1fr'};gap:18px">
+        <div>
+          ${insights.map(ins => `
+            <div style="display:flex;gap:10px;align-items:flex-start;padding:4px 0;font-size:13px;color:var(--txt)">
+              <span style="color:${ins.color};flex-shrink:0;font-size:14px">${ins.icon}</span>
+              <span>${ins.text}</span>
+            </div>
+          `).join('')}
+        </div>
+        ${_schedPeaks.length ? `
+        <div style="border-left:1px solid var(--border);padding-left:16px">
+          <div style="font-size:11px;font-weight:700;color:var(--txt2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">
+            Picchi pianificati (${_schedPeaks.length})
+          </div>
+          <div style="font-size:11px;color:var(--txt2);margin-bottom:8px;line-height:1.4"
+               title="Soglia per essere flaggato: |delta| &gt; max(1.5·σ_baseline, 300 €)">
+            Media scheduled: <b style="color:${schedAvg >= 0 ? 'var(--income)' : 'var(--expense)'}">${schedAvg >= 0 ? '+' : ''}${fmt.currency(schedAvg)}</b>/mese
+            <span style="opacity:.7">· soglia ±${fmt.currency(Math.max(1.5 * stdBaseline, 300))}</span>
+          </div>
+          <div style="display:grid;grid-template-columns:auto auto 1fr;gap:4px 10px;font-size:12px;align-items:center">
+            ${_schedPeaks.map(p => `
+              <span style="font-size:14px;line-height:1">${p.delta >= 0 ? '💰' : '💸'}</span>
+              <span style="color:var(--txt2);font-weight:600">${p.ym}</span>
+              <span style="color:${p.delta >= 0 ? 'var(--income)' : 'var(--expense)'};font-weight:600;text-align:right">
+                ${p.delta >= 0 ? '+' : ''}${fmt.currency(p.delta)}
+              </span>
+            `).join('')}
+          </div>
+        </div>` : ''}
+      </div>
+    </div>` : ''}
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px;margin-bottom:16px">
       ${_fcCard('Entrate medie/mese',  fmt.currency(meanInc),  'var(--income)')}
       ${_fcCard('Uscite medie/mese',   fmt.currency(meanExp),  'var(--expense)')}
       ${_fcCard('Flusso netto medio',  (meanNet>=0?'+':'')+fmt.currency(meanNet), netColor)}
       ${_fcCard('Trend mensile',       (reg.slope>=0?'+':'')+fmt.currency(reg.slope)+'/m', slopeColor)}
-      ${_fcCard('Affidabilità',        reliability.toFixed(0)+'%', relColor)}
-      ${_fcCard('Precisione flusso',   precision.toFixed(0)+'%',   relColor)}
     </div>
 
     <div class="card" style="padding:16px;margin-bottom:16px">
@@ -2123,12 +2398,13 @@ async function _runForecastSaldo(keepExclusions = false) {
       <div class="card" style="padding:16px">
         <div style="font-size:13px;font-weight:600;margin-bottom:12px;color:var(--txt2)">Margini d'errore IC 90%</div>
         <table style="width:100%;font-size:12px;border-collapse:collapse">
-          ${_fcRow('Errore a  1 mese',  '± '+fmt.currency(1.645*stdBaseline*Math.sqrt(1)))}
-          ${_fcRow('Errore a  3 mesi',  '± '+fmt.currency(1.645*stdBaseline*Math.sqrt(3)))}
-          ${_fcRow('Errore a  6 mesi',  '± '+fmt.currency(1.645*stdBaseline*Math.sqrt(6)))}
-          ${_fcRow('Errore a 12 mesi',  '± '+fmt.currency(1.645*stdBaseline*Math.sqrt(12)))}
+          ${_fcRow('Errore a  1 mese',  '± '+fmt.currency(_FC.Z90*stdBaseline*Math.sqrt(1)))}
+          ${_fcRow('Errore a  3 mesi',  '± '+fmt.currency(_FC.Z90*stdBaseline*Math.sqrt(3)))}
+          ${_fcRow('Errore a  6 mesi',  '± '+fmt.currency(_FC.Z90*stdBaseline*Math.sqrt(6)))}
+          ${_fcRow('Errore a 12 mesi',  '± '+fmt.currency(_FC.Z90*stdBaseline*Math.sqrt(12)))}
           <tr><td colspan="2" style="padding:4px 0;border-top:1px solid var(--border)"></td></tr>
-          ${_fcRow('Saldo previsto a '+horizonMonths+'m', fmt.currency(finalBal), finalColor)}
+          ${_fcRow('Scheduled medie/mese (futuro)', (schedAvg>=0?'+':'')+fmt.currency(schedAvg))}
+          ${_fcRow('Residuo non-scheduled',         (residualMean>=0?'+':'')+fmt.currency(residualMean))}
           ${_fcRow('Limite inferiore IC', fmt.currency(projLow.at(-1)))}
           ${_fcRow('Limite superiore IC', fmt.currency(projHigh.at(-1)))}
         </table>
@@ -2263,14 +2539,52 @@ async function _runForecastSaldo(keepExclusions = false) {
   // dataset 4: marcatori outlier (triangoli gialli sulla linea storica)
   const dsOutlier   = [...histBal.map((v,i) => isOutlier[i] ? v : null), ...Array(horizonMonths).fill(null)];
 
+  // ── Auto-fit asse Y: include banda IC e punti storici, con padding ──────
+  const _allY = [...histBal, ...projBal, ...projHigh, ...projLow]
+    .filter(v => v != null && Number.isFinite(v));
+  const yMin = Math.min(..._allY);
+  const yMax = Math.max(..._allY);
+  const yPad = Math.max(50, (yMax - yMin) * 0.07);
+
+  // Risolvi CSS vars al runtime (il canvas Chart.js non interpreta var(--…))
+  const _css      = getComputedStyle(document.documentElement);
+  const _accentCol = _css.getPropertyValue('--accent').trim() || '#4a9eff';
+  const _txt2Col   = _css.getPropertyValue('--txt2').trim()   || '#888';
+
+  // Plugin inline: linea verticale "oggi" tra storico e proiezione
+  const todayLinePlugin = {
+    id: 'fcTodayLine',
+    afterDatasetsDraw(chart) {
+      const xS = chart.scales.x, yS = chart.scales.y;
+      if (!xS || !yS) return;
+      // Posizione: a cavallo tra ultimo storico (idx nHist-1) e primo proj (idx nHist)
+      const xPos = (xS.getPixelForValue(nHist - 1) + xS.getPixelForValue(nHist)) / 2;
+      const c = chart.ctx;
+      c.save();
+      c.beginPath();
+      c.setLineDash([4, 4]);
+      c.strokeStyle = _accentCol;
+      c.lineWidth = 1.2;
+      c.moveTo(xPos, yS.top);
+      c.lineTo(xPos, yS.bottom);
+      c.stroke();
+      c.setLineDash([]);
+      c.fillStyle = _accentCol;
+      c.font = '11px sans-serif';
+      c.fillText('oggi', xPos + 4, yS.top + 12);
+      c.restore();
+    },
+  };
+
   const ctx = document.getElementById('fcChartCanvas').getContext('2d');
   _fcChart = new Chart(ctx, {
     type: 'line',
+    plugins: [todayLinePlugin],
     data: {
       labels: allLabels,
       datasets: [
         { label: 'Saldo storico',
-          data: dsHist, borderColor: 'var(--txt2)', borderWidth: 2,
+          data: dsHist, borderColor: _txt2Col, borderWidth: 2,
           backgroundColor: 'transparent', pointRadius: 3, tension: 0.3,
           spanGaps: false, fill: false },
         { label: '_ciHigh',
@@ -2282,7 +2596,7 @@ async function _runForecastSaldo(keepExclusions = false) {
           backgroundColor: 'transparent',
           pointRadius: 0, tension: 0.3, spanGaps: false, fill: false },
         { label: 'Saldo previsto',
-          data: dsProj, borderColor: 'var(--accent)', borderWidth: 2.5,
+          data: dsProj, borderColor: _accentCol, borderWidth: 2.5,
           borderDash: [6,4], backgroundColor: 'transparent',
           pointRadius: 3, tension: 0.3, spanGaps: false, fill: false },
         { label: 'Mesi anomali',
@@ -2314,7 +2628,12 @@ async function _runForecastSaldo(keepExclusions = false) {
       },
       scales: {
         x: { ticks: { color:'var(--txt2)', maxTicksLimit:14 }, grid:{ color:'var(--border)' } },
-        y: { ticks: { color:'var(--txt2)', callback: v => fmt.currency(v) }, grid:{ color:'var(--border)' } },
+        y: {
+          ticks: { color:'var(--txt2)', callback: v => fmt.currency(v) },
+          grid:  { color:'var(--border)' },
+          suggestedMin: yMin - yPad,
+          suggestedMax: yMax + yPad,
+        },
       },
     },
   });
@@ -2444,6 +2763,7 @@ function _fcBuildTxSubrow(ym) {
 
 // ── Rilevamento outlier IQR ───────────────────────────────────────────────────
 // Restituisce array di boolean: true = il valore è anomalo rispetto alla distribuzione
+// Versione "positiva": ignora zeri/negativi (per entrate/uscite, mai negative)
 function _fcIqrOutliers(values, k) {
   const pos = values.filter(v => v > 0);
   if (pos.length < 4) return values.map(() => false);
@@ -2454,6 +2774,19 @@ function _fcIqrOutliers(values, k) {
   const hi  = q3 + k * iqr;
   const lo  = Math.max(0, q1 - k * iqr);
   return values.map(v => v > 0 && (v > hi || v < lo));
+}
+
+// Versione "signed": funziona anche con valori negativi (es. flusso netto)
+function _fcIqrOutliersSigned(values, k) {
+  if (values.length < 4) return values.map(() => false);
+  const sorted = [...values].sort((a,b) => a - b);
+  const q1  = _fcPct(sorted, 25);
+  const q3  = _fcPct(sorted, 75);
+  const iqr = q3 - q1;
+  if (iqr === 0) return values.map(() => false);
+  const hi = q3 + k * iqr;
+  const lo = q1 - k * iqr;
+  return values.map(v => v > hi || v < lo);
 }
 
 function _fcPct(sorted, p) {

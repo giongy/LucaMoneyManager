@@ -11,7 +11,7 @@ Due piattaforme: **desktop (primaria)** e **Android (secondaria)**, database SQL
 - **Linguaggio:** Java 25, Maven 3.x
 - **UI:** JCEF v143 (Chromium embedded) + Swing per dialogs/titlebar/splash
 - **Frontend:** Vanilla JS puro (`src/main/resources/web/`, modulare in `js/pages/*.js`), no React/Vue
-- **Versione:** 1.14.0 — output `target/moneymanager-1.14.0.jar` (fat JAR, web/ esclusa)
+- **Versione:** 1.14.2 — output `target/moneymanager-1.14.2.jar` (fat JAR, web/ esclusa)
 - **Web assets:** serviti da filesystem (cartella `web/` accanto al `.exe` in produzione, `target/classes/web/` in IDE)
 - **DB path:** `%APPDATA%\Roaming\LucaMoneyManager\data.db`
 - **Build:** `mvn package` oppure `build.bat`
@@ -19,7 +19,7 @@ Due piattaforme: **desktop (primaria)** e **Android (secondaria)**, database SQL
 ### Android
 - **Linguaggio:** Kotlin (Java 17 compat), Gradle Kotlin DSL
 - **UI:** AndroidX + Material Design 3, min SDK 26, target SDK 35
-- **App ID:** `com.example.luca_wallet`, versione 2.0
+- **App ID:** `com.example.luca_wallet`, versione 2.1 (versionCode 3)
 - **Path:** `mobile/android/`
 - **CI/CD:** GitHub Actions — APK firmato automatico su push a master
 
@@ -28,22 +28,29 @@ Due piattaforme: **desktop (primaria)** e **Android (secondaria)**, database SQL
 ## Architettura desktop
 
 ```
-JS Frontend (app.js)
+JS Frontend (js/pages/*.js, ~10 moduli)
     ↓  cefQuery (payload JSON in Base64)
-Bridge.java (420 LOC) — dispatch 40+ operazioni
+Bridge.java (~740 LOC) — dispatch ~120 operazioni
     ↓
-Database.java (2378 LOC) — tutte le query JDBC
+Database.java (~3170 LOC) — tutte le query JDBC
     ↓
 SQLite
 ```
 
-**Classi principali:** `App`, `MainWindow`, `Bridge`, `Database`, `Settings`, `IconFactory`
+**Classi Java:** `App` (entry point), `MainWindow` (Swing + JCEF), `Bridge` (dispatch JS↔Java), `Database` (JDBC), `Settings` (preferenze utente), `IconFactory` (generazione .ico), `SplashWindow` (splash Swing 700ms), `TrayManager` (system tray), `SingleInstance` (lock istanza unica), `WebServer` (serve web/ da filesystem), `DbLogger` (logging query)
+
+**Moduli JS pagine** (LOC indicativi): `analytics` (2500), `portfolio` (1790), `budget` (1760), `settings` (1400), `transactions` (1100), `scheduled` (1010), `dashboard` (580), `accounts` (360), `categories` (250), `forecasts` (230), `ranges` (190), `logviewer` (190), `tags` (85)
 
 ---
 
-## Schema DB (v4, 13+ tabelle)
+## Schema DB (v13, 20 tabelle)
 
-`accounts`, `categories` (gerarchiche), `transactions`, `transaction_splits`, `transaction_tags`, `tags`, `budgets`, `budget_config`, `scheduled_transactions`, `portfolio`, `portfolio_transactions`, `schema_version`, `sync_meta`
+- **Core:** `accounts`, `categories` (gerarchiche, `expense_nature`), `transactions` (`reconciled`, `attachment_path`, `color`), `transaction_splits`, `transaction_tags`, `tags` (`is_system`, `system_key`)
+- **Budget:** `budgets`, `budget_config` (master_amount mensile/annuale)
+- **Pianificate:** `scheduled_transactions` (`portfolio_id`, `original_start_date`), `scheduled_transaction_tags`
+- **Portfolio:** `portfolio` (equity/bond: `asset_type`, `face_value`, `maturity_date`, `coupon_*`, `country`), `portfolio_transactions`
+- **Previsioni:** `forecasts` (archived), `forecast_categories`, `forecast_excluded`
+- **Sistema:** `reports`, `range_presets`, `app_settings`, `sync_meta`, `schema_version`
 
 **SQLite config:** journal=DELETE, synchronous=FULL, cache=16MB, FK abilitati
 

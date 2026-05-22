@@ -328,14 +328,16 @@ public class Database {
     @FunctionalInterface
     private interface SqlSupplier<T> { T get() throws SQLException; }
 
-    /** Esegue fn in un'unica transazione SQLite: commit se va bene, rollback se lancia. */
+    /** Esegue fn in un'unica transazione SQLite: commit se va bene, rollback se lancia
+     *  (anche su RuntimeException — senza rollback il finally setAutoCommit(true) committerebbe
+     *  silenziosamente la transazione parziale). */
     private <T> T inTx(SqlSupplier<T> fn) throws SQLException {
         conn.setAutoCommit(false);
         try {
             T result = fn.get();
             conn.commit();
             return result;
-        } catch (SQLException e) {
+        } catch (Exception e) {
             try { conn.rollback(); } catch (SQLException re) { e.addSuppressed(re); }
             throw e;
         } finally {

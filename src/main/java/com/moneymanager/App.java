@@ -16,14 +16,18 @@ import me.friwi.jcefmaven.MavenCefAppHandlerAdapter;
 
 public class App {
 
+    /** Path del JAR (produzione) o di target/classes (IDE). */
+    private static Path codeSourcePath() throws Exception {
+        return Path.of(App.class.getProtectionDomain().getCodeSource().getLocation().toURI());
+    }
+
     /**
      * Trova la cartella web/ con i file HTML/CSS/JS.
      * Produzione (jpackage): web/ accanto al .exe (sibling della dir app/ che contiene il JAR).
      * IDE: src/main/resources/web/ rispetto alla project root.
      */
     private static Path findWebDir() throws Exception {
-        java.net.URL loc = App.class.getProtectionDomain().getCodeSource().getLocation();
-        Path codeSrc = Path.of(loc.toURI());
+        Path codeSrc = codeSourcePath();
 
         // Produzione: JAR in <deploy>/app/moneymanager.jar → cerca <deploy>/web/
         if (Files.isRegularFile(codeSrc)) {
@@ -61,8 +65,7 @@ public class App {
         // Impostazioni (settings.properties) — nella stessa cartella del JAR (o user.dir in IDE)
         Path settingsDir;
         try {
-            java.net.URL loc = App.class.getProtectionDomain().getCodeSource().getLocation();
-            Path p = Path.of(loc.toURI());
+            Path p = codeSourcePath();
             settingsDir = p.toString().endsWith(".jar") ? p.getParent()
                                                         : Path.of(System.getProperty("user.dir"));
         } catch (Exception e) {
@@ -96,8 +99,7 @@ public class App {
         // Rileva percorsi java.exe e JAR per la registrazione autostart
         try {
             ProcessHandle.current().info().command().ifPresent(cmd -> TrayManager.javaExePath = cmd);
-            java.net.URL loc = App.class.getProtectionDomain().getCodeSource().getLocation();
-            Path jarP = Path.of(loc.toURI());
+            Path jarP = codeSourcePath();
             if (jarP.toString().endsWith(".jar")) TrayManager.jarPath = jarP.toString();
         } catch (Exception e) {
             System.err.println("Autostart path detection fallita: " + e.getMessage());

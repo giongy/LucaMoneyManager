@@ -138,11 +138,4 @@ public class MainWindow {
         frame.requestFocus();
         browser.executeJavaScript("if(typeof onTrayRestore==='function') onTrayRestore();", "", 0);
     }
-
-    public void show() {
-        GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
-        frame.setMaximizedBounds(ge.getMaximumWindowBounds());
-        frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
-        frame.setVisible(true);
-    }
 }

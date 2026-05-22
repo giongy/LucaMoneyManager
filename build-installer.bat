@@ -3,20 +3,20 @@
 ::  LucaMoneyManager - build-installer.bat
 :: ----------------------------------------------------------------------------
 ::  Crea un installer .exe Windows classico (wizard next-next-next).
-::  Richiede Inno Setup 6 installato: https://jrsoftware.org/isdl.php
+::  Richiede Inno Setup 6: https://jrsoftware.org/isdl.php
+::
+::  Pipeline (5 fasi):
+::    1. Maven      -> fat JAR
+::    2. jlink      -> JRE custom (~40MB)
+::    3. jpackage   -> app-image (cartella LucaMoneyManager con .exe + runtime)
+::    4. Copia web/ -> dentro l'app-image, accanto al .exe
+::    5. Inno Setup -> compila installer\LucaMoneyManager.iss -> setup.exe
 ::
 ::  Output: dist\installer\LucaMoneyManager-<ver>.exe
 ::
-::  L'installer:
-::    - chiede dove installare (default %LOCALAPPDATA%\Programs\LucaMoneyManager)
-::    - chiede se creare shortcut sul desktop
-::    - crea voce Start Menu
-::    - registra l'app in "App e funzionalita'" (con uninstaller)
-::    - rileva upgrade tramite UUID -> aggiorna sopra l'installazione esistente
-::    - per-user install -> niente UAC, niente admin
-::
-::  I dati utente (DB, settings, log, backup) restano in
-::  %APPDATA%\Roaming\LucaMoneyManager\ e NON vengono toccati dall'installer.
+::  Nota: da JDK 17+ jpackage --type exe richiede WiX e produce comunque MSI;
+::  qui usiamo --type app-image + Inno Setup esterno per avere un vero
+::  installer EXE wizard classico.
 :: ============================================================================
 setlocal enabledelayedexpansion
 
@@ -25,10 +25,7 @@ set JAVA_HOME=C:\Program Files\Java\jdk-25
 set MVN=C:\Tools\apache-maven-3.9.6\bin\mvn.cmd
 set ROOT=%~dp0
 set DIST=%ROOT%dist
-
-:: GUID stabile per upgrade detection (NON cambiare mai: identifica l'app
-:: cosi' nuove versioni vengono installate sopra la precedente)
-set UPGRADE_UUID=8b3e7c2a-9d4f-4e6b-a1c5-3f8b9d2e7a5c
+set ISS=%ROOT%installer\LucaMoneyManager.iss
 
 :: Legge la versione da pom.xml
 for /f %%a in ('call "%MVN%" -f "%ROOT%pom.xml" help:evaluate -Dexpression^=project.version -q -DforceStdout') do set VERSION=%%a
@@ -41,8 +38,9 @@ echo  ========================================
 echo.
 
 :: ── Verifica toolchain ──────────────────────────────────────────────────────
-if not exist "%JAVA_HOME%\bin\java.exe"    ( echo [ERRORE] Java non trovato in %JAVA_HOME%   & pause & exit /b 1 )
-if not exist "%MVN%"                        ( echo [ERRORE] Maven non trovato in %MVN%        & pause & exit /b 1 )
+if not exist "%JAVA_HOME%\bin\java.exe" ( echo [ERRORE] Java non trovato in %JAVA_HOME% & pause & exit /b 1 )
+if not exist "%MVN%"                    ( echo [ERRORE] Maven non trovato in %MVN%       & pause & exit /b 1 )
+if not exist "%ISS%"                    ( echo [ERRORE] Script Inno Setup non trovato: %ISS% & pause & exit /b 1 )
 
 :: Inno Setup: cerca nei path standard, altrimenti su PATH
 set INNO_DIR=
@@ -53,8 +51,7 @@ if "%INNO_DIR%"=="" (
     if errorlevel 1 (
         echo [ERRORE] Inno Setup 6 non trovato.
         echo Installa da: https://jrsoftware.org/isdl.php
-        pause
-        exit /b 1
+        pause & exit /b 1
     )
 ) else (
     set "PATH=%INNO_DIR%;%PATH%"
@@ -69,57 +66,46 @@ del /q "%ROOT%target\original-moneymanager-*.jar" 2>nul
 echo       OK - %JAR%
 
 :: ── 2) jlink ────────────────────────────────────────────────────────────────
-:: Stesso JRE custom di build.bat (vedi commenti li').
 echo.
 echo Creazione JRE con jlink...
 if exist "%DIST%\runtime"   rmdir /s /q "%DIST%\runtime"
-if exist "%DIST%\installer" rmdir /s /q "%DIST%\installer"
+if exist "%DIST%\build"     rmdir /s /q "%DIST%\build"
 if exist "%DIST%\input"     rmdir /s /q "%DIST%\input"
+if exist "%DIST%\installer" rmdir /s /q "%DIST%\installer"
 
 set MODULES=java.base,java.desktop,java.sql,java.logging,java.xml,java.naming,java.management,java.net.http,java.security.jgss,jdk.unsupported,jdk.crypto.ec,jdk.crypto.cryptoki,jdk.security.auth,jdk.httpserver
 "%JAVA_HOME%\bin\jlink" --module-path "%JAVA_HOME%\jmods" --add-modules %MODULES% --output "%DIST%\runtime" --strip-debug --compress zip-2 --no-header-files --no-man-pages
 if errorlevel 1 ( echo [ERRORE] jlink fallito. & pause & exit /b 1 )
 echo       OK - JRE in %DIST%\runtime
 
-:: ── 3) jpackage --type exe ──────────────────────────────────────────────────
-:: --app-content -> copia target\classes\web accanto ad app\ nell'immagine
-::   installata. App.findWebDir() la trova li.
-:: --win-dir-chooser     -> wizard chiede dove installare
-:: --win-menu / --win-menu-group -> shortcut Start Menu
-:: --win-shortcut / --win-shortcut-prompt -> wizard chiede shortcut desktop
-:: --win-upgrade-uuid    -> nuove versioni aggiornano la precedente
-:: --win-per-user-install-> install per utente (no UAC, no admin richiesto)
+:: ── 3) jpackage --type app-image ────────────────────────────────────────────
 echo.
-echo Creazione installer con jpackage...
+echo Creazione app-image con jpackage...
 mkdir "%DIST%\input"
 copy /y "%JAR%" "%DIST%\input\" >nul
-
-"%JAVA_HOME%\bin\jpackage" --type exe ^
-  --runtime-image "%DIST%\runtime" ^
-  --input "%DIST%\input" ^
-  --main-jar moneymanager-%VERSION%.jar ^
-  --name LucaMoneyManager ^
-  --app-version %VERSION% ^
-  --dest "%DIST%\installer" ^
-  --icon "%ROOT%target\icon.ico" ^
-  --vendor "Luca" ^
-  --description "Personal finance manager" ^
-  --copyright "Luca" ^
-  --app-content "%ROOT%target\classes\web" ^
-  --java-options "-Dfile.encoding=UTF-8" ^
-  --java-options "--enable-native-access=ALL-UNNAMED" ^
-  --win-dir-chooser ^
-  --win-menu ^
-  --win-menu-group LucaMoneyManager ^
-  --win-shortcut ^
-  --win-shortcut-prompt ^
-  --win-upgrade-uuid %UPGRADE_UUID% ^
-  --win-per-user-install
+"%JAVA_HOME%\bin\jpackage" --type app-image --runtime-image "%DIST%\runtime" --input "%DIST%\input" --main-jar moneymanager-%VERSION%.jar --name LucaMoneyManager --app-version %VERSION% --dest "%DIST%\build" --icon "%ROOT%target\icon.ico" --java-options "-Dfile.encoding=UTF-8" --java-options "--enable-native-access=ALL-UNNAMED"
 if errorlevel 1 ( echo [ERRORE] jpackage fallito. & pause & exit /b 1 )
 
-:: Cleanup degli staging
 rmdir /s /q "%DIST%\runtime"
 rmdir /s /q "%DIST%\input"
+echo       OK - app-image in %DIST%\build\LucaMoneyManager
+
+:: ── 4) Copia risorse web nell'app-image ─────────────────────────────────────
+echo.
+echo Copia risorse web in app-image...
+%SystemRoot%\System32\robocopy.exe "%ROOT%target\classes\web" "%DIST%\build\LucaMoneyManager\web" /e /purge /njh /njs /ndl
+if errorlevel 8 ( echo [ERRORE] Copia web fallita. & pause & exit /b 1 )
+echo       OK - web/ nell'app-image
+
+:: ── 5) Inno Setup ───────────────────────────────────────────────────────────
+:: /Q     -> output silenzioso (solo errori/warning)
+:: /DAppVersion=...  -> passa la versione come define allo script .iss
+:: /O"..."           -> output directory per il setup .exe
+echo.
+echo Compilazione installer con Inno Setup...
+mkdir "%DIST%\installer"
+iscc.exe /Q /DAppVersion=%VERSION% /O"%DIST%\installer" "%ISS%"
+if errorlevel 1 ( echo [ERRORE] Inno Setup fallito. & pause & exit /b 1 )
 
 echo.
 echo  ----------------------------------------

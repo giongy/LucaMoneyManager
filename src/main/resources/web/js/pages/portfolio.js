@@ -398,7 +398,7 @@ async function renderPortfolioStorico(items) {
     grandBuy += totBuy; grandSell += totSell; grandCoupon += totCoupon; grandDividend += totDividend; grandExpense += totExpense;
 
     const collapsed = !_portStoricoExp.has(item.id);
-    const net = totSell + totCoupon - totBuy - totExpense;
+    const net = totSell + totCoupon + totDividend - totBuy - totExpense;
 
     const chips = [
       totBuy      > 0 ? `<span class="r-chip" style="color:var(--expense)">Acq. ${fmt.currency(totBuy)}</span>`     : '',

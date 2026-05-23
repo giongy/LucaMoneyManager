@@ -470,7 +470,7 @@ public class Database {
         """);
     }
 
-    private static final int SCHEMA_VERSION = 13;
+    private static final int SCHEMA_VERSION = 14;
 
     private void migrate() throws SQLException {
         // Crea tabella versione se non esiste
@@ -735,6 +735,28 @@ public class Database {
         // ── v13: expense_nature su categories ───────────────────────────────
         if (currentVersion < 13) {
             try { executePlain("ALTER TABLE categories ADD COLUMN expense_nature TEXT"); } catch (SQLException ignored) {}
+        }
+
+        // ── v14: commission column su portfolio_transactions + backfill ─────
+        if (currentVersion < 14) {
+            try { executePlain("ALTER TABLE portfolio_transactions ADD COLUMN commission REAL DEFAULT 0"); } catch (SQLException ignored) {}
+            // Backfill commissioni di acquisto da notes "comm. X.XX"
+            var buyRows = queryList("SELECT id, notes FROM portfolio_transactions WHERE type='buy' AND notes LIKE 'comm.%'");
+            for (var b : buyRows) {
+                String notes = (String) b.get("notes");
+                try {
+                    String[] parts = notes.substring(5).trim().split("\\s+");
+                    double comm = Double.parseDouble(parts[0].replace(",", "."));
+                    execute("UPDATE portfolio_transactions SET commission=? WHERE id=?",
+                            comm, ((Number) b.get("id")).longValue());
+                } catch (Exception ignored) {}
+            }
+            // Commissioni di vendita: salvate come expense rows con notes='Commissione'
+            // (price contiene già l'importo); copiamo in commission per coerenza
+            executePlain("UPDATE portfolio_transactions SET commission=price WHERE type='expense' AND notes='Commissione' AND commission=0");
+            // NOTA: total_commissions NON viene ricalcolato. I valori esistenti potrebbero includere
+            // commissioni di posizioni importate via "Carica esistente" (che non creano pt rows),
+            // ricalcolare le perderebbe.
         }
 
         // Segna il DB come aggiornato all'ultima versione
@@ -2171,9 +2193,37 @@ public class Database {
     // ─── Portafoglio ──────────────────────────────────────────────────────────
 
     public List<Map<String, Object>> getPortfolio() throws SQLException {
+        // Aggregati storici per posizione: somme di buy/sell/cedole/dividendi/spese/commissioni
+        // I valori principal (qty*price) sono sommati grezzi: JS converte per bond (÷100)
         return queryList("""
             SELECT p.*, a.name AS account_name, a.icon AS account_icon, a.color AS account_color,
-                   (SELECT MIN(pt.date) FROM portfolio_transactions pt WHERE pt.portfolio_id = p.id AND pt.type = 'buy') AS first_buy_date
+                   (SELECT MIN(pt.date) FROM portfolio_transactions pt WHERE pt.portfolio_id = p.id AND pt.type = 'buy') AS first_buy_date,
+                   (SELECT COALESCE(SUM(pt.quantity * pt.price), 0)
+                      FROM portfolio_transactions pt
+                      WHERE pt.portfolio_id = p.id AND pt.type = 'buy') AS total_buy_principal,
+                   (SELECT COALESCE(SUM(pt.quantity * pt.price), 0)
+                      FROM portfolio_transactions pt
+                      WHERE pt.portfolio_id = p.id AND pt.type = 'sell') AS total_sell_principal,
+                   (SELECT COALESCE(SUM(pt.quantity), 0)
+                      FROM portfolio_transactions pt
+                      WHERE pt.portfolio_id = p.id AND pt.type = 'sell') AS total_sold_qty,
+                   (SELECT COALESCE(SUM(pt.price), 0)
+                      FROM portfolio_transactions pt
+                      WHERE pt.portfolio_id = p.id AND pt.type = 'coupon') AS total_coupons,
+                   (SELECT COALESCE(SUM(pt.price), 0)
+                      FROM portfolio_transactions pt
+                      WHERE pt.portfolio_id = p.id AND pt.type = 'dividend') AS total_dividends,
+                   (SELECT COALESCE(SUM(pt.price), 0)
+                      FROM portfolio_transactions pt
+                      WHERE pt.portfolio_id = p.id AND pt.type = 'expense') AS total_expenses,
+                   (SELECT COALESCE(SUM(pt.price), 0)
+                      FROM portfolio_transactions pt
+                      WHERE pt.portfolio_id = p.id AND pt.type = 'expense'
+                        AND COALESCE(pt.notes,'') != 'Commissione') AS total_other_expenses,
+                   (SELECT COALESCE(SUM(COALESCE(pt.commission,0)), 0)
+                      FROM portfolio_transactions pt
+                      WHERE pt.portfolio_id = p.id AND pt.type = 'expense'
+                        AND pt.notes = 'Commissione') AS total_sell_commissions
             FROM portfolio p
             JOIN accounts a ON p.account_id = a.id
             ORDER BY a.name, p.ticker
@@ -2249,10 +2299,9 @@ public class Database {
             }
 
             execute("""
-                INSERT INTO portfolio_transactions(portfolio_id,type,quantity,price,date,transaction_id,notes)
-                VALUES(?,?,?,?,?,?,?)
-            """, portfolioId, "buy", qty, price, date, txId,
-                 commissions > 0 ? String.format("comm. %.2f", commissions) : notes);
+                INSERT INTO portfolio_transactions(portfolio_id,type,quantity,price,date,transaction_id,notes,commission)
+                VALUES(?,?,?,?,?,?,?,?)
+            """, portfolioId, "buy", qty, price, date, txId, notes, commissions);
 
             logger.log("TITOLO ACQUISTATO", "ticker:" + ticker, "nome:" + name,
                        "quantita:" + qty, "prezzo:" + DbLogger.amt(price),
@@ -2307,9 +2356,11 @@ public class Database {
                     VALUES(?,?,?,?,?,?,0)
                 """, date, commission, "expense", expCatId, toAccountId, "Commissione vendita " + ticker);
                 execute("""
-                    INSERT INTO portfolio_transactions(portfolio_id,type,quantity,price,date,transaction_id,notes)
-                    VALUES(?,?,?,?,?,?,?)
-                """, portfolioId, "expense", 0, commission, date, commTxId, "Commissione");
+                    INSERT INTO portfolio_transactions(portfolio_id,type,quantity,price,date,transaction_id,notes,commission)
+                    VALUES(?,?,?,?,?,?,?,?)
+                """, portfolioId, "expense", 0, commission, date, commTxId, "Commissione", commission);
+                // Aggiorna total_commissions della posizione
+                execute("UPDATE portfolio SET total_commissions = total_commissions + ? WHERE id=?", commission, portfolioId);
                 logger.log("COMMISSIONE VENDITA", "ticker:" + ticker, "importo:" + DbLogger.amt(commission));
             }
 
@@ -2328,6 +2379,8 @@ public class Database {
         int portfolioId = ((Number)pt.get("portfolio_id")).intValue();
         String type     = (String)pt.get("type");
         double qty      = ((Number)pt.get("quantity")).doubleValue();
+        double comm     = pt.get("commission") != null ? ((Number)pt.get("commission")).doubleValue() : 0.0;
+        String ptNotes  = (String) pt.get("notes");
         Object txIdObj  = pt.get("transaction_id");
 
         // Valida prima di aprire la transazione
@@ -2340,22 +2393,42 @@ public class Database {
         }
 
         return inTx(() -> {
+            var pos = queryOne("SELECT asset_type FROM portfolio WHERE id=?", portfolioId);
+            boolean isBond = pos != null && "bond".equals(pos.get("asset_type"));
+
             if ("sell".equals(type)) {
                 execute("UPDATE portfolio SET quantity = quantity + ? WHERE id=?", qty, portfolioId);
             } else if ("buy".equals(type)) {
                 execute("UPDATE portfolio SET quantity = quantity - ? WHERE id=?", qty, portfolioId);
-                // Ricalcola avg_price dai buy rimanenti (esclude quello che stiamo cancellando)
+                // Ricalcola avg_price dai buy rimanenti includendo le commissioni:
+                // Equity: avg = SUM(qty*price + commission) / SUM(qty)
+                // Bond:   avg% = (SUM(qty*price) + SUM(commission)*100) / SUM(qty)
                 var remaining = queryList(
-                    "SELECT quantity, price FROM portfolio_transactions WHERE portfolio_id=? AND type='buy' AND id!=?",
+                    "SELECT quantity, price, COALESCE(commission,0) AS commission FROM portfolio_transactions WHERE portfolio_id=? AND type='buy' AND id!=?",
                     portfolioId, ptId);
                 if (!remaining.isEmpty()) {
                     double tqty  = remaining.stream().mapToDouble(r -> ((Number)r.get("quantity")).doubleValue()).sum();
-                    double tcost = remaining.stream().mapToDouble(r ->
+                    double tCostNoComm = remaining.stream().mapToDouble(r ->
                         ((Number)r.get("quantity")).doubleValue() * ((Number)r.get("price")).doubleValue()).sum();
-                    execute("UPDATE portfolio SET avg_price=? WHERE id=?", tqty > 0 ? r4(tcost / tqty) : 0.0, portfolioId);
+                    double tComm = remaining.stream().mapToDouble(r ->
+                        ((Number)r.get("commission")).doubleValue()).sum();
+                    double newAvg = 0.0;
+                    if (tqty > 0) {
+                        newAvg = isBond
+                            ? r4((tCostNoComm + tComm * 100.0) / tqty)
+                            : r4((tCostNoComm + tComm) / tqty);
+                    }
+                    execute("UPDATE portfolio SET avg_price=? WHERE id=?", newAvg, portfolioId);
                 } else {
                     execute("UPDATE portfolio SET avg_price=0 WHERE id=?", portfolioId);
                 }
+                // Sottrai la commissione del buy eliminato dal totale
+                if (comm > 0) {
+                    execute("UPDATE portfolio SET total_commissions = MAX(0, total_commissions - ?) WHERE id=?", comm, portfolioId);
+                }
+            } else if ("expense".equals(type) && "Commissione".equals(ptNotes) && comm > 0) {
+                // Eliminazione di una commissione di vendita: sottrai dal totale
+                execute("UPDATE portfolio SET total_commissions = MAX(0, total_commissions - ?) WHERE id=?", comm, portfolioId);
             }
 
             if (txIdObj != null) {
@@ -2365,8 +2438,8 @@ public class Database {
 
             execute("DELETE FROM portfolio_transactions WHERE id=?", ptId);
 
-            var pos = queryOne("SELECT ticker FROM portfolio WHERE id=?", portfolioId);
-            String ticker = pos != null ? (String)pos.get("ticker") : "?";
+            var pos2 = queryOne("SELECT ticker FROM portfolio WHERE id=?", portfolioId);
+            String ticker = pos2 != null ? (String)pos2.get("ticker") : "?";
             logger.log("OPERAZIONE PORTFOLIO ANNULLATA", "pt_id:" + ptId, "tipo:" + type, "ticker:" + ticker);
             return Map.of("ok", true, "portfolio_id", portfolioId);
         });
@@ -2495,6 +2568,44 @@ public class Database {
                 execute("INSERT OR IGNORE INTO transaction_tags(transaction_id,tag_id) VALUES(?,?)", txId, investTagId);
 
             logger.log("CEDOLA REGISTRATA", "ticker:" + ticker,
+                       "importo:" + DbLogger.amt(amount), "data:" + date,
+                       "note:" + DbLogger.s(notes));
+            return Map.of("ok", true, "transaction_id", txId);
+        });
+    }
+
+    public Map<String, Object> registerDividend(JsonObject p) throws SQLException {
+        int portfolioId = p.get("portfolio_id").getAsInt();
+        int accountId   = p.get("account_id").getAsInt();
+        double amount   = r2(p.get("amount").getAsDouble());  // netto accreditato
+        String date     = p.get("date").getAsString();
+        String notes    = p.has("notes") && !p.get("notes").isJsonNull() ? p.get("notes").getAsString() : null;
+
+        var pos = queryOne("SELECT * FROM portfolio WHERE id=?", portfolioId);
+        if (pos == null) throw new SQLException("Posizione non trovata");
+        String ticker = (String)pos.get("ticker");
+
+        return inTx(() -> {
+            var incCat = queryOne("SELECT id FROM categories WHERE type='income' AND name LIKE '%nvestiment%' LIMIT 1");
+            if (incCat == null) incCat = queryOne("SELECT id FROM categories WHERE type='income' LIMIT 1");
+            Integer catId = incCat != null ? ((Number)incCat.get("id")).intValue() : null;
+
+            String desc = notes != null ? notes : "Dividendo " + ticker;
+            long txId = execute("""
+                INSERT INTO transactions(date,amount,type,category_id,account_id,description,reconciled)
+                VALUES(?,?,?,?,?,?,0)
+            """, date, amount, "income", catId, accountId, desc);
+
+            execute("""
+                INSERT INTO portfolio_transactions(portfolio_id,type,quantity,price,date,transaction_id,notes)
+                VALUES(?,?,?,?,?,?,?)
+            """, portfolioId, "dividend", 0, amount, date, txId, notes);
+
+            Integer investTagId = getSystemTagIdByKey("investment");
+            if (investTagId != null)
+                execute("INSERT OR IGNORE INTO transaction_tags(transaction_id,tag_id) VALUES(?,?)", txId, investTagId);
+
+            logger.log("DIVIDENDO REGISTRATO", "ticker:" + ticker,
                        "importo:" + DbLogger.amt(amount), "data:" + date,
                        "note:" + DbLogger.s(notes));
             return Map.of("ok", true, "transaction_id", txId);

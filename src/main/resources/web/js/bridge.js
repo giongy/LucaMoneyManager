@@ -146,6 +146,7 @@ const api = {
   fetchOnlinePrice:         (isin)  => callJava('fetchOnlinePrice', {isin}),
   importPosition:           async (data)  => { api._invalidateAccounts(); return callJava('importPosition', data); },
   registerCoupon:           async (data)  => { api._invalidateAccounts(); return callJava('registerCoupon', data); },
+  registerDividend:         async (data)  => { api._invalidateAccounts(); return callJava('registerDividend', data); },
   registerPortfolioExpense: async (data)  => { api._invalidateAccounts(); return callJava('registerPortfolioExpense', data); },
   updatePortfolioItem:      async (data)  => { api._invalidateAccounts(); return callJava('updatePortfolioItem', data); },
   deletePortfolioItem:      async (id)    => { api._invalidateAccounts(); return callJava('deletePortfolioItem', {id}); },

@@ -27,6 +27,68 @@ function portfolioItemValue(i, useAvg = false) {
   return i.quantity * price;
 }
 
+// ── Metriche di rendimento ──────────────────────────────────────────────────
+
+// Current yield netto annuo: cedola netta annua / prezzo attuale × 100
+// Es. bond cedola 4%, tax 12.5%, prezzo 95 → (4×0.875)/95×100 = 3.68% annuo netto
+function bondCurrentYield(i) {
+  if (i.asset_type !== 'bond' || !i.coupon_rate || !i.current_price) return null;
+  const tax = i.coupon_tax != null ? i.coupon_tax : 12.5;
+  const annualNet = i.coupon_rate * (1 - tax / 100);
+  return annualNet / i.current_price * 100;
+}
+
+// YTM approssimato (bond-equivalent yield)
+// YTM ≈ (C + (100-P)/n) / ((100+P)/2)
+// dove C=cedola%/anno, P=prezzo attuale %, n=anni a scadenza
+// Restituisce { gross, net, years } o null se manca scadenza/cedola/prezzo
+function bondYTM(i) {
+  if (i.asset_type !== 'bond' || !i.coupon_rate || !i.maturity_date || !i.current_price) return null;
+  const today = new Date();
+  const mat   = new Date(i.maturity_date);
+  const years = (mat - today) / (365.25 * 24 * 3600 * 1000);
+  if (years <= 0.01) return null;  // scaduto o troppo vicino
+  const C = i.coupon_rate;
+  const P = i.current_price;
+  const gross = (C + (100 - P) / years) / ((100 + P) / 2) * 100;
+  const tax = i.coupon_tax != null ? i.coupon_tax : 12.5;
+  const net = gross * (1 - tax / 100);
+  return { gross, net, years };
+}
+
+// Total Return € — basato su avg_price (sempre affidabile, anche per posizioni importate)
+//   unrealized = (current_price − avg_price) × qty_attuale
+//   realized   = sell_revenue − sold_qty × avg_price   (approssimato con avg corrente)
+//   totalReturn = unrealized + realized + cedole + dividendi − commissioni_vendita − altre_spese
+//   (commissioni di acquisto sono già incluse in avg_price tramite la formula in buyStock)
+// Bond: avg_price è in %, qty in nominale €; ogni componente in € usa /100
+function positionTotalReturn(i) {
+  const isBond = i.asset_type === 'bond';
+  const div = isBond ? 100 : 1;
+  const avg = i.avg_price || 0;
+  const cur = i.current_price || avg;
+
+  const currentValue   = i.quantity * cur / div;
+  const heldCostBasis  = i.quantity * avg / div;
+  const unrealized     = currentValue - heldCostBasis;
+
+  const soldQty        = i.total_sold_qty || 0;
+  const sellRevenue    = (i.total_sell_principal || 0) / div;
+  const soldCostBasis  = soldQty * avg / div;
+  const realized       = sellRevenue - soldCostBasis;
+
+  const coup    = i.total_coupons          || 0;
+  const divi    = i.total_dividends        || 0;
+  const sellCom = i.total_sell_commissions || 0;
+  const otherE  = i.total_other_expenses   || 0;
+
+  const totalReturn = unrealized + realized + coup + divi - sellCom - otherE;
+  // % sul max capitale investito (posizione attuale + venduta, tutte al costo medio)
+  const maxInvested = (i.quantity + soldQty) * avg / div;
+  const pct = maxInvested > 0 ? (totalReturn / maxInvested) * 100 : 0;
+  return { totalReturn, pct, currentValue, unrealized, realized };
+}
+
 async function renderPortfolio() {
   const pg = document.getElementById('pg-portfolio');
   const [items, accounts] = await Promise.all([api.getPortfolio(), api.getAccounts()]);
@@ -43,6 +105,16 @@ async function renderPortfolio() {
   const totalPnL         = totalCurrent - totalInvested;
   const pnlPct           = totalInvested ? (totalPnL/totalInvested)*100 : 0;
   const totalNominal     = visibleItems.filter(i => i.asset_type === 'bond').reduce((s,i) => s + (i.quantity || 0), 0);
+  const totalCoupons     = visibleItems.reduce((s,i) => s + (i.total_coupons   || 0), 0);
+  const totalDividends   = visibleItems.reduce((s,i) => s + (i.total_dividends || 0), 0);
+  const totalReturnAll   = visibleItems.reduce((s,i) => s + positionTotalReturn(i).totalReturn, 0);
+  // Base = somma di max invested (posizione attuale + venduta al costo medio)
+  const totalMaxInvested = visibleItems.reduce((s,i) => {
+    const div = i.asset_type === 'bond' ? 100 : 1;
+    const soldQty = i.total_sold_qty || 0;
+    return s + (i.quantity + soldQty) * (i.avg_price || 0) / div;
+  }, 0);
+  const totalReturnPct   = totalMaxInvested > 0 ? (totalReturnAll / totalMaxInvested) * 100 : 0;
 
   pg.innerHTML = `
     <div style="display:flex;align-items:center;gap:0;border-bottom:1px solid var(--border);margin-bottom:16px">
@@ -104,11 +176,22 @@ async function renderPortfolio() {
         <div class="stat-label">📊 Valore Attuale</div>
         <div class="stat-value" style="color:var(--accent2)">${fmt.currency(totalCurrent)}</div>
       </div>
-      <div class="stat-card">
-        <div class="stat-label">📈 P&L Totale</div>
+      <div class="stat-card" title="Variazione di prezzo dei titoli ancora in portafoglio (valore attuale − costo medio)">
+        <div class="stat-label">📈 P&L Mercato</div>
         <div class="stat-value ${totalPnL>=0?'pnl-positive':'pnl-negative'}">${fmt.currency(totalPnL)}</div>
         <div class="stat-sub ${totalPnL>=0?'pnl-positive':'pnl-negative'}">${fmt.pct(pnlPct)}</div>
       </div>
+      <div class="stat-card" title="Rendimento totale: P&L mercato + cedole + dividendi + plusvalenze realizzate − tutte le commissioni e spese">
+        <div class="stat-label">🏁 Tot. Return</div>
+        <div class="stat-value ${totalReturnAll>=0?'pnl-positive':'pnl-negative'}">${fmt.currency(totalReturnAll)}</div>
+        <div class="stat-sub ${totalReturnAll>=0?'pnl-positive':'pnl-negative'}">${fmt.pct(totalReturnPct)}</div>
+      </div>
+      ${(totalCoupons + totalDividends) > 0 ? `
+      <div class="stat-card" title="Cedole bond + dividendi azioni incassati netti">
+        <div class="stat-label">💵 Incassi</div>
+        <div class="stat-value" style="color:var(--income)">${fmt.currency(totalCoupons + totalDividends)}</div>
+        ${totalCoupons > 0 && totalDividends > 0 ? `<div class="stat-sub" style="color:var(--txt3)">Ced. ${fmt.currency(totalCoupons)} · Div. ${fmt.currency(totalDividends)}</div>` : ''}
+      </div>` : ''}
       ${totalNominal > 0 ? `
       <div class="stat-card">
         <div class="stat-label">🏷️ Nominale (a 100)</div>
@@ -136,7 +219,8 @@ async function renderPortfolio() {
             ['cur',      'Prezzo Att.',   ''],
             ['valore',   'Valore',        'text-right'],
             ['comm',     'Comm.',         'text-right'],
-            ['pnl',      'P&L',           'text-right'],
+            ['pnl',      'P&L mkt',       'text-right'],
+            ['totret',   'Tot. Return',   'text-right'],
           ].map(([col, label, cls]) => {
             const active = _portfolioSort.col === col;
             const ind = active ? (_portfolioSort.dir > 0 ? ' ▲' : ' ▼') : '';
@@ -149,7 +233,9 @@ async function renderPortfolio() {
           rows = rows.map(i => {
             const val  = portfolioItemValue(i, false);
             const cost = portfolioItemValue(i, true);
-            return { ...i, _val: val, _cost: cost, _pnl: val - cost, _comm: i.total_commissions || 0 };
+            const tr   = positionTotalReturn(i);
+            return { ...i, _val: val, _cost: cost, _pnl: val - cost, _comm: i.total_commissions || 0,
+                     _totret: tr.totalReturn, _totretPct: tr.pct };
           });
           const col = _portfolioSort.col, dir = _portfolioSort.dir;
           rows.sort((a, b) => {
@@ -168,23 +254,31 @@ async function renderPortfolio() {
               case 'valore':   va = a._val;             vb = b._val;             break;
               case 'comm':     va = a._comm;            vb = b._comm;            break;
               case 'pnl':      va = a._pnl;             vb = b._pnl;             break;
+              case 'totret':   va = a._totret;          vb = b._totret;          break;
               default:         va = ''; vb = '';
             }
             if (typeof va === 'string') return dir * va.localeCompare(vb);
             return dir * (va - vb);
           });
-          if (!rows.length) return '<tr><td colspan="13" style="text-align:center;padding:40px;color:var(--txt3)">Nessun titolo in portafoglio. Clicca "+ Acquista" per iniziare.<br><small style="color:var(--txt3)">Tasto destro su una riga per le azioni</small></td></tr>';
+          if (!rows.length) return '<tr><td colspan="14" style="text-align:center;padding:40px;color:var(--txt3)">Nessun titolo in portafoglio. Clicca "+ Acquista" per iniziare.<br><small style="color:var(--txt3)">Tasto destro su una riga per le azioni</small></td></tr>';
           return rows.map(i => {
             const isBond = i.asset_type === 'bond';
             const val = i._val, cost = i._cost, pnl = i._pnl, comm = i._comm;
             const pnlP = cost ? (pnl/cost)*100 : 0;
+            const totret = i._totret, totretPct = i._totretPct;
             const priceDisplay = isBond ? `${(i.avg_price||0).toFixed(4)} %` : fmt.price(i.avg_price);
             const priceUnit    = isBond ? '%' : '€';
             const typeBadge    = isBond
               ? `<span class="badge" style="background:#d29922;color:#fff;font-size:10px;padding:1px 5px;border-radius:4px">OBB</span>`
               : `<span class="badge" style="background:#58a6ff;color:#fff;font-size:10px;padding:1px 5px;border-radius:4px">AZI</span>`;
+            const cy  = isBond ? bondCurrentYield(i) : null;
+            const ytm = isBond ? bondYTM(i) : null;
+            const yieldInfo = isBond && (cy != null || ytm != null)
+              ? `<br><small style="color:var(--txt3);font-size:10px" title="CY = cedola netta annua / prezzo attuale &#10;YTM = rendimento netto a scadenza (formula approssimata)">
+                  ${cy != null ? `CY ${cy.toFixed(2)}%` : ''}${cy != null && ytm != null ? ' · ' : ''}${ytm != null ? `YTM ${ytm.net.toFixed(2)}% (${ytm.years.toFixed(1)}y)` : ''}
+                 </small>` : '';
             const couponInfo = isBond && i.coupon_rate
-              ? `<br><small style="color:var(--txt3);font-size:10px">${i.coupon_rate}% → netto ${((1-(i.coupon_tax||12.5)/100)*i.coupon_rate).toFixed(3)}%</small>`
+              ? `<br><small style="color:var(--txt3);font-size:10px">Cedola ${i.coupon_rate}% lordo · ${((1-(i.coupon_tax||12.5)/100)*i.coupon_rate).toFixed(3)}% netto</small>${yieldInfo}`
               : '';
             const qtyDisplay = isBond
               ? `<span title="Nominale totale">${fmt.currency(i.quantity)}</span>`
@@ -222,7 +316,8 @@ async function renderPortfolio() {
               </td>
               <td class="text-right">${fmt.currency(val)}</td>
               <td class="text-right" style="color:var(--txt3);font-size:12px">${comm > 0 ? fmt.currency(comm) : '—'}</td>
-              <td class="text-right ${pnl>=0?'pnl-positive':'pnl-negative'}">${fmt.currency(pnl)}<br><small>${fmt.pct(pnlP)}</small></td>
+              <td class="text-right ${pnl>=0?'pnl-positive':'pnl-negative'}" title="P&L solo da variazione di prezzo (escluso cedole, dividendi, commissioni)">${fmt.currency(pnl)}<br><small>${fmt.pct(pnlP)}</small></td>
+              <td class="text-right ${totret>=0?'pnl-positive':'pnl-negative'}" title="Rendimento complessivo: valore attuale + vendite + cedole/dividendi − acquisti − commissioni − spese">${fmt.currency(totret)}<br><small>${fmt.pct(totretPct)}</small></td>
             </tr>`;
           }).join('');
         })()}
@@ -285,47 +380,56 @@ async function renderPortfolioStorico(items) {
     return;
   }
 
-  const TYPE_LABEL = { buy:'Acquisto', sell:'Vendita', coupon:'Cedola', expense:'Spesa' };
-  const TYPE_COLOR = { buy:'var(--expense)', sell:'var(--income)', coupon:'var(--income)', expense:'var(--expense)' };
-  const TYPE_SIGN  = { buy:'-', sell:'+', coupon:'+', expense:'-' };
+  const TYPE_LABEL = { buy:'Acquisto', sell:'Vendita', coupon:'Cedola', dividend:'Dividendo', expense:'Spesa' };
+  const TYPE_COLOR = { buy:'var(--expense)', sell:'var(--income)', coupon:'var(--income)', dividend:'var(--income)', expense:'var(--expense)' };
+  const TYPE_SIGN  = { buy:'-', sell:'+', coupon:'+', dividend:'+', expense:'-' };
 
-  let grandBuy = 0, grandSell = 0, grandCoupon = 0, grandExpense = 0;
+  let grandBuy = 0, grandSell = 0, grandCoupon = 0, grandDividend = 0, grandExpense = 0;
 
   const cards = withTxs.map(({ item, txs }) => {
-    const totBuy     = txs.filter(t=>t.type==='buy').reduce((s,t)=>s+t.quantity*t.price, 0);
-    const totSell    = txs.filter(t=>t.type==='sell').reduce((s,t)=>s+t.quantity*t.price, 0);
+    const isB = item.asset_type === 'bond';
+    const buyValue = t => isB ? t.quantity * t.price / 100 + (t.commission || 0) : t.quantity * t.price + (t.commission || 0);
+    const sellValue = t => isB ? t.quantity * t.price / 100 : t.quantity * t.price;
+    const totBuy     = txs.filter(t=>t.type==='buy').reduce((s,t)=>s+buyValue(t), 0);
+    const totSell    = txs.filter(t=>t.type==='sell').reduce((s,t)=>s+sellValue(t), 0);
     const totCoupon  = txs.filter(t=>t.type==='coupon').reduce((s,t)=>s+t.price, 0);
+    const totDividend= txs.filter(t=>t.type==='dividend').reduce((s,t)=>s+t.price, 0);
     const totExpense = txs.filter(t=>t.type==='expense').reduce((s,t)=>s+t.price, 0);
-    grandBuy += totBuy; grandSell += totSell; grandCoupon += totCoupon; grandExpense += totExpense;
+    grandBuy += totBuy; grandSell += totSell; grandCoupon += totCoupon; grandDividend += totDividend; grandExpense += totExpense;
 
     const collapsed = !_portStoricoExp.has(item.id);
     const net = totSell + totCoupon - totBuy - totExpense;
 
     const chips = [
-      totBuy     > 0 ? `<span class="r-chip" style="color:var(--expense)">Acq. ${fmt.currency(totBuy)}</span>`      : '',
-      totSell    > 0 ? `<span class="r-chip" style="color:var(--income)">Vend. ${fmt.currency(totSell)}</span>`     : '',
-      totCoupon  > 0 ? `<span class="r-chip" style="color:var(--income)">Ced. ${fmt.currency(totCoupon)}</span>`    : '',
-      totExpense > 0 ? `<span class="r-chip" style="color:var(--expense)">Sp. ${fmt.currency(totExpense)}</span>`   : '',
+      totBuy      > 0 ? `<span class="r-chip" style="color:var(--expense)">Acq. ${fmt.currency(totBuy)}</span>`     : '',
+      totSell     > 0 ? `<span class="r-chip" style="color:var(--income)">Vend. ${fmt.currency(totSell)}</span>`    : '',
+      totCoupon   > 0 ? `<span class="r-chip" style="color:var(--income)">Ced. ${fmt.currency(totCoupon)}</span>`   : '',
+      totDividend > 0 ? `<span class="r-chip" style="color:var(--income)">Div. ${fmt.currency(totDividend)}</span>` : '',
+      totExpense  > 0 ? `<span class="r-chip" style="color:var(--expense)">Sp. ${fmt.currency(totExpense)}</span>`  : '',
       `<span class="r-chip" style="font-weight:600;color:${net>=0?'var(--income)':'var(--expense)'}">Netto ${net>=0?'+':''}${fmt.currency(net)}</span>`,
     ].filter(Boolean).join('');
 
     const isBond = item.asset_type === 'bond';
     const rows = [...txs].sort((a, b) => a.date.localeCompare(b.date)).map(t => {
-      const isValued = t.type !== 'coupon' && t.type !== 'expense';
-      const total = isValued ? t.quantity * t.price : t.price;
+      const isValued = t.type === 'buy' || t.type === 'sell';
+      const commPart = (t.type === 'buy' && t.commission > 0) ? t.commission : 0;
+      const principal = isValued ? (isBond ? t.quantity * t.price / 100 : t.quantity * t.price) : t.price;
+      const total = principal + commPart;
       const priceDisplay = !isValued ? '—'
-        : isBond ? `${(t.price * 100).toFixed(4)} %`
+        : isBond ? `${t.price.toFixed(4)} %`
         : `${t.price.toFixed(4)} €`;
       const typeLabel = t.type === 'expense' && t.notes === 'Commissione'
         ? `<span style="color:${TYPE_COLOR.expense};font-weight:600">Commissione</span>`
         : `<span style="color:${TYPE_COLOR[t.type]||'var(--txt)'};font-weight:600">${TYPE_LABEL[t.type]||t.type}</span>`;
+      const noteText = (t.notes && t.notes !== 'Commissione') ? t.notes : '';
+      const commNote = commPart > 0 ? `<small style="color:var(--txt3)">+ comm. ${fmt.currency(commPart)}</small>` : '';
       return `<tr>
         <td style="width:110px">${fmt.date(t.date)}</td>
         <td style="width:130px">${typeLabel}</td>
         <td style="width:100px;text-align:right">${isValued ? t.quantity : '—'}</td>
         <td style="width:160px;text-align:right">${priceDisplay}</td>
-        <td style="width:160px;text-align:right;color:${TYPE_COLOR[t.type]||'var(--txt)'}">${TYPE_SIGN[t.type]||''}${fmt.currency(total)}</td>
-        <td>${t.notes && t.notes !== 'Commissione' ? t.notes : ''}</td>
+        <td style="width:160px;text-align:right;color:${TYPE_COLOR[t.type]||'var(--txt)'}">${TYPE_SIGN[t.type]||''}${fmt.currency(total)}${commNote ? '<br>' + commNote : ''}</td>
+        <td>${noteText}</td>
         <td style="width:36px;text-align:center">
           <button class="btn btn-ghost" style="padding:2px 6px;font-size:11px;color:var(--txt3)"
                   onclick="deletePortfolioTransactionConfirm(${t.id},'${t.type}','${item.ticker}')"
@@ -358,8 +462,10 @@ async function renderPortfolioStorico(items) {
       </div>`;
   });
 
-  const grandNet = grandSell + grandCoupon - grandBuy - grandExpense;
+  const grandNet = grandSell + grandCoupon + grandDividend - grandBuy - grandExpense;
   const showExp  = grandExpense > 0;
+  const showDiv  = grandDividend > 0;
+  const showCoup = grandCoupon > 0;
 
   container.innerHTML = toolbar + cards.join('') + `
     <div class="card" style="margin-top:4px">
@@ -368,13 +474,15 @@ async function renderPortfolioStorico(items) {
         <table><thead><tr>
           <th class="text-right">Acquisti</th>
           <th class="text-right">Vendite</th>
-          <th class="text-right">Cedole</th>
+          ${showCoup ? '<th class="text-right">Cedole</th>' : ''}
+          ${showDiv  ? '<th class="text-right">Dividendi</th>' : ''}
           ${showExp ? '<th class="text-right">Spese</th>' : ''}
           <th class="text-right">Netto</th>
         </tr></thead><tbody><tr>
           <td class="text-right amount-expense">-${fmt.currency(grandBuy)}</td>
           <td class="text-right amount-income">+${fmt.currency(grandSell)}</td>
-          <td class="text-right amount-income">+${fmt.currency(grandCoupon)}</td>
+          ${showCoup ? `<td class="text-right amount-income">+${fmt.currency(grandCoupon)}</td>` : ''}
+          ${showDiv  ? `<td class="text-right amount-income">+${fmt.currency(grandDividend)}</td>` : ''}
           ${showExp ? `<td class="text-right amount-expense">-${fmt.currency(grandExpense)}</td>` : ''}
           <td class="text-right" style="font-weight:700;color:${grandNet>=0?'var(--income)':'var(--expense)'}">
             ${grandNet>=0?'+':''}${fmt.currency(grandNet)}
@@ -391,12 +499,159 @@ function renderPortfolioAnalisi(items) {
   const today     = new Date();
   const todayYear = today.getFullYear();
 
-  const bonds = items.filter(i => i.asset_type === 'bond' && i.quantity > 0);
+  const equities = items.filter(i => (i.asset_type || 'equity') === 'equity' && i.quantity > 0);
+  const bonds    = items.filter(i => i.asset_type === 'bond' && i.quantity > 0);
 
-  if (!bonds.length) {
-    container.innerHTML = '<div class="card" style="padding:32px;text-align:center;color:var(--txt3)">Nessun titolo obbligazionario in portafoglio.</div>';
+  if (!equities.length && !bonds.length) {
+    container.innerHTML = '<div class="card" style="padding:32px;text-align:center;color:var(--txt3)">Nessun titolo attivo in portafoglio.</div>';
     return;
   }
+
+  // Render dinamico: prima equity (se presente), poi bond (se presente)
+  let html = '';
+  if (equities.length) html += `<div id="eqAnalisiSection"></div>`;
+  if (bonds.length)    html += `<div id="bondAnalisiSection" style="${equities.length?'margin-top:24px':''}"></div>`;
+  container.innerHTML = html;
+
+  if (equities.length) renderEquityAnalisi(equities);
+  if (!bonds.length) return;
+  // Esegui il rendering bond dentro la propria sezione
+  const bondContainer = document.getElementById('bondAnalisiSection');
+  renderBondAnalisi(bonds, bondContainer, today, todayYear);
+}
+
+// ── Equity analytics ────────────────────────────────────────────────────────
+function renderEquityAnalisi(equities) {
+  const container = document.getElementById('eqAnalisiSection');
+  if (!container) return;
+
+  const palette = [
+    '#58a6ff','#3fb950','#f85149','#d29922','#a371f7','#f0883e','#00d4aa','#ec4899',
+    '#06b6d4','#84cc16','#6366f1','#fb7185','#22d3ee','#a3e635','#e879f9'
+  ];
+
+  // Allocation per posizione (valore attuale)
+  const withVal = equities.map(i => ({
+    ticker: i.ticker, name: i.name, account: i.account_name,
+    val: portfolioItemValue(i, false),
+    cost: portfolioItemValue(i, true),
+    tr:   positionTotalReturn(i),
+  }));
+  const totalVal = withVal.reduce((s, x) => s + x.val, 0);
+
+  // Top 10 + "Altri"
+  const sortedByVal = [...withVal].sort((a, b) => b.val - a.val);
+  const top10 = sortedByVal.slice(0, 10);
+  const rest  = sortedByVal.slice(10);
+  const restVal = rest.reduce((s, x) => s + x.val, 0);
+  const allocLabels = [...top10.map(x => x.ticker), ...(rest.length ? ['Altri'] : [])];
+  const allocData   = [...top10.map(x => x.val),    ...(rest.length ? [restVal] : [])];
+  const allocColors = allocLabels.map((_, i) => palette[i % palette.length]);
+
+  // Allocazione per conto investimento
+  const byAcct = {};
+  withVal.forEach(x => { byAcct[x.account] = (byAcct[x.account] || 0) + x.val; });
+  const acctLabels = Object.keys(byAcct);
+  const acctData   = acctLabels.map(k => byAcct[k]);
+  const acctColors = acctLabels.map((_, i) => palette[i % palette.length]);
+
+  // Top winners / losers per % (escludo posizioni con cost=0 per evitare NaN)
+  const ranked = withVal.filter(x => x.cost > 0).map(x => ({
+    ...x, retPct: x.tr.pct, retEur: x.tr.totalReturn
+  }));
+  ranked.sort((a, b) => b.retPct - a.retPct);
+  const winners = ranked.slice(0, 5);
+  const losers  = ranked.slice(-5).reverse();
+
+  container.innerHTML = `
+    <div style="font-size:13px;font-weight:700;color:var(--txt2);margin-bottom:10px;letter-spacing:.3px">📈 AZIONARIO</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <div class="card" style="padding:16px">
+        <div style="font-weight:600;margin-bottom:12px">Allocazione per titolo</div>
+        <canvas id="eqAllocChart" style="max-height:300px"></canvas>
+      </div>
+      <div class="card" style="padding:16px">
+        <div style="font-weight:600;margin-bottom:12px">Allocazione per conto</div>
+        <canvas id="eqAcctChart" style="max-height:300px"></canvas>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px">
+      <div class="card" style="padding:16px">
+        <div style="font-weight:600;margin-bottom:10px;color:var(--income)">▲ Top performer (Tot. Return %)</div>
+        ${winners.length ? `<table style="width:100%;font-size:12px;border-collapse:collapse">
+          <thead><tr style="color:var(--txt3);border-bottom:1px solid var(--border)">
+            <th style="text-align:left;padding:4px 6px">Ticker</th>
+            <th style="text-align:right;padding:4px 6px">Tot. Return</th>
+            <th style="text-align:right;padding:4px 6px">%</th>
+            <th style="text-align:right;padding:4px 6px">Valore</th>
+          </tr></thead><tbody>
+          ${winners.map(w => `<tr style="border-bottom:1px solid var(--border)">
+            <td style="padding:5px 6px"><strong>${w.ticker}</strong><br><small style="color:var(--txt3)">${w.name}</small></td>
+            <td style="padding:5px 6px;text-align:right;color:${w.retEur>=0?'var(--income)':'var(--expense)'}">${fmt.currency(w.retEur)}</td>
+            <td style="padding:5px 6px;text-align:right;color:${w.retPct>=0?'var(--income)':'var(--expense)'};font-weight:600">${fmt.pct(w.retPct)}</td>
+            <td style="padding:5px 6px;text-align:right;color:var(--txt3)">${fmt.currency(w.val)}</td>
+          </tr>`).join('')}
+        </tbody></table>` : '<div style="color:var(--txt3);font-size:12px">Nessuna posizione con costo &gt; 0</div>'}
+      </div>
+      <div class="card" style="padding:16px">
+        <div style="font-weight:600;margin-bottom:10px;color:var(--expense)">▼ Peggiori (Tot. Return %)</div>
+        ${losers.length ? `<table style="width:100%;font-size:12px;border-collapse:collapse">
+          <thead><tr style="color:var(--txt3);border-bottom:1px solid var(--border)">
+            <th style="text-align:left;padding:4px 6px">Ticker</th>
+            <th style="text-align:right;padding:4px 6px">Tot. Return</th>
+            <th style="text-align:right;padding:4px 6px">%</th>
+            <th style="text-align:right;padding:4px 6px">Valore</th>
+          </tr></thead><tbody>
+          ${losers.map(w => `<tr style="border-bottom:1px solid var(--border)">
+            <td style="padding:5px 6px"><strong>${w.ticker}</strong><br><small style="color:var(--txt3)">${w.name}</small></td>
+            <td style="padding:5px 6px;text-align:right;color:${w.retEur>=0?'var(--income)':'var(--expense)'}">${fmt.currency(w.retEur)}</td>
+            <td style="padding:5px 6px;text-align:right;color:${w.retPct>=0?'var(--income)':'var(--expense)'};font-weight:600">${fmt.pct(w.retPct)}</td>
+            <td style="padding:5px 6px;text-align:right;color:var(--txt3)">${fmt.currency(w.val)}</td>
+          </tr>`).join('')}
+        </tbody></table>` : '<div style="color:var(--txt3);font-size:12px">—</div>'}
+      </div>
+    </div>`;
+
+  const txtColor = getComputedStyle(document.documentElement).getPropertyValue('--txt1').trim() || '#ccc';
+
+  new Chart(document.getElementById('eqAllocChart'), {
+    type: 'doughnut',
+    data: { labels: allocLabels, datasets: [{ data: allocData, backgroundColor: allocColors, borderWidth: 1 }] },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { position: 'bottom', labels: { color: txtColor, font: { size: 11 }, padding: 8 } },
+        tooltip: {
+          callbacks: {
+            label: ctx => ` ${ctx.label}: ${fmt.currency(ctx.parsed)} (${(ctx.parsed/totalVal*100).toFixed(1)}%)`,
+            footer: () => [`Totale: ${fmt.currency(totalVal)}`]
+          }
+        }
+      }
+    }
+  });
+
+  new Chart(document.getElementById('eqAcctChart'), {
+    type: 'doughnut',
+    data: { labels: acctLabels, datasets: [{ data: acctData, backgroundColor: acctColors, borderWidth: 1 }] },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { position: 'bottom', labels: { color: txtColor, font: { size: 11 }, padding: 8 } },
+        tooltip: {
+          callbacks: {
+            label: ctx => ` ${ctx.label}: ${fmt.currency(ctx.parsed)} (${(ctx.parsed/totalVal*100).toFixed(1)}%)`,
+          }
+        }
+      }
+    }
+  });
+}
+
+// ── Bond analytics ──────────────────────────────────────────────────────────
+function renderBondAnalisi(bonds, container, today, todayYear) {
+  container.innerHTML = `<div style="font-size:13px;font-weight:700;color:var(--txt2);margin-bottom:10px;letter-spacing:.3px">📄 OBBLIGAZIONARIO</div><div id="bondCharts"></div>`;
+  const inner = container.querySelector('#bondCharts');
 
   // Usa il campo country se presente, normalizzato (trim + title case), altrimenti "Sconosciuto"
   const normCountry = s => s.trim().toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
@@ -483,8 +738,8 @@ function renderPortfolioAnalisi(items) {
   });
 
   // ── HTML ───────────────────────────────────────────────────────────────
-  container.innerHTML = `
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:8px">
+  inner.innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
       <div class="card" style="padding:16px">
         <div style="font-weight:600;margin-bottom:12px">Esposizione per Paese</div>
         <canvas id="chAnPaese" style="max-height:340px"></canvas>
@@ -1274,6 +1529,110 @@ async function showCouponModal(portfolioId) {
   }, 50);
 }
 
+async function showDividendModal(portfolioId) {
+  const [items, accounts] = await Promise.all([api.getPortfolio(), api.getAccounts()]);
+  const pos = items.find(i => i.id === portfolioId);
+  if (!pos) return;
+  const regularAccounts = accounts.filter(a => a.type !== 'investment' && !a.is_closed);
+  const today = _todayStr();
+
+  const body = `
+    <div style="background:var(--bg3);border-radius:6px;padding:10px 14px;margin-bottom:16px;font-size:13px">
+      <strong>${pos.ticker}</strong> — ${pos.name}<br>
+      Quantità posseduta: <strong>${pos.quantity}</strong>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Accredita su *</label>
+        <select class="form-control" id="d_account">
+          <option value="">— Seleziona conto —</option>
+          ${regularAccounts.map(a=>`<option value="${a.id}">${a.icon} ${a.name}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Data pagamento *</label>
+        <input type="date" class="form-control" id="d_date" value="${today}">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Dividendo per azione (€)</label>
+        <input type="text" inputmode="decimal" class="form-control" id="d_per_share" placeholder="Es. 0,52">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Importo lordo totale (€) *</label>
+        <input type="text" inputmode="decimal" class="form-control" id="d_gross" placeholder="Calcolato da per azione × qtà">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Tassazione (%)</label>
+        <input type="text" inputmode="decimal" class="form-control" id="d_tax_rate" value="26" placeholder="26">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Ritenuta (€)</label>
+        <input type="text" class="form-control" id="d_tax_amt" readonly style="background:var(--bg3)">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Importo netto accreditato (€)</label>
+        <input type="text" class="form-control" id="d_net" readonly style="background:var(--bg3);font-weight:700;color:var(--income)">
+      </div>
+      <div class="form-group"></div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Note</label>
+      <input class="form-control" id="d_notes" placeholder="Es. Dividendo Q3 2025">
+    </div>`;
+
+  openModal('Registra Dividendo', body, async () => {
+    const gross  = parseFloat((document.getElementById('d_gross').value||'').replace(',','.'));
+    const taxPct = parseFloat((document.getElementById('d_tax_rate').value||'').replace(',','.')) || 0;
+    const net    = gross * (1 - taxPct / 100);
+    const data = {
+      portfolio_id: portfolioId,
+      account_id:   parseInt(document.getElementById('d_account').value),
+      amount:       net,
+      date:         document.getElementById('d_date').value,
+      notes:        document.getElementById('d_notes').value.trim() ||
+                    `Dividendo ${pos.ticker} — lordo ${fmt.currency(gross)}, ritenuta ${taxPct}%`,
+    };
+    if (!data.account_id)     { toast('Seleziona il conto di accredito','error'); return; }
+    if (!gross || gross <= 0) { toast('Inserisci un importo lordo valido','error'); return; }
+    try {
+      await api.registerDividend(data);
+      closeModal();
+      toast(`Dividendo registrato — netto ${fmt.currency(net)}`);
+      renderPortfolio();
+    } catch(e) { toast(e.message,'error'); }
+  });
+
+  const calcDiv = () => {
+    const perShare = parseFloat((document.getElementById('d_per_share')?.value||'').replace(',','.')) || 0;
+    const grossEl  = document.getElementById('d_gross');
+    if (perShare > 0 && grossEl && !grossEl._userTouched) {
+      grossEl.value = (perShare * pos.quantity).toFixed(2);
+    }
+    const g  = parseFloat((document.getElementById('d_gross')?.value||'').replace(',','.')) || 0;
+    const t  = parseFloat((document.getElementById('d_tax_rate')?.value||'').replace(',','.')) || 0;
+    const ta = g * t / 100;
+    const n  = g - ta;
+    const taxEl = document.getElementById('d_tax_amt');
+    const netEl = document.getElementById('d_net');
+    if (taxEl) taxEl.value = g ? fmt.currency(ta) : '';
+    if (netEl) netEl.value = g ? fmt.currency(n) : '';
+  };
+  setTimeout(() => {
+    const grossEl = document.getElementById('d_gross');
+    if (grossEl) grossEl.addEventListener('input', () => { grossEl._userTouched = true; calcDiv(); });
+    document.getElementById('d_per_share')?.addEventListener('input', calcDiv);
+    document.getElementById('d_tax_rate')?.addEventListener('input', calcDiv);
+    calcDiv();
+  }, 50);
+}
+window.showDividendModal = showDividendModal;
+
 async function showExpenseModal(portfolioId) {
   const [items, accounts, categories] = await Promise.all([api.getPortfolio(), api.getAccounts(), api.getCategories()]);
   const pos = items.find(i => i.id === portfolioId);
@@ -1367,13 +1726,18 @@ async function showPortfolioHistory(portfolioId) {
         const sorted = [...txs].sort((a,b)=>a.date.localeCompare(b.date));
         let grandTotal = 0;
         const rows = sorted.map(t=>{
-          const isBuy     = t.type === 'buy';
-          const isCoupon  = t.type === 'coupon';
-          const isExpense = t.type === 'expense';
+          const isBuy      = t.type === 'buy';
+          const isSell     = t.type === 'sell';
+          const isCoupon   = t.type === 'coupon';
+          const isDividend = t.type === 'dividend';
+          const isExpense  = t.type === 'expense';
+          const isCashOnly = isCoupon || isDividend || isExpense;
           const color = isBuy || isExpense ? 'var(--expense)' : 'var(--income)';
-          const label = isBuy ? 'Acquisto' : isCoupon ? 'Cedola' : isExpense ? (t.notes || 'Spesa') : 'Vendita';
+          const label = isBuy ? 'Acquisto' : isSell ? 'Vendita'
+            : isCoupon ? 'Cedola' : isDividend ? 'Dividendo'
+            : (t.notes || 'Spesa');
           const sign  = isBuy || isExpense ? -1 : 1;
-          const total = (isCoupon || isExpense) ? t.price : t.quantity * t.price;
+          const total = isCashOnly ? t.price : t.quantity * t.price;
           grandTotal += sign * total;
           return `<tr>
             <td>${t.date}</td>
@@ -1574,7 +1938,8 @@ window._showPortfolioCtx = (portfolioId, evt) => {
     menu.appendChild(mkItem('📅', 'Aggiungi cedola a pianificate', () => showAddCouponToScheduled(portfolioId)));
   }
   if (!isBond) {
-    menu.appendChild(mkItem('💸', 'Registra spesa', () => showExpenseModal(portfolioId)));
+    menu.appendChild(mkItem('💵', 'Registra dividendo', () => showDividendModal(portfolioId)));
+    menu.appendChild(mkItem('💸', 'Registra spesa',     () => showExpenseModal(portfolioId)));
   }
   menu.appendChild(mkSep());
   menu.appendChild(mkItem('✏️', 'Modifica',  () => showEditPositionModal(portfolioId)));

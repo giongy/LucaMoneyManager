@@ -85,6 +85,38 @@ function toast(msg, type='success') {
   setTimeout(() => t.remove(), 3500);
 }
 
+// Sparkline cumulativa con confronto anno precedente.
+// Linea solida (anno corrente) + linea tratteggiata grigia (anno precedente, stessi mesi).
+// Il colore della solida è semanticamente corretto (verde = sopra/meglio dell'anno scorso, rosso = sotto).
+function cumulativeCompareSvg(currCum, prevCum, color, w = 90, h = 36) {
+  if (!currCum || !currCum.length) return '';
+  const allValues = [...currCum, ...(prevCum || [])].filter(v => v != null);
+  if (!allValues.length) return '';
+  const min = Math.min(...allValues, 0);
+  const max = Math.max(...allValues, 0);
+  const range = max - min || 1;
+  const pad = 2;
+  const len = Math.max(currCum.length, (prevCum || []).length);
+  const stepX = w / (len - 1 || 1);
+  const toPoints = vals => vals.map((v, i) => {
+    const y = (h - pad - ((v - min) / range) * (h - 2 * pad)).toFixed(1);
+    return `${(i * stepX).toFixed(1)},${y}`;
+  }).join(' ');
+  const currPts = toPoints(currCum);
+  const prevPts = prevCum && prevCum.length ? toPoints(prevCum) : '';
+  // Baseline zero se la scala attraversa 0
+  let zeroLine = '';
+  if (min < 0 && max > 0) {
+    const zy = (h - pad - ((0 - min) / range) * (h - 2 * pad)).toFixed(1);
+    zeroLine = `<line x1="0" y1="${zy}" x2="${w}" y2="${zy}" stroke="rgba(255,255,255,.18)" stroke-width="0.6" stroke-dasharray="2,2"/>`;
+  }
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="display:block;flex-shrink:0">
+    ${zeroLine}
+    ${prevPts ? `<polyline points="${prevPts}" fill="none" stroke="var(--txt3)" stroke-width="1.2" stroke-dasharray="3,2" opacity="0.55" stroke-linecap="round"/>` : ''}
+    <polyline points="${currPts}" fill="none" stroke="${color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>`;
+}
+
 // Sparkline SVG inline (no Chart.js). Per dashboard stat cards.
 function sparklineSvg(values, color = 'currentColor', w = 90, h = 36) {
   if (!values || !values.length || values.every(v => v === 0)) return '';

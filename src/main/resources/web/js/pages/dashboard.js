@@ -384,25 +384,43 @@ async function renderDashboard() {
   // Cache upcoming per "Esegui ora" inline
   window._dashUpcomingCache = upcoming;
 
-  // ── Sparkline + trend YoY per stat cards ─────────────────────────────────
-  const sparkInc = Array(12).fill(0), sparkExp = Array(12).fill(0);
-  monthly.forEach(r => { sparkInc[r.month-1] = r.income; sparkExp[r.month-1] = r.expenses; });
-  const sparkNet = sparkInc.map((v, i) => v - sparkExp[i]);
+  // ── Cumulativo YTD per stat cards (con confronto anno precedente) ────────
+  const curMonthIdx = new Date().getMonth();  // 0..11
+  // Costruisce array cumulativo [0, m1, m1+m2, ...] fino al mese corrente incluso
+  const _buildCum = (monthlyData, getter) => {
+    const monthly12 = Array(12).fill(0);
+    monthlyData.forEach(r => monthly12[r.month - 1] = getter(r) || 0);
+    const cum = [0];
+    let acc = 0;
+    for (let i = 0; i <= curMonthIdx; i++) { acc += monthly12[i]; cum.push(acc); }
+    return cum;
+  };
+  const cumIncCur  = _buildCum(monthly,     r => r.income);
+  const cumIncPrev = _buildCum(prevMonthly, r => r.income);
+  const cumExpCur  = _buildCum(monthly,     r => r.expenses);
+  const cumExpPrev = _buildCum(prevMonthly, r => r.expenses);
+  const cumNetCur  = _buildCum(monthly,     r => (r.income || 0) - (r.expenses || 0));
+  const cumNetPrev = _buildCum(prevMonthly, r => (r.income || 0) - (r.expenses || 0));
 
   // YoY trend: confronta YTD anno corrente vs YTD anno precedente (stessi mesi)
-  const curMonthIdx = new Date().getMonth();  // 0..11
-  const _ytdSum = (arr, idx) => arr.filter(r => r.month <= idx + 1).reduce((s, r) => s + (r.income || 0), 0);
-  const _ytdSumE = (arr, idx) => arr.filter(r => r.month <= idx + 1).reduce((s, r) => s + (r.expenses || 0), 0);
-  const ytdInc     = _ytdSum(monthly, curMonthIdx);
-  const ytdExp     = _ytdSumE(monthly, curMonthIdx);
-  const prevYtdInc = _ytdSum(prevMonthly, curMonthIdx);
-  const prevYtdExp = _ytdSumE(prevMonthly, curMonthIdx);
-  const ytdNet     = ytdInc - ytdExp;
-  const prevYtdNet = prevYtdInc - prevYtdExp;
+  const ytdInc     = cumIncCur[cumIncCur.length - 1];
+  const ytdExp     = cumExpCur[cumExpCur.length - 1];
+  const prevYtdInc = cumIncPrev[cumIncPrev.length - 1];
+  const prevYtdExp = cumExpPrev[cumExpPrev.length - 1];
+  const ytdNet     = cumNetCur[cumNetCur.length - 1];
+  const prevYtdNet = cumNetPrev[cumNetPrev.length - 1];
   const trend = (cur, prev) => prev ? ((cur - prev) / Math.abs(prev)) * 100 : null;
   const trendInc = trend(ytdInc, prevYtdInc);
   const trendExp = trend(ytdExp, prevYtdExp);
   const trendNet = trend(ytdNet, prevYtdNet);
+
+  // Colori semantici della linea solida: verde se trend "buono", rosso se "cattivo"
+  const GREEN = 'rgba(63,185,80,.95)';
+  const RED   = 'rgba(248,81,73,.95)';
+  const NEUT  = 'var(--txt2)';
+  const incColor = trendInc == null ? NEUT : (trendInc >= 0 ? GREEN : RED);
+  const expColor = trendExp == null ? NEUT : (trendExp <= 0 ? GREEN : RED);
+  const netColor = trendNet == null ? NEUT : (trendNet >= 0 ? GREEN : RED);
 
   // Stat cards (con sparkline a destra del numero e trend YoY)
   document.getElementById('statsGrid').innerHTML = `
@@ -415,8 +433,9 @@ async function renderDashboard() {
       <div class="stat-label">📥 Entrate ${dashYear}</div>
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
         <div class="stat-value" style="min-width:0;flex:1">${fmt.currency(stats.income)}</div>
-        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0">
-          ${sparklineSvg(sparkInc, 'rgba(63,185,80,.8)')}
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0"
+             title="Cumulativo YTD ${dashYear} (linea solida) vs ${dashYear-1} stessi mesi (tratteggiata)">
+          ${cumulativeCompareSvg(cumIncCur, cumIncPrev, incColor)}
           <div style="font-size:10px;line-height:1.2;white-space:nowrap">${trendBadge(trendInc, true)} ${trendInc != null ? '<span style="color:var(--txt3)">vs '+(dashYear-1)+'</span>' : ''}</div>
         </div>
       </div>
@@ -425,8 +444,9 @@ async function renderDashboard() {
       <div class="stat-label">📤 Uscite ${dashYear}</div>
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
         <div class="stat-value" style="min-width:0;flex:1">${fmt.currency(stats.expenses)}</div>
-        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0">
-          ${sparklineSvg(sparkExp, 'rgba(248,81,73,.8)')}
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0"
+             title="Cumulativo YTD ${dashYear} (linea solida) vs ${dashYear-1} stessi mesi (tratteggiata)">
+          ${cumulativeCompareSvg(cumExpCur, cumExpPrev, expColor)}
           <div style="font-size:10px;line-height:1.2;white-space:nowrap">${trendBadge(trendExp, false)} ${trendExp != null ? '<span style="color:var(--txt3)">vs '+(dashYear-1)+'</span>' : ''}</div>
         </div>
       </div>
@@ -438,8 +458,9 @@ async function renderDashboard() {
           <div class="stat-value" style="color:${stats.net>=0?'var(--income)':'var(--expense)'}">${fmt.currency(stats.net)}</div>
           <div class="stat-sub" style="font-size:11px;color:var(--txt3)">${stats.transaction_count} tx</div>
         </div>
-        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0">
-          ${sparklineSvg(sparkNet, stats.net >= 0 ? 'rgba(63,185,80,.8)' : 'rgba(248,81,73,.8)')}
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0"
+             title="Cumulativo YTD ${dashYear} (linea solida) vs ${dashYear-1} stessi mesi (tratteggiata)">
+          ${cumulativeCompareSvg(cumNetCur, cumNetPrev, netColor)}
           <div style="font-size:10px;line-height:1.2;white-space:nowrap">${trendBadge(trendNet, true)} ${trendNet != null ? '<span style="color:var(--txt3)">vs '+(dashYear-1)+'</span>' : ''}</div>
         </div>
       </div>

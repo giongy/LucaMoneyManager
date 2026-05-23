@@ -1720,6 +1720,7 @@ async function showPortfolioHistory(portfolioId) {
     api.getPortfolio()
   ]);
   const pos = items.find(i => i.id === portfolioId);
+  const isBond = pos?.asset_type === 'bond';
   const body = `
     <div style="font-weight:600;margin-bottom:12px">${pos?.ticker} — ${pos?.name}</div>
     <div class="table-wrap">
@@ -1741,13 +1742,16 @@ async function showPortfolioHistory(portfolioId) {
             : isCoupon ? 'Cedola' : isDividend ? 'Dividendo'
             : (t.notes || 'Spesa');
           const sign  = isBuy || isExpense ? -1 : 1;
-          const total = isCashOnly ? t.price : t.quantity * t.price;
+          // Bond cash = qty × price / 100 (convenzione percentuale)
+          const principal = isBond ? t.quantity * t.price / 100 : t.quantity * t.price;
+          const total = isCashOnly ? t.price : principal;
+          const priceDisp = isCashOnly ? '—' : (isBond ? `${t.price.toFixed(4)} %` : fmt.price(t.price));
           grandTotal += sign * total;
           return `<tr>
             <td>${t.date}</td>
             <td><span style="color:${color};font-weight:600">${label}</span></td>
             <td>${(isCoupon || isExpense) ? '—' : t.quantity}</td>
-            <td>${(isCoupon || isExpense) ? '—' : fmt.price(t.price)}</td>
+            <td>${priceDisp}</td>
             <td class="text-right" style="color:${color}">${sign<0?'-':'+'} ${fmt.currency(total)}</td>
           </tr>`;
         }).join('');

@@ -15,6 +15,64 @@
 let   _accTypeOrder         = ['checking','savings','cash','credit','investment'];
 const _DASH_ACC_TYPE_LABELS = {checking:'Conti Correnti',savings:'Risparmio',cash:'Contanti',credit:'Carte di Credito',investment:'Investimenti'};
 
+// Calcolo Salute Finanziaria — stessa formula di renderAnalyticsHealth in analytics.js.
+// Tenuta inline per evitare dipendenze cross-modulo (entrambe le pagine consumano lo stesso schema dati).
+function _computeHealthScore(balRows, accounts) {
+  const incomes  = balRows.map(r => r.income  || 0);
+  const expenses = balRows.map(r => r.expense || 0);
+  const savings  = incomes.map((v, i) => v - expenses[i]);
+  const n        = balRows.length;
+
+  const totalIncome    = incomes.reduce((a, b) => a + b, 0);
+  const totalSavings   = totalIncome - expenses.reduce((a, b) => a + b, 0);
+  const avgSavingsRate = totalIncome > 0 ? (totalSavings / totalIncome) * 100 : 0;
+
+  // 1. Tasso risparmio (0–40)
+  const scoreSavings = avgSavingsRate >= 20 ? 40 : avgSavingsRate >= 15 ? 35 : avgSavingsRate >= 10 ? 29 : avgSavingsRate >= 7 ? 23 : avgSavingsRate >= 5 ? 16 : avgSavingsRate >= 3 ? 9 : avgSavingsRate > 0 ? 4 : avgSavingsRate === 0 ? 0 : avgSavingsRate >= -5 ? -7 : avgSavingsRate >= -10 ? -13 : -20;
+
+  // 2. Stabilità mensile (0–20)
+  const posMonths = savings.filter(s => s > 0).length;
+  const posPct    = n > 0 ? posMonths / n : 0;
+  const scorePos  = posPct === 1 ? 20 : posPct >= 0.9 ? 18 : posPct >= 0.75 ? 15 : posPct >= 0.6 ? 11 : posPct >= 0.4 ? 7 : posPct >= 0.2 ? 3 : 0;
+
+  // IQM uscite per runway
+  const expSorted = [...expenses].sort((a, b) => a - b);
+  const expQ1 = Math.floor(n * 0.25), expQ3 = Math.ceil(n * 0.75);
+  const expDiv = expQ3 - expQ1;
+  const expMedian = expDiv > 0 ? expSorted.slice(expQ1, expQ3).reduce((a, b) => a + b, 0) / expDiv : 0;
+
+  // 3. Riserva di emergenza (0–10)
+  const liquidAccs    = accounts.filter(a => a.type !== 'investment' && !a.is_closed);
+  const liquidBalance = liquidAccs.reduce((s, a) => s + (a.balance || 0), 0);
+  const runwayMonths  = expMedian > 0 ? liquidBalance / expMedian : (liquidBalance > 0 ? 99 : 0);
+  const scoreRunway   = runwayMonths >= 6 ? 10 : runwayMonths >= 3 ? 7 : runwayMonths >= 1.5 ? 4 : runwayMonths >= 0.5 ? 2 : 0;
+
+  // 4. Trend del risparmio (0–20)
+  const incSorted = [...incomes].sort((a, b) => a - b);
+  const incQ1 = Math.floor(n * 0.25), incQ3 = Math.ceil(n * 0.75);
+  const incMedian = incQ3 > incQ1 ? incSorted.slice(incQ1, incQ3).reduce((a, b) => a + b, 0) / (incQ3 - incQ1) : 0;
+  const savXMean = (n - 1) / 2, savAvg = savings.reduce((a, b) => a + b, 0) / (n || 1);
+  let savNum = 0, savDen = 0;
+  savings.forEach((v, i) => { savNum += (i - savXMean) * (v - savAvg); savDen += (i - savXMean) ** 2; });
+  const savSlope    = savDen ? savNum / savDen : 0;
+  const savSlopePct = incMedian > 0 ? savSlope / incMedian * 100 : 0;
+  const scoreIncTrendRaw = savSlopePct > 3 ? 20 : savSlopePct > 1 ? 16 : savSlopePct >= 0 ? 9 : savSlopePct > -1 ? 7 : savSlopePct > -3 ? 3 : 0;
+  const scoreIncTrend = (posPct === 1 && avgSavingsRate >= 10) ? Math.max(scoreIncTrendRaw, 8)
+    : (posPct >= 0.75 && avgSavingsRate >= 5) ? Math.max(scoreIncTrendRaw, 6) : scoreIncTrendRaw;
+
+  // 5. Stabilità entrate (0–10)
+  const incSemiVar = n > 1 ? incomes.reduce((a, v) => a + (v < incMedian ? (v - incMedian) ** 2 : 0), 0) / n : 0;
+  const incStddev  = Math.sqrt(incSemiVar);
+  const incCV      = incMedian > 0 ? incStddev / incMedian * 100 : 100;
+  const scoreVol   = n < 2 ? 0 : incCV < 3 ? 10 : incCV < 6 ? 9 : incCV < 12 ? 7 : incCV < 20 ? 4 : incCV < 30 ? 1 : 0;
+
+  const score      = Math.min(100, scoreSavings + scorePos + scoreRunway + scoreIncTrend + scoreVol);
+  const scoreColor = score >= 75 ? 'var(--income)' : score >= 50 ? '#e8a838' : score >= 30 ? '#e07020' : 'var(--expense)';
+  const scoreLabel = score >= 75 ? 'Ottima' : score >= 60 ? 'Buona' : score >= 45 ? 'Discreta' : score >= 30 ? 'Sufficiente' : score >= 0 ? 'Attenzione' : 'Critica';
+
+  return { score, scoreColor, scoreLabel, runwayMonths, liquidBalance, scoreRunway, avgSavingsRate, posPct };
+}
+
 function _renderDashBudgetBubbles(budgetYear) {
   const el = document.getElementById('dashBudgetBubbles');
   if (!el) return;
@@ -273,7 +331,7 @@ async function renderDashboard() {
           <button class="btn btn-ghost" onclick="navigate('scheduled')">Gestisci →</button>
         </div>
         <div class="table-wrap"><table><thead><tr>
-          <th>Categoria</th><th>Descrizione</th><th>Giorni</th><th class="text-right">Importo</th>
+          <th>Categoria</th><th>Descrizione</th><th>Giorni</th><th class="text-right">Importo</th><th style="width:24px"></th>
         </tr></thead><tbody id="upcomingRows"></tbody></table></div>
       </div>
       <div class="card dash-budgetchart-card" style="cursor:pointer" onclick="_budgetTab='andamento';navigate('budgets')">
@@ -297,9 +355,9 @@ async function renderDashboard() {
       </div>
     </div>
     <div class="dash-bottom-charts">
-      <div class="card dash-chart-sm">
-        <div class="card-header"><span class="card-title">Spese per categoria</span></div>
-        <div class="dash-chart-wrap"><canvas id="pieChart"></canvas></div>
+      <div class="card dash-chart-sm" id="dashHealthWidget" style="cursor:pointer" onclick="_analyticsTab='health';navigate('analytics')">
+        <div class="card-header"><span class="card-title">💚 Salute Finanziaria</span></div>
+        <div id="dashHealthBody" style="padding:8px 16px 14px;flex:1;display:flex;align-items:center"></div>
       </div>
       <div class="card dash-chart-sm" style="cursor:pointer" onclick="_analyticsTab='balance';navigate('analytics')">
         <div class="card-header"><span class="card-title">Entrate vs Uscite ${dashYear}</span></div>
@@ -311,17 +369,42 @@ async function renderDashboard() {
       </div>
     </div>`;
 
-  const [stats, accounts, recent, monthly, catData, upcoming, budgetYear] = await Promise.all([
+  const [stats, accounts, recent, monthly, catData, upcoming, budgetYear, prevMonthly, balRows12] = await Promise.all([
     api.getDashboardStats(dashYear),
     api.getAccounts(),
     api.getTransactions({limit:12, sort_desc:true}),
     api.getMonthlyChartData(dashYear),
     api.getCategoryChartData(dashYear, 'expense'),
     api.getUpcomingAll(10),
-    api.getBudgetYear(dashYear)
+    api.getBudgetYear(dashYear),
+    api.getMonthlyChartData(dashYear - 1),
+    api.getMonthlyBalance(12),
   ]);
 
-  // Stat cards
+  // Cache upcoming per "Esegui ora" inline
+  window._dashUpcomingCache = upcoming;
+
+  // ── Sparkline + trend YoY per stat cards ─────────────────────────────────
+  const sparkInc = Array(12).fill(0), sparkExp = Array(12).fill(0);
+  monthly.forEach(r => { sparkInc[r.month-1] = r.income; sparkExp[r.month-1] = r.expenses; });
+  const sparkNet = sparkInc.map((v, i) => v - sparkExp[i]);
+
+  // YoY trend: confronta YTD anno corrente vs YTD anno precedente (stessi mesi)
+  const curMonthIdx = new Date().getMonth();  // 0..11
+  const _ytdSum = (arr, idx) => arr.filter(r => r.month <= idx + 1).reduce((s, r) => s + (r.income || 0), 0);
+  const _ytdSumE = (arr, idx) => arr.filter(r => r.month <= idx + 1).reduce((s, r) => s + (r.expenses || 0), 0);
+  const ytdInc     = _ytdSum(monthly, curMonthIdx);
+  const ytdExp     = _ytdSumE(monthly, curMonthIdx);
+  const prevYtdInc = _ytdSum(prevMonthly, curMonthIdx);
+  const prevYtdExp = _ytdSumE(prevMonthly, curMonthIdx);
+  const ytdNet     = ytdInc - ytdExp;
+  const prevYtdNet = prevYtdInc - prevYtdExp;
+  const trend = (cur, prev) => prev ? ((cur - prev) / Math.abs(prev)) * 100 : null;
+  const trendInc = trend(ytdInc, prevYtdInc);
+  const trendExp = trend(ytdExp, prevYtdExp);
+  const trendNet = trend(ytdNet, prevYtdNet);
+
+  // Stat cards (con sparkline a destra del numero e trend YoY)
   document.getElementById('statsGrid').innerHTML = `
     <div class="stat-card stat-balance">
       <div class="stat-label">💳 Saldo Totale</div>
@@ -330,22 +413,45 @@ async function renderDashboard() {
     </div>
     <div class="stat-card stat-income">
       <div class="stat-label">📥 Entrate ${dashYear}</div>
-      <div class="stat-value">${fmt.currency(stats.income)}</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+        <div class="stat-value" style="min-width:0;flex:1">${fmt.currency(stats.income)}</div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0">
+          ${sparklineSvg(sparkInc, 'rgba(63,185,80,.8)')}
+          <div style="font-size:10px;line-height:1.2;white-space:nowrap">${trendBadge(trendInc, true)} ${trendInc != null ? '<span style="color:var(--txt3)">vs '+(dashYear-1)+'</span>' : ''}</div>
+        </div>
+      </div>
     </div>
     <div class="stat-card stat-expense">
       <div class="stat-label">📤 Uscite ${dashYear}</div>
-      <div class="stat-value">${fmt.currency(stats.expenses)}</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+        <div class="stat-value" style="min-width:0;flex:1">${fmt.currency(stats.expenses)}</div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0">
+          ${sparklineSvg(sparkExp, 'rgba(248,81,73,.8)')}
+          <div style="font-size:10px;line-height:1.2;white-space:nowrap">${trendBadge(trendExp, false)} ${trendExp != null ? '<span style="color:var(--txt3)">vs '+(dashYear-1)+'</span>' : ''}</div>
+        </div>
+      </div>
     </div>
     <div class="stat-card stat-net">
       <div class="stat-label">💰 Risparmio Netto ${dashYear}</div>
-      <div class="stat-value" style="color:${stats.net>=0?'var(--income)':'var(--expense)'}">${fmt.currency(stats.net)}</div>
-      <div class="stat-sub">${stats.transaction_count} transazioni</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
+        <div style="min-width:0;flex:1">
+          <div class="stat-value" style="color:${stats.net>=0?'var(--income)':'var(--expense)'}">${fmt.currency(stats.net)}</div>
+          <div class="stat-sub" style="font-size:11px;color:var(--txt3)">${stats.transaction_count} tx</div>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0">
+          ${sparklineSvg(sparkNet, stats.net >= 0 ? 'rgba(63,185,80,.8)' : 'rgba(248,81,73,.8)')}
+          <div style="font-size:10px;line-height:1.2;white-space:nowrap">${trendBadge(trendNet, true)} ${trendNet != null ? '<span style="color:var(--txt3)">vs '+(dashYear-1)+'</span>' : ''}</div>
+        </div>
+      </div>
     </div>`;
 
   _renderDashAccountsWidget(accounts);
   _fillCreditMonthDash(accounts);
   _renderDashBudgetBubbles(budgetYear);
   _initBubbleDrag();
+
+  // ── Widget Salute Finanziaria (F1+F5) ────────────────────────────────────
+  _renderDashHealth(balRows12, accounts);
 
   // Gradient plugin per bar chart dashboard
   const _dashGradPlugin = {
@@ -484,33 +590,8 @@ async function renderDashboard() {
     }
   }
 
-  // Pie chart — top 10 + "Altro"
-  if (charts.pie) charts.pie.destroy();
-  if (catData.length) {
-    const sorted = [...catData].sort((a,b) => b.total - a.total);
-    const top    = sorted.slice(0, 10);
-    const rest   = sorted.slice(10);
-    if (rest.length) {
-      const altroTotal = rest.reduce((s,c) => s + c.total, 0);
-      top.push({ name:'Altro', icon:'…', total: altroTotal, color:'#666' });
-    }
-    charts.pie = new Chart(document.getElementById('pieChart'), {
-      type:'doughnut',
-      data:{ labels: top.map(c => c.icon+' '+c.name),
-             datasets:[{ data: top.map(c=>c.total), backgroundColor: top.map(c=>c.color), borderWidth:0 }]},
-      options:{
-        responsive:true, maintainAspectRatio:false,
-        plugins:{
-          legend:{ position:'right', labels:{ color:chartColors().tick, font:{size:11}, boxWidth:12, padding:6 }},
-          tooltip:{ callbacks:{ label: ctx => {
-            const tot = ctx.dataset.data.reduce((a,b)=>a+b,0);
-            const pct = tot ? (ctx.parsed/tot*100).toFixed(1) : 0;
-            return ` ${fmt.currency(ctx.parsed)} (${pct}%)`;
-          }}}
-        }
-      }
-    });
-  }
+  // Pie chart rimosso (sostituito da widget Salute Finanziaria)
+  if (charts.pie) { charts.pie.destroy(); charts.pie = null; }
 
   // Recent transactions (fetch desc → display asc: most recent at bottom)
   const recentAsc = [...recent].reverse();
@@ -537,15 +618,21 @@ async function renderDashboard() {
       : days < 0  ? `<span class="sched-days-badge overdue">⚠️ ${Math.abs(days)}g fa</span>`
       : days === 0 ? `<span class="sched-days-badge today">Oggi</span>`
       : `<span class="sched-days-badge upcoming">${days}g</span>`;
+    // Bottone Esegui solo per pianificate scadute o in scadenza oggi
+    const showExec = u.overdue || (days !== null && days <= 0);
+    const execBtn  = showExec
+      ? `<button onclick="_dashExecSched(${u.id})" title="Esegui ora — pre-compila e avanza la pianificata" style="background:transparent;border:none;cursor:pointer;color:var(--accent);font-size:11px;padding:0 4px;line-height:1">▶</button>`
+      : '';
     return `
     <tr class="${u.overdue ? 'upcoming-overdue' : ''}">
       <td><span class="cat-chip">${u.category_icon||''}${u.parent_category_name?u.parent_category_name+':'+u.category_name:u.category_name||'-'}</span></td>
       <td class="td-main">${u.description||'-'}</td>
       <td>${daysHtml}</td>
       <td class="text-right amount-${u.type}">${u.type==='expense'?'-':''}${fmt.currency(u.amount)}</td>
+      <td style="width:24px;text-align:center;padding:0">${execBtn}</td>
     </tr>`;
   }).join('') :
-    '<tr><td colspan="4" class="text-muted" style="text-align:center;padding:20px">Nessuna transazione pianificata</td></tr>';
+    '<tr><td colspan="5" class="text-muted" style="text-align:center;padding:20px">Nessuna transazione pianificata</td></tr>';
 
   // Savings chart (monthly net = income - expenses)
   const savArr = incArr.map((v,i) => v - expArr[i]);
@@ -581,3 +668,65 @@ async function renderDashboard() {
     });
   }
 }
+
+// ── Widget Salute Finanziaria (F1+F5) ─────────────────────────────────────
+function _renderDashHealth(balRows12, accounts) {
+  const body = document.getElementById('dashHealthBody');
+  if (!body) return;
+  const h = _computeHealthScore(balRows12, accounts);
+  const runwayDisplay = !isFinite(h.runwayMonths) || h.runwayMonths >= 99 ? '99+' : h.runwayMonths.toFixed(1);
+  const runwayColor = h.scoreRunway >= 7 ? 'var(--income)' : h.scoreRunway >= 4 ? '#e8a838' : 'var(--expense)';
+  const rateColor   = h.avgSavingsRate >= 10 ? 'var(--income)' : h.avgSavingsRate >= 5 ? '#e8a838' : 'var(--expense)';
+  body.innerHTML = `
+    <div style="display:flex;align-items:center;gap:18px;width:100%">
+      <div style="text-align:center;flex-shrink:0;padding:6px 14px;background:var(--bg3);border-radius:12px;min-width:90px">
+        <div style="font-size:38px;font-weight:700;color:${h.scoreColor};line-height:1">${h.score}</div>
+        <div style="font-size:10px;color:var(--txt3);margin-top:2px">/ 100</div>
+        <div style="font-size:12px;font-weight:600;color:${h.scoreColor};margin-top:4px">${h.scoreLabel}</div>
+      </div>
+      <div style="flex:1;display:flex;flex-direction:column;gap:10px">
+        <div>
+          <div style="font-size:10px;color:var(--txt3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px">Riserva di emergenza</div>
+          <div style="display:flex;align-items:baseline;gap:8px">
+            <span style="font-size:20px;font-weight:700;color:${runwayColor}">${runwayDisplay}</span>
+            <span style="font-size:11px;color:var(--txt3)">mesi</span>
+          </div>
+        </div>
+        <div>
+          <div style="font-size:10px;color:var(--txt3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px">Tasso risparmio (12m)</div>
+          <div style="display:flex;align-items:baseline;gap:8px">
+            <span style="font-size:18px;font-weight:700;color:${rateColor}">${h.avgSavingsRate.toFixed(1)}%</span>
+            <span style="font-size:11px;color:var(--txt3)">· ${(h.posPct*100).toFixed(0)}% mesi positivi</span>
+          </div>
+        </div>
+      </div>
+    </div>`;
+}
+
+// ── Esegui pianificata ora (F6) ───────────────────────────────────────────
+window._dashExecSched = async id => {
+  const u = (window._dashUpcomingCache || []).find(x => x.id === id);
+  if (!u) { toast('Pianificata non trovata', 'error'); return; }
+  const [cats, accs, tags] = await Promise.all([api.getCategories(), api.getAccounts(), api.getTags()]);
+  const budgetTag = tags.find(t => t.system_key === 'budget');
+  const existingIds = (u.tags || []).map(t => Number(t.id));
+  const tagIds = budgetTag && !existingIds.includes(budgetTag.id)
+    ? [...existingIds, budgetTag.id]
+    : existingIds;
+  const nextDate = u.date || u.start_date;
+  showTxModal({
+    id: null, date: nextDate,
+    amount: u.amount, type: u.type,
+    category_id: u.category_id || null,
+    account_id: u.account_id,
+    to_account_id: u.to_account_id || null,
+    description: u.description || '',
+    color: u.color || null,
+    reconciled: u.reconciled ?? 1,
+    tag_ids: tagIds,
+  }, cats, accs, u.type, tags, async (txResult) => {
+    await api.advanceScheduled(id, nextDate, txResult?.id);
+    toast('Pianificata eseguita e avanzata');
+    renderDashboard();
+  });
+};

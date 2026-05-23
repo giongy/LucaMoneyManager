@@ -85,6 +85,35 @@ function toast(msg, type='success') {
   setTimeout(() => t.remove(), 3500);
 }
 
+// Sparkline SVG inline (no Chart.js). Per dashboard stat cards.
+function sparklineSvg(values, color = 'currentColor', w = 90, h = 36) {
+  if (!values || !values.length || values.every(v => v === 0)) return '';
+  const max = Math.max(...values);
+  const min = Math.min(...values, 0);
+  const range = max - min || 1;
+  const stepX = w / (values.length - 1 || 1);
+  const pad = 2;
+  const points = values.map((v, i) =>
+    `${(i * stepX).toFixed(1)},${(h - pad - ((v - min) / range) * (h - 2 * pad)).toFixed(1)}`
+  ).join(' ');
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="display:block;opacity:.85;flex-shrink:0">
+    <polyline points="${points}" fill="none" stroke="${color}" stroke-width="1.5"
+              stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>`;
+}
+
+// Badge percentuale con freccia trend. goodIfPositive: true se aumento è positivo (es. entrate).
+function trendBadge(pct, goodIfPositive = true) {
+  if (pct === null || pct === undefined || !isFinite(pct)) return '';
+  const abs = Math.abs(pct);
+  const neutral = abs < 0.5;
+  const good = goodIfPositive ? pct >= 0 : pct <= 0;
+  const color = neutral ? 'var(--txt3)' : (good ? 'var(--income)' : 'var(--expense)');
+  const arrow = neutral ? '→' : (pct > 0 ? '↑' : '↓');
+  const sign = pct >= 0 ? '+' : '';
+  return `<span style="font-size:11px;color:${color};font-weight:600">${arrow} ${sign}${pct.toFixed(1)}%</span>`;
+}
+
 // Toast con bottone azione (per soft-undo). Restituisce { dismiss } per chiusura manuale.
 function toastWithAction(msg, actionLabel, actionCb, duration = 5000) {
   const c = document.getElementById('toastContainer');

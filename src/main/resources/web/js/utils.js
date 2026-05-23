@@ -85,6 +85,28 @@ function toast(msg, type='success') {
   setTimeout(() => t.remove(), 3500);
 }
 
+// Toast con bottone azione (per soft-undo). Restituisce { dismiss } per chiusura manuale.
+function toastWithAction(msg, actionLabel, actionCb, duration = 5000) {
+  const c = document.getElementById('toastContainer');
+  const t = document.createElement('div');
+  t.className = 'toast toast-info';
+  t.innerHTML = `<span>↩️</span><span>${msg}</span>`;
+  const btn = document.createElement('button');
+  btn.textContent = actionLabel;
+  btn.style.cssText = 'margin-left:auto;background:transparent;border:1px solid var(--txt2);color:var(--txt);cursor:pointer;padding:3px 12px;border-radius:4px;font-size:12px;font-weight:600';
+  let done = false;
+  btn.onclick = () => {
+    if (done) return;
+    done = true;
+    try { actionCb(); } catch(e) { console.error(e); }
+    t.remove();
+  };
+  t.appendChild(btn);
+  c.appendChild(t);
+  setTimeout(() => { if (!done) t.remove(); }, duration);
+  return { dismiss: () => { done = true; t.remove(); } };
+}
+
 /* ─── Emoji picker (estratto da app.js, stadio 9 del refactor) ─────────── */
 const EMOJI_LIST = [
   // Cibo & Ristoranti

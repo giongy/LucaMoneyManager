@@ -99,6 +99,7 @@ function buildRangeOptions(presets, includeEmpty, selected) {
 let txSort       = { col: 'date', dir: 'asc' };
 let txCache      = [];
 let _selectedTxId = null;
+let _selectedTxIds = new Set();  // multi-select per bulk operations
 
 function navigateToAccountTx(accountId) {
   txFilters = { range: txFilters.range, account_id: String(accountId) };
@@ -162,9 +163,18 @@ async function renderTransactions() {
       </div>
     </div>
     <div id="txSummaryBar" style="flex-shrink:0;padding:4px 16px 10px;background:var(--bg);display:flex;align-items:center;gap:12px;font-size:13px;color:var(--txt2)"></div>
+    <div id="txBulkBar" style="display:none;align-items:center;gap:10px;padding:8px 14px;margin-bottom:8px;background:var(--bg3);border-radius:8px;font-size:13px">
+      <span><strong id="txBulkCount">0</strong> selezionate</span>
+      <div style="width:1px;height:18px;background:var(--border);margin:0 4px"></div>
+      <button class="btn btn-ghost btn-sm" onclick="bulkReconcile(1)" title="Segna come conciliate">✅ Riconcilia</button>
+      <button class="btn btn-ghost btn-sm" onclick="bulkReconcile(0)" title="Segna come da verificare">🔲 Da verificare</button>
+      <button class="btn btn-ghost btn-sm" onclick="bulkDelete()" style="color:var(--expense)" title="Elimina tutte">🗑️ Elimina</button>
+      <button class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="clearTxSelection()" title="Pulisci selezione">✕</button>
+    </div>
     <div id="txScrollWrap" style="flex:1;overflow:auto;padding:0 16px 0">
       <div class="card">
         <table id="txTable"><thead><tr>
+            <th class="th-select" style="width:32px"><input type="checkbox" id="txSelectAll" onclick="toggleTxSelectAll(this.checked)" title="Seleziona tutte le visibili"></th>
             <th class="th-sort th-sort-active" data-col="date"        onclick="_txSortBy('date')">Data<span class="sort-ind">▲</span></th>
             <th class="th-reconciled" id="thReconciled" title="Stato conciliazione">Stato</th>
             <th class="th-attach" title="Allegato">📎</th>
@@ -280,8 +290,9 @@ function _renderTxSummaryBar(rows, summary) {
 
 async function loadTxRows(categories, accounts) {
   const hasAccount = txFilters.account_id && String(txFilters.account_id).trim() !== '';
+  const filtersWithSort = { ...txFilters, sort_col: txSort.col, sort_dir: txSort.dir };
   const [rows, summary] = await Promise.all([
-    api.getTransactions(txFilters),
+    api.getTransactions(filtersWithSort),
     hasAccount ? api.getAccountSummary(parseInt(txFilters.account_id)) : Promise.resolve(null),
   ]);
   txCache = rows;
@@ -292,33 +303,88 @@ async function loadTxRows(categories, accounts) {
   renderTxBodyAndHeaders();
 }
 
-function sortTxs(arr) {
-  return [...arr].sort((a, b) => {
-    let va, vb;
-    switch (txSort.col) {
-      case 'date':        va=a.date;  vb=b.date;  break;
-      case 'description': va=(a.description||'').toLowerCase(); vb=(b.description||'').toLowerCase(); break;
-      case 'type':        va=a.type;  vb=b.type;  break;
-      case 'category':    va=(a.category_name||'').toLowerCase(); vb=(b.category_name||'').toLowerCase(); break;
-      case 'account':     va=(a.account_name||'').toLowerCase();  vb=(b.account_name||'').toLowerCase();  break;
-      case 'amount':      va=(a.type==='expense'?-1:1)*a.amount;  vb=(b.type==='expense'?-1:1)*b.amount;  break;
-      default:            va=a.date;  vb=b.date;
-    }
-    const c = va < vb ? -1 : va > vb ? 1 : 0;
-    return txSort.dir === 'asc' ? c : -c;
-  });
-}
-
 window.openTxAttachment = async el => {
   const path = decodeURIComponent(el.dataset.path);
   const res = await api.openAttachment(path);
   if (res.error) toast(res.error, 'error');
 };
 
-window._txSortBy = col => {
+window._txSortBy = async col => {
   txSort.dir = txSort.col === col ? (txSort.dir === 'asc' ? 'desc' : 'asc') : 'desc';
   txSort.col = col;
+  // Ricarica dal backend con il nuovo sort (il backend ordina correttamente includendo i join)
+  const [categories, accounts] = await Promise.all([api.getCategories(), api.getAccounts()]);
+  await loadTxRows(categories, accounts);
+};
+
+function _updateBulkBar() {
+  const bar = document.getElementById('txBulkBar');
+  const cnt = document.getElementById('txBulkCount');
+  if (!bar) return;
+  const n = _selectedTxIds.size;
+  bar.style.display = n > 0 ? 'flex' : 'none';
+  if (cnt) cnt.textContent = n;
+  // Aggiorna stato del "Select all" in base alle righe visibili
+  const selAll = document.getElementById('txSelectAll');
+  if (selAll) {
+    const visibleIds = txCache.map(t => t.id);
+    const allSelected = visibleIds.length > 0 && visibleIds.every(id => _selectedTxIds.has(id));
+    selAll.checked = allSelected;
+    selAll.indeterminate = !allSelected && visibleIds.some(id => _selectedTxIds.has(id));
+  }
+}
+
+window.toggleTxSelected = (id, checked) => {
+  if (checked) _selectedTxIds.add(id);
+  else         _selectedTxIds.delete(id);
+  _updateBulkBar();
+};
+
+window.toggleTxSelectAll = checked => {
+  if (checked) txCache.forEach(t => _selectedTxIds.add(t.id));
+  else         txCache.forEach(t => _selectedTxIds.delete(t.id));
   renderTxBodyAndHeaders();
+};
+
+window.clearTxSelection = () => {
+  _selectedTxIds.clear();
+  renderTxBodyAndHeaders();
+};
+
+window.bulkReconcile = async newVal => {
+  const ids = [..._selectedTxIds];
+  if (!ids.length) return;
+  // Esegue in parallelo (rate-limit naturale del bridge JCEF)
+  await Promise.all(ids.map(id => api.updateTransactionReconciled(id, newVal === 1)));
+  for (const id of ids) {
+    const tx = txCache.find(t => t.id === id);
+    if (tx) tx.reconciled = newVal;
+  }
+  toast(`${ids.length} transazion${ids.length===1?'e':'i'} ${newVal ? 'riconciliat' : 'da verificar'}${ids.length===1?'a':'e'}`);
+  _selectedTxIds.clear();
+  renderTxBodyAndHeaders();
+  // Ricarica saldo conto se filtro attivo
+  const hasAccount = txFilters.account_id && String(txFilters.account_id).trim() !== '';
+  if (hasAccount) {
+    const summary = await api.getAccountSummary(parseInt(txFilters.account_id));
+    _renderTxSummaryBar(txCache, summary);
+  }
+};
+
+window.bulkDelete = async () => {
+  const ids = [..._selectedTxIds];
+  if (!ids.length) return;
+  const ok = await confirm('Elimina transazioni', `Eliminare definitivamente ${ids.length} transazion${ids.length===1?'e':'i'}? L'operazione non è reversibile.`);
+  if (!ok) return;
+  let failed = 0;
+  for (const id of ids) {
+    try { await api.deleteTransaction(id); }
+    catch { failed++; }
+  }
+  _selectedTxIds.clear();
+  if (failed) toast(`Eliminate ${ids.length - failed}, fallite ${failed}`, 'error');
+  else        toast(`${ids.length} transazion${ids.length===1?'e':'i'} eliminat${ids.length===1?'a':'e'}`);
+  refreshAfterTxChange();
 };
 
 function renderTxBodyAndHeaders() {
@@ -331,8 +397,8 @@ function renderTxBodyAndHeaders() {
   const tbody = document.getElementById('txBody');
   if (!tbody) return;
   const showBalance = txFilters.account_id && String(txFilters.account_id).trim() !== '';
-  const sorted = sortTxs(txCache);
-  const colCount = showBalance ? 11 : 10;
+  const sorted = txCache;  // backend già ordinato via sort_col/sort_dir
+  const colCount = (showBalance ? 11 : 10) + 1;  // +1 per checkbox column
   // Nome categoria filtrata (per mostrare la voce giusta negli split filtrati)
   const filterCatLabel = txFilters.category_id
     ? document.querySelector(`#txCategory option[value="${txFilters.category_id}"]`)?.textContent?.trim() || ''
@@ -347,8 +413,10 @@ function renderTxBodyAndHeaders() {
     // Se filtro per categoria e la transazione è uno split che matcha → mostra solo la quota filtrata
     const isSplitFiltered = t.split_count > 0 && t.filtered_split_amount != null;
     const displayAmt = isSplitFiltered ? t.filtered_split_amount : t.amount;
+    const isMultiSel = _selectedTxIds.has(t.id);
     return `
-    <tr data-tx-id="${t.id}" class="${t.color ? 'tx-colored' : ''}${isSel ? ' tx-selected' : ''}${!isRec ? ' tx-unreconciled' : ''}" ${bgStyle} ondblclick="editTx(${t.id})">
+    <tr data-tx-id="${t.id}" class="${t.color ? 'tx-colored' : ''}${isSel ? ' tx-selected' : ''}${!isRec ? ' tx-unreconciled' : ''}${isMultiSel ? ' tx-multi-selected' : ''}" ${bgStyle} ondblclick="editTx(${t.id})">
+      <td class="td-select"><input type="checkbox" class="tx-select-cb" onclick="event.stopPropagation()" onchange="toggleTxSelected(${t.id}, this.checked)" ${isMultiSel ? 'checked' : ''}></td>
       <td>${fmt.date(t.date)}</td>
       <td class="td-reconciled">
         <button class="btn-reconcile ${isRec ? 'reconciled' : 'unreconciled'}" title="${isRec ? 'Conciliata [R] – clicca per annullare' : 'Da verificare [V] – clicca per conciliare'}" onclick="toggleReconciled(${t.id}, ${isRec ? 0 : 1})">
@@ -375,6 +443,7 @@ function renderTxBodyAndHeaders() {
     </tr>`;
   }).join('') :
     `<tr><td colspan="${colCount}" style="text-align:center;padding:40px;color:var(--txt3)">Nessuna transazione trovata</td></tr>`;
+  _updateBulkBar();
 }
 
 window.toggleReconciled = async (id, newVal) => {
@@ -939,11 +1008,37 @@ window.editTx = async id => {
 };
 
 window.deleteTx = async id => {
-  const ok = await confirm('Elimina transazione', 'Vuoi eliminare questa transazione? L\'operazione non è reversibile.');
-  if (!ok) return;
-  await api.deleteTransaction(id);
-  toast('Transazione eliminata');
+  // Pre-carica i dati completi (incl. splits e tags) per supportare l'undo
+  const [txs, splits] = await Promise.all([
+    api.getTransactions({ id }),
+    api.getTransactionSplits(id),
+  ]);
+  const tx = txs[0];
+  if (!tx) { toast('Transazione non trovata', 'error'); return; }
+  try { await api.deleteTransaction(id); }
+  catch(e) { toast(e.message, 'error'); return; }
   refreshAfterTxChange();
+  toastWithAction('Transazione eliminata', 'Annulla', async () => {
+    try {
+      const restored = await api.addTransaction({
+        date: tx.date, amount: tx.amount, type: tx.type,
+        category_id: tx.category_id, account_id: tx.account_id,
+        to_account_id: tx.to_account_id,
+        description: tx.description, color: tx.color,
+        reconciled: tx.reconciled,
+        tag_ids: (tx.tags || []).map(t => Number(t.id)),
+        splits: splits.length ? splits.map(s => ({
+          category_id: s.category_id, amount: s.amount, description: s.description || ''
+        })) : null,
+      });
+      // Ripristina allegato (file ancora su disco — deleteTransaction non lo cancella)
+      if (tx.attachment_path && restored?.id) {
+        try { await api.setAttachmentPath(restored.id, tx.attachment_path); } catch {}
+      }
+      toast('Transazione ripristinata');
+      refreshAfterTxChange();
+    } catch(e) { toast('Ripristino fallito: ' + e.message, 'error'); }
+  });
 };
 
 /* ─── Contex menu transazioni ─────────────────────────────────────────────── */

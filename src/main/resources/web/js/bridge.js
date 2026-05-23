@@ -168,6 +168,7 @@ const api = {
   attachFile:            (tx_id, source_path, old_path) => callJava('attachFile', {tx_id, source_path, old_path: old_path||null}),
   openAttachment:        (path)         => callJava('openAttachment', {path}),
   removeAttachment:      (tx_id, path)  => callJava('removeAttachment', {tx_id, path: path||null}),
+  setAttachmentPath:     (tx_id, path)  => callJava('setAttachmentPath', {tx_id, path}),
   openSettingsFile:      ()             => callJava('openSettingsFile', {}),
   openAppLog:            ()             => callJava('openAppLog', {}),
   openUrl:           (url)   => callJava('openUrl', {url}),

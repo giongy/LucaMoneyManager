@@ -1128,11 +1128,9 @@ public class Database {
             "                ta.name AS to_account_name,\n" +
             "                GROUP_CONCAT(CASE WHEN tg.id IS NOT NULL\n" +
             "                    THEN tg.id || '\u00A7' || tg.name || '\u00A7' || tg.color END, '||') AS tags_concat,\n" +
-            "                (SELECT COUNT(*) FROM transaction_splits ts WHERE ts.transaction_id = t.id) AS split_count,\n" +
-            "                (SELECT GROUP_CONCAT(COALESCE(sc.icon,'') || ' ' || COALESCE(sc.name,'?') || ' (' || PRINTF('%.2f', ts.amount) || '\u20ac)', ' \u00b7 ')\n" +
-            "                 FROM transaction_splits ts LEFT JOIN categories sc ON sc.id = ts.category_id\n" +
-            "                 WHERE ts.transaction_id = t.id) AS splits_summary,\n" +
-            "                (SELECT pt.portfolio_id FROM portfolio_transactions pt WHERE pt.transaction_id = t.id LIMIT 1) AS portfolio_id" +
+            "                sp.split_count AS split_count,\n" +
+            "                sp.splits_summary AS splits_summary,\n" +
+            "                pt.portfolio_id AS portfolio_id" +
             filteredSplitCol + "\n" +
             "            FROM transactions t\n" +
             "            LEFT JOIN categories c  ON t.category_id    = c.id\n" +
@@ -1141,6 +1139,16 @@ public class Database {
             "            LEFT JOIN accounts   ta ON t.to_account_id  = ta.id\n" +
             "            LEFT JOIN transaction_tags tt ON tt.transaction_id = t.id\n" +
             "            LEFT JOIN tags tg ON tg.id = tt.tag_id\n" +
+            "            LEFT JOIN (\n" +
+            "                SELECT ts.transaction_id, COUNT(*) AS split_count,\n" +
+            "                       GROUP_CONCAT(COALESCE(sc.icon,'') || ' ' || COALESCE(sc.name,'?') || ' (' || PRINTF('%.2f', ts.amount) || '\u20ac)', ' \u00b7 ') AS splits_summary\n" +
+            "                FROM transaction_splits ts LEFT JOIN categories sc ON sc.id = ts.category_id\n" +
+            "                GROUP BY ts.transaction_id\n" +
+            "            ) sp ON sp.transaction_id = t.id\n" +
+            "            LEFT JOIN (\n" +
+            "                SELECT transaction_id, MIN(portfolio_id) AS portfolio_id\n" +
+            "                FROM portfolio_transactions GROUP BY transaction_id\n" +
+            "            ) pt ON pt.transaction_id = t.id\n" +
             "            WHERE 1=1\n");
         List<Object> params = new ArrayList<>();
 
@@ -1201,9 +1209,22 @@ public class Database {
         if (f.has("reconciled") && !f.get("reconciled").isJsonNull()) {
             sql.append(" AND t.reconciled=?"); params.add(f.get("reconciled").getAsInt());
         }
-        boolean desc = f.has("sort_desc") && f.get("sort_desc").getAsBoolean();
-        sql.append(desc ? " GROUP BY t.id ORDER BY t.date DESC, t.id DESC"
-                        : " GROUP BY t.id ORDER BY t.date ASC,  t.id ASC");
+        sql.append(" GROUP BY t.id");
+        // Sort whitelistato (mai concat raw, protezione SQL injection)
+        String sortCol = f.has("sort_col") && !f.get("sort_col").isJsonNull()
+                         ? f.get("sort_col").getAsString() : "date";
+        boolean asc = !(f.has("sort_dir") && "desc".equalsIgnoreCase(f.get("sort_dir").getAsString()))
+                      && !(f.has("sort_desc") && f.get("sort_desc").getAsBoolean());
+        String dir = asc ? "ASC" : "DESC";
+        String orderBy = switch (sortCol) {
+            case "amount"      -> "t.amount " + dir + ", t.date " + dir + ", t.id " + dir;
+            case "type"        -> "t.type " + dir + ", t.date " + dir + ", t.id " + dir;
+            case "category"    -> "LOWER(COALESCE(c.name,'')) " + dir + ", t.date " + dir + ", t.id " + dir;
+            case "account"     -> "LOWER(COALESCE(a.name,'')) " + dir + ", t.date " + dir + ", t.id " + dir;
+            case "description" -> "LOWER(COALESCE(t.description,'')) " + dir + ", t.date " + dir + ", t.id " + dir;
+            default            -> "t.date " + dir + ", t.id " + dir;  // date
+        };
+        sql.append(" ORDER BY ").append(orderBy);
         if (f.has("limit")) { sql.append(" LIMIT ?"); params.add(f.get("limit").getAsInt()); }
 
         List<Map<String, Object>> rows = parseTags(queryList(sql.toString(), params.toArray()));
@@ -1216,24 +1237,21 @@ public class Database {
             if ("investment".equals(acc != null ? acc.get("type") : null)) return rows; // saldo progressivo non applicabile
             double init = acc != null && acc.get("initial_balance") != null
                     ? ((Number) acc.get("initial_balance")).doubleValue() : 0.0;
-            // Tutte le transazioni del conto in ordine ASC per costruire mappa saldo
-            List<Map<String, Object>> allTx = queryList("""
-                SELECT id, amount, type, account_id, to_account_id FROM transactions
+            // Window function SQLite: saldo cumulativo per ogni tx del conto, calcolato lato DB
+            List<Map<String, Object>> balRows = queryList("""
+                SELECT id, ? + SUM(CASE
+                    WHEN type='income'                       THEN  amount
+                    WHEN type='expense'                      THEN -amount
+                    WHEN type='transfer' AND account_id=?    THEN -amount
+                    WHEN type='transfer' AND to_account_id=? THEN  amount
+                    ELSE 0 END) OVER (ORDER BY date, id) AS balance
+                FROM transactions
                 WHERE account_id=? OR to_account_id=?
-                ORDER BY date ASC, id ASC
-            """, accountId, accountId);
-            Map<Long, Double> balMap = new java.util.LinkedHashMap<>();
-            double running = init;
-            for (Map<String, Object> tx : allTx) {
-                String type = (String) tx.get("type");
-                double amount = ((Number) tx.get("amount")).doubleValue();
-                long txAccId = tx.get("account_id") != null ? ((Number) tx.get("account_id")).longValue() : -1;
-                if ("income".equals(type))        running += amount;
-                else if ("expense".equals(type))  running -= amount;
-                else if ("transfer".equals(type)) {
-                    if (txAccId == accountId) running -= amount; else running += amount;
-                }
-                balMap.put(((Number) tx.get("id")).longValue(), running);
+            """, init, accountId, accountId, accountId, accountId);
+            Map<Long, Double> balMap = new java.util.HashMap<>(balRows.size());
+            for (Map<String, Object> r : balRows) {
+                balMap.put(((Number) r.get("id")).longValue(),
+                           ((Number) r.get("balance")).doubleValue());
             }
             for (Map<String, Object> row : rows) {
                 long id = ((Number) row.get("id")).longValue();

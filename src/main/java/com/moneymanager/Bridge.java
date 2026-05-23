@@ -502,6 +502,18 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                 yield Map.of("ok", true);
             }
 
+            case "setAttachmentPath" -> {
+                // Riassocia un path esistente a una transazione (usato dall'undo delete:
+                // il file è ancora su disco, basta riattaccare il riferimento)
+                int txId = p.get("tx_id").getAsInt();
+                String relPath = p.has("path") && !p.get("path").isJsonNull()
+                                 ? p.get("path").getAsString() : null;
+                if (relPath != null && !relPath.isBlank()) {
+                    db.setAttachment(txId, relPath);
+                }
+                yield Map.of("ok", true);
+            }
+
             case "removeAttachment" -> {
                 int txId      = p.get("tx_id").getAsInt();
                 String relPath = p.has("path") && !p.get("path").isJsonNull()

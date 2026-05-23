@@ -20,7 +20,8 @@ let _portStoricoFilter = 'all'; // 'all' | 'active' | 'closed'
 let _portfolioPriceStatus = {}; // id → 'ok' | 'fail' | undefined (grigio)
 
 // Calcola valore di mercato di una posizione (gestisce equity e bond)
-// Bond: quantity = nominale totale (€), price = % → valore = nominale × price% / 100
+// Convenzione: bond price stored in forma percentuale (99.5 = 99.5% di par),
+// quindi cash bond = qty × price / 100, cash equity = qty × price.
 function portfolioItemValue(i, useAvg = false) {
   const price = useAvg ? i.avg_price : (i.current_price || i.avg_price);
   if (i.asset_type === 'bond') return i.quantity * price / 100;
@@ -61,12 +62,13 @@ function bondYTM(i) {
 //   realized   = sell_revenue − sold_qty × avg_price   (approssimato con avg corrente)
 //   totalReturn = unrealized + realized + cedole + dividendi − commissioni_vendita − altre_spese
 //   (commissioni di acquisto sono già incluse in avg_price tramite la formula in buyStock)
-// Bond: avg_price è in %, qty in nominale €; ogni componente in € usa /100
+// Convenzione: bond price stored in forma percentuale (99.5 = 99.5% di par),
+// quindi ogni cash bond = qty × price / 100. Per equity div=1.
 function positionTotalReturn(i) {
   const isBond = i.asset_type === 'bond';
-  const div = isBond ? 100 : 1;
-  const avg = i.avg_price || 0;
-  const cur = i.current_price || avg;
+  const div    = isBond ? 100 : 1;
+  const avg    = i.avg_price || 0;
+  const cur    = i.current_price || avg;
 
   const currentValue   = i.quantity * cur / div;
   const heldCostBasis  = i.quantity * avg / div;
@@ -387,9 +389,11 @@ async function renderPortfolioStorico(items) {
   let grandBuy = 0, grandSell = 0, grandCoupon = 0, grandDividend = 0, grandExpense = 0;
 
   const cards = withTxs.map(({ item, txs }) => {
+    // Convenzione percentage: bond price stored come % (99.5 = 99.5%), cash = qty*price/100.
+    // Equity: cash = qty*price.
     const isB = item.asset_type === 'bond';
-    const buyValue = t => isB ? t.quantity * t.price / 100 + (t.commission || 0) : t.quantity * t.price + (t.commission || 0);
-    const sellValue = t => isB ? t.quantity * t.price / 100 : t.quantity * t.price;
+    const buyValue  = t => (isB ? t.quantity * t.price / 100 : t.quantity * t.price) + (t.commission || 0);
+    const sellValue = t => (isB ? t.quantity * t.price / 100 : t.quantity * t.price);
     const totBuy     = txs.filter(t=>t.type==='buy').reduce((s,t)=>s+buyValue(t), 0);
     const totSell    = txs.filter(t=>t.type==='sell').reduce((s,t)=>s+sellValue(t), 0);
     const totCoupon  = txs.filter(t=>t.type==='coupon').reduce((s,t)=>s+t.price, 0);

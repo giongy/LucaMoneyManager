@@ -470,7 +470,7 @@ public class Database {
         """);
     }
 
-    private static final int SCHEMA_VERSION = 14;
+    private static final int SCHEMA_VERSION = 15;
 
     private void migrate() throws SQLException {
         // Crea tabella versione se non esiste
@@ -757,6 +757,24 @@ public class Database {
             // NOTA: total_commissions NON viene ricalcolato. I valori esistenti potrebbero includere
             // commissioni di posizioni importate via "Carica esistente" (che non creano pt rows),
             // ricalcolare le perderebbe.
+        }
+
+        // ── v15: normalizza prezzi bond a forma percentuale (99.5 = 99.5%) ─
+        // Convenzione storica mista: alcuni bond avevano avg_price/current_price/pt.price
+        // salvati in forma decimale (0.995 = 99.5%) incompatibili con buyStock/scraper online
+        // che usano forma percentuale. Riconosciamo i decimali (< 5) e li moltiplichiamo per 100.
+        if (currentVersion < 15) {
+            // Posizioni bond con prezzi in forma decimale (es. 0.9394 → 93.94)
+            executePlain("UPDATE portfolio SET avg_price = avg_price * 100 WHERE asset_type='bond' AND avg_price > 0 AND avg_price < 5");
+            executePlain("UPDATE portfolio SET current_price = current_price * 100 WHERE asset_type='bond' AND current_price > 0 AND current_price < 5");
+            // Transazioni buy/sell di posizioni bond (price column conserva il prezzo in % al momento dell'operazione)
+            executePlain("""
+                UPDATE portfolio_transactions
+                SET price = price * 100
+                WHERE type IN ('buy','sell')
+                  AND price > 0 AND price < 5
+                  AND portfolio_id IN (SELECT id FROM portfolio WHERE asset_type='bond')
+            """);
         }
 
         // Segna il DB come aggiornato all'ultima versione

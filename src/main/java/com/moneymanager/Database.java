@@ -1002,10 +1002,10 @@ public class Database {
             ") GROUP BY nature ORDER BY total DESC";
 
         String byCatSQL =
-            "SELECT nature, cat_id, cat_name, color, icon, SUM(total) AS total, SUM(tx_count) AS tx_count FROM (" +
+            "SELECT nature, cat_id, cat_name, parent_name, color, icon, SUM(total) AS total, SUM(tx_count) AS tx_count FROM (" +
             // ramo 1: transazioni normali
             "SELECT COALESCE(c.expense_nature,pc.expense_nature,'') AS nature," +
-            " c.id AS cat_id, COALESCE(c.name,'—') AS cat_name," +
+            " c.id AS cat_id, COALESCE(c.name,'—') AS cat_name, pc.name AS parent_name," +
             " COALESCE(c.color,'#888') AS color, COALESCE(c.icon,'📁') AS icon," +
             " SUM(t.amount) AS total, COUNT(*) AS tx_count" +
             " FROM transactions t LEFT JOIN categories c ON t.category_id=c.id" +
@@ -1016,7 +1016,7 @@ public class Database {
             " UNION ALL " +
             // ramo 2: righe split
             "SELECT COALESCE(sc.expense_nature,spc.expense_nature,'') AS nature," +
-            " sc.id AS cat_id, COALESCE(sc.name,'—') AS cat_name," +
+            " sc.id AS cat_id, COALESCE(sc.name,'—') AS cat_name, spc.name AS parent_name," +
             " COALESCE(sc.color,'#888') AS color, COALESCE(sc.icon,'📁') AS icon," +
             " SUM(ts.amount) AS total, COUNT(DISTINCT t.id) AS tx_count" +
             " FROM transactions t JOIN transaction_splits ts ON ts.transaction_id=t.id" +

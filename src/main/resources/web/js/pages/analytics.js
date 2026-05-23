@@ -127,11 +127,11 @@ async function renderAnalytics() {
     <div style="padding:16px 24px 0;display:flex;flex-direction:column;height:100%;overflow:hidden;box-sizing:border-box">
       <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-shrink:0">
         <div style="display:flex;gap:6px">
-          <button class="sched-tab${_analyticsTab==='health'?' active':''}" data-atab="health" onclick="_setAnalyticsTab('health',this)">Salute Finanziaria</button>
-          <button class="sched-tab${_analyticsTab==='catmonth'?' active':''}" data-atab="catmonth" onclick="_setAnalyticsTab('catmonth',this)">Categorie / Mese</button>
-          <button class="sched-tab${_analyticsTab==='balance'?' active':''}" data-atab="balance" onclick="_setAnalyticsTab('balance',this)">Bilancio Mensile</button>
-          <button class="sched-tab${_analyticsTab==='trend'?' active':''}" data-atab="trend" onclick="_setAnalyticsTab('trend',this)">Andamento Categoria</button>
-          <button class="sched-tab${_analyticsTab==='accbalance'?' active':''}" data-atab="accbalance" onclick="_setAnalyticsTab('accbalance',this)">Saldo Conti</button>
+          <button class="sched-tab${_analyticsTab==='health'?' active':''}" data-atab="health" onclick="_setAnalyticsTab('health',this)">💚 Salute Finanziaria</button>
+          <button class="sched-tab${_analyticsTab==='catmonth'?' active':''}" data-atab="catmonth" onclick="_setAnalyticsTab('catmonth',this)">🗂️ Categorie / Mese</button>
+          <button class="sched-tab${_analyticsTab==='balance'?' active':''}" data-atab="balance" onclick="_setAnalyticsTab('balance',this)">⚖️ Bilancio Mensile</button>
+          <button class="sched-tab${_analyticsTab==='trend'?' active':''}" data-atab="trend" onclick="_setAnalyticsTab('trend',this)">📈 Andamento Categoria</button>
+          <button class="sched-tab${_analyticsTab==='accbalance'?' active':''}" data-atab="accbalance" onclick="_setAnalyticsTab('accbalance',this)">🏦 Saldo Conti</button>
           <button class="sched-tab${_analyticsTab==='forecast'?' active':''}" data-atab="forecast" onclick="_setAnalyticsTab('forecast',this)">📊 Previsione Saldo</button>
           <button class="sched-tab${_analyticsTab==='nature'?' active':''}" data-atab="nature" onclick="_setAnalyticsTab('nature',this)">🌿 Natura Spese</button>
         </div>
@@ -418,7 +418,6 @@ async function renderAnalyticsBalance() {
 
 /* ─── Analytics: Salute Finanziaria ──────────────────────────────────────── */
 let _healthRateChart = null;
-let _healthExpChart  = null;
 let _healthIncChart  = null;
 let _healthVolChart  = null;
 
@@ -463,15 +462,17 @@ async function renderAnalyticsHealth() {
   const posMonths = savings.filter(s => s > 0).length;
   const posPct = n > 0 ? posMonths / n : 0;
   const scorePos = posPct === 1 ? 20 : posPct >= 0.9 ? 18 : posPct >= 0.75 ? 15 : posPct >= 0.6 ? 11 : posPct >= 0.4 ? 7 : posPct >= 0.2 ? 3 : 0;
-  // 3. Trend spese (0–10 pt) — slope % su media mensile
-  const expXMean = (n-1)/2, expAvg = expenses.reduce((a,b)=>a+b,0)/(n||1);
-  let expNum=0, expDen=0;
-  expenses.forEach((v,i)=>{ expNum+=(i-expXMean)*(v-expAvg); expDen+=(i-expXMean)**2; });
-  const expSlope = expDen ? expNum/expDen : 0;
-  const expSlopePct = expAvg ? expSlope / expAvg * 100 : 0;
-  const scoreTrendRaw = expSlopePct <= -3 ? 10 : expSlopePct <= -1 ? 9 : expSlopePct <= 0 ? 7 : expSlopePct < 1 ? 5 : expSlopePct < 3 ? 3 : expSlopePct < 5 ? 1 : 0;
-  // Attenuazione: spese crescenti sono meno allarmanti se stai risparmiando bene
-  const scoreTrend = avgSavingsRate >= 10 ? Math.max(scoreTrendRaw, 5) : avgSavingsRate >= 5 ? Math.max(scoreTrendRaw, 2) : scoreTrendRaw;
+  // IQM uscite (media interquartile, robusta agli outlier — tasse, vacanze, riparazioni)
+  const expSorted = [...expenses].sort((a,b) => a-b);
+  const expIqmQ1 = Math.floor(n * 0.25), expIqmQ3 = Math.ceil(n * 0.75);
+  const expIqmDiv = expIqmQ3 - expIqmQ1;
+  const expMedian = expIqmDiv > 0 ? expSorted.slice(expIqmQ1, expIqmQ3).reduce((a,b)=>a+b,0) / expIqmDiv : 0;
+  // 3. Riserva di emergenza (0–10 pt) — mesi di vita coperti dalla liquidità
+  const accounts = await api.getAccounts();
+  const liquidAccs = accounts.filter(a => a.type !== 'investment' && !a.is_closed);
+  const liquidBalance = liquidAccs.reduce((s, a) => s + (a.balance || 0), 0);
+  const runwayMonths = expMedian > 0 ? liquidBalance / expMedian : (liquidBalance > 0 ? 99 : 0);
+  const scoreRunway = runwayMonths >= 6 ? 10 : runwayMonths >= 3 ? 7 : runwayMonths >= 1.5 ? 4 : runwayMonths >= 0.5 ? 2 : 0;
   // 4. Trend del risparmio (0–20 pt) — risparmio crescente = entrate/uscite in miglioramento
   // Usa la mediana delle entrate come denominatore per normalizzare la pendenza in %:
   // evita divisione per risparmi vicini a zero, e non è distorta dai mesi con bonus.
@@ -495,7 +496,7 @@ async function renderAnalyticsHealth() {
   const incStddev  = Math.sqrt(incSemiVar);
   const incCV      = incMedian > 0 ? incStddev / incMedian * 100 : 100;
   const scoreVol   = n < 2 ? 0 : incCV < 3 ? 10 : incCV < 6 ? 9 : incCV < 12 ? 7 : incCV < 20 ? 4 : incCV < 30 ? 1 : 0;
-  const score = Math.min(100, scoreSavings + scorePos + scoreTrend + scoreIncTrend + scoreVol);
+  const score = Math.min(100, scoreSavings + scorePos + scoreRunway + scoreIncTrend + scoreVol);
   const scoreColor = score >= 75 ? 'var(--income)' : score >= 50 ? '#e8a838' : score >= 30 ? '#e07020' : 'var(--expense)';
   const scoreLabel = score >= 75 ? 'Ottima' : score >= 60 ? 'Buona' : score >= 45 ? 'Discreta' : score >= 30 ? 'Sufficiente' : score >= 0 ? 'Attenzione' : 'Critica';
 
@@ -504,15 +505,19 @@ async function renderAnalyticsHealth() {
   // ── Colori badge componenti ───────────────────────────────────────────────
   const colS = scoreSavings >= 29 ? 'var(--income)' : scoreSavings >= 16 ? '#e8a838' : 'var(--expense)';
   const colP = scorePos >= 15 ? 'var(--income)' : scorePos >= 7 ? '#e8a838' : 'var(--expense)';
-  const colT = scoreTrend >= 7 ? 'var(--income)' : scoreTrend >= 3 ? '#e8a838' : 'var(--expense)';
+  const colR = scoreRunway >= 7 ? 'var(--income)' : scoreRunway >= 4 ? '#e8a838' : 'var(--expense)';
   const colI = scoreIncTrend >= 16 ? 'var(--income)' : scoreIncTrend >= 7 ? '#e8a838' : 'var(--expense)';
   const colV = scoreVol >= 7 ? 'var(--income)' : scoreVol >= 4 ? '#e8a838' : 'var(--expense)';
 
   // ── Dati grafici dettaglio ────────────────────────────────────────────────
   const monthlyRates = monthCols.map((_,i) => incomes[i] > 0 ? +(savings[i] / incomes[i] * 100).toFixed(2) : 0);
-  const expRegLine   = monthCols.map((_,i) => expAvg + expSlope * (i - expXMean));
   const savRegLine   = monthCols.map((_,i) => savAvg + savSlope * (i - savXMean));
   const labels       = monthCols.map(m => m.label);
+
+  // Runway display + posizione marker (clamp visivo a 0..12 mesi)
+  const runwayDisplay = !isFinite(runwayMonths) || runwayMonths >= 99 ? '99+' : runwayMonths.toFixed(1);
+  const runwayClamped = Math.max(0, Math.min(12, isFinite(runwayMonths) ? runwayMonths : 12));
+  const runwayPos     = (runwayClamped / 12) * 100;
 
   // ── HTML ──────────────────────────────────────────────────────────────────
   el.innerHTML = `
@@ -545,11 +550,11 @@ async function renderAnalyticsHealth() {
               col: scorePos>=15?'var(--income)':scorePos>=7?'#e8a838':'var(--expense)'
             },
             {
-              label: 'Trend delle spese',
-              desc:  `Direzione della regressione lineare sulle uscite. Calanti ≤−3%/mese = ottimo (10 pt) · stabili = sufficiente · crescenti >+5%/mese = critico. Se stai risparmiando bene (≥10%) il punteggio minimo è 5 — spese crescenti sono meno allarmanti quando il margine è ampio.`,
-              got: scoreTrend, max: 10,
-              detail: `${expSlopePct>=0?'+':''}${expSlopePct.toFixed(1)}%/mese (${expSlope>=0?'+':''}${fmt.currency(expSlope)}) → ${scoreTrend}/10 pt`,
-              col: scoreTrend>=7?'var(--income)':scoreTrend>=3?'#e8a838':'var(--expense)'
+              label: 'Riserva di emergenza',
+              desc:  `Mesi di vita coperti dalla liquidità attuale (saldi conti non-investimento, esclusi quelli chiusi) divisi per la spesa di un mese tipico (media interquartile su ${n} mesi: scarta il 25% più alto e più basso per ignorare outlier come tasse o vacanze). ≥6 mesi = ottimo (10 pt) · ≥3 = buono · ≥1.5 = sufficiente · ≥0.5 = scarso · &lt;0.5 = critico.`,
+              got: scoreRunway, max: 10,
+              detail: `${fmt.currency(liquidBalance)} liquidi ÷ ${fmt.currency(expMedian)}/mese tipico = <strong>${runwayDisplay} mesi</strong> → ${scoreRunway}/10 pt`,
+              col: scoreRunway>=7?'var(--income)':scoreRunway>=4?'#e8a838':'var(--expense)'
             },
             {
               label: 'Trend del risparmio',
@@ -640,18 +645,54 @@ async function renderAnalyticsHealth() {
       <!-- Riga 2: Trend spese + Trend entrate -->
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
 
-        <!-- Trend delle spese -->
+        <!-- Riserva di emergenza -->
         <div class="card-section">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-            <div style="font-size:13px;font-weight:600">Trend delle spese</div>
-            <div class="score-badge" style="color:${colT}">${scoreTrend} / 10 pt</div>
+            <div style="font-size:13px;font-weight:600">Riserva di emergenza</div>
+            <div class="score-badge" style="color:${colR}">${scoreRunway} / 10 pt</div>
           </div>
-          <div class="health-desc" style="margin-bottom:10px">
-            Regressione lineare sulle uscite mensili. Pendenza: <strong style="color:${expSlopePct<=0?'var(--income)':'var(--expense)'}">${expSlopePct>=0?'+':''}${expSlopePct.toFixed(1)}%/mese</strong>
-            (${expSlope>=0?'+':''}${fmt.currency(expSlope)}/mese). Spese calanti = migliore punteggio. La linea tratteggiata indica la tendenza.
-            ${avgSavingsRate>=10?'<em style="color:var(--income)">Stai risparmiando ≥10%: punteggio minimo garantito a 5 — le spese crescenti sono meno allarmanti con un margine di risparmio ampio.</em>':avgSavingsRate>=5?'<em style="color:#e8a838">Risparmio ≥5%: punteggio minimo garantito a 2.</em>':''}
+          <div class="health-desc" style="margin-bottom:14px">
+            Mesi di vita coperti dalla <strong>liquidità attuale</strong> (saldi conti non-investimento)
+            dividendo per la spesa di un mese tipico. Indica la tua <em>resilienza</em>: quanto duri se le entrate si fermano.
+            Soglie: ≥6 mesi ottimo · ≥3 buono · ≥1.5 sufficiente · &lt;0.5 critico.
           </div>
-          <div style="height:150px"><canvas id="healthExpChart"></canvas></div>
+
+          <div style="display:flex;align-items:center;gap:18px;margin-bottom:14px">
+            <div style="text-align:center;min-width:90px">
+              <div style="font-size:34px;font-weight:700;color:${colR};line-height:1">${runwayDisplay}</div>
+              <div style="font-size:11px;color:var(--txt3);margin-top:3px">mesi</div>
+            </div>
+            <div style="flex:1">
+              <div style="position:relative;height:16px;display:flex;border-radius:8px;overflow:hidden">
+                <div style="flex:0.5;background:rgba(248,81,73,.55)"  title="Critico (&lt;0.5 mesi)"></div>
+                <div style="flex:1;background:rgba(240,136,62,.55)"   title="Scarso (0.5–1.5 mesi)"></div>
+                <div style="flex:1.5;background:rgba(232,168,56,.55)" title="Sufficiente (1.5–3 mesi)"></div>
+                <div style="flex:3;background:rgba(99,179,90,.5)"     title="Buono (3–6 mesi)"></div>
+                <div style="flex:6;background:rgba(63,185,80,.6)"     title="Ottimo (≥6 mesi)"></div>
+                <div style="position:absolute;top:-4px;bottom:-4px;width:3px;background:var(--txt);left:calc(${runwayPos.toFixed(2)}% - 1.5px);box-shadow:0 0 4px rgba(0,0,0,.6);border-radius:2px"></div>
+              </div>
+              <div style="position:relative;height:14px;margin-top:4px;font-size:10px;color:var(--txt3)">
+                <span style="position:absolute;left:0">0</span>
+                <span style="position:absolute;left:12.5%;transform:translateX(-50%)">1.5</span>
+                <span style="position:absolute;left:25%;transform:translateX(-50%)">3</span>
+                <span style="position:absolute;left:50%;transform:translateX(-50%)">6</span>
+                <span style="position:absolute;right:0">12+</span>
+              </div>
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:12px;padding-top:10px;border-top:1px solid var(--border)">
+            <div>
+              <div style="color:var(--txt3);font-size:10px;margin-bottom:2px">Liquidità totale</div>
+              <div style="font-weight:600;color:${liquidBalance>=0?'var(--income)':'var(--expense)'}">${fmt.currency(liquidBalance)}</div>
+              <div style="font-size:10px;color:var(--txt3);margin-top:1px">${liquidAccs.length} cont${liquidAccs.length===1?'o':'i'} non-investimento</div>
+            </div>
+            <div>
+              <div style="color:var(--txt3);font-size:10px;margin-bottom:2px">Spesa mensile tipica</div>
+              <div style="font-weight:600">${fmt.currency(expMedian)}<span style="font-weight:400;color:var(--txt3)">/mese</span></div>
+              <div style="font-size:10px;color:var(--txt3);margin-top:1px">media interquartile ultimi ${n} mesi</div>
+            </div>
+          </div>
         </div>
 
         <!-- Trend del risparmio -->
@@ -702,10 +743,9 @@ async function renderAnalyticsHealth() {
 
   // ── Grafici dettaglio ─────────────────────────────────────────────────────
   if (_healthRateChart) _healthRateChart.destroy();
-  if (_healthExpChart)  _healthExpChart.destroy();
   if (_healthIncChart)  _healthIncChart.destroy();
   if (_healthVolChart)  _healthVolChart.destroy();
-  _healthRateChart = _healthExpChart = _healthIncChart = _healthVolChart = null;
+  _healthRateChart = _healthIncChart = _healthVolChart = null;
 
   // Tasso risparmio per mese — barre colorate + linee soglia
   const rateAvgLabelPlugin = {
@@ -751,27 +791,6 @@ async function renderAnalyticsHealth() {
         x:{ ticks:{color:cc.tick,font:{size:10}}, grid:{color:cc.grid} },
         y:{ ticks:{color:cc.tick, callback:v=>v+'%'}, grid:{color:cc.grid} }
       }
-    }
-  });
-
-  // Trend spese — linea reale + regressione tratteggiata
-  _healthExpChart = new Chart(document.getElementById('healthExpChart'), {
-    type:'line',
-    data:{
-      labels,
-      datasets:[
-        { label:'Uscite', data:expenses,
-          borderColor:'rgba(248,81,73,.8)', backgroundColor:'rgba(248,81,73,.1)',
-          pointRadius:3, tension:.3, fill:true, borderWidth:2 },
-        { label:'Tendenza', data:expRegLine,
-          borderColor:'rgba(255,200,80,.75)', borderDash:[6,3],
-          pointRadius:0, tension:0, fill:false, borderWidth:2 }
-      ]
-    },
-    options:{
-      responsive:true, maintainAspectRatio:false,
-      plugins:{ legend:{ labels:{color:cc.tick,boxWidth:12} }, tooltip:{ callbacks:{ label:ctx=>` ${ctx.dataset.label}: ${fmt.currency(ctx.parsed.y)}` } } },
-      scales:{ x:{ticks:{color:cc.tick,font:{size:10}},grid:{color:cc.grid}}, y:{ticks:{color:cc.tick,callback:v=>fmt.currency(v)},grid:{color:cc.grid}} }
     }
   });
 
@@ -1242,43 +1261,41 @@ async function renderNatureReport() {
     const cats = byCat.filter(r => r.nature === n);
     if (!cats.length) return '';
     const m = NATURE[n];
+    const natureTotal = cats.reduce((s, c) => s + Number(c.total), 0);
+    const naturePct = totalAll > 0 ? (natureTotal / totalAll * 100).toFixed(1) : '0.0';
+    const natureTxCount = cats.reduce((s, c) => s + Number(c.tx_count), 0);
+    const df = filter.date_from || '';
+    const dt = filter.date_to   || '';
     const rows = cats.map(c => {
-      const tot  = Number(c.total);
-      const pct  = totalAll > 0 ? (tot / totalAll * 100).toFixed(1) : '0.0';
-      const df   = filter.date_from || '';
-      const dt   = filter.date_to   || '';
-      return `<tr class="nature-cat-row" onclick="txFilters={range:'custom',date_from:'${df}',date_to:'${dt}',category_id:${c.cat_id},type:'expense'};navigate('transactions')" title="Vedi transazioni">
-        <td style="padding:5px 8px">
-          <span style="background:${c.color}22;color:${c.color};padding:2px 8px;border-radius:4px;font-size:12px">${c.icon} ${c.cat_name}</span>
-        </td>
-        <td style="padding:5px 8px;text-align:right;font-weight:600">${fmt.currency(tot)}</td>
-        <td style="padding:5px 8px;text-align:right;color:var(--txt3);font-size:11px">${c.tx_count} tx</td>
-        <td style="padding:5px 8px;text-align:right;color:var(--txt3);font-size:11px">${pct}%</td>
-      </tr>`;
+      const tot = Number(c.total);
+      const pct = totalAll > 0 ? (tot / totalAll * 100).toFixed(1) : '0.0';
+      const catLabel = c.parent_name
+        ? `<span style="opacity:.6">${c.parent_name}:</span>${c.cat_name}`
+        : c.cat_name;
+      return `<div class="nature-cat-row" onclick="txFilters={range:'custom',date_from:'${df}',date_to:'${dt}',category_id:${c.cat_id},type:'expense'};navigate('transactions')" title="Vedi transazioni" style="display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:6px;cursor:pointer">
+        <span style="background:${c.color}22;color:${c.color};padding:2px 8px;border-radius:4px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0">${c.icon} ${catLabel}</span>
+        <span style="font-weight:600;font-size:12px;white-space:nowrap">${fmt.currency(tot)}</span>
+        <span style="color:var(--txt3);font-size:11px;white-space:nowrap;text-align:right;min-width:74px">${c.tx_count} tx · ${pct}%</span>
+      </div>`;
     }).join('');
     return `
-      <div style="margin-top:20px">
-        <div style="font-size:13px;font-weight:700;color:${m.color};margin-bottom:8px">${m.icon} ${m.label}</div>
-        <table style="width:100%;border-collapse:collapse;font-size:12px">
-          <thead><tr style="color:var(--txt3);border-bottom:1px solid var(--border)">
-            <th style="text-align:left;padding:4px 8px">Categoria</th>
-            <th style="text-align:right;padding:4px 8px">Importo</th>
-            <th style="text-align:right;padding:4px 8px">Tx</th>
-            <th style="text-align:right;padding:4px 8px">%</th>
-          </tr></thead>
-          <tbody>${rows}</tbody>
-        </table>
+      <div class="card" style="padding:12px 14px">
+        <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid var(--border)">
+          <div style="font-size:13px;font-weight:700;color:${m.color}">${m.icon} ${m.label}</div>
+          <div style="font-size:11px;color:var(--txt3)"><strong style="color:${m.color}">${fmt.currency(natureTotal)}</strong> · ${naturePct}% · ${natureTxCount} tx</div>
+        </div>
+        ${rows}
       </div>`;
   }).join('');
 
   el.innerHTML = `
     ${totalAll > 0 ? `
     <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">${cards}</div>
-    <div class="card" style="padding:12px 16px;margin-bottom:4px">
+    <div class="card" style="padding:12px 16px;margin-bottom:16px">
       <div style="font-size:11px;color:var(--txt3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.5px">Ripartizione totale · ${fmt.currency(totalAll)}</div>
       <div style="display:flex;height:14px;border-radius:7px;overflow:hidden;gap:2px">${barSegments}</div>
     </div>
-    ${sections}` : '<div style="text-align:center;color:var(--txt3);padding:60px">Nessuna uscita nel periodo selezionato.</div>'}`;
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:14px;align-items:start">${sections}</div>` : '<div style="text-align:center;color:var(--txt3);padding:60px">Nessuna uscita nel periodo selezionato.</div>'}`;
 }
 
 

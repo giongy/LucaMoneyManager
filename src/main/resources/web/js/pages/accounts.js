@@ -260,8 +260,8 @@ function accTypeLabel(t) {
   return {checking:'Conto Corrente',savings:'Risparmio',cash:'Contanti',credit:'Carta di Credito',investment:'Investimento'}[t]||t;
 }
 
-const ACCOUNT_ICONS = ['🏦','💳','💵','🏧','💰','📈','🏠','🚀'];
-const ACCOUNT_COLORS = ['#58a6ff','#3fb950','#f85149','#d29922','#a371f7','#f0883e','#00d4aa','#8b949e'];
+const ACCOUNT_ICONS = ['🏦','💳','💵','🏧','💰','📈','🏠','🚀','💼','🪙','✈️','🎁'];
+const ACCOUNT_COLORS = ['#58a6ff','#3fb950','#f85149','#d29922','#a371f7','#f0883e','#00d4aa','#8b949e','#ec4899','#06b6d4','#84cc16','#6366f1'];
 
 function showAccountModal(account) {
   const body = `

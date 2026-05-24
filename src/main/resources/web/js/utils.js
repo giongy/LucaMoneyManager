@@ -175,7 +175,8 @@ function lastNCompleteMonthsRange(n = 12) {
 // Sparkline cumulativa con confronto anno precedente.
 // Linea solida (anno corrente) + linea tratteggiata grigia (anno precedente, stessi mesi).
 // Il colore della solida è semanticamente corretto (verde = sopra/meglio dell'anno scorso, rosso = sotto).
-function cumulativeCompareSvg(currCum, prevCum, color, w = 90, h = 36) {
+// showXTicks opzionale: se true, disegna tick verticali sull'asse X per ogni punto dati.
+function cumulativeCompareSvg(currCum, prevCum, color, w = 150, h = 48, showXTicks = false) {
   if (!currCum || !currCum.length) return '';
   const allValues = [...currCum, ...(prevCum || [])].filter(v => v != null);
   if (!allValues.length) return '';
@@ -183,10 +184,12 @@ function cumulativeCompareSvg(currCum, prevCum, color, w = 90, h = 36) {
   const max = Math.max(...allValues, 0);
   const range = max - min || 1;
   const pad = 2;
+  const tickH = showXTicks ? 4 : 0;
+  const chartH = h - tickH;
   const len = Math.max(currCum.length, (prevCum || []).length);
   const stepX = w / (len - 1 || 1);
   const toPoints = vals => vals.map((v, i) => {
-    const y = (h - pad - ((v - min) / range) * (h - 2 * pad)).toFixed(1);
+    const y = (chartH - pad - ((v - min) / range) * (chartH - 2 * pad)).toFixed(1);
     return `${(i * stepX).toFixed(1)},${y}`;
   }).join(' ');
   const currPts = toPoints(currCum);
@@ -194,13 +197,24 @@ function cumulativeCompareSvg(currCum, prevCum, color, w = 90, h = 36) {
   // Baseline zero se la scala attraversa 0
   let zeroLine = '';
   if (min < 0 && max > 0) {
-    const zy = (h - pad - ((0 - min) / range) * (h - 2 * pad)).toFixed(1);
+    const zy = (chartH - pad - ((0 - min) / range) * (chartH - 2 * pad)).toFixed(1);
     zeroLine = `<line x1="0" y1="${zy}" x2="${w}" y2="${zy}" stroke="rgba(255,255,255,.18)" stroke-width="0.6" stroke-dasharray="2,2"/>`;
   }
-  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="display:block;flex-shrink:0">
+  // Tick verticali sull'asse X (uno per punto cumulativo)
+  let xTicksHtml = '';
+  if (showXTicks) {
+    const yTop = chartH;
+    const yBot = h - 1;
+    xTicksHtml = currCum.map((_, i) => {
+      const x = (i * stepX).toFixed(1);
+      return `<line x1="${x}" y1="${yTop}" x2="${x}" y2="${yBot}" stroke="currentColor" stroke-width="0.8" opacity="0.5"/>`;
+    }).join('');
+  }
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="display:block;flex-shrink:0;color:var(--txt2)">
     ${zeroLine}
     ${prevPts ? `<polyline points="${prevPts}" fill="none" stroke="var(--txt3)" stroke-width="1.2" stroke-dasharray="3,2" opacity="0.55" stroke-linecap="round"/>` : ''}
     <polyline points="${currPts}" fill="none" stroke="${color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    ${xTicksHtml}
   </svg>`;
 }
 

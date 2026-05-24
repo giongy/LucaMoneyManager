@@ -405,10 +405,12 @@ async function renderDashboard() {
   document.getElementById('statsGrid').innerHTML = `
     <div class="stat-card stat-balance" ${stats.bond_nominal_total>0?`title="Valore di mercato di tutti i conti. Nominale bond a scadenza: ${fmt.currency(stats.bond_nominal_total)}"`:''}>
       <div class="stat-label">💳 Saldo Totale</div>
-      <div class="stat-value">${fmt.currency(stats.balance)}</div>
-      <div class="stat-sub">${stats.bond_nominal_total>0
-        ? `Tutti i conti · <span style="color:var(--txt3)">bond a scadenza ${fmt.currency(stats.bond_nominal_total)}</span>`
-        : 'Tutti i conti'}</div>
+      <div style="flex:1;display:flex;flex-direction:column;justify-content:center">
+        <div class="stat-value">${fmt.currency(stats.balance)}</div>
+        <div class="stat-sub">${stats.bond_nominal_total>0
+          ? `Tutti i conti · <span style="color:var(--txt3)">bond a scadenza ${fmt.currency(stats.bond_nominal_total)}</span>`
+          : 'Tutti i conti'}</div>
+      </div>
     </div>
     <div class="stat-card stat-income">
       <div class="stat-label">📥 Entrate ${dashYear}</div>

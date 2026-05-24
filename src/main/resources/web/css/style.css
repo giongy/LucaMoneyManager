@@ -227,10 +227,11 @@ input,select,textarea { font-family:inherit; }
 
 /* ─── Stat Cards ─────────────────────────────────────────────────────────── */
 .stats-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:var(--dash-gap); margin-bottom:var(--dash-gap); }
-.stat-card { background:var(--bg2); border:1px solid var(--border); border-radius:var(--radius); padding:8px 12px; }
-.stat-label { font-size:var(--fs-sm,11px); color:var(--txt2); margin-bottom:2px; text-transform:uppercase; letter-spacing:.5px; }
-.stat-value { font-size:18px; font-weight:700; margin-bottom:2px; }
-.stat-sub   { font-size:var(--fs-sm,11px); color:var(--txt3); }
+.stat-card { background:var(--bg2); border:1px solid var(--border); border-radius:var(--radius); padding:4px 12px;
+             display:flex; flex-direction:column; }
+.stat-label { font-size:var(--fs-sm,11px); color:var(--txt2); margin-bottom:1px; text-transform:uppercase; letter-spacing:.5px; line-height:1.2; }
+.stat-value { font-size:18px; font-weight:700; margin-bottom:0; line-height:1.2; }
+.stat-sub   { font-size:var(--fs-sm,11px); color:var(--txt3); line-height:1.2; }
 .stat-income  .stat-value { color:var(--income); }
 .stat-expense .stat-value { color:var(--expense); }
 .stat-balance .stat-value { color:var(--accent); }

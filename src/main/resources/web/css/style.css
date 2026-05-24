@@ -118,8 +118,8 @@
 /* Sfondo con gradiente diagonale per dare profondità visibile attraverso il blur */
 [data-theme="glassy"] body {
   background:
-    radial-gradient(900px 600px at 20% 0%, rgba(106,183,255,.08), transparent 60%),
-    radial-gradient(700px 500px at 90% 100%, rgba(20,217,180,.06), transparent 60%),
+    radial-gradient(1100px 750px at 18% -5%, rgba(106,183,255,.20), transparent 65%),
+    radial-gradient(900px 650px at 92% 105%, rgba(20,217,180,.14), transparent 65%),
     linear-gradient(135deg, #1a2030 0%, #161b25 50%, #1d2333 100%);
   background-attachment: fixed;
 }
@@ -138,6 +138,40 @@
   border-color: rgba(255,255,255,.10);
   box-shadow: 0 4px 24px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.04);
 }
+/* Modale: sfondo semi-trasparente per look glass, blur garantisce leggibilità */
+[data-theme="glassy"] .modal {
+  background: rgba(28,34,48,.55);
+  border-color: rgba(255,255,255,.14);
+  box-shadow: 0 20px 60px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.06);
+}
+/* Overlay un filo più scuro per dare contrasto al modale più trasparente */
+[data-theme="glassy"] .modal-overlay { background: rgba(0,0,0,.45); }
+[data-theme="glassy"] .modal-header,
+[data-theme="glassy"] .modal-footer { border-color: rgba(255,255,255,.10); }
+/* Form controls: sfondo più solido per emergere dal modale e rendere visibili i select */
+[data-theme="glassy"] .form-control {
+  background: rgba(18,24,36,.85);
+  border-color: rgba(255,255,255,.12);
+}
+[data-theme="glassy"] .form-control:hover { border-color: rgba(255,255,255,.20); }
+/* Native select dropdown (popup Chromium): option con sfondo solido, ereditano dal select */
+[data-theme="glassy"] select { background-color: rgba(18,24,36,.95); }
+[data-theme="glassy"] select option {
+  background-color: #1c2230;
+  color: var(--txt);
+}
+/* Popover flottanti (category picker, tag dropdown): sfondo opaco — non hanno nulla dietro */
+[data-theme="glassy"] .cat-picker-list,
+[data-theme="glassy"] .sched-tag-dropdown {
+  background: rgba(28,34,48,.96);
+  border-color: rgba(255,255,255,.14);
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  box-shadow: 0 12px 32px rgba(0,0,0,.55);
+}
+[data-theme="glassy"] .cat-picker-item:hover,
+[data-theme="glassy"] .cat-picker-item.active,
+[data-theme="glassy"] .sched-tag-opt:hover { background: rgba(255,255,255,.08); }
 
 /* ─── Reset ──────────────────────────────────────────────────────────────── */
 *,*::before,*::after { box-sizing:border-box; margin:0; padding:0; }

@@ -174,7 +174,7 @@ async function renderSettings() {
           <div class="settings-control">
             <div style="display:flex;flex-direction:column;gap:10px">
               <div style="display:flex;gap:6px;flex-wrap:wrap">
-                ${[['dark','🌙 Scuro'],['carta','📜 Carta'],['salvia','🌿 Salvia']].map(([key,label]) => `
+                ${[['dark','🌙 Scuro'],['glassy','🪟 Vetro'],['carta','📜 Carta'],['salvia','🌿 Salvia']].map(([key,label]) => `
                   <button class="btn theme-btn ${(s['appearance.theme']||'dark')===key?'theme-btn-active':''}"
                           onclick="settingsSetTheme('${key}')">${label}</button>
                   <button class="btn btn-ghost btn-icon" title="Duplica e personalizza" onclick="duplicateTheme('${key}')">⧉</button>`).join('')}
@@ -882,7 +882,7 @@ function applyTheme(theme) {
     document.documentElement.dataset.theme = '';
     if (ct) _applyCustomVars(ct);
   } else {
-    const valid = ['carta', 'salvia'];
+    const valid = ['carta', 'salvia', 'glassy'];
     document.documentElement.dataset.theme = valid.includes(theme) ? theme : '';
   }
   _updateThemeBtn();
@@ -896,8 +896,9 @@ async function settingsSetTheme(theme) {
 }
 
 const _THEME_CYCLE = [
-  { key: '',      icon: '🌙', label: 'Scuro' },
-  { key: 'carta', icon: '📜', label: 'Carta' },
+  { key: '',       icon: '🌙', label: 'Scuro' },
+  { key: 'glassy', icon: '🪟', label: 'Vetro' },
+  { key: 'carta',  icon: '📜', label: 'Carta' },
   { key: 'salvia', icon: '🌿', label: 'Salvia' },
 ];
 

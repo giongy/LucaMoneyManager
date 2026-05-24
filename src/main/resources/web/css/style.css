@@ -96,6 +96,49 @@
   --shadow:   0 8px 32px rgba(0,0,0,.08);
 }
 
+/* ─── Glassy theme (scuro morbido con effetto vetro) ─────────────────────── */
+[data-theme="glassy"] {
+  --bg:       #161b25;
+  --bg2:      rgba(255,255,255,.045);
+  --bg3:      rgba(255,255,255,.085);
+  --bg4:      rgba(255,255,255,.065);
+  --border:   rgba(255,255,255,.10);
+  --accent:   #6ab7ff;
+  --accent2:  #14d9b4;
+  --income:   #4ec76a;
+  --expense:  #ff6b62;
+  --warn:     #e0b04a;
+  --purple:   #b585ff;
+  --orange:   #ff9b5e;
+  --txt:      #ecf0f6;
+  --txt2:     #9ca8b8;
+  --txt3:     #6d7888;
+  --shadow:   0 8px 32px rgba(0,0,0,.55);
+}
+/* Sfondo con gradiente diagonale per dare profondità visibile attraverso il blur */
+[data-theme="glassy"] body {
+  background:
+    radial-gradient(900px 600px at 20% 0%, rgba(106,183,255,.08), transparent 60%),
+    radial-gradient(700px 500px at 90% 100%, rgba(20,217,180,.06), transparent 60%),
+    linear-gradient(135deg, #1a2030 0%, #161b25 50%, #1d2333 100%);
+  background-attachment: fixed;
+}
+/* Blur su cards, sidebar, modale, titlebar — l'effetto vetro */
+[data-theme="glassy"] .card,
+[data-theme="glassy"] .stat-card,
+[data-theme="glassy"] .sidebar,
+[data-theme="glassy"] .titlebar,
+[data-theme="glassy"] .modal {
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+}
+/* Bordi più sottili e luminosi per il look "frosted glass" */
+[data-theme="glassy"] .card,
+[data-theme="glassy"] .stat-card {
+  border-color: rgba(255,255,255,.10);
+  box-shadow: 0 4px 24px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.04);
+}
+
 /* ─── Reset ──────────────────────────────────────────────────────────────── */
 *,*::before,*::after { box-sizing:border-box; margin:0; padding:0; }
 html,body { height:100%; overflow:hidden; }

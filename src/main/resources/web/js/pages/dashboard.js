@@ -406,7 +406,7 @@ async function renderDashboard() {
     <div class="stat-card stat-balance" ${stats.bond_nominal_total>0?`title="Valore di mercato di tutti i conti. Nominale bond a scadenza: ${fmt.currency(stats.bond_nominal_total)}"`:''}>
       <div class="stat-label">💳 Saldo Totale</div>
       <div style="flex:1;display:flex;flex-direction:column;justify-content:center">
-        <div class="stat-value">${fmt.currency(stats.balance)}</div>
+        <div class="stat-value">${fmt.currencyRich(stats.balance)}</div>
         <div class="stat-sub">${stats.bond_nominal_total>0
           ? `Tutti i conti · <span style="color:var(--txt3)">bond a scadenza ${fmt.currency(stats.bond_nominal_total)}</span>`
           : 'Tutti i conti'}</div>
@@ -415,7 +415,7 @@ async function renderDashboard() {
     <div class="stat-card stat-income">
       <div class="stat-label">📥 Entrate ${dashYear}</div>
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
-        <div class="stat-value" style="min-width:0;flex:1">${fmt.currency(stats.income)}</div>
+        <div class="stat-value" style="min-width:0;flex:1">${fmt.currencyRich(stats.income)}</div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0"
              title="Cumulativo ${ytdLabel} ${dashYear} (solida) vs stessi mesi ${dashYear-1} (tratteggiata)">
           ${cumulativeCompareSvg(cumIncCur, cumIncPrev, incColor)}
@@ -429,7 +429,7 @@ async function renderDashboard() {
     <div class="stat-card stat-expense">
       <div class="stat-label">📤 Uscite ${dashYear}</div>
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
-        <div class="stat-value" style="min-width:0;flex:1">${fmt.currency(stats.expenses)}</div>
+        <div class="stat-value" style="min-width:0;flex:1">${fmt.currencyRich(stats.expenses)}</div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0"
              title="Cumulativo ${ytdLabel} ${dashYear} (solida) vs stessi mesi ${dashYear-1} (tratteggiata)">
           ${cumulativeCompareSvg(cumExpCur, cumExpPrev, expColor)}
@@ -444,7 +444,7 @@ async function renderDashboard() {
       <div class="stat-label">💰 Risparmio Netto ${dashYear}</div>
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
         <div style="min-width:0;flex:1">
-          <div class="stat-value" style="color:${stats.net>=0?'var(--income)':'var(--expense)'}">${fmt.currency(stats.net)}</div>
+          <div class="stat-value" style="color:${stats.net>=0?'var(--income)':'var(--expense)'}">${fmt.currencyRich(stats.net)}</div>
           <div class="stat-sub" style="font-size:11px;color:var(--txt3)">${stats.transaction_count} tx</div>
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0"

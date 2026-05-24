@@ -29,7 +29,7 @@
   --txt2:     #8b949e;
   --txt3:     #6e7681;
   --shadow:   0 8px 32px rgba(0,0,0,.5);
-  --radius:    12px;
+  --radius:    14px;
   --fs-xs:     10px;
   --fs-sm:     11px;
   --fs-md:     12px;
@@ -99,7 +99,25 @@
 /* ─── Reset ──────────────────────────────────────────────────────────────── */
 *,*::before,*::after { box-sizing:border-box; margin:0; padding:0; }
 html,body { height:100%; overflow:hidden; }
-body { font-family:'Segoe UI',system-ui,sans-serif; background:var(--bg); color:var(--txt); font-size:var(--font-size,13px); }
+html { scroll-behavior: smooth; }
+body { font-family:'Inter','Segoe UI',system-ui,sans-serif; background:var(--bg); color:var(--txt); font-size:var(--font-size,13px);
+       -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility; }
+
+/* Tabular nums per allineamento perfetto delle cifre in colonna */
+.stat-value, .acc-bal, .amount-income, .amount-expense, .text-right,
+td.text-right, th.text-right, .stat-sub, .score-badge {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Focus ring moderno (Stripe/Linear style) — sostituisce outline browser default */
+input:not([type=checkbox]):not([type=radio]):not([type=color]):focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent);
+  transition: border-color .12s ease, box-shadow .12s ease;
+}
 a { text-decoration:none; color:inherit; cursor:pointer; }
 button { cursor:pointer; font-family:inherit; }
 input,select,textarea { font-family:inherit; }
@@ -198,7 +216,8 @@ input,select,textarea { font-family:inherit; }
 /* ─── Pagine ──────────────────────────────────────────────────────────────── */
 .page-container { flex:1; overflow:hidden; position:relative; }
 .page { position:absolute; inset:0; overflow-y:auto; padding:var(--dash-gap); display:none; }
-.page.active { display:block; }
+.page.active { display:block; animation:pageFadeIn .22s cubic-bezier(.4,.0,.2,1); }
+@keyframes pageFadeIn { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:translateY(0); } }
 #pg-transactions.active { display:flex; flex-direction:column; overflow:hidden; padding:0; }
 #pg-logviewer { display:none; flex-direction:column; overflow-y:hidden; }
 #pg-logviewer.active { display:flex; }
@@ -218,6 +237,10 @@ input,select,textarea { font-family:inherit; }
   border-radius:var(--radius); padding:14px;
   box-shadow:var(--shadow), 0 4px 20px rgba(88,166,255,.08);
 }
+.card[onclick] { cursor:pointer; transition:transform .15s ease, box-shadow .15s ease, border-color .15s ease; }
+.card[onclick]:hover { transform:translateY(-2px);
+  box-shadow:0 6px 22px rgba(0,0,0,.22), 0 4px 22px color-mix(in srgb, var(--accent) 18%, transparent);
+  border-color:color-mix(in srgb, var(--accent) 40%, var(--border)); }
 .card-header {
   display:flex; align-items:center; justify-content:space-between;
   margin-bottom:10px; padding-bottom:8px; border-bottom:1px solid var(--border);
@@ -228,7 +251,17 @@ input,select,textarea { font-family:inherit; }
 /* ─── Stat Cards ─────────────────────────────────────────────────────────── */
 .stats-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:var(--dash-gap); margin-bottom:var(--dash-gap); }
 .stat-card { background:var(--bg2); border:1px solid var(--border); border-radius:var(--radius); padding:4px 12px;
-             display:flex; flex-direction:column; }
+             display:flex; flex-direction:column; position:relative; overflow:hidden;
+             transition:transform .15s ease, box-shadow .15s ease, border-color .15s ease; }
+.stat-card::before { content:''; position:absolute; top:0; left:0; right:0; height:2px;
+                     background:var(--accent); opacity:.7; }
+.stat-income::before  { background:var(--income); }
+.stat-expense::before { background:var(--expense); }
+.stat-balance::before { background:var(--accent); }
+.stat-net::before     { background:var(--accent2); }
+.stat-card:hover { transform:translateY(-2px); box-shadow:0 6px 18px rgba(0,0,0,.22);
+                   border-color:color-mix(in srgb, var(--accent) 35%, var(--border)); }
+.stat-card:hover::before { opacity:1; height:3px; transition:opacity .15s ease, height .15s ease; }
 .stat-label { font-size:var(--fs-sm,11px); color:var(--txt2); margin-bottom:1px; text-transform:uppercase; letter-spacing:.5px; line-height:1.2; }
 .stat-value { font-size:18px; font-weight:700; margin-bottom:0; line-height:1.2; }
 .stat-sub   { font-size:var(--fs-sm,11px); color:var(--txt3); line-height:1.2; }
@@ -566,7 +599,8 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 
 /* ─── Modal ──────────────────────────────────────────────────────────────── */
 .modal-overlay {
-  position:fixed; inset:0; background:rgba(0,0,0,.7); backdrop-filter:blur(4px);
+  position:fixed; inset:0; background:rgba(0,0,0,.55); backdrop-filter:blur(10px) saturate(140%);
+  -webkit-backdrop-filter:blur(10px) saturate(140%);
   display:none; align-items:center; justify-content:center; z-index:1000;
 }
 .modal-overlay.open { display:flex; }
@@ -762,11 +796,12 @@ button.te-reset-btn:hover { opacity:1; color:var(--accent); }
 /* ─── Toast ──────────────────────────────────────────────────────────────── */
 .toast-container { position:fixed; bottom:16px; right:16px; z-index:2000; display:flex; flex-direction:column; gap:6px; }
 .toast {
-  padding:12px 16px; border-radius:8px; font-size:var(--fs-lg,14px); font-weight:500;
-  box-shadow:var(--shadow); animation:toastIn .2s ease; min-width:240px;
+  padding:12px 16px; border-radius:10px; font-size:var(--fs-lg,14px); font-weight:500;
+  box-shadow:0 8px 28px rgba(0,0,0,.35); animation:toastIn .28s cubic-bezier(.4,.0,.2,1); min-width:240px;
   display:flex; align-items:center; gap:8px;
+  backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px);
 }
-@keyframes toastIn { from { transform:translateX(60px); opacity:0; } to { transform:translateX(0); opacity:1; } }
+@keyframes toastIn { from { transform:translateY(20px) scale(.96); opacity:0; } to { transform:translateY(0) scale(1); opacity:1; } }
 .toast-success { background:#1a3a1c; border:1px solid var(--income); color:var(--income); }
 .toast-error   { background:#3a1a1a; border:1px solid var(--expense); color:var(--expense); }
 .toast-info    { background:#1a2a3a; border:1px solid var(--accent);  color:var(--accent); }

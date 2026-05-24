@@ -68,6 +68,16 @@ const fmt = {
   date: s => s ? new Date(s + 'T00:00:00').toLocaleDateString('it-IT') : '',
   month: (m,y) => new Date(y,m-1,1).toLocaleDateString('it-IT',{month:'long',year:'numeric'}),
   pct: v => (v >= 0 ? '+' : '') + v.toFixed(2) + '%',
+  // Currency con peso variabile: intero bold, decimali medium opachi, simbolo € light tenue.
+  // Restituisce HTML (usare con innerHTML). Pensata per KPI dashboard / numeri grandi prominenti.
+  currencyRich: v => {
+    const formatted = new Intl.NumberFormat('it-IT',{style:'currency',currency:'EUR'}).format(v ?? 0);
+    // Pattern italiano: "1.234,56 €" o "-1.234,56 €"
+    const m = formatted.match(/^(-?)([\d.]+)(,\d{2})\s*(\D+)$/);
+    if (!m) return formatted; // fallback safe
+    const [, sign, intPart, decPart, symbol] = m;
+    return `${sign}${intPart}<span style="font-weight:500;opacity:.75">${decPart}</span><span style="font-weight:400;opacity:.55;margin-left:2px">${symbol.trim()}</span>`;
+  },
 };
 
 /* ─── Date helpers ────────────────────────────────────────────────────────── */

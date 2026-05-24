@@ -172,6 +172,20 @@
 [data-theme="glassy"] .cat-picker-item:hover,
 [data-theme="glassy"] .cat-picker-item.active,
 [data-theme="glassy"] .sched-tag-opt:hover { background: rgba(255,255,255,.08); }
+/* Celle sticky del budget (thead + summary REALE/BUDGET/DIFFERENZA + colonna categoria):
+   sfondo opaco — il thead è composto da 4 righe tutte sticky, il contenuto scorre dietro */
+[data-theme="glassy"] .budget-table thead th,
+[data-theme="glassy"] .budget-table thead td,
+[data-theme="glassy"] .budget-cat-th,
+[data-theme="glassy"] .budget-cat-cell {
+  background: #1c2230 !important;
+}
+[data-theme="glassy"] .budget-total-th { background: #232a3a !important; }
+[data-theme="glassy"] .budget-row-parent .budget-cat-cell { background: #1c2230 !important; }
+[data-theme="glassy"] .budget-row-child  .budget-cat-cell { background: #232a3a !important; }
+/* Stesso problema sulle altre tabelle con thead sticky */
+[data-theme="glassy"] .analytics-table thead th,
+[data-theme="glassy"] #txTable thead th { background: #1c2230 !important; }
 
 /* ─── Reset ──────────────────────────────────────────────────────────────── */
 *,*::before,*::after { box-sizing:border-box; margin:0; padding:0; }

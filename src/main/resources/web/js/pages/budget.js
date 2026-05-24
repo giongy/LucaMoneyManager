@@ -19,6 +19,12 @@ async function renderBudgets() {
   const pg = document.getElementById('pg-budgets');
   pg.innerHTML = `
     <div style="flex-shrink:0;padding:16px 16px 0;background:var(--bg)">
+      <div class="scheduled-tabs" style="margin-bottom:12px">
+        <button class="sched-tab ${_budgetTab==='grid'?'active':''}"        data-btab="grid"        onclick="_setBudgetTab('grid')">📊 Budget</button>
+        <button class="sched-tab ${_budgetTab==='andamento'?'active':''}"   data-btab="andamento"   onclick="_setBudgetTab('andamento')">📈 Andamento</button>
+        <button class="sched-tab ${_budgetTab==='scostamenti'?'active':''}" data-btab="scostamenti" onclick="_setBudgetTab('scostamenti')">📉 Scostamenti</button>
+        <button class="sched-tab ${_budgetTab==='mese'?'active':''}"        data-btab="mese"        onclick="_setBudgetTab('mese')">🗓 Mese</button>
+      </div>
       <div class="section-header">
         <div class="month-nav" style="margin-bottom:0">
           <button id="budgPrev">‹</button>
@@ -36,12 +42,6 @@ async function renderBudgets() {
             <button class="btn btn-primary" id="btnGenBudget">Genera budget</button>
           </div>
         </div>
-      </div>
-      <div class="scheduled-tabs">
-        <button class="sched-tab ${_budgetTab==='grid'?'active':''}"        data-btab="grid"        onclick="_setBudgetTab('grid')">📊 Budget</button>
-        <button class="sched-tab ${_budgetTab==='andamento'?'active':''}"   data-btab="andamento"   onclick="_setBudgetTab('andamento')">📈 Andamento</button>
-        <button class="sched-tab ${_budgetTab==='scostamenti'?'active':''}" data-btab="scostamenti" onclick="_setBudgetTab('scostamenti')">📉 Scostamenti</button>
-        <button class="sched-tab ${_budgetTab==='mese'?'active':''}"        data-btab="mese"        onclick="_setBudgetTab('mese')">🗓 Mese</button>
       </div>
     </div>
     <div id="budgetContent" style="flex:1;overflow:hidden;padding:0 16px 16px;display:flex;flex-direction:column">

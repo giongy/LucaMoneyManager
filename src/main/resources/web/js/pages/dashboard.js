@@ -15,63 +15,7 @@
 let   _accTypeOrder         = ['checking','savings','cash','credit','investment'];
 const _DASH_ACC_TYPE_LABELS = {checking:'Conti Correnti',savings:'Risparmio',cash:'Contanti',credit:'Carte di Credito',investment:'Investimenti'};
 
-// Calcolo Salute Finanziaria — stessa formula di renderAnalyticsHealth in analytics.js.
-// Tenuta inline per evitare dipendenze cross-modulo (entrambe le pagine consumano lo stesso schema dati).
-function _computeHealthScore(balRows, accounts) {
-  const incomes  = balRows.map(r => r.income  || 0);
-  const expenses = balRows.map(r => r.expense || 0);
-  const savings  = incomes.map((v, i) => v - expenses[i]);
-  const n        = balRows.length;
-
-  const totalIncome    = incomes.reduce((a, b) => a + b, 0);
-  const totalSavings   = totalIncome - expenses.reduce((a, b) => a + b, 0);
-  const avgSavingsRate = totalIncome > 0 ? (totalSavings / totalIncome) * 100 : 0;
-
-  // 1. Tasso risparmio (0–40)
-  const scoreSavings = avgSavingsRate >= 20 ? 40 : avgSavingsRate >= 15 ? 35 : avgSavingsRate >= 10 ? 29 : avgSavingsRate >= 7 ? 23 : avgSavingsRate >= 5 ? 16 : avgSavingsRate >= 3 ? 9 : avgSavingsRate > 0 ? 4 : avgSavingsRate === 0 ? 0 : avgSavingsRate >= -5 ? -7 : avgSavingsRate >= -10 ? -13 : -20;
-
-  // 2. Stabilità mensile (0–20)
-  const posMonths = savings.filter(s => s > 0).length;
-  const posPct    = n > 0 ? posMonths / n : 0;
-  const scorePos  = posPct === 1 ? 20 : posPct >= 0.9 ? 18 : posPct >= 0.75 ? 15 : posPct >= 0.6 ? 11 : posPct >= 0.4 ? 7 : posPct >= 0.2 ? 3 : 0;
-
-  // IQM uscite per runway
-  const expSorted = [...expenses].sort((a, b) => a - b);
-  const expQ1 = Math.floor(n * 0.25), expQ3 = Math.ceil(n * 0.75);
-  const expDiv = expQ3 - expQ1;
-  const expMedian = expDiv > 0 ? expSorted.slice(expQ1, expQ3).reduce((a, b) => a + b, 0) / expDiv : 0;
-
-  // 3. Riserva di emergenza (0–10)
-  const liquidAccs    = accounts.filter(a => a.type !== 'investment' && !a.is_closed);
-  const liquidBalance = liquidAccs.reduce((s, a) => s + (a.balance || 0), 0);
-  const runwayMonths  = expMedian > 0 ? liquidBalance / expMedian : (liquidBalance > 0 ? 99 : 0);
-  const scoreRunway   = runwayMonths >= 6 ? 10 : runwayMonths >= 3 ? 7 : runwayMonths >= 1.5 ? 4 : runwayMonths >= 0.5 ? 2 : 0;
-
-  // 4. Trend del risparmio (0–20)
-  const incSorted = [...incomes].sort((a, b) => a - b);
-  const incQ1 = Math.floor(n * 0.25), incQ3 = Math.ceil(n * 0.75);
-  const incMedian = incQ3 > incQ1 ? incSorted.slice(incQ1, incQ3).reduce((a, b) => a + b, 0) / (incQ3 - incQ1) : 0;
-  const savXMean = (n - 1) / 2, savAvg = savings.reduce((a, b) => a + b, 0) / (n || 1);
-  let savNum = 0, savDen = 0;
-  savings.forEach((v, i) => { savNum += (i - savXMean) * (v - savAvg); savDen += (i - savXMean) ** 2; });
-  const savSlope    = savDen ? savNum / savDen : 0;
-  const savSlopePct = incMedian > 0 ? savSlope / incMedian * 100 : 0;
-  const scoreIncTrendRaw = savSlopePct > 3 ? 20 : savSlopePct > 1 ? 16 : savSlopePct >= 0 ? 9 : savSlopePct > -1 ? 7 : savSlopePct > -3 ? 3 : 0;
-  const scoreIncTrend = (posPct === 1 && avgSavingsRate >= 10) ? Math.max(scoreIncTrendRaw, 8)
-    : (posPct >= 0.75 && avgSavingsRate >= 5) ? Math.max(scoreIncTrendRaw, 6) : scoreIncTrendRaw;
-
-  // 5. Stabilità entrate (0–10)
-  const incSemiVar = n > 1 ? incomes.reduce((a, v) => a + (v < incMedian ? (v - incMedian) ** 2 : 0), 0) / n : 0;
-  const incStddev  = Math.sqrt(incSemiVar);
-  const incCV      = incMedian > 0 ? incStddev / incMedian * 100 : 100;
-  const scoreVol   = n < 2 ? 0 : incCV < 3 ? 10 : incCV < 6 ? 9 : incCV < 12 ? 7 : incCV < 20 ? 4 : incCV < 30 ? 1 : 0;
-
-  const score      = Math.min(100, scoreSavings + scorePos + scoreRunway + scoreIncTrend + scoreVol);
-  const scoreColor = score >= 75 ? 'var(--income)' : score >= 50 ? '#e8a838' : score >= 30 ? '#e07020' : 'var(--expense)';
-  const scoreLabel = score >= 75 ? 'Ottima' : score >= 60 ? 'Buona' : score >= 45 ? 'Discreta' : score >= 30 ? 'Sufficiente' : score >= 0 ? 'Attenzione' : 'Critica';
-
-  return { score, scoreColor, scoreLabel, runwayMonths, liquidBalance, scoreRunway, avgSavingsRate, posPct };
-}
+// computeHealthScore() è in utils.js — single source of truth condivisa con analytics.
 
 function _renderDashBudgetBubbles(budgetYear) {
   const el = document.getElementById('dashBudgetBubbles');
@@ -355,8 +299,11 @@ async function renderDashboard() {
       </div>
     </div>
     <div class="dash-bottom-charts">
-      <div class="card dash-chart-sm" id="dashHealthWidget" style="cursor:pointer" onclick="_analyticsTab='health';navigate('analytics')">
-        <div class="card-header"><span class="card-title">💚 Salute Finanziaria</span></div>
+      <div class="card dash-chart-sm" id="dashHealthWidget" style="cursor:pointer" onclick="_analyticsTab='health';navigate('analytics')" title="Ultimi 12 mesi completi (escluso mese corrente)">
+        <div class="card-header">
+          <span class="card-title">💚 Salute Finanziaria</span>
+          <span style="font-size:10px;color:var(--txt3);font-weight:400">ultimi 12 mesi</span>
+        </div>
         <div id="dashHealthBody" style="padding:8px 16px 14px;flex:1;display:flex;align-items:center"></div>
       </div>
       <div class="card dash-chart-sm" style="cursor:pointer" onclick="_analyticsTab='balance';navigate('analytics')">
@@ -369,7 +316,10 @@ async function renderDashboard() {
       </div>
     </div>`;
 
-  const [stats, accounts, recent, monthly, catData, upcoming, budgetYear, prevMonthly, balRows12] = await Promise.all([
+  // Range Salute: ultimi 12 mesi completi (esclude mese corrente, allineato all'analytics default)
+  const healthRange = lastNCompleteMonthsRange(12);
+
+  const [stats, accounts, recent, monthly, catData, upcoming, budgetYear, prevMonthly, balRowsRaw] = await Promise.all([
     api.getDashboardStats(dashYear),
     api.getAccounts(),
     api.getTransactions({limit:12, sort_desc:true}),
@@ -378,8 +328,14 @@ async function renderDashboard() {
     api.getUpcomingAll(10),
     api.getBudgetYear(dashYear),
     api.getMonthlyChartData(dashYear - 1),
-    api.getMonthlyBalance(12),
+    api.getMonthlyBalance(healthRange.fetchMonths),
   ]);
+
+  // Filtra ai soli 12 mesi completi (esclude mese corrente parziale)
+  const balRows12 = healthRange.months.map(ym => {
+    const r = balRowsRaw.find(x => x.ym === ym);
+    return { ym, income: r?.income || 0, expense: r?.expense || 0 };
+  });
 
   // Cache upcoming per "Esegui ora" inline
   window._dashUpcomingCache = upcoming;
@@ -694,7 +650,7 @@ async function renderDashboard() {
 function _renderDashHealth(balRows12, accounts) {
   const body = document.getElementById('dashHealthBody');
   if (!body) return;
-  const h = _computeHealthScore(balRows12, accounts);
+  const h = computeHealthScore(balRows12, accounts);
   const runwayDisplay = !isFinite(h.runwayMonths) || h.runwayMonths >= 99 ? '99+' : h.runwayMonths.toFixed(1);
   const runwayColor = h.scoreRunway >= 7 ? 'var(--income)' : h.scoreRunway >= 4 ? '#e8a838' : 'var(--expense)';
   const rateColor   = h.avgSavingsRate >= 10 ? 'var(--income)' : h.avgSavingsRate >= 5 ? '#e8a838' : 'var(--expense)';

@@ -85,6 +85,93 @@ function toast(msg, type='success') {
   setTimeout(() => t.remove(), 3500);
 }
 
+// ── Salute Finanziaria — calcolo score 0-100 ────────────────────────────────
+// Single source of truth: usata sia dal widget dashboard che dalla pagina analytics.
+// Input: balRows = [{ym, income, expense}, ...] (N mesi), accounts = lista conti.
+// Output: oggetto con score + tutti gli intermedi (necessari per UI dettaglio analytics).
+function computeHealthScore(balRows, accounts) {
+  const incomes  = balRows.map(r => r.income  || 0);
+  const expenses = balRows.map(r => r.expense || 0);
+  const savings  = incomes.map((v, i) => v - expenses[i]);
+  const n        = balRows.length;
+
+  const totalIncome    = incomes.reduce((a, b) => a + b, 0);
+  const totalExpense   = expenses.reduce((a, b) => a + b, 0);
+  const totalSavings   = totalIncome - totalExpense;
+  const avgSavingsRate = totalIncome > 0 ? (totalSavings / totalIncome) * 100 : 0;
+
+  // 1. Tasso risparmio (0–40 pt) — 8 soglie
+  const scoreSavings = avgSavingsRate >= 20 ? 40 : avgSavingsRate >= 15 ? 35 : avgSavingsRate >= 10 ? 29 : avgSavingsRate >= 7 ? 23 : avgSavingsRate >= 5 ? 16 : avgSavingsRate >= 3 ? 9 : avgSavingsRate > 0 ? 4 : avgSavingsRate === 0 ? 0 : avgSavingsRate >= -5 ? -7 : avgSavingsRate >= -10 ? -13 : -20;
+
+  // 2. Stabilità mensile (0–20 pt) — 7 soglie %
+  const posMonths = savings.filter(s => s > 0).length;
+  const posPct    = n > 0 ? posMonths / n : 0;
+  const scorePos  = posPct === 1 ? 20 : posPct >= 0.9 ? 18 : posPct >= 0.75 ? 15 : posPct >= 0.6 ? 11 : posPct >= 0.4 ? 7 : posPct >= 0.2 ? 3 : 0;
+
+  // IQM uscite (media interquartile, robusta agli outlier)
+  const expSorted = [...expenses].sort((a, b) => a - b);
+  const expQ1 = Math.floor(n * 0.25), expQ3 = Math.ceil(n * 0.75);
+  const expDiv = expQ3 - expQ1;
+  const expMedian = expDiv > 0 ? expSorted.slice(expQ1, expQ3).reduce((a, b) => a + b, 0) / expDiv : 0;
+
+  // 3. Riserva di emergenza (0–10 pt)
+  const liquidAccs    = accounts.filter(a => a.type !== 'investment' && !a.is_closed);
+  const liquidBalance = liquidAccs.reduce((s, a) => s + (a.balance || 0), 0);
+  const runwayMonths  = expMedian > 0 ? liquidBalance / expMedian : (liquidBalance > 0 ? 99 : 0);
+  const scoreRunway   = runwayMonths >= 6 ? 10 : runwayMonths >= 3 ? 7 : runwayMonths >= 1.5 ? 4 : runwayMonths >= 0.5 ? 2 : 0;
+
+  // 4. Trend del risparmio (0–20 pt) — pendenza regressione lineare normalizzata sul reddito IQM
+  const incSorted = [...incomes].sort((a, b) => a - b);
+  const incQ1 = Math.floor(n * 0.25), incQ3 = Math.ceil(n * 0.75);
+  const incMedian = incQ3 > incQ1 ? incSorted.slice(incQ1, incQ3).reduce((a, b) => a + b, 0) / (incQ3 - incQ1) : 0;
+  const savXMean = (n - 1) / 2, savAvg = savings.reduce((a, b) => a + b, 0) / (n || 1);
+  let savNum = 0, savDen = 0;
+  savings.forEach((v, i) => { savNum += (i - savXMean) * (v - savAvg); savDen += (i - savXMean) ** 2; });
+  const savSlope    = savDen ? savNum / savDen : 0;
+  const savSlopePct = incMedian > 0 ? savSlope / incMedian * 100 : 0;
+  const scoreIncTrendRaw = savSlopePct > 3 ? 20 : savSlopePct > 1 ? 16 : savSlopePct >= 0 ? 9 : savSlopePct > -1 ? 7 : savSlopePct > -3 ? 3 : 0;
+  const scoreIncTrend = (posPct === 1 && avgSavingsRate >= 10) ? Math.max(scoreIncTrendRaw, 8)
+    : (posPct >= 0.75 && avgSavingsRate >= 5) ? Math.max(scoreIncTrendRaw, 6) : scoreIncTrendRaw;
+
+  // 5. Stabilità entrate (0–10 pt) — semi-deviazione downside
+  const incSemiVar = n > 1 ? incomes.reduce((a, v) => a + (v < incMedian ? (v - incMedian) ** 2 : 0), 0) / n : 0;
+  const incStddev  = Math.sqrt(incSemiVar);
+  const incCV      = incMedian > 0 ? incStddev / incMedian * 100 : 100;
+  const scoreVol   = n < 2 ? 0 : incCV < 3 ? 10 : incCV < 6 ? 9 : incCV < 12 ? 7 : incCV < 20 ? 4 : incCV < 30 ? 1 : 0;
+
+  const score      = Math.min(100, scoreSavings + scorePos + scoreRunway + scoreIncTrend + scoreVol);
+  const scoreColor = score >= 75 ? 'var(--income)' : score >= 50 ? '#e8a838' : score >= 30 ? '#e07020' : 'var(--expense)';
+  const scoreLabel = score >= 75 ? 'Ottima' : score >= 60 ? 'Buona' : score >= 45 ? 'Discreta' : score >= 30 ? 'Sufficiente' : score >= 0 ? 'Attenzione' : 'Critica';
+
+  return {
+    // arrays
+    incomes, expenses, savings, n,
+    // totali
+    totalIncome, totalExpense, totalSavings, avgSavingsRate,
+    // componenti
+    scoreSavings, scorePos, scoreRunway, scoreIncTrend, scoreVol,
+    // aggregato
+    score, scoreColor, scoreLabel,
+    // dettaglio
+    posMonths, posPct,
+    expMedian, liquidBalance, liquidAccs, runwayMonths,
+    incMedian, savSlope, savSlopePct, savXMean, savAvg,
+    incStddev, incCV,
+  };
+}
+
+// Range "ultimi N mesi completi" — esclude il mese corrente (parziale, distorcerebbe le metriche).
+// Restituisce: months[] di stringhe YYYY-MM (lunghezza N) + fetchMonths (per chiamate API che partono da oggi).
+function lastNCompleteMonthsRange(n = 12) {
+  const now = new Date();
+  const toYm = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+  const months = [];
+  for (let i = n; i >= 1; i--) {
+    months.push(toYm(new Date(now.getFullYear(), now.getMonth() - i, 1)));
+  }
+  return { months, fetchMonths: n + 1 };  // fetch include il mese corrente per copertura sicura
+}
+
 // Sparkline cumulativa con confronto anno precedente.
 // Linea solida (anno corrente) + linea tratteggiata grigia (anno precedente, stessi mesi).
 // Il colore della solida è semanticamente corretto (verde = sopra/meglio dell'anno scorso, rosso = sotto).

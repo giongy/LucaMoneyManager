@@ -440,65 +440,32 @@ async function renderAnalyticsHealth() {
   el.innerHTML = '<p style="padding:20px;color:var(--txt2)">Caricamento…</p>';
 
   const { fetchMonths, monthCols } = _analyticsMonthRange();
-  const balRows = await api.getMonthlyBalance(fetchMonths);
-  const n = monthCols.length;
+  const [balRowsRaw, accounts] = await Promise.all([
+    api.getMonthlyBalance(fetchMonths),
+    api.getAccounts(),
+  ]);
 
-  // ── Dati bilancio per mese ────────────────────────────────────────────────
+  // Allinea i dati ai mesi selezionati dall'utente
   const byYm = {};
-  for (const r of balRows) byYm[r.ym] = r;
-  const incomes  = monthCols.map(m => byYm[m.ym]?.income  || 0);
-  const expenses = monthCols.map(m => byYm[m.ym]?.expense || 0);
-  const savings  = monthCols.map((_, i) => incomes[i] - expenses[i]);
+  for (const r of balRowsRaw) byYm[r.ym] = r;
+  const aligned = monthCols.map(m => ({
+    ym: m.ym,
+    income:  byYm[m.ym]?.income  || 0,
+    expense: byYm[m.ym]?.expense || 0,
+  }));
 
-  const totalIncome  = incomes.reduce((a,b)=>a+b,0);
-  const totalExpense = expenses.reduce((a,b)=>a+b,0);
-  const totalSavings = totalIncome - totalExpense;
-  const avgSavingsRate = totalIncome > 0 ? (totalSavings / totalIncome) * 100 : 0;
-
-  // ── Score salute (0–100) ──────────────────────────────────────────────────
-  // 1. Tasso risparmio (0–40 pt) — 8 soglie
-  const scoreSavings = avgSavingsRate >= 20 ? 40 : avgSavingsRate >= 15 ? 35 : avgSavingsRate >= 10 ? 29 : avgSavingsRate >= 7 ? 23 : avgSavingsRate >= 5 ? 16 : avgSavingsRate >= 3 ? 9 : avgSavingsRate > 0 ? 4 : avgSavingsRate === 0 ? 0 : avgSavingsRate >= -5 ? -7 : avgSavingsRate >= -10 ? -13 : -20;
-  // 2. Stabilità mensile (0–20 pt) — 7 soglie %
-  const posMonths = savings.filter(s => s > 0).length;
-  const posPct = n > 0 ? posMonths / n : 0;
-  const scorePos = posPct === 1 ? 20 : posPct >= 0.9 ? 18 : posPct >= 0.75 ? 15 : posPct >= 0.6 ? 11 : posPct >= 0.4 ? 7 : posPct >= 0.2 ? 3 : 0;
-  // IQM uscite (media interquartile, robusta agli outlier — tasse, vacanze, riparazioni)
-  const expSorted = [...expenses].sort((a,b) => a-b);
-  const expIqmQ1 = Math.floor(n * 0.25), expIqmQ3 = Math.ceil(n * 0.75);
-  const expIqmDiv = expIqmQ3 - expIqmQ1;
-  const expMedian = expIqmDiv > 0 ? expSorted.slice(expIqmQ1, expIqmQ3).reduce((a,b)=>a+b,0) / expIqmDiv : 0;
-  // 3. Riserva di emergenza (0–10 pt) — mesi di vita coperti dalla liquidità
-  const accounts = await api.getAccounts();
-  const liquidAccs = accounts.filter(a => a.type !== 'investment' && !a.is_closed);
-  const liquidBalance = liquidAccs.reduce((s, a) => s + (a.balance || 0), 0);
-  const runwayMonths = expMedian > 0 ? liquidBalance / expMedian : (liquidBalance > 0 ? 99 : 0);
-  const scoreRunway = runwayMonths >= 6 ? 10 : runwayMonths >= 3 ? 7 : runwayMonths >= 1.5 ? 4 : runwayMonths >= 0.5 ? 2 : 0;
-  // 4. Trend del risparmio (0–20 pt) — risparmio crescente = entrate/uscite in miglioramento
-  // Usa la mediana delle entrate come denominatore per normalizzare la pendenza in %:
-  // evita divisione per risparmi vicini a zero, e non è distorta dai mesi con bonus.
-  const incSorted = [...incomes].sort((a,b) => a-b);
-  // Media interquartile (IQM): media del 50% centrale, robusto agli outlier
-  const iqmQ1 = Math.floor(n * 0.25), iqmQ3 = Math.ceil(n * 0.75);
-  const incMedian = incSorted.slice(iqmQ1, iqmQ3).reduce((a,b)=>a+b,0) / (iqmQ3 - iqmQ1);
-  const savXMean = (n-1)/2, savAvg = savings.reduce((a,b)=>a+b,0)/(n||1);
-  let savNum=0, savDen=0;
-  savings.forEach((v,i)=>{ savNum+=(i-savXMean)*(v-savAvg); savDen+=(i-savXMean)**2; });
-  const savSlope    = savDen ? savNum/savDen : 0;
-  const savSlopePct = incMedian > 0 ? savSlope / incMedian * 100 : 0;
-  const scoreIncTrendRaw = savSlopePct > 3 ? 20 : savSlopePct > 1 ? 16 : savSlopePct >= 0 ? 9 : savSlopePct > -1 ? 7 : savSlopePct > -3 ? 3 : 0;
-  // Attenuazione: calo di tendenza è meno grave se tutti i mesi sono positivi e risparmi bene
-  const scoreIncTrend = (posPct === 1 && avgSavingsRate >= 10) ? Math.max(scoreIncTrendRaw, 8)
-    : (posPct >= 0.75 && avgSavingsRate >= 5) ? Math.max(scoreIncTrendRaw, 6)
-    : scoreIncTrendRaw;
-  // 5. Volatilità entrate (0–10 pt) — coefficiente di variazione, basso = stabile = bene
-  // Semi-deviazione (downside) rispetto alla IQM:
-  const incSemiVar = n > 1 ? incomes.reduce((a,v) => a + (v < incMedian ? (v-incMedian)**2 : 0), 0) / n : 0;
-  const incStddev  = Math.sqrt(incSemiVar);
-  const incCV      = incMedian > 0 ? incStddev / incMedian * 100 : 100;
-  const scoreVol   = n < 2 ? 0 : incCV < 3 ? 10 : incCV < 6 ? 9 : incCV < 12 ? 7 : incCV < 20 ? 4 : incCV < 30 ? 1 : 0;
-  const score = Math.min(100, scoreSavings + scorePos + scoreRunway + scoreIncTrend + scoreVol);
-  const scoreColor = score >= 75 ? 'var(--income)' : score >= 50 ? '#e8a838' : score >= 30 ? '#e07020' : 'var(--expense)';
-  const scoreLabel = score >= 75 ? 'Ottima' : score >= 60 ? 'Buona' : score >= 45 ? 'Discreta' : score >= 30 ? 'Sufficiente' : score >= 0 ? 'Attenzione' : 'Critica';
+  // ── Score salute via funzione condivisa (utils.js) ───────────────────────
+  // Destructuring di tutti gli intermedi necessari per il rendering downstream
+  const {
+    incomes, expenses, savings, n,
+    totalIncome, totalExpense, totalSavings, avgSavingsRate,
+    scoreSavings, scorePos, scoreRunway, scoreIncTrend, scoreVol,
+    score, scoreColor, scoreLabel,
+    posMonths, posPct,
+    expMedian, liquidBalance, liquidAccs, runwayMonths,
+    incMedian, savSlope, savSlopePct, savXMean, savAvg,
+    incStddev, incCV,
+  } = computeHealthScore(aligned, accounts);
 
   const cc = chartColors();
 

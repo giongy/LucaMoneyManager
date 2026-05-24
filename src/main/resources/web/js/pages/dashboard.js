@@ -188,6 +188,7 @@ function _renderDashAccountsWidget(accounts) {
   const visibleAccounts = accounts.filter(isAccountVisible);
   const investBalance = visibleAccounts.filter(a => a.type === 'investment').reduce((s,a) => s + (a.balance||0), 0);
   const contiBalance  = visibleAccounts.filter(a => a.type !== 'investment').reduce((s,a) => s + (a.balance||0), 0);
+  const bondNominal   = visibleAccounts.reduce((s,a) => s + (a.bond_nominal||0), 0);
   const visGrouped = {};
   visibleAccounts.forEach(a => { (visGrouped[a.type] = visGrouped[a.type] || []).push(a); });
   const visOrderedTypes = [...new Set([..._accTypeOrder.filter(t => visGrouped[t]), ...Object.keys(visGrouped)])];
@@ -207,9 +208,11 @@ function _renderDashAccountsWidget(accounts) {
                 <span class="acc-icon">${a.icon||''}</span>
                 <span class="acc-name">${a.name}</span>
               </td>
-              <td class="acc-bal ${a.balance<0?'neg':''}" style="color:${a.balance<0?'var(--expense)':(a.color||'var(--accent)')}">
+              <td class="acc-bal ${a.balance<0?'neg':''}" style="color:${a.balance<0?'var(--expense)':(a.color||'var(--accent)')}"
+                  ${a.type==='investment' && a.bond_nominal>0 ? `title="Valore di mercato. Bond a scadenza: ${fmt.currency(a.bond_nominal)}"` : ''}>
                 ${fmt.currency(a.balance)}
                 ${a.type==='credit'?`<span id="cc-cur-${a.id}" style="display:block;font-size:11px;color:var(--txt2);font-weight:400"></span>`:''}
+                ${a.type==='investment' && a.bond_nominal>0 ? `<span style="display:block;font-size:10px;color:var(--txt3);font-weight:400">bond a scad. ${fmt.currency(a.bond_nominal)}</span>` : ''}
               </td>
               <td onclick="event.stopPropagation()">
                 <div class="acc-quick-btns">
@@ -229,9 +232,10 @@ function _renderDashAccountsWidget(accounts) {
                 <span class="acc-bal" style="font-size:13px;font-weight:700;color:${contiBalance<0?'var(--expense)':'var(--income)'}">${fmt.currency(contiBalance)}</span>
               </div>
               ${investBalance !== 0 ? `
-              <div style="display:flex;align-items:baseline;gap:6px">
+              <div style="display:flex;align-items:baseline;gap:6px" ${bondNominal>0?`title="Valore di mercato di tutti gli investimenti (azioni a prezzo attuale + bond a prezzo attuale). Bond a scadenza: ${fmt.currency(bondNominal)}"`:''}>
                 <span style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--txt3)">Investimenti</span>
                 <span class="acc-bal" style="font-size:13px;font-weight:700;color:var(--accent2)">${fmt.currency(investBalance)}</span>
+                ${bondNominal>0?`<span style="font-size:10px;color:var(--txt3)">· bond a scad. ${fmt.currency(bondNominal)}</span>`:''}
               </div>` : ''}
             </div>
           </td>
@@ -319,7 +323,14 @@ async function renderDashboard() {
   // Range Salute: ultimi 12 mesi completi (esclude mese corrente, allineato all'analytics default)
   const healthRange = lastNCompleteMonthsRange(12);
 
-  const [stats, accounts, recent, monthly, catData, upcoming, budgetYear, prevMonthly, balRowsRaw] = await Promise.all([
+  // Day-exact YTD: oggi e stesso giorno-mese anno scorso (per confronto onesto pre-stipendio)
+  const _today = new Date();
+  const _pad = n => String(n).padStart(2, '0');
+  const _ymd = (y, m, d) => `${y}-${_pad(m)}-${_pad(d)}`;
+  const todayStr     = _ymd(_today.getFullYear(),     _today.getMonth() + 1, _today.getDate());
+  const prevDayStr   = _ymd(_today.getFullYear() - 1, _today.getMonth() + 1, _today.getDate());
+
+  const [stats, accounts, recent, monthly, catData, upcoming, budgetYear, prevMonthly, balRowsRaw, ytdCurStats, ytdPrevStats] = await Promise.all([
     api.getDashboardStats(dashYear),
     api.getAccounts(),
     api.getTransactions({limit:12, sort_desc:true}),
@@ -329,6 +340,8 @@ async function renderDashboard() {
     api.getBudgetYear(dashYear),
     api.getMonthlyChartData(dashYear - 1),
     api.getMonthlyBalance(healthRange.fetchMonths),
+    api.getStatsByDateRange(`${dashYear}-01-01`,   todayStr),
+    api.getStatsByDateRange(`${dashYear-1}-01-01`, prevDayStr),
   ]);
 
   // Filtra ai soli 12 mesi completi (esclude mese corrente parziale)
@@ -340,31 +353,37 @@ async function renderDashboard() {
   // Cache upcoming per "Esegui ora" inline
   window._dashUpcomingCache = upcoming;
 
-  // ── Cumulativo YTD per stat cards (con confronto anno precedente) ────────
-  const curMonthIdx = new Date().getMonth();  // 0..11
-  // Costruisce array cumulativo [0, m1, m1+m2, ...] fino al mese corrente incluso
-  const _buildCum = (monthlyData, getter) => {
+  // ── Cumulativo YTD per stat cards (day-exact: ultimo punto = oggi vs stesso giorno anno scorso) ────────
+  const curMonthIdx = _today.getMonth();  // 0..11
+  // Cumulativo: mesi completi 1..(curMonthIdx-1) dai dati monthly, poi punto finale = totale YTD esatto.
+  // Per il confronto YoY, il "punto finale" è day-exact (somma fino a oggi vs stesso giorno anno scorso).
+  const _buildCumDayExact = (monthlyData, getter, ytdTotal) => {
     const monthly12 = Array(12).fill(0);
     monthlyData.forEach(r => monthly12[r.month - 1] = getter(r) || 0);
     const cum = [0];
     let acc = 0;
-    for (let i = 0; i <= curMonthIdx; i++) { acc += monthly12[i]; cum.push(acc); }
+    // Mesi completi (fino al mese precedente al corrente)
+    for (let i = 0; i < curMonthIdx; i++) { acc += monthly12[i]; cum.push(acc); }
+    // Ultimo punto = totale YTD esatto (sostituisce il mese corrente parziale con il dato puntuale)
+    cum.push(ytdTotal);
     return cum;
   };
-  const cumIncCur  = _buildCum(monthly,     r => r.income);
-  const cumIncPrev = _buildCum(prevMonthly, r => r.income);
-  const cumExpCur  = _buildCum(monthly,     r => r.expenses);
-  const cumExpPrev = _buildCum(prevMonthly, r => r.expenses);
-  const cumNetCur  = _buildCum(monthly,     r => (r.income || 0) - (r.expenses || 0));
-  const cumNetPrev = _buildCum(prevMonthly, r => (r.income || 0) - (r.expenses || 0));
 
-  // YoY trend: confronta YTD anno corrente vs YTD anno precedente (stessi mesi)
-  const ytdInc     = cumIncCur[cumIncCur.length - 1];
-  const ytdExp     = cumExpCur[cumExpCur.length - 1];
-  const prevYtdInc = cumIncPrev[cumIncPrev.length - 1];
-  const prevYtdExp = cumExpPrev[cumExpPrev.length - 1];
-  const ytdNet     = cumNetCur[cumNetCur.length - 1];
-  const prevYtdNet = cumNetPrev[cumNetPrev.length - 1];
+  // YTD valori day-exact dal backend
+  const ytdInc     = Number(ytdCurStats.income)    || 0;
+  const ytdExp     = Number(ytdCurStats.expenses)  || 0;
+  const ytdNet     = ytdInc - ytdExp;
+  const prevYtdInc = Number(ytdPrevStats.income)   || 0;
+  const prevYtdExp = Number(ytdPrevStats.expenses) || 0;
+  const prevYtdNet = prevYtdInc - prevYtdExp;
+
+  const cumIncCur  = _buildCumDayExact(monthly,     r => r.income,                              ytdInc);
+  const cumIncPrev = _buildCumDayExact(prevMonthly, r => r.income,                              prevYtdInc);
+  const cumExpCur  = _buildCumDayExact(monthly,     r => r.expenses,                            ytdExp);
+  const cumExpPrev = _buildCumDayExact(prevMonthly, r => r.expenses,                            prevYtdExp);
+  const cumNetCur  = _buildCumDayExact(monthly,     r => (r.income || 0) - (r.expenses || 0),  ytdNet);
+  const cumNetPrev = _buildCumDayExact(prevMonthly, r => (r.income || 0) - (r.expenses || 0),  prevYtdNet);
+
   const trend = (cur, prev) => prev ? ((cur - prev) / Math.abs(prev)) * 100 : null;
   const trendInc = trend(ytdInc, prevYtdInc);
   const trendExp = trend(ytdExp, prevYtdExp);
@@ -378,21 +397,30 @@ async function renderDashboard() {
   const expColor = trendExp == null ? NEUT : (trendExp <= 0 ? GREEN : RED);
   const netColor = trendNet == null ? NEUT : (trendNet >= 0 ? GREEN : RED);
 
+  // Label periodo day-exact: "1 gen → 24 mag" = range esatto del confronto YTD
+  const _MONTHS_IT_SHORT = ['gen','feb','mar','apr','mag','giu','lug','ago','set','ott','nov','dic'];
+  const ytdLabel = `1 gen → ${_today.getDate()} ${_MONTHS_IT_SHORT[curMonthIdx]}`;
+
   // Stat cards (con sparkline a destra del numero e trend YoY)
   document.getElementById('statsGrid').innerHTML = `
-    <div class="stat-card stat-balance">
+    <div class="stat-card stat-balance" ${stats.bond_nominal_total>0?`title="Valore di mercato di tutti i conti. Nominale bond a scadenza: ${fmt.currency(stats.bond_nominal_total)}"`:''}>
       <div class="stat-label">💳 Saldo Totale</div>
       <div class="stat-value">${fmt.currency(stats.balance)}</div>
-      <div class="stat-sub">Tutti i conti</div>
+      <div class="stat-sub">${stats.bond_nominal_total>0
+        ? `Tutti i conti · <span style="color:var(--txt3)">bond a scadenza ${fmt.currency(stats.bond_nominal_total)}</span>`
+        : 'Tutti i conti'}</div>
     </div>
     <div class="stat-card stat-income">
       <div class="stat-label">📥 Entrate ${dashYear}</div>
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
         <div class="stat-value" style="min-width:0;flex:1">${fmt.currency(stats.income)}</div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0"
-             title="Cumulativo YTD ${dashYear} (linea solida) vs ${dashYear-1} stessi mesi (tratteggiata)">
+             title="Cumulativo ${ytdLabel} ${dashYear} (solida) vs stessi mesi ${dashYear-1} (tratteggiata)">
           ${cumulativeCompareSvg(cumIncCur, cumIncPrev, incColor)}
-          <div style="font-size:10px;line-height:1.2;white-space:nowrap">${trendBadge(trendInc, true)} ${trendInc != null ? '<span style="color:var(--txt3)">vs '+(dashYear-1)+'</span>' : ''}</div>
+          <div style="font-size:10px;line-height:1.3;text-align:right;white-space:nowrap">
+            ${trendBadge(trendInc, true)}
+            ${trendInc != null ? `<div style="color:var(--txt3);font-size:9px">${ytdLabel} vs ${dashYear-1}</div>` : ''}
+          </div>
         </div>
       </div>
     </div>
@@ -401,9 +429,12 @@ async function renderDashboard() {
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
         <div class="stat-value" style="min-width:0;flex:1">${fmt.currency(stats.expenses)}</div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0"
-             title="Cumulativo YTD ${dashYear} (linea solida) vs ${dashYear-1} stessi mesi (tratteggiata)">
+             title="Cumulativo ${ytdLabel} ${dashYear} (solida) vs stessi mesi ${dashYear-1} (tratteggiata)">
           ${cumulativeCompareSvg(cumExpCur, cumExpPrev, expColor)}
-          <div style="font-size:10px;line-height:1.2;white-space:nowrap">${trendBadge(trendExp, false)} ${trendExp != null ? '<span style="color:var(--txt3)">vs '+(dashYear-1)+'</span>' : ''}</div>
+          <div style="font-size:10px;line-height:1.3;text-align:right;white-space:nowrap">
+            ${trendBadge(trendExp, false)}
+            ${trendExp != null ? `<div style="color:var(--txt3);font-size:9px">${ytdLabel} vs ${dashYear-1}</div>` : ''}
+          </div>
         </div>
       </div>
     </div>
@@ -415,9 +446,12 @@ async function renderDashboard() {
           <div class="stat-sub" style="font-size:11px;color:var(--txt3)">${stats.transaction_count} tx</div>
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0"
-             title="Cumulativo YTD ${dashYear} (linea solida) vs ${dashYear-1} stessi mesi (tratteggiata)">
+             title="Cumulativo ${ytdLabel} ${dashYear} (solida) vs stessi mesi ${dashYear-1} (tratteggiata)">
           ${cumulativeCompareSvg(cumNetCur, cumNetPrev, netColor)}
-          <div style="font-size:10px;line-height:1.2;white-space:nowrap">${trendBadge(trendNet, true)} ${trendNet != null ? '<span style="color:var(--txt3)">vs '+(dashYear-1)+'</span>' : ''}</div>
+          <div style="font-size:10px;line-height:1.3;text-align:right;white-space:nowrap">
+            ${trendBadge(trendNet, true)}
+            ${trendNet != null ? `<div style="color:var(--txt3);font-size:9px">${ytdLabel} vs ${dashYear-1}</div>` : ''}
+          </div>
         </div>
       </div>
     </div>`;

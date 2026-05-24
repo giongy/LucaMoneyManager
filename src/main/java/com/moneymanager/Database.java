@@ -873,11 +873,13 @@ public class Database {
     // ─── Conti ────────────────────────────────────────────────────────────────
 
     public List<Map<String, Object>> getAccounts() throws SQLException {
+        // Per investment account: balance = valore di mercato (bond: qty × prezzo% / 100; equity: qty × prezzo).
+        // bond_nominal = somma nominale dei bond, esposto separatamente per UI che vuole mostrare il "valore a scadenza".
         return queryList("""
             SELECT a.*,
                 CASE WHEN a.type = 'investment' THEN
                     COALESCE((SELECT SUM(CASE WHEN p.asset_type='bond'
-                              THEN p.quantity
+                              THEN p.quantity * COALESCE(NULLIF(p.current_price,0), p.avg_price) / 100.0
                               ELSE p.quantity * COALESCE(NULLIF(p.current_price,0), p.avg_price) END)
                               FROM portfolio p WHERE p.account_id = a.id), 0)
                 ELSE
@@ -887,7 +889,11 @@ public class Database {
                         WHEN t.type='transfer' AND t.account_id    = a.id THEN -t.amount
                         WHEN t.type='transfer' AND t.to_account_id = a.id THEN  t.amount
                         ELSE 0 END), 0)
-                END AS balance
+                END AS balance,
+                CASE WHEN a.type = 'investment' THEN
+                    COALESCE((SELECT SUM(CASE WHEN p.asset_type='bond' THEN p.quantity ELSE 0 END)
+                              FROM portfolio p WHERE p.account_id = a.id), 0)
+                ELSE 0 END AS bond_nominal
             FROM accounts a
             LEFT JOIN transactions t ON (t.account_id = a.id OR t.to_account_id = a.id) AND a.type != 'investment'
             GROUP BY a.id
@@ -1334,7 +1340,7 @@ public class Database {
         if (acc != null && "investment".equals(acc.get("type"))) {
             Map<String, Object> portVal = queryOne("""
                 SELECT COALESCE(SUM(CASE WHEN p.asset_type='bond'
-                                   THEN p.quantity
+                                   THEN p.quantity * COALESCE(NULLIF(p.current_price,0), p.avg_price) / 100.0
                                    ELSE p.quantity * COALESCE(NULLIF(p.current_price,0), p.avg_price) END), 0) AS val
                 FROM portfolio p WHERE p.account_id=?
             """, accountId);
@@ -2777,7 +2783,7 @@ public class Database {
             SELECT COALESCE(SUM(CASE
                 WHEN a.type = 'investment' THEN
                     COALESCE((SELECT SUM(CASE WHEN p.asset_type='bond'
-                              THEN p.quantity
+                              THEN p.quantity * COALESCE(NULLIF(p.current_price,0), p.avg_price) / 100.0
                               ELSE p.quantity * COALESCE(NULLIF(p.current_price,0), p.avg_price) END)
                               FROM portfolio p WHERE p.account_id = a.id), 0)
                 ELSE
@@ -2789,14 +2795,34 @@ public class Database {
                                         ELSE 0 END)
                         FROM transactions t WHERE t.account_id = a.id OR t.to_account_id = a.id
                     ), 0)
-                END), 0) AS total
+                END), 0) AS total,
+                COALESCE(SUM(CASE WHEN a.type='investment' THEN
+                    COALESCE((SELECT SUM(CASE WHEN p.asset_type='bond' THEN p.quantity ELSE 0 END)
+                              FROM portfolio p WHERE p.account_id = a.id), 0)
+                    ELSE 0 END), 0) AS bond_nominal_total
             FROM accounts a
         """);
         double inc  = yearly != null ? ((Number)yearly.get("income")).doubleValue()   : 0;
         double exp  = yearly != null ? ((Number)yearly.get("expenses")).doubleValue() : 0;
         double bal  = balance != null ? ((Number)balance.get("total")).doubleValue()  : 0;
+        double bondNom = balance != null && balance.get("bond_nominal_total") != null
+                ? ((Number)balance.get("bond_nominal_total")).doubleValue() : 0;
         int    cnt  = yearly != null ? ((Number)yearly.get("transaction_count")).intValue() : 0;
-        return Map.of("income",inc,"expenses",exp,"balance",bal,"net",inc-exp,"transaction_count",cnt);
+        return Map.of("income",inc,"expenses",exp,"balance",bal,
+                      "bond_nominal_total",bondNom,
+                      "net",inc-exp,"transaction_count",cnt);
+    }
+
+    /** Somma income/expenses in un range di date inclusivo. Per confronti day-exact YTD. */
+    public Map<String, Object> getStatsByDateRange(String dateFrom, String dateTo) throws SQLException {
+        Map<String,Object> r = queryOne("""
+            SELECT COALESCE(SUM(CASE WHEN type='income'  THEN amount ELSE 0 END),0) AS income,
+                   COALESCE(SUM(CASE WHEN type='expense' THEN amount ELSE 0 END),0) AS expenses
+            FROM transactions WHERE date >= ? AND date <= ?
+        """, dateFrom, dateTo);
+        double inc = r != null ? ((Number)r.get("income")).doubleValue()   : 0;
+        double exp = r != null ? ((Number)r.get("expenses")).doubleValue() : 0;
+        return Map.of("income", inc, "expenses", exp, "net", inc - exp);
     }
 
     public List<Map<String, Object>> getMonthlyChartData(int year) throws SQLException {
@@ -3026,9 +3052,12 @@ public class Database {
                     String at = (String) pos.get("asset_type");
                     double cp = pos.get("current_price") != null ? ((Number) pos.get("current_price")).doubleValue() : 0;
                     double ap = pos.get("avg_price")     != null ? ((Number) pos.get("avg_price")).doubleValue()     : 0;
-                    double fv = pos.get("face_value")    != null ? ((Number) pos.get("face_value")).doubleValue()    : 1.0;
-                    // obbligazioni: prezzo = face_value (par = 100%); azioni: prezzo di mercato
-                    double price = "bond".equals(at) ? (fv > 0 ? fv : 1.0) : (cp > 0 ? cp : ap);
+                    // obbligazioni: prezzo in % (es. 97.5), valore mercato per unità = price/100
+                    // azioni: prezzo in € per unità
+                    // Nota: usa current_price corrente come proxy per tutti i mesi storici (no storia prezzi)
+                    double price = "bond".equals(at)
+                        ? (cp > 0 ? cp / 100.0 : ap / 100.0)
+                        : (cp > 0 ? cp : ap);
                     var ptMap = ptDeltasByPos.getOrDefault(pid, Collections.emptyMap());
 
                     double[] qtys = new double[n];

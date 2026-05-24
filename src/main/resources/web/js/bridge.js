@@ -154,6 +154,7 @@ const api = {
 
   // Stats
   getDashboardStats:   y          => callJava('getDashboardStats',   {year:y}),
+  getStatsByDateRange: (df,dt)    => callJava('getStatsByDateRange',  {date_from:df, date_to:dt}),
   getMonthlyChartData: y          => callJava('getMonthlyChartData',  {year:y}),
   getCategoryChartData:(y,type)   => callJava('getCategoryChartData', {year:y,type}),
 

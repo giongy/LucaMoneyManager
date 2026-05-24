@@ -403,6 +403,7 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
 
             // ─── Statistiche ───────────────────────────────────────────────
             case "getDashboardStats"    -> db.getDashboardStats(p.get("year").getAsInt());
+            case "getStatsByDateRange"  -> db.getStatsByDateRange(p.get("date_from").getAsString(), p.get("date_to").getAsString());
             case "getMonthlyChartData"  -> db.getMonthlyChartData(p.get("year").getAsInt());
             case "getCategoryChartData" -> db.getCategoryChartData(
                     p.get("year").getAsInt(), p.get("type").getAsString());

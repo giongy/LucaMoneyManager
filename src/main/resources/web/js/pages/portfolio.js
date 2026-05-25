@@ -57,11 +57,11 @@ function bondYTM(i) {
   return { gross, net, years };
 }
 
-// Total Return € — basato su avg_price (sempre affidabile, anche per posizioni importate)
+// Total Return € — unrealized da avg_price corrente, realized calcolato lato server
 //   unrealized = (current_price − avg_price) × qty_attuale
-//   realized   = sell_revenue − sold_qty × avg_price   (approssimato con avg corrente)
+//   realized   = i.realized_pnl (walking-through cronologico dei buy/sell con avg runtime — vedi Database.getPortfolio)
 //   totalReturn = unrealized + realized + cedole + dividendi − commissioni_vendita − altre_spese
-//   (commissioni di acquisto sono già incluse in avg_price tramite la formula in buyStock)
+//   (commissioni di acquisto sono già incluse in avg_price/realized tramite la formula in buyStock)
 // Convenzione: bond price stored in forma percentuale (99.5 = 99.5% di par),
 // quindi ogni cash bond = qty × price / 100. Per equity div=1.
 function positionTotalReturn(i) {
@@ -75,9 +75,7 @@ function positionTotalReturn(i) {
   const unrealized     = currentValue - heldCostBasis;
 
   const soldQty        = i.total_sold_qty || 0;
-  const sellRevenue    = (i.total_sell_principal || 0) / div;
-  const soldCostBasis  = soldQty * avg / div;
-  const realized       = sellRevenue - soldCostBasis;
+  const realized       = i.realized_pnl || 0;
 
   const coup    = i.total_coupons          || 0;
   const divi    = i.total_dividends        || 0;

@@ -2246,7 +2246,7 @@ public class Database {
     public List<Map<String, Object>> getPortfolio() throws SQLException {
         // Aggregati storici per posizione: somme di buy/sell/cedole/dividendi/spese/commissioni
         // I valori principal (qty*price) sono sommati grezzi: JS converte per bond (÷100)
-        return queryList("""
+        List<Map<String, Object>> positions = queryList("""
             SELECT p.*, a.name AS account_name, a.icon AS account_icon, a.color AS account_color,
                    (SELECT MIN(pt.date) FROM portfolio_transactions pt WHERE pt.portfolio_id = p.id AND pt.type = 'buy') AS first_buy_date,
                    (SELECT COALESCE(SUM(pt.quantity * pt.price), 0)
@@ -2279,6 +2279,71 @@ public class Database {
             JOIN accounts a ON p.account_id = a.id
             ORDER BY a.name, p.ticker
         """);
+
+        // Realized P&L corretto: walking-through cronologico dei buy/sell con avg_price runtime.
+        // L'approccio precedente (sell_revenue − sold_qty × avg_corrente) è errato se l'avg_price
+        // è cambiato tra una vendita e l'altra (es. sell parziale seguito da nuovo buy a prezzo diverso).
+        // Per posizioni importate via "Carica esistente" (no pt buy rows) si pre-seeda lo stato con
+        // la qty importata e l'avg stored, così i sell successivi usano il costo medio corretto.
+        var ptRows = queryList("""
+            SELECT portfolio_id, type, quantity, price, COALESCE(commission,0) AS commission, date, id
+            FROM portfolio_transactions
+            WHERE type IN ('buy','sell')
+            ORDER BY portfolio_id, date, id
+        """);
+        // Pre-calcola per-portfolio: total_buy_qty (per dedurre imported_qty)
+        Map<Long, Double> totalBuyQty = new HashMap<>();
+        for (var r : ptRows) {
+            if ("buy".equals(r.get("type"))) {
+                long pid = ((Number)r.get("portfolio_id")).longValue();
+                totalBuyQty.merge(pid, ((Number)r.get("quantity")).doubleValue(), Double::sum);
+            }
+        }
+        // Seed iniziale: imported_qty = current_qty + sold_qty − bought_qty
+        Map<Long, double[]> state = new HashMap<>(); // portfolioId -> [qty, avg, realized]
+        Map<Long, Boolean> isBondMap = new HashMap<>();
+        for (var pos : positions) {
+            long pid = ((Number)pos.get("id")).longValue();
+            boolean isBond = "bond".equals(pos.get("asset_type"));
+            isBondMap.put(pid, isBond);
+            double curQty   = ((Number)pos.get("quantity")).doubleValue();
+            double soldQty  = ((Number)pos.get("total_sold_qty")).doubleValue();
+            double boughtQ  = totalBuyQty.getOrDefault(pid, 0.0);
+            double imported = curQty + soldQty - boughtQ;
+            double storedAvg = ((Number)pos.get("avg_price")).doubleValue();
+            state.put(pid, imported > 0.00001
+                ? new double[]{imported, storedAvg, 0}
+                : new double[]{0, 0, 0});
+        }
+        for (var r : ptRows) {
+            long pid = ((Number)r.get("portfolio_id")).longValue();
+            boolean isBond = isBondMap.getOrDefault(pid, false);
+            double divisor = isBond ? 100.0 : 1.0;
+            String type = (String)r.get("type");
+            double q  = ((Number)r.get("quantity")).doubleValue();
+            double pr = ((Number)r.get("price")).doubleValue();
+            double cm = ((Number)r.get("commission")).doubleValue();
+            double[] s = state.computeIfAbsent(pid, k -> new double[]{0, 0, 0});
+            if ("buy".equals(type)) {
+                double newQty = s[0] + q;
+                if (newQty > 0) {
+                    s[1] = isBond
+                        ? (s[0] * s[1] + q * pr + cm * 100) / newQty
+                        : (s[0] * s[1] + q * pr + cm) / newQty;
+                }
+                s[0] = newQty;
+            } else { // sell
+                s[2] += (pr - s[1]) * q / divisor;
+                s[0] -= q;
+                if (s[0] < 0.00001) { s[0] = 0; s[1] = 0; }
+            }
+        }
+        for (var pos : positions) {
+            long pid = ((Number)pos.get("id")).longValue();
+            double[] s = state.get(pid);
+            pos.put("realized_pnl", s != null ? r2(s[2]) : 0.0);
+        }
+        return positions;
     }
 
     public List<Map<String, Object>> getPortfolioTransactions(int portfolioId) throws SQLException {

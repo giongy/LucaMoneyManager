@@ -1331,7 +1331,11 @@ async function _updateReportHeader(r) {
 
   const groupby = r ? r.groupby : _reportGroupby;
   if (groupby && groupby !== 'none') {
-    const groupL = {category:'Per categoria', month:'Per mese', account:'Per conto', tag:'Per tag'};
+    const groupL = {
+      year:'Per anno', quarter:'Per trimestre', month:'Per mese', weekday:'Per giorno settimana',
+      category:'Per categoria', category_parent:'Per categoria padre',
+      account:'Per conto', tag:'Per tag', type:'Per tipo', amount_bucket:'Per fascia importo'
+    };
     chips.push(chip(`⊞ ${groupL[groupby] || groupby}`));
   }
 
@@ -1353,6 +1357,10 @@ async function runReport() {
   const groupby   = _reportGroupby   || 'none';
   const chartType = _reportChartType || 'none';
 
+  // Fetch categorie una volta sola (serve sia per espandere il filtro padre→figli sia per groupby)
+  const catList = await api.getCategories();
+  const catMap  = new Map(catList.map(c => [c.id, c]));
+
   const filters = {};
   // Periodo: range dinamico o date statiche (custom / backward compat)
   if (f.range && f.range !== 'custom') {
@@ -1364,7 +1372,15 @@ async function runReport() {
   if (f.account_ids?.length) filters.account_ids = f.account_ids;
   else if (f.account_id)    filters.account_id  = f.account_id; // backward compat
   if (f.type)           filters.type           = f.type;
-  if (f.category_id)    filters.category_id    = f.category_id;
+  if (f.category_id) {
+    // Espande la categoria selezionata ai suoi figli (se è una categoria padre)
+    const children = catList.filter(c => c.parent_id === f.category_id).map(c => c.id);
+    if (children.length) {
+      filters.category_ids = [f.category_id, ...children];
+    } else {
+      filters.category_id = f.category_id;
+    }
+  }
   if (f.search)         filters.search         = f.search;
   if (f.has_attachment) filters.has_attachment = f.has_attachment;
 
@@ -1391,7 +1407,7 @@ async function runReport() {
     });
   }
 
-  renderReportResults(txs, groupby, chartType);
+  renderReportResults(txs, groupby, chartType, catMap);
 }
 
 async function showReportModal(reportId = null) {
@@ -1497,9 +1513,20 @@ async function showReportModal(reportId = null) {
         <label class="form-label">Raggruppa per</label>
         <select class="form-control" id="rmGroupby">
           <option value="none">Nessuno (lista)</option>
-          <option value="month"${sel(initGroupby,'month')}>Mese</option>
-          <option value="category"${sel(initGroupby,'category')}>Categoria</option>
-          <option value="account"${sel(initGroupby,'account')}>Conto</option>
+          <optgroup label="Tempo">
+            <option value="year"${sel(initGroupby,'year')}>Anno</option>
+            <option value="quarter"${sel(initGroupby,'quarter')}>Trimestre</option>
+            <option value="month"${sel(initGroupby,'month')}>Mese</option>
+            <option value="weekday"${sel(initGroupby,'weekday')}>Giorno settimana</option>
+          </optgroup>
+          <optgroup label="Dimensioni">
+            <option value="category"${sel(initGroupby,'category')}>Categoria</option>
+            <option value="category_parent"${sel(initGroupby,'category_parent')}>Categoria padre</option>
+            <option value="account"${sel(initGroupby,'account')}>Conto</option>
+            <option value="tag"${sel(initGroupby,'tag')}>Tag</option>
+            <option value="type"${sel(initGroupby,'type')}>Tipo</option>
+            <option value="amount_bucket"${sel(initGroupby,'amount_bucket')}>Fascia importo</option>
+          </optgroup>
         </select>
       </div>
       <div class="form-group">
@@ -1507,7 +1534,9 @@ async function showReportModal(reportId = null) {
         <select class="form-control" id="rmChartType">
           <option value="none">Nessuno</option>
           <option value="bar"${sel(initChartType,'bar')}>Barre</option>
+          <option value="hbar"${sel(initChartType,'hbar')}>Barre orizzontali</option>
           <option value="line"${sel(initChartType,'line')}>Linea</option>
+          <option value="area"${sel(initChartType,'area')}>Area</option>
           <option value="pie"${sel(initChartType,'pie')}>Torta</option>
         </select>
       </div>
@@ -1609,7 +1638,18 @@ function rmOnRangeChange(range) {
   if (tg) tg.style.display = show ? '' : 'none';
 }
 
-function renderReportResults(txs, groupby, chartType) {
+// Helper: bucket di importo
+const _AMT_BUCKETS = [
+  {min:0,    max:10,   label:'0-10 €'},
+  {min:10,   max:50,   label:'10-50 €'},
+  {min:50,   max:100,  label:'50-100 €'},
+  {min:100,  max:500,  label:'100-500 €'},
+  {min:500,  max:1000, label:'500-1k €'},
+  {min:1000, max:Infinity, label:'> 1k €'},
+];
+const _WEEKDAY_NAMES = ['Domenica','Lunedì','Martedì','Mercoledì','Giovedì','Venerdì','Sabato'];
+
+function renderReportResults(txs, groupby, chartType, catMap) {
   if (_reportChart) { _reportChart.destroy(); _reportChart = null; }
   const el = document.getElementById('rResults');
   if (!el) return;
@@ -1628,7 +1668,7 @@ function renderReportResults(txs, groupby, chartType) {
     ? (t.filtered_split_category_icon || t.category_icon || '')
     : (t.category_icon || '');
   const effectiveCatId = t => t.filtered_split_amount != null
-    ? (_reportFilters?.category_id || t.category_id || 0)
+    ? (t.filtered_split_category_id || t.category_id || 0)
     : (t.category_id || 0);
 
   let tableHtml = '', chartData = null;
@@ -1665,11 +1705,12 @@ function renderReportResults(txs, groupby, chartType) {
         <td class="text-right" style="font-weight:700;color:${totI-totE>=0?'var(--income)':'var(--expense)'}">
           ${fmt.currency(totI-totE)}</td>
       </tr></tbody></table>`;
-    if (chartType==='bar'||chartType==='line') chartData={type:chartType,
+    if (chartType==='bar'||chartType==='hbar'||chartType==='line'||chartType==='area') chartData={
+      type:(chartType==='bar'||chartType==='hbar')?'bar':'line',
       labels:months.map(_fmtMonth),
       datasets:[
-        {label:'Entrate',data:months.map(m=>byM[m].income),backgroundColor:'rgba(63,185,80,.6)',borderColor:'#3fb950',borderWidth:2,fill:false,borderRadius:4},
-        {label:'Uscite', data:months.map(m=>byM[m].expense),backgroundColor:'rgba(248,81,73,.6)',borderColor:'#f85149',borderWidth:2,fill:false,borderRadius:4},
+        {label:'Entrate',data:months.map(m=>byM[m].income),backgroundColor:'rgba(63,185,80,.6)',borderColor:'#3fb950',borderWidth:2,fill:chartType==='area',borderRadius:4},
+        {label:'Uscite', data:months.map(m=>byM[m].expense),backgroundColor:'rgba(248,81,73,.6)',borderColor:'#f85149',borderWidth:2,fill:chartType==='area',borderRadius:4},
       ]};
 
   } else if (groupby === 'category') {
@@ -1692,7 +1733,7 @@ function renderReportResults(txs, groupby, chartType) {
         <td class="text-right" style="font-weight:600;color:${g.total>=0?'var(--income)':'var(--expense)'}">
           ${fmt.currency(Math.abs(g.total))}</td></tr>`).join('')}
       </tbody></table>`;
-    if (chartType==='bar') chartData={type:'bar',
+    if (chartType==='bar'||chartType==='hbar') chartData={type:'bar',
       labels:cats.map(([,g])=>`${g.icon} ${g.name}`),
       datasets:[{label:'Totale',data:cats.map(([,g])=>Math.abs(g.total)),
         backgroundColor:cats.map(([,g])=>g.color+'99'),borderRadius:4}]};
@@ -1724,6 +1765,220 @@ function renderReportResults(txs, groupby, chartType) {
         <td class="text-right" style="font-weight:600;color:${net>=0?'var(--income)':'var(--expense)'}">
           ${fmt.currency(net)}</td></tr>`;}).join('')}
       </tbody></table>`;
+    if (chartType==='bar'||chartType==='hbar') chartData={type:'bar',
+      labels:accs.map(([,g])=>g.name),
+      datasets:[
+        {label:'Entrate',data:accs.map(([,g])=>g.income),backgroundColor:'rgba(63,185,80,.6)',borderColor:'#3fb950',borderWidth:2,borderRadius:4},
+        {label:'Uscite', data:accs.map(([,g])=>g.expense),backgroundColor:'rgba(248,81,73,.6)',borderColor:'#f85149',borderWidth:2,borderRadius:4},
+      ]};
+
+  } else if (groupby === 'year' || groupby === 'quarter') {
+    const isYear = groupby === 'year';
+    const keyFn = t => {
+      if (!t.date) return '';
+      if (isYear) return t.date.slice(0,4);
+      const m = parseInt(t.date.slice(5,7));
+      return `${t.date.slice(0,4)}-Q${Math.ceil(m/3)}`;
+    };
+    const byK = {};
+    txs.forEach(t => {
+      const k = keyFn(t); if (!k) return;
+      const a = effectiveAmt(t);
+      if (!byK[k]) byK[k]={income:0,expense:0,count:0};
+      byK[k].count++;
+      if (t.type==='income')  byK[k].income  += a;
+      if (t.type==='expense') byK[k].expense += a;
+    });
+    const keys = Object.keys(byK).sort();
+    const totI = keys.reduce((s,k)=>s+byK[k].income,0);
+    const totE = keys.reduce((s,k)=>s+byK[k].expense,0);
+    tableHtml = `<table><thead><tr>
+      <th>${isYear?'Anno':'Trimestre'}</th><th class="text-right">N.</th>
+      <th class="text-right">Entrate</th><th class="text-right">Uscite</th>
+      <th class="text-right">Netto</th></tr></thead><tbody>
+      ${keys.map(k=>{const g=byK[k],net=g.income-g.expense;return`<tr>
+        <td>${k}</td><td class="text-right">${g.count}</td>
+        <td class="text-right amount-income">${fmt.currency(g.income)}</td>
+        <td class="text-right amount-expense">${fmt.currency(g.expense)}</td>
+        <td class="text-right" style="font-weight:600;color:${net>=0?'var(--income)':'var(--expense)'}">
+          ${fmt.currency(net)}</td></tr>`;}).join('')}
+      <tr style="border-top:2px solid var(--border);font-weight:700">
+        <td>Totale</td><td class="text-right">${txs.length}</td>
+        <td class="text-right amount-income">${fmt.currency(totI)}</td>
+        <td class="text-right amount-expense">${fmt.currency(totE)}</td>
+        <td class="text-right" style="font-weight:700;color:${totI-totE>=0?'var(--income)':'var(--expense)'}">
+          ${fmt.currency(totI-totE)}</td>
+      </tr></tbody></table>`;
+    if (chartType==='bar'||chartType==='hbar'||chartType==='line'||chartType==='area') chartData={
+      type:(chartType==='bar'||chartType==='hbar')?'bar':'line',
+      labels:keys,
+      datasets:[
+        {label:'Entrate',data:keys.map(k=>byK[k].income),backgroundColor:'rgba(63,185,80,.6)',borderColor:'#3fb950',borderWidth:2,fill:chartType==='area',borderRadius:4},
+        {label:'Uscite', data:keys.map(k=>byK[k].expense),backgroundColor:'rgba(248,81,73,.6)',borderColor:'#f85149',borderWidth:2,fill:chartType==='area',borderRadius:4},
+      ]};
+
+  } else if (groupby === 'weekday') {
+    const byW = Array.from({length:7},()=>({income:0,expense:0,count:0}));
+    txs.forEach(t => {
+      if (!t.date) return;
+      const d = new Date(t.date).getDay();
+      const a = effectiveAmt(t);
+      byW[d].count++;
+      if (t.type==='income')  byW[d].income  += a;
+      if (t.type==='expense') byW[d].expense += a;
+    });
+    // Ordina Lun-Dom (Italia)
+    const order = [1,2,3,4,5,6,0];
+    tableHtml = `<table><thead><tr>
+      <th>Giorno</th><th class="text-right">N.</th>
+      <th class="text-right">Entrate</th><th class="text-right">Uscite</th>
+      <th class="text-right">Netto</th></tr></thead><tbody>
+      ${order.map(i=>{const g=byW[i],net=g.income-g.expense;return`<tr>
+        <td>${_WEEKDAY_NAMES[i]}</td><td class="text-right">${g.count}</td>
+        <td class="text-right amount-income">${fmt.currency(g.income)}</td>
+        <td class="text-right amount-expense">${fmt.currency(g.expense)}</td>
+        <td class="text-right" style="font-weight:600;color:${net>=0?'var(--income)':'var(--expense)'}">
+          ${fmt.currency(net)}</td></tr>`;}).join('')}
+      </tbody></table>`;
+    if (chartType==='bar'||chartType==='hbar'||chartType==='line'||chartType==='area') chartData={
+      type:(chartType==='bar'||chartType==='hbar')?'bar':'line',
+      labels:order.map(i=>_WEEKDAY_NAMES[i]),
+      datasets:[
+        {label:'Entrate',data:order.map(i=>byW[i].income),backgroundColor:'rgba(63,185,80,.6)',borderColor:'#3fb950',borderWidth:2,fill:chartType==='area',borderRadius:4},
+        {label:'Uscite', data:order.map(i=>byW[i].expense),backgroundColor:'rgba(248,81,73,.6)',borderColor:'#f85149',borderWidth:2,fill:chartType==='area',borderRadius:4},
+      ]};
+
+  } else if (groupby === 'tag') {
+    const byT = {};
+    let untagged = {name:'(senza tag)',color:'var(--txt3)',total:0,count:0};
+    txs.forEach(t => {
+      const a = effectiveAmt(t);
+      const signed = t.type==='income' ? a : (t.type==='expense' ? -a : 0);
+      const tagList = t.tags || [];
+      if (!tagList.length) {
+        untagged.count++; untagged.total += signed;
+        return;
+      }
+      tagList.forEach(tag => {
+        const k = tag.id;
+        if (!byT[k]) byT[k]={name:tag.name||'—',color:tag.color||'var(--accent)',total:0,count:0};
+        byT[k].count++; byT[k].total += signed;
+      });
+    });
+    const tagsArr = Object.entries(byT).map(([,g])=>g).concat(untagged.count?[untagged]:[])
+      .sort((a,b)=>Math.abs(b.total)-Math.abs(a.total));
+    tableHtml = `<table><thead><tr>
+      <th>Tag</th><th class="text-right">N.</th><th class="text-right">Totale</th>
+      </tr></thead><tbody>
+      ${tagsArr.map(g=>`<tr>
+        <td><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${g.color};margin-right:6px"></span>${g.name}</td>
+        <td class="text-right">${g.count}</td>
+        <td class="text-right" style="font-weight:600;color:${g.total>=0?'var(--income)':'var(--expense)'}">
+          ${fmt.currency(Math.abs(g.total))}</td></tr>`).join('')}
+      </tbody></table>
+      <p style="font-size:var(--fs-xs,10px);color:var(--txt3);margin-top:6px">Nota: le transazioni con più tag contano una volta per tag.</p>`;
+    if (chartType==='bar'||chartType==='hbar') chartData={type:'bar',
+      labels:tagsArr.map(g=>g.name),
+      datasets:[{label:'Totale',data:tagsArr.map(g=>Math.abs(g.total)),
+        backgroundColor:tagsArr.map(g=>g.color+'99'),borderRadius:4}]};
+    else if (chartType==='pie') chartData={type:'doughnut',
+      labels:tagsArr.map(g=>g.name),
+      datasets:[{data:tagsArr.map(g=>Math.abs(g.total)),
+        backgroundColor:tagsArr.map(g=>g.color),borderWidth:0}]};
+
+  } else if (groupby === 'category_parent') {
+    const byP = {};
+    txs.forEach(t => {
+      const catId = effectiveCatId(t);
+      const cat = catMap?.get(catId);
+      // Se ha un padre uso quello, altrimenti la categoria stessa è "root"
+      const parent = cat?.parent_id ? catMap?.get(cat.parent_id) : cat;
+      const k = parent?.id || 0;
+      const name = parent?.name || effectiveCatName(t) || '—';
+      const icon = parent?.icon || effectiveCatIcon(t) || '';
+      const color = parent?.color || t.category_color || 'var(--txt3)';
+      const a = effectiveAmt(t);
+      if (!byP[k]) byP[k]={name,icon,color,total:0,count:0};
+      byP[k].count++;
+      if (t.type==='income')  byP[k].total += a;
+      if (t.type==='expense') byP[k].total -= a;
+    });
+    const parents = Object.entries(byP).sort(([,a],[,b])=>Math.abs(b.total)-Math.abs(a.total));
+    tableHtml = `<table><thead><tr>
+      <th>Categoria padre</th><th class="text-right">N.</th><th class="text-right">Totale</th>
+      </tr></thead><tbody>
+      ${parents.map(([,g])=>`<tr>
+        <td><span style="color:${g.color}">${g.icon}</span> ${g.name}</td>
+        <td class="text-right">${g.count}</td>
+        <td class="text-right" style="font-weight:600;color:${g.total>=0?'var(--income)':'var(--expense)'}">
+          ${fmt.currency(Math.abs(g.total))}</td></tr>`).join('')}
+      </tbody></table>`;
+    if (chartType==='bar'||chartType==='hbar') chartData={type:'bar',
+      labels:parents.map(([,g])=>`${g.icon} ${g.name}`),
+      datasets:[{label:'Totale',data:parents.map(([,g])=>Math.abs(g.total)),
+        backgroundColor:parents.map(([,g])=>g.color+'99'),borderRadius:4}]};
+    else if (chartType==='pie') chartData={type:'doughnut',
+      labels:parents.map(([,g])=>`${g.icon} ${g.name}`),
+      datasets:[{data:parents.map(([,g])=>Math.abs(g.total)),
+        backgroundColor:parents.map(([,g])=>g.color),borderWidth:0}]};
+
+  } else if (groupby === 'type') {
+    const byT = {income:{label:'Entrate',color:'#3fb950',total:0,count:0},
+                 expense:{label:'Uscite',color:'#f85149',total:0,count:0},
+                 transfer:{label:'Trasferimenti',color:'#58a6ff',total:0,count:0}};
+    txs.forEach(t => {
+      const a = effectiveAmt(t);
+      const k = t.type;
+      if (!byT[k]) return;
+      byT[k].count++;
+      byT[k].total += a;
+    });
+    const arr = Object.entries(byT).filter(([,g])=>g.count>0);
+    tableHtml = `<table><thead><tr>
+      <th>Tipo</th><th class="text-right">N.</th><th class="text-right">Totale</th>
+      </tr></thead><tbody>
+      ${arr.map(([,g])=>`<tr>
+        <td><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${g.color};margin-right:6px"></span>${g.label}</td>
+        <td class="text-right">${g.count}</td>
+        <td class="text-right" style="font-weight:600;color:${g.color}">
+          ${fmt.currency(g.total)}</td></tr>`).join('')}
+      </tbody></table>`;
+    if (chartType==='bar'||chartType==='hbar') chartData={type:'bar',
+      labels:arr.map(([,g])=>g.label),
+      datasets:[{label:'Totale',data:arr.map(([,g])=>g.total),
+        backgroundColor:arr.map(([,g])=>g.color+'99'),borderRadius:4}]};
+    else if (chartType==='pie') chartData={type:'doughnut',
+      labels:arr.map(([,g])=>g.label),
+      datasets:[{data:arr.map(([,g])=>g.total),
+        backgroundColor:arr.map(([,g])=>g.color),borderWidth:0}]};
+
+  } else if (groupby === 'amount_bucket') {
+    const buckets = _AMT_BUCKETS.map(b=>({...b,income:0,expense:0,count:0}));
+    txs.forEach(t => {
+      const a = effectiveAmt(t);
+      const abs = Math.abs(a);
+      const b = buckets.find(b => abs >= b.min && abs < b.max);
+      if (!b) return;
+      b.count++;
+      if (t.type==='income')  b.income  += a;
+      if (t.type==='expense') b.expense += a;
+    });
+    tableHtml = `<table><thead><tr>
+      <th>Fascia importo</th><th class="text-right">N.</th>
+      <th class="text-right">Entrate</th><th class="text-right">Uscite</th>
+      </tr></thead><tbody>
+      ${buckets.map(b=>`<tr>
+        <td>${b.label}</td><td class="text-right">${b.count}</td>
+        <td class="text-right amount-income">${b.income?fmt.currency(b.income):''}</td>
+        <td class="text-right amount-expense">${b.expense?fmt.currency(b.expense):''}</td>
+        </tr>`).join('')}
+      </tbody></table>`;
+    if (chartType==='bar'||chartType==='hbar') chartData={type:'bar',
+      labels:buckets.map(b=>b.label),
+      datasets:[
+        {label:'Entrate',data:buckets.map(b=>b.income),backgroundColor:'rgba(63,185,80,.6)',borderColor:'#3fb950',borderWidth:2,borderRadius:4},
+        {label:'Uscite', data:buckets.map(b=>b.expense),backgroundColor:'rgba(248,81,73,.6)',borderColor:'#f85149',borderWidth:2,borderRadius:4},
+      ]};
 
   } else {
     const totI = txs.filter(t=>t.type==='income').reduce((s,t)=>s+effectiveAmt(t),0);
@@ -1762,11 +2017,13 @@ function renderReportResults(txs, groupby, chartType) {
     </div>`;
 
   if (chartData) {
+    const isHBar = chartType === 'hbar';
     _reportChart = new Chart(document.getElementById('rChart'), {
       type: chartData.type,
       data: { labels: chartData.labels, datasets: chartData.datasets },
       options: {
         responsive: true, maintainAspectRatio: false,
+        indexAxis: isHBar ? 'y' : 'x',
         plugins: {
           legend: { labels: { color: cc.tick } },
           zoom: (chartData.type!=='doughnut'&&chartData.type!=='pie') ? zoomOpts() : undefined

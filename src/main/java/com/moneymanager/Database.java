@@ -1110,20 +1110,30 @@ public class Database {
 
     public List<Map<String, Object>> getTransactions(JsonObject f) throws SQLException {
         // Pre-calcola il filtro categoria: serve sia nella SELECT (filtered_split_amount) che nella WHERE
-        Integer filterCatId = (f.has("category_id") && !f.get("category_id").isJsonNull())
-                ? f.get("category_id").getAsInt() : null;
+        // Supporta sia category_id singolo sia category_ids array (padre + figli)
+        List<Integer> filterCatIds = new ArrayList<>();
+        if (f.has("category_ids") && f.get("category_ids").isJsonArray()) {
+            f.getAsJsonArray("category_ids").forEach(e -> filterCatIds.add(e.getAsInt()));
+        } else if (f.has("category_id") && !f.get("category_id").isJsonNull()) {
+            filterCatIds.add(f.get("category_id").getAsInt());
+        }
+        Integer filterCatId = filterCatIds.isEmpty() ? null : filterCatIds.get(0);
+        String catInClause = filterCatIds.isEmpty() ? "" :
+                filterCatIds.stream().map(String::valueOf).collect(java.util.stream.Collectors.joining(","));
 
         // Quando si filtra per categoria, aggiunge importo/nome/icona dello split corrispondente
-        String filteredSplitCol = filterCatId != null
+        String filteredSplitCol = !filterCatIds.isEmpty()
                 ? ",\n                (SELECT SUM(ts.amount) FROM transaction_splits ts" +
-                  " WHERE ts.transaction_id=t.id AND ts.category_id=" + filterCatId +
+                  " WHERE ts.transaction_id=t.id AND ts.category_id IN (" + catInClause + ")" +
                   ") AS filtered_split_amount" +
                   ",\n                (SELECT sc.name FROM transaction_splits ts" +
                   " JOIN categories sc ON sc.id=ts.category_id" +
-                  " WHERE ts.transaction_id=t.id AND ts.category_id=" + filterCatId + " LIMIT 1) AS filtered_split_category_name" +
+                  " WHERE ts.transaction_id=t.id AND ts.category_id IN (" + catInClause + ") LIMIT 1) AS filtered_split_category_name" +
                   ",\n                (SELECT sc.icon FROM transaction_splits ts" +
                   " JOIN categories sc ON sc.id=ts.category_id" +
-                  " WHERE ts.transaction_id=t.id AND ts.category_id=" + filterCatId + " LIMIT 1) AS filtered_split_category_icon"
+                  " WHERE ts.transaction_id=t.id AND ts.category_id IN (" + catInClause + ") LIMIT 1) AS filtered_split_category_icon" +
+                  ",\n                (SELECT ts.category_id FROM transaction_splits ts" +
+                  " WHERE ts.transaction_id=t.id AND ts.category_id IN (" + catInClause + ") LIMIT 1) AS filtered_split_category_id"
                 : "";
 
         StringBuilder sql = new StringBuilder(
@@ -1190,9 +1200,8 @@ public class Database {
             int aid = f.get("account_id").getAsInt();
             params.add(aid); params.add(aid);
         }
-        if (filterCatId != null) {
-            sql.append(" AND (t.category_id=? OR t.id IN (SELECT ts.transaction_id FROM transaction_splits ts WHERE ts.category_id=?))");
-            params.add(filterCatId); params.add(filterCatId);
+        if (!filterCatIds.isEmpty()) {
+            sql.append(" AND (t.category_id IN (" + catInClause + ") OR t.id IN (SELECT ts.transaction_id FROM transaction_splits ts WHERE ts.category_id IN (" + catInClause + ")))");
         }
         if (f.has("tag_id") && !f.get("tag_id").isJsonNull()) {
             sql.append(" AND t.id IN (SELECT transaction_id FROM transaction_tags WHERE tag_id=?)");

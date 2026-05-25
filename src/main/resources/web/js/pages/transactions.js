@@ -154,7 +154,7 @@ async function renderTransactions() {
           ${tags.map(t=>`<option value="${t.id}" ${String(t.id)===String(txFilters.tag_id)?'selected':''}>${t.name}</option>`).join('')}
         </select>
         <select class="form-control" id="txHasAttachment">
-          <option value="">Tutti</option>
+          <option value="">Tutti (attach.)</option>
           <option value="1" ${txFilters.has_attachment==='1'?'selected':''}>📎 Con allegato</option>
           <option value="0" ${txFilters.has_attachment==='0'?'selected':''}>Senza allegato</option>
         </select>

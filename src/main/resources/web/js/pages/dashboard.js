@@ -323,12 +323,14 @@ async function renderDashboard() {
   // Range Salute: ultimi 12 mesi completi (esclude mese corrente, allineato all'analytics default)
   const healthRange = lastNCompleteMonthsRange(12);
 
-  // Day-exact YTD: oggi e stesso giorno-mese anno scorso (per confronto onesto pre-stipendio)
+  // Day-exact YTD: 1 gen → oggi (entrambi gli anni allo stesso giorno-mese)
+  // Confronto onesto considerando che il mese corrente è quasi sempre incompleto
+  // (es. utente con entrate/uscite fisse a fine mese).
   const _today = new Date();
   const _pad = n => String(n).padStart(2, '0');
   const _ymd = (y, m, d) => `${y}-${_pad(m)}-${_pad(d)}`;
-  const todayStr     = _ymd(_today.getFullYear(),     _today.getMonth() + 1, _today.getDate());
-  const prevDayStr   = _ymd(_today.getFullYear() - 1, _today.getMonth() + 1, _today.getDate());
+  const todayStr   = _ymd(_today.getFullYear(),     _today.getMonth() + 1, _today.getDate());
+  const prevDayStr = _ymd(_today.getFullYear() - 1, _today.getMonth() + 1, _today.getDate());
 
   const [stats, accounts, recent, monthly, catData, upcoming, budgetYear, prevMonthly, balRowsRaw, ytdCurStats, ytdPrevStats] = await Promise.all([
     api.getDashboardStats(dashYear),
@@ -401,6 +403,13 @@ async function renderDashboard() {
   const _MONTHS_IT_SHORT = ['gen','feb','mar','apr','mag','giu','lug','ago','set','ott','nov','dic'];
   const ytdLabel = `1 gen → ${_today.getDate()} ${_MONTHS_IT_SHORT[curMonthIdx]}`;
 
+  // Range per atterraggio su Bilancio Mensile (gen → mese corrente dell'anno mostrato)
+  const navStartYm = `${dashYear}-01`;
+  const navEndYm   = `${dashYear}-${String(curMonthIdx+1).padStart(2,'0')}`;
+  const navHandler = `onclick="window.navigateToBalanceCompare('${navStartYm}','${navEndYm}')"`;
+  const navTitle   = `Confronto cumulativo ${ytdLabel} ${dashYear} (solida) vs stessi mesi ${dashYear-1} (tratteggiata). Clicca per aprire il Bilancio Mensile.`;
+  const navStyle   = `cursor:pointer`;
+
   // Stat cards (con sparkline a destra del numero e trend YoY)
   document.getElementById('statsGrid').innerHTML = `
     <div class="stat-card stat-balance" ${stats.bond_nominal_total>0?`title="Valore di mercato di tutti i conti. Nominale bond a scadenza: ${fmt.currency(stats.bond_nominal_total)}"`:''}>
@@ -412,12 +421,11 @@ async function renderDashboard() {
           : 'Tutti i conti'}</div>
       </div>
     </div>
-    <div class="stat-card stat-income">
+    <div class="stat-card stat-income" ${navHandler} title="${navTitle}" style="${navStyle}">
       <div class="stat-label">📥 Entrate ${dashYear}</div>
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
         <div class="stat-value" style="min-width:0;flex:1">${fmt.currencyRich(stats.income)}</div>
-        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0"
-             title="Cumulativo ${ytdLabel} ${dashYear} (solida) vs stessi mesi ${dashYear-1} (tratteggiata)">
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0">
           ${cumulativeCompareSvg(cumIncCur, cumIncPrev, incColor)}
           <div style="font-size:10px;line-height:1.3;text-align:right;white-space:nowrap">
             ${trendBadge(trendInc, true)}
@@ -426,12 +434,11 @@ async function renderDashboard() {
         </div>
       </div>
     </div>
-    <div class="stat-card stat-expense">
+    <div class="stat-card stat-expense" ${navHandler} title="${navTitle}" style="${navStyle}">
       <div class="stat-label">📤 Uscite ${dashYear}</div>
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
         <div class="stat-value" style="min-width:0;flex:1">${fmt.currencyRich(stats.expenses)}</div>
-        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0"
-             title="Cumulativo ${ytdLabel} ${dashYear} (solida) vs stessi mesi ${dashYear-1} (tratteggiata)">
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0">
           ${cumulativeCompareSvg(cumExpCur, cumExpPrev, expColor)}
           <div style="font-size:10px;line-height:1.3;text-align:right;white-space:nowrap">
             ${trendBadge(trendExp, false)}
@@ -440,15 +447,14 @@ async function renderDashboard() {
         </div>
       </div>
     </div>
-    <div class="stat-card stat-net">
+    <div class="stat-card stat-net" ${navHandler} title="${navTitle}" style="${navStyle}">
       <div class="stat-label">💰 Risparmio Netto ${dashYear}</div>
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
         <div style="min-width:0;flex:1">
           <div class="stat-value" style="color:${stats.net>=0?'var(--income)':'var(--expense)'}">${fmt.currencyRich(stats.net)}</div>
           <div class="stat-sub" style="font-size:11px;color:var(--txt3)">${stats.transaction_count} tx</div>
         </div>
-        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0"
-             title="Cumulativo ${ytdLabel} ${dashYear} (solida) vs stessi mesi ${dashYear-1} (tratteggiata)">
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0">
           ${cumulativeCompareSvg(cumNetCur, cumNetPrev, netColor)}
           <div style="font-size:10px;line-height:1.3;text-align:right;white-space:nowrap">
             ${trendBadge(trendNet, true)}

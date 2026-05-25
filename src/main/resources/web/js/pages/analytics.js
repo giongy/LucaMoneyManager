@@ -112,111 +112,218 @@ async function renderAnalytics() {
   const curYm  = toYm(now);
   const oldestYm = _analyticsOldestYm || prevYm;
   const last12 = toYm(new Date(now.getFullYear(), now.getMonth()-12, 1));
-  _analyticsStartYm = last12 > oldestYm ? last12 : oldestYm;
-  if (!_analyticsEndYm)   _analyticsEndYm   = prevYm;
-  const maxYm = curYm;
 
-  // Scompone YYYY-MM in {y, m}
-  const parseYm = ym => ({ y: parseInt(ym.slice(0,4)), m: parseInt(ym.slice(5,7)) });
-  const fmtYm   = (y, m) => `${y}-${String(m).padStart(2,'0')}`;
+  // Pending nav (es. da stat-card di dashboard): imposta tab + periodo + confronto
+  if (_pendingAnalyticsNav) {
+    _analyticsTab = _pendingAnalyticsNav.tab || _analyticsTab;
+    _analyticsStartYm = _pendingAnalyticsNav.startYm;
+    _analyticsEndYm   = _pendingAnalyticsNav.endYm;
+    if (_pendingAnalyticsNav.compare != null) _analyticsBalanceCompare = _pendingAnalyticsNav.compare;
+    if (_pendingAnalyticsNav.ytd != null)     _analyticsBalanceYtd     = _pendingAnalyticsNav.ytd;
+    if (_pendingAnalyticsNav.compareA) _analyticsCompareA = _pendingAnalyticsNav.compareA;
+    if (_pendingAnalyticsNav.compareB) _analyticsCompareB = _pendingAnalyticsNav.compareB;
+    _pendingAnalyticsNav = null;
+  } else {
+    _analyticsStartYm = last12 > oldestYm ? last12 : oldestYm;
+    if (!_analyticsEndYm) _analyticsEndYm = prevYm;
+  }
 
-  let sYm = parseYm(_analyticsStartYm), eYm = parseYm(_analyticsEndYm);
+  // Salva il contesto temporale globale per _renderAnalyticsControls (è una closure)
+  _aCtx = { now, oldestYm, maxYm: curYm, prevYm };
 
   const pg = document.getElementById('pg-analytics');
   pg.innerHTML = `
     <div style="padding:16px 24px 0;display:flex;flex-direction:column;height:100%;overflow:hidden;box-sizing:border-box">
-      <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-shrink:0">
-        <div style="display:flex;gap:6px">
-          <button class="sched-tab${_analyticsTab==='health'?' active':''}" data-atab="health" onclick="_setAnalyticsTab('health',this)">💚 Salute Finanziaria</button>
-          <button class="sched-tab${_analyticsTab==='catmonth'?' active':''}" data-atab="catmonth" onclick="_setAnalyticsTab('catmonth',this)">🗂️ Categorie / Mese</button>
-          <button class="sched-tab${_analyticsTab==='balance'?' active':''}" data-atab="balance" onclick="_setAnalyticsTab('balance',this)">⚖️ Bilancio Mensile</button>
-          <button class="sched-tab${_analyticsTab==='trend'?' active':''}" data-atab="trend" onclick="_setAnalyticsTab('trend',this)">📈 Andamento Categoria</button>
-          <button class="sched-tab${_analyticsTab==='accbalance'?' active':''}" data-atab="accbalance" onclick="_setAnalyticsTab('accbalance',this)">🏦 Saldo Conti</button>
-          <button class="sched-tab${_analyticsTab==='forecast'?' active':''}" data-atab="forecast" onclick="_setAnalyticsTab('forecast',this)">📊 Previsione Saldo</button>
-          <button class="sched-tab${_analyticsTab==='nature'?' active':''}" data-atab="nature" onclick="_setAnalyticsTab('nature',this)">🌿 Natura Spese</button>
-        </div>
-        <div id="aDateControls" style="margin-left:auto;display:flex;gap:6px;align-items:center;white-space:nowrap;${_analyticsTab==='forecast'?'visibility:hidden':''}">
-          <button class="btn btn-xs btn-ghost" id="aPreset6m">6 mesi</button>
-          <button class="btn btn-xs btn-ghost" id="aPreset12m">12 mesi</button>
-          <button class="btn btn-xs btn-ghost" id="aPresetYtd">Anno</button>
-          <div style="width:1px;height:16px;background:var(--border);margin:0 2px"></div>
-          <label style="font-size:13px;color:var(--txt2)">Da:</label>
-          <select id="aStartY" class="form-control" style="font-size:12px;padding:3px 8px;width:72px">${_buildYearOptions(oldestYm, maxYm, sYm.y)}</select>
-          <select id="aStartM" class="form-control" style="font-size:12px;padding:3px 8px;width:60px">${_buildMonthsForYear(sYm.y, oldestYm, maxYm, sYm.m)}</select>
-          <label style="font-size:13px;color:var(--txt2)">A:</label>
-          <select id="aEndY" class="form-control" style="font-size:12px;padding:3px 8px;width:72px">${_buildYearOptions(_analyticsStartYm, maxYm, eYm.y)}</select>
-          <select id="aEndM" class="form-control" style="font-size:12px;padding:3px 8px;width:60px">${_buildMonthsForYear(eYm.y, _analyticsStartYm, maxYm, eYm.m)}</select>
-        </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;flex-shrink:0">
+        <button class="sched-tab${_analyticsTab==='health'?' active':''}" data-atab="health" onclick="_setAnalyticsTab('health',this)">💚 Salute Finanziaria</button>
+        <button class="sched-tab${_analyticsTab==='catmonth'?' active':''}" data-atab="catmonth" onclick="_setAnalyticsTab('catmonth',this)">🗂️ Categorie / Mese</button>
+        <button class="sched-tab${_analyticsTab==='balance'?' active':''}" data-atab="balance" onclick="_setAnalyticsTab('balance',this)">⚖️ Bilancio Mensile</button>
+        <button class="sched-tab${_analyticsTab==='trend'?' active':''}" data-atab="trend" onclick="_setAnalyticsTab('trend',this)">📈 Andamento Categoria</button>
+        <button class="sched-tab${_analyticsTab==='accbalance'?' active':''}" data-atab="accbalance" onclick="_setAnalyticsTab('accbalance',this)">🏦 Saldo Conti</button>
+        <button class="sched-tab${_analyticsTab==='forecast'?' active':''}" data-atab="forecast" onclick="_setAnalyticsTab('forecast',this)">📊 Previsione Saldo</button>
+        <button class="sched-tab${_analyticsTab==='nature'?' active':''}" data-atab="nature" onclick="_setAnalyticsTab('nature',this)">🌿 Natura Spese</button>
       </div>
+      <div id="aDateControls" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px;padding:8px 10px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;flex-shrink:0;${_analyticsTab==='forecast'?'visibility:hidden':''}"></div>
       <div id="analyticsContent" style="flex:1;overflow:auto;padding-bottom:16px"></div>
     </div>`;
 
-  const rebuildEndSelects = () => {
-    eYm = parseYm(_analyticsEndYm);
-    document.getElementById('aEndY').innerHTML = _buildYearOptions(_analyticsStartYm, maxYm, eYm.y);
-    document.getElementById('aEndM').innerHTML = _buildMonthsForYear(eYm.y, _analyticsStartYm, maxYm, eYm.m);
-  };
-
-  document.getElementById('aStartY').onchange = function() {
-    sYm.y = parseInt(this.value);
-    // Ricava mesi validi per il nuovo anno e clampsa il mese corrente
-    const p = parseYm(oldestYm), q = parseYm(maxYm);
-    const mFrom = sYm.y === p.y ? p.m : 1, mTo = sYm.y === q.y ? q.m : 12;
-    sYm.m = Math.min(Math.max(sYm.m, mFrom), mTo);
-    document.getElementById('aStartM').innerHTML = _buildMonthsForYear(sYm.y, oldestYm, maxYm, sYm.m);
-    _analyticsStartYm = fmtYm(sYm.y, sYm.m);
-    if (_analyticsEndYm < _analyticsStartYm) { _analyticsEndYm = _analyticsStartYm; eYm = {...sYm}; }
-    rebuildEndSelects();
-    _renderCurrentAnalyticsTab();
-  };
-  document.getElementById('aStartM').onchange = function() {
-    sYm.m = parseInt(this.value);
-    _analyticsStartYm = fmtYm(sYm.y, sYm.m);
-    if (_analyticsEndYm < _analyticsStartYm) { _analyticsEndYm = _analyticsStartYm; eYm = {...sYm}; }
-    rebuildEndSelects();
-    _renderCurrentAnalyticsTab();
-  };
-  document.getElementById('aEndY').onchange = function() {
-    eYm.y = parseInt(this.value);
-    // Ricava mesi validi per il nuovo anno e clampsa il mese corrente
-    const p = parseYm(_analyticsStartYm), q = parseYm(maxYm);
-    const mFrom = eYm.y === p.y ? p.m : 1, mTo = eYm.y === q.y ? q.m : 12;
-    eYm.m = Math.min(Math.max(eYm.m, mFrom), mTo);
-    document.getElementById('aEndM').innerHTML = _buildMonthsForYear(eYm.y, _analyticsStartYm, maxYm, eYm.m);
-    _analyticsEndYm = fmtYm(eYm.y, eYm.m);
-    _renderCurrentAnalyticsTab();
-  };
-  document.getElementById('aEndM').onchange = function() {
-    eYm.y = parseInt(document.getElementById('aEndY').value);
-    eYm.m = parseInt(this.value);
-    _analyticsEndYm = fmtYm(eYm.y, eYm.m);
-    _renderCurrentAnalyticsTab();
-  };
-
-  const applyPreset = (startYm) => {
-    _analyticsStartYm = startYm < oldestYm ? oldestYm : startYm;
-    _analyticsEndYm   = prevYm;
-    sYm = parseYm(_analyticsStartYm); eYm = parseYm(_analyticsEndYm);
-    document.getElementById('aStartY').innerHTML = _buildYearOptions(oldestYm, maxYm, sYm.y);
-    document.getElementById('aStartM').innerHTML = _buildMonthsForYear(sYm.y, oldestYm, maxYm, sYm.m);
-    rebuildEndSelects();
-    _renderCurrentAnalyticsTab();
-  };
-  const ymFromDate = d => fmtYm(d.getFullYear(), d.getMonth()+1);
-  document.getElementById('aPreset6m').onclick  = () => applyPreset(ymFromDate(new Date(now.getFullYear(), now.getMonth()-6, 1)));
-  document.getElementById('aPreset12m').onclick = () => applyPreset(ymFromDate(new Date(now.getFullYear(), now.getMonth()-12, 1)));
-  document.getElementById('aPresetYtd').onclick = () => applyPreset(fmtYm(now.getFullYear(), 1));
-
+  _renderAnalyticsControls();
   _renderCurrentAnalyticsTab();
 }
 
+// Contesto temporale condiviso (calcolato in renderAnalytics, riutilizzato in _renderAnalyticsControls)
+let _aCtx = null;
+
+// Helper: scompone YYYY-MM in {y, m}
+const _parseYm = ym => ({ y: parseInt(ym.slice(0,4)), m: parseInt(ym.slice(5,7)) });
+const _fmtYm   = (y, m) => `${y}-${String(m).padStart(2,'0')}`;
+
+function _renderAnalyticsControls() {
+  const wrap = document.getElementById('aDateControls');
+  if (!wrap || !_aCtx) return;
+  const { now, oldestYm, maxYm, prevYm } = _aCtx;
+
+  // Modalità confronto attiva solo per Bilancio Mensile
+  const inCompareMode = _analyticsTab === 'balance' && _analyticsBalanceCompare;
+
+  wrap.style.visibility = _analyticsTab === 'forecast' ? 'hidden' : '';
+
+  // Bottoni "⚖ Confronta" + "📅 YTD" — visibili solo su tab Bilancio Mensile
+  const cmpBtn = _analyticsTab === 'balance'
+    ? `<button class="btn btn-xs ${_analyticsBalanceCompare?'btn-primary':'btn-ghost'}" id="aBalanceCompareBtn"
+              onclick="_toggleBalanceCompare()" title="Confronta due periodi">⚖ Confronta</button>
+       <button class="btn btn-xs ${_analyticsBalanceYtd?'btn-primary':'btn-ghost'}" id="aBalanceYtdBtn"
+              onclick="_toggleBalanceYtd()" title="Tronca l'ultimo mese al giorno odierno (confronto onesto se il mese corrente è incompleto)">📅 YTD</button>
+       <div style="width:1px;height:16px;background:var(--border);margin:0 2px"></div>` : '';
+
+  if (!inCompareMode) {
+    // Modalità singolo periodo (default per tutti i tab)
+    let sYm = _parseYm(_analyticsStartYm), eYm = _parseYm(_analyticsEndYm);
+    wrap.innerHTML = `
+      ${cmpBtn}
+      <button class="btn btn-xs btn-ghost" id="aPreset6m">6 mesi</button>
+      <button class="btn btn-xs btn-ghost" id="aPreset12m">12 mesi</button>
+      <button class="btn btn-xs btn-ghost" id="aPresetYtd">Anno</button>
+      <div style="width:1px;height:16px;background:var(--border);margin:0 2px"></div>
+      <label style="font-size:13px;color:var(--txt2)">Da:</label>
+      <select id="aStartY" class="form-control" style="font-size:12px;padding:3px 8px;width:72px">${_buildYearOptions(oldestYm, maxYm, sYm.y)}</select>
+      <select id="aStartM" class="form-control" style="font-size:12px;padding:3px 8px;width:60px">${_buildMonthsForYear(sYm.y, oldestYm, maxYm, sYm.m)}</select>
+      <label style="font-size:13px;color:var(--txt2)">A:</label>
+      <select id="aEndY" class="form-control" style="font-size:12px;padding:3px 8px;width:72px">${_buildYearOptions(_analyticsStartYm, maxYm, eYm.y)}</select>
+      <select id="aEndM" class="form-control" style="font-size:12px;padding:3px 8px;width:60px">${_buildMonthsForYear(eYm.y, _analyticsStartYm, maxYm, eYm.m)}</select>`;
+
+    const rebuildEndSelects = () => {
+      eYm = _parseYm(_analyticsEndYm);
+      document.getElementById('aEndY').innerHTML = _buildYearOptions(_analyticsStartYm, maxYm, eYm.y);
+      document.getElementById('aEndM').innerHTML = _buildMonthsForYear(eYm.y, _analyticsStartYm, maxYm, eYm.m);
+    };
+
+    document.getElementById('aStartY').onchange = function() {
+      sYm.y = parseInt(this.value);
+      const p = _parseYm(oldestYm), q = _parseYm(maxYm);
+      const mFrom = sYm.y === p.y ? p.m : 1, mTo = sYm.y === q.y ? q.m : 12;
+      sYm.m = Math.min(Math.max(sYm.m, mFrom), mTo);
+      document.getElementById('aStartM').innerHTML = _buildMonthsForYear(sYm.y, oldestYm, maxYm, sYm.m);
+      _analyticsStartYm = _fmtYm(sYm.y, sYm.m);
+      if (_analyticsEndYm < _analyticsStartYm) { _analyticsEndYm = _analyticsStartYm; eYm = {...sYm}; }
+      rebuildEndSelects();
+      _renderCurrentAnalyticsTab();
+    };
+    document.getElementById('aStartM').onchange = function() {
+      sYm.m = parseInt(this.value);
+      _analyticsStartYm = _fmtYm(sYm.y, sYm.m);
+      if (_analyticsEndYm < _analyticsStartYm) { _analyticsEndYm = _analyticsStartYm; eYm = {...sYm}; }
+      rebuildEndSelects();
+      _renderCurrentAnalyticsTab();
+    };
+    document.getElementById('aEndY').onchange = function() {
+      eYm.y = parseInt(this.value);
+      const p = _parseYm(_analyticsStartYm), q = _parseYm(maxYm);
+      const mFrom = eYm.y === p.y ? p.m : 1, mTo = eYm.y === q.y ? q.m : 12;
+      eYm.m = Math.min(Math.max(eYm.m, mFrom), mTo);
+      document.getElementById('aEndM').innerHTML = _buildMonthsForYear(eYm.y, _analyticsStartYm, maxYm, eYm.m);
+      _analyticsEndYm = _fmtYm(eYm.y, eYm.m);
+      _renderCurrentAnalyticsTab();
+    };
+    document.getElementById('aEndM').onchange = function() {
+      eYm.y = parseInt(document.getElementById('aEndY').value);
+      eYm.m = parseInt(this.value);
+      _analyticsEndYm = _fmtYm(eYm.y, eYm.m);
+      _renderCurrentAnalyticsTab();
+    };
+
+    const applyPreset = (startYm) => {
+      _analyticsStartYm = startYm < oldestYm ? oldestYm : startYm;
+      _analyticsEndYm   = prevYm;
+      _renderAnalyticsControls();
+      _renderCurrentAnalyticsTab();
+    };
+    const ymFromDate = d => _fmtYm(d.getFullYear(), d.getMonth()+1);
+    document.getElementById('aPreset6m').onclick  = () => applyPreset(ymFromDate(new Date(now.getFullYear(), now.getMonth()-6, 1)));
+    document.getElementById('aPreset12m').onclick = () => applyPreset(ymFromDate(new Date(now.getFullYear(), now.getMonth()-12, 1)));
+    document.getElementById('aPresetYtd').onclick = () => applyPreset(_fmtYm(now.getFullYear(), 1));
+  } else {
+    // Modalità confronto: due periodi A vs B
+    const A = _analyticsCompareA || { startYm: _analyticsStartYm, endYm: _analyticsEndYm };
+    const B = _analyticsCompareB || { startYm: _shiftYmByYears(_analyticsStartYm,-1), endYm: _shiftYmByYears(_analyticsEndYm,-1) };
+    _analyticsCompareA = A; _analyticsCompareB = B;
+    const aS = _parseYm(A.startYm), aE = _parseYm(A.endYm);
+    const bS = _parseYm(B.startYm), bE = _parseYm(B.endYm);
+    const oldestY = parseInt(oldestYm.slice(0,4));
+    const maxY = parseInt(maxYm.slice(0,4));
+    const yearOpts = (sel) => { let h=''; for (let y=oldestY; y<=maxY; y++) h+=`<option value="${y}"${y===sel?' selected':''}>${y}</option>`; return h; };
+    const monthOpts = (sel) => _MONTHS_IT.map((n,i)=>`<option value="${i+1}"${i+1===sel?' selected':''}>${n}</option>`).join('');
+
+    wrap.innerHTML = `
+      ${cmpBtn}
+      <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
+        <div style="display:flex;gap:4px;align-items:center;background:rgba(106,183,255,.10);border:1px solid rgba(106,183,255,.35);padding:4px 8px;border-radius:6px">
+          <span style="font-size:12px;font-weight:600;color:var(--accent)">Periodo A</span>
+          <label style="font-size:12px;color:var(--txt2)">Da</label>
+          <select id="aCompAStartY" class="form-control" style="font-size:12px;padding:3px 6px;width:68px">${yearOpts(aS.y)}</select>
+          <select id="aCompAStartM" class="form-control" style="font-size:12px;padding:3px 6px;width:56px">${monthOpts(aS.m)}</select>
+          <label style="font-size:12px;color:var(--txt2)">A</label>
+          <select id="aCompAEndY" class="form-control" style="font-size:12px;padding:3px 6px;width:68px">${yearOpts(aE.y)}</select>
+          <select id="aCompAEndM" class="form-control" style="font-size:12px;padding:3px 6px;width:56px">${monthOpts(aE.m)}</select>
+        </div>
+        <span style="color:var(--txt3);font-weight:700">vs</span>
+        <div style="display:flex;gap:4px;align-items:center;background:rgba(188,140,255,.10);border:1px solid rgba(188,140,255,.35);padding:4px 8px;border-radius:6px">
+          <span style="font-size:12px;font-weight:600;color:#bc8cff">Periodo B</span>
+          <label style="font-size:12px;color:var(--txt2)">Da</label>
+          <select id="aCompBStartY" class="form-control" style="font-size:12px;padding:3px 6px;width:68px">${yearOpts(bS.y)}</select>
+          <select id="aCompBStartM" class="form-control" style="font-size:12px;padding:3px 6px;width:56px">${monthOpts(bS.m)}</select>
+          <label style="font-size:12px;color:var(--txt2)">A</label>
+          <select id="aCompBEndY" class="form-control" style="font-size:12px;padding:3px 6px;width:68px">${yearOpts(bE.y)}</select>
+          <select id="aCompBEndM" class="form-control" style="font-size:12px;padding:3px 6px;width:56px">${monthOpts(bE.m)}</select>
+        </div>
+      </div>`;
+
+    const onChange = () => {
+      const aSy = parseInt(document.getElementById('aCompAStartY').value);
+      const aSm = parseInt(document.getElementById('aCompAStartM').value);
+      const aEy = parseInt(document.getElementById('aCompAEndY').value);
+      const aEm = parseInt(document.getElementById('aCompAEndM').value);
+      const bSy = parseInt(document.getElementById('aCompBStartY').value);
+      const bSm = parseInt(document.getElementById('aCompBStartM').value);
+      const bEy = parseInt(document.getElementById('aCompBEndY').value);
+      const bEm = parseInt(document.getElementById('aCompBEndM').value);
+      _analyticsCompareA = { startYm: _fmtYm(aSy, aSm), endYm: _fmtYm(aEy, aEm) };
+      _analyticsCompareB = { startYm: _fmtYm(bSy, bSm), endYm: _fmtYm(bEy, bEm) };
+      // Clamp se start > end
+      if (_analyticsCompareA.endYm < _analyticsCompareA.startYm) _analyticsCompareA.endYm = _analyticsCompareA.startYm;
+      if (_analyticsCompareB.endYm < _analyticsCompareB.startYm) _analyticsCompareB.endYm = _analyticsCompareB.startYm;
+      renderAnalyticsBalance();
+    };
+    ['aCompAStartY','aCompAStartM','aCompAEndY','aCompAEndM',
+     'aCompBStartY','aCompBStartM','aCompBEndY','aCompBEndM'].forEach(id => {
+      document.getElementById(id).onchange = onChange;
+    });
+  }
+}
+
 let _analyticsTab = 'health';
+let _analyticsBalanceCompare = false; // se true: modalità confronto Bilancio Mensile (Periodo A vs Periodo B)
+let _analyticsBalanceYtd = false;     // se true: tronca l'ultimo mese al giorno odierno (sia A sia B)
+let _analyticsCompareA = null;        // { startYm, endYm } — periodo principale
+let _analyticsCompareB = null;        // { startYm, endYm } — periodo di confronto
+
+// Helper: shift YYYY-MM by N anni
+function _shiftYmByYears(ym, yearDelta) {
+  const y = parseInt(ym.slice(0,4)) + yearDelta;
+  return `${y}-${ym.slice(5,7)}`;
+}
+
+window._toggleBalanceYtd = () => {
+  _analyticsBalanceYtd = !_analyticsBalanceYtd;
+  _renderAnalyticsControls();
+  renderAnalyticsBalance();
+};
+
 window._setAnalyticsTab = (tab, btn) => {
   _analyticsTab = tab;
   document.querySelectorAll('[data-atab]').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
-  const dc = document.getElementById('aDateControls');
-  if (dc) dc.style.visibility = tab === 'forecast' ? 'hidden' : '';
+  _renderAnalyticsControls();
   if (tab === 'catmonth')   renderAnalyticsCatMonth();
   if (tab === 'balance')    renderAnalyticsBalance();
   if (tab === 'trend')      renderAnalyticsTrend();
@@ -224,6 +331,33 @@ window._setAnalyticsTab = (tab, btn) => {
   if (tab === 'forecast')   renderAnalyticsForecast();
   if (tab === 'accbalance') renderAnalyticsAccBalance();
   if (tab === 'nature')     renderNatureReport();
+};
+
+window._toggleBalanceCompare = () => {
+  _analyticsBalanceCompare = !_analyticsBalanceCompare;
+  if (_analyticsBalanceCompare) {
+    // Inizializza A = periodo corrente, B = stesso periodo anno precedente
+    _analyticsCompareA = { startYm: _analyticsStartYm, endYm: _analyticsEndYm };
+    _analyticsCompareB = {
+      startYm: _shiftYmByYears(_analyticsStartYm, -1),
+      endYm:   _shiftYmByYears(_analyticsEndYm,   -1),
+    };
+  }
+  _renderAnalyticsControls();
+  renderAnalyticsBalance();
+};
+
+// Pending nav payload: usato per portare periodo + tab da altre pagine senza farsi
+// sovrascrivere dal reset di startYm in renderAnalytics().
+let _pendingAnalyticsNav = null;
+
+window.navigateToBalanceCompare = (startYm, endYm) => {
+  _pendingAnalyticsNav = {
+    tab: 'balance', startYm, endYm, compare: true, ytd: true,
+    compareA: { startYm, endYm },
+    compareB: { startYm: _shiftYmByYears(startYm,-1), endYm: _shiftYmByYears(endYm,-1) },
+  };
+  navigate('analytics');
 };
 
 let _analyticsCatSort = { col: null, dir: -1 };
@@ -325,24 +459,237 @@ function _renderAnalyticsCatTable() {
 
 let _analyticsBalanceChart = null;
 
+// Se YTD attivo: tronca i totali dell'ultimo mese al giorno odierno.
+// Modifica gli array in-place e ricalcola balances.
+async function _applyYtdTruncation(cols, incomes, expenses, balances) {
+  if (!_analyticsBalanceYtd || !cols.length) return;
+  const today = new Date();
+  const day = String(today.getDate()).padStart(2,'0');
+  const i = cols.length - 1;
+  const ym = cols[i].ym;
+  const stats = await api.getStatsByDateRange(`${ym}-01`, `${ym}-${day}`);
+  incomes[i]  = Number(stats.income)   || 0;
+  expenses[i] = Number(stats.expenses) || 0;
+  balances[i] = incomes[i] - expenses[i];
+}
+
+// Costruisce array di month-cols { ym, label } per un periodo
+function _buildMonthCols(startYm, endYm) {
+  const cols = [];
+  if (!startYm || !endYm || endYm < startYm) return cols;
+  let d = new Date(startYm + '-01');
+  const end = new Date(endYm + '-01');
+  while (d <= end) {
+    const ym = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+    cols.push({ ym, label: d.toLocaleDateString('it-IT', { month:'short', year:'2-digit' }) });
+    d = new Date(d.getFullYear(), d.getMonth()+1, 1);
+  }
+  return cols;
+}
+
 async function renderAnalyticsBalance() {
   const el = document.getElementById('analyticsContent');
   if (!el) return;
   el.innerHTML = '<p style="padding:20px;color:var(--text2)">Caricamento…</p>';
 
+  const compare = _analyticsBalanceCompare;
+  const cc = chartColors();
+
+  if (!compare) {
+    return _renderAnalyticsBalanceSingle();
+  }
+
+  // ── Modalità confronto Periodo A vs Periodo B ───────────────────────────
+  const A = _analyticsCompareA, B = _analyticsCompareB;
+  const colsA = _buildMonthCols(A.startYm, A.endYm);
+  const colsB = _buildMonthCols(B.startYm, B.endYm);
+
+  // Fetch abbastanza mesi per coprire entrambi i periodi
+  const oldestStart = (A.startYm < B.startYm ? A.startYm : B.startYm);
+  const now = new Date();
+  const oldestStartDate = new Date(oldestStart + '-01');
+  const fetchMonths = Math.max(1,
+    (now.getFullYear() - oldestStartDate.getFullYear()) * 12 +
+    (now.getMonth()    - oldestStartDate.getMonth())    + 1);
+  const rows = await api.getMonthlyBalance(fetchMonths);
+  const byYm = {};
+  for (const r of rows) byYm[r.ym] = r;
+
+  const incA = colsA.map(m => byYm[m.ym]?.income  || 0);
+  const expA = colsA.map(m => byYm[m.ym]?.expense || 0);
+  const balA = colsA.map((_, i) => incA[i] - expA[i]);
+
+  const incB = colsB.map(m => byYm[m.ym]?.income  || 0);
+  const expB = colsB.map(m => byYm[m.ym]?.expense || 0);
+  const balB = colsB.map((_, i) => incB[i] - expB[i]);
+
+  // YTD: tronca ultimo mese di entrambi al giorno odierno (fetch parziale)
+  await Promise.all([
+    _applyYtdTruncation(colsA, incA, expA, balA),
+    _applyYtdTruncation(colsB, incB, expB, balB),
+  ]);
+
+  let cuA = 0; const cumA = balA.map(b => (cuA += b));
+  let cuB = 0; const cumB = balB.map(b => (cuB += b));
+
+  // Posizioni allineate (max delle due lunghezze)
+  const N = Math.max(colsA.length, colsB.length);
+  const at = (arr, i) => i < arr.length ? arr[i] : null;
+
+  // Etichette x-axis: nome del mese del Periodo A (fallback su B se A non copre quella posizione)
+  const labels = Array.from({length:N}, (_, i) => colsA[i]?.label || colsB[i]?.label || `Mese ${i+1}`);
+
+  const dPct = (a, b) => b ? ((a - b) / Math.abs(b)) * 100 : null;
+  const pctTd = (pct, isGoodPositive=true) => {
+    if (pct == null) return `<td class="text-right" style="color:var(--txt3)">—</td>`;
+    const good = isGoodPositive ? pct >= 0 : pct <= 0;
+    const col = good ? 'var(--income)' : 'var(--expense)';
+    const sign = pct >= 0 ? '+' : '';
+    return `<td class="text-right" style="color:${col};font-weight:600">${sign}${pct.toFixed(1)}%</td>`;
+  };
+
+  // Header info: range dei due periodi
+  const totIncA = incA.reduce((a,b)=>a+b,0), totExpA = expA.reduce((a,b)=>a+b,0);
+  const totBalA = totIncA - totExpA;
+  const totIncB = incB.reduce((a,b)=>a+b,0), totExpB = expB.reduce((a,b)=>a+b,0);
+  const totBalB = totIncB - totExpB;
+  const totDelta = dPct(totBalA, totBalB);
+
+  const labelA = colsA.length ? `${colsA[0].label} → ${colsA[colsA.length-1].label}` : '—';
+  const labelB = colsB.length ? `${colsB[0].label} → ${colsB[colsB.length-1].label}` : '—';
+
+  el.innerHTML = `
+    <div style="display:flex;gap:14px;margin-bottom:14px;flex-wrap:wrap">
+      <div style="flex:1;min-width:260px;padding:10px 14px;background:rgba(106,183,255,.10);border:1px solid rgba(106,183,255,.35);border-radius:8px">
+        <div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px">Periodo A · ${labelA}</div>
+        <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:baseline">
+          <div><span style="color:var(--txt3);font-size:11px">Entrate</span> <b style="color:var(--income)">${fmt.currency(totIncA)}</b></div>
+          <div><span style="color:var(--txt3);font-size:11px">Uscite</span>  <b style="color:var(--expense)">${fmt.currency(totExpA)}</b></div>
+          <div><span style="color:var(--txt3);font-size:11px">Saldo</span>   <b style="color:${totBalA>=0?'var(--income)':'var(--expense)'}">${fmt.currency(totBalA)}</b></div>
+        </div>
+      </div>
+      <div style="flex:1;min-width:260px;padding:10px 14px;background:rgba(188,140,255,.10);border:1px solid rgba(188,140,255,.35);border-radius:8px">
+        <div style="font-size:11px;font-weight:700;color:#bc8cff;text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px">Periodo B · ${labelB}</div>
+        <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:baseline">
+          <div><span style="color:var(--txt3);font-size:11px">Entrate</span> <b style="color:var(--income)">${fmt.currency(totIncB)}</b></div>
+          <div><span style="color:var(--txt3);font-size:11px">Uscite</span>  <b style="color:var(--expense)">${fmt.currency(totExpB)}</b></div>
+          <div><span style="color:var(--txt3);font-size:11px">Saldo</span>   <b style="color:${totBalB>=0?'var(--income)':'var(--expense)'}">${fmt.currency(totBalB)}</b></div>
+        </div>
+      </div>
+      <div style="min-width:160px;padding:10px 14px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;display:flex;flex-direction:column;justify-content:center">
+        <div style="font-size:11px;color:var(--txt3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px">Δ Saldo (A vs B)</div>
+        <div style="font-size:20px;font-weight:700;color:${totBalA-totBalB>=0?'var(--income)':'var(--expense)'}">${(totBalA-totBalB)>=0?'+':''}${fmt.currency(totBalA-totBalB)}</div>
+        <div style="font-size:12px;color:${totDelta!=null&&totDelta>=0?'var(--income)':'var(--expense)'}">${totDelta!=null?`${totDelta>=0?'+':''}${totDelta.toFixed(1)}%`:'—'}</div>
+      </div>
+    </div>
+
+    <div style="height:380px;margin-bottom:20px"><canvas id="balanceChart"></canvas></div>
+
+    <table class="analytics-table">
+      <thead><tr>
+        <th>#</th>
+        <th>Mese A</th><th class="text-right">Saldo A</th>
+        <th style="background:rgba(188,140,255,.07)">Mese B</th>
+        <th class="text-right" style="background:rgba(188,140,255,.07)">Saldo B</th>
+        <th class="text-right">Δ Saldo</th>
+        <th class="text-right">Δ %</th>
+      </tr></thead>
+      <tbody>
+        ${Array.from({length:N}, (_, i) => {
+          const lA = colsA[i]?.label || '—', lB = colsB[i]?.label || '—';
+          const sA = at(balA,i), sB = at(balB,i);
+          const dlt = (sA!=null && sB!=null) ? sA-sB : null;
+          const dltPct = dPct(sA, sB);
+          const sACol = sA==null ? 'var(--txt3)' : sA>=0?'var(--income)':'var(--expense)';
+          const sBCol = sB==null ? 'var(--txt3)' : sB>=0?'var(--income)':'var(--expense)';
+          const bBg = 'background:rgba(188,140,255,.05)';
+          return `<tr>
+            <td style="color:var(--txt3)">${i+1}</td>
+            <td>${lA}</td>
+            <td class="text-right" style="color:${sACol};font-weight:600">${sA!=null?fmt.currency(sA):'—'}</td>
+            <td style="color:var(--txt2);${bBg}">${lB}</td>
+            <td class="text-right" style="color:${sBCol};opacity:.85;${bBg}">${sB!=null?fmt.currency(sB):'—'}</td>
+            <td class="text-right" style="color:${dlt==null?'var(--txt3)':dlt>=0?'var(--income)':'var(--expense)'};font-weight:600">${dlt!=null?(dlt>=0?'+':'')+fmt.currency(dlt):'—'}</td>
+            ${pctTd(dltPct, true)}
+          </tr>`;
+        }).join('')}
+        <tr class="analytics-subtotal">
+          <td></td>
+          <td>Totale A</td>
+          <td class="text-right" style="font-weight:700;color:${totBalA>=0?'var(--income)':'var(--expense)'}">${fmt.currency(totBalA)}</td>
+          <td style="background:rgba(188,140,255,.07)">Totale B</td>
+          <td class="text-right" style="font-weight:700;color:${totBalB>=0?'var(--income)':'var(--expense)'};opacity:.85;background:rgba(188,140,255,.07)">${fmt.currency(totBalB)}</td>
+          <td class="text-right" style="font-weight:700;color:${totBalA-totBalB>=0?'var(--income)':'var(--expense)'}">${(totBalA-totBalB)>=0?'+':''}${fmt.currency(totBalA-totBalB)}</td>
+          ${pctTd(totDelta, true)}
+        </tr>
+      </tbody>
+    </table>`;
+
+  const pad = (arr) => Array.from({length:N}, (_, i) => at(arr, i));
+  // 4 barre (Entrate A/B, Uscite A/B) raggruppate side-by-side per posizione, + 2 linee Saldo
+  const datasets = [
+    { type:'bar', label:'Entrate A', data:pad(incA), backgroundColor:'rgba(63,185,80,.85)',
+      borderColor:'rgba(63,185,80,1)', borderWidth:1, order:5 },
+    { type:'bar', label:'Entrate B', data:pad(incB), backgroundColor:'rgba(63,185,80,.30)',
+      borderColor:'rgba(63,185,80,.7)', borderWidth:1, borderDash:[4,3], order:5 },
+    { type:'bar', label:'Uscite A',  data:pad(expA), backgroundColor:'rgba(248,81,73,.85)',
+      borderColor:'rgba(248,81,73,1)', borderWidth:1, order:5 },
+    { type:'bar', label:'Uscite B',  data:pad(expB), backgroundColor:'rgba(248,81,73,.30)',
+      borderColor:'rgba(248,81,73,.7)', borderWidth:1, borderDash:[4,3], order:5 },
+    { type:'line', label:'Saldo A', data:pad(balA),
+      borderColor:'#58a6ff', backgroundColor:'transparent',
+      pointRadius:3, tension:.3, borderWidth:2.5, order:1 },
+    { type:'line', label:'Saldo B', data:pad(balB),
+      borderColor:'#58a6ff', backgroundColor:'transparent',
+      borderDash:[6,4], pointRadius:2, tension:.3, borderWidth:1.5, order:2 },
+  ];
+
+  if (_analyticsBalanceChart) { _analyticsBalanceChart.destroy(); _analyticsBalanceChart = null; }
+  _analyticsBalanceChart = new Chart(document.getElementById('balanceChart'), {
+    data: { labels, datasets },
+    options: {
+      responsive:true, maintainAspectRatio:false,
+      interaction:{ mode:'index', intersect:false },
+      plugins:{
+        tooltip:{
+          callbacks:{
+            title: items => {
+              const i = items[0].dataIndex;
+              const lA = colsA[i]?.label || '—', lB = colsB[i]?.label || '—';
+              return `Posizione ${i+1} · A: ${lA} · B: ${lB}`;
+            },
+            label: ctx => ` ${ctx.dataset.label}: ${fmt.currency(ctx.parsed.y)}`,
+          }
+        },
+        legend:{ labels:{ color:cc.tick, boxWidth:12 } },
+        zoom: zoomOpts()
+      },
+      scales:{
+        x:{ ticks:{color:cc.tick}, grid:{color:cc.grid} },
+        y:{ ticks:{color:cc.tick, callback:v=>fmt.currency(v)}, grid:{color:cc.grid} }
+      }
+    }
+  });
+}
+
+async function _renderAnalyticsBalanceSingle() {
+  const el = document.getElementById('analyticsContent');
+  if (!el) return;
   const { fetchMonths, monthCols } = _analyticsMonthRange();
   const rows = await api.getMonthlyBalance(fetchMonths);
-
   const byYm = {};
   for (const r of rows) byYm[r.ym] = r;
 
   const incomes  = monthCols.map(m => byYm[m.ym]?.income  || 0);
   const expenses = monthCols.map(m => byYm[m.ym]?.expense || 0);
   const balances = monthCols.map((_, i) => incomes[i] - expenses[i]);
+
+  // YTD: tronca ultimo mese al giorno odierno
+  await _applyYtdTruncation(monthCols, incomes, expenses, balances);
+
   let cumul = 0;
   const cumuls = balances.map(b => (cumul += b));
   const labels  = monthCols.map(m => m.label);
-
   const cc = chartColors();
 
   el.innerHTML = `

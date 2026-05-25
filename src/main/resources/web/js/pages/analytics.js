@@ -143,7 +143,7 @@ async function renderAnalytics() {
         <button class="sched-tab${_analyticsTab==='forecast'?' active':''}" data-atab="forecast" onclick="_setAnalyticsTab('forecast',this)">📊 Previsione Saldo</button>
         <button class="sched-tab${_analyticsTab==='nature'?' active':''}" data-atab="nature" onclick="_setAnalyticsTab('nature',this)">🌿 Natura Spese</button>
       </div>
-      <div id="aDateControls" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px;padding:8px 10px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;flex-shrink:0;${_analyticsTab==='forecast'?'visibility:hidden':''}"></div>
+      <div id="aDateControls" style="${_analyticsTab==='forecast'?'display:none':'display:flex'};gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px;padding:8px 10px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;flex-shrink:0"></div>
       <div id="analyticsContent" style="flex:1;overflow:auto;padding-bottom:16px"></div>
     </div>`;
 
@@ -166,7 +166,7 @@ function _renderAnalyticsControls() {
   // Modalità confronto attiva solo per Bilancio Mensile
   const inCompareMode = _analyticsTab === 'balance' && _analyticsBalanceCompare;
 
-  wrap.style.visibility = _analyticsTab === 'forecast' ? 'hidden' : '';
+  wrap.style.display = _analyticsTab === 'forecast' ? 'none' : 'flex';
 
   // Bottoni "⚖ Confronta" + "📅 YTD" — visibili solo su tab Bilancio Mensile
   const cmpBtn = _analyticsTab === 'balance'

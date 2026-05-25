@@ -160,11 +160,14 @@
   background-color: #1c2230;
   color: var(--txt);
 }
-/* Popover flottanti (category picker, tag dropdown, tooltip bubble): sfondo opaco — non hanno nulla dietro */
+/* Popover flottanti (category picker, tag dropdown, tooltip bubble, context menu): sfondo opaco — non hanno nulla dietro */
 [data-theme="glassy"] .cat-picker-list,
 [data-theme="glassy"] .sched-tag-dropdown,
-[data-theme="glassy"] #dash-tooltip {
-  background: rgba(28,34,48,.96);
+[data-theme="glassy"] #dash-tooltip,
+[data-theme="glassy"] .ctx-menu,
+[data-theme="glassy"] #portfolio-ctx-menu,
+[data-theme="glassy"] #sched-ctx-menu {
+  background: rgba(28,34,48,.96) !important;
   border-color: rgba(255,255,255,.14);
   backdrop-filter: blur(18px) saturate(160%);
   -webkit-backdrop-filter: blur(18px) saturate(160%);

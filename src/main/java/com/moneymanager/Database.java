@@ -2270,7 +2270,7 @@ public class Database {
                    (SELECT COALESCE(SUM(pt.price), 0)
                       FROM portfolio_transactions pt
                       WHERE pt.portfolio_id = p.id AND pt.type = 'expense'
-                        AND COALESCE(pt.notes,'') != 'Commissione') AS total_other_expenses,
+                        AND COALESCE(pt.notes,'') NOT IN ('Commissione','Commissione acquisto')) AS total_other_expenses,
                    (SELECT COALESCE(SUM(COALESCE(pt.commission,0)), 0)
                       FROM portfolio_transactions pt
                       WHERE pt.portfolio_id = p.id AND pt.type = 'expense'
@@ -2311,17 +2311,17 @@ public class Database {
         double commissions   = r2(p.has("commissions") && !p.get("commissions").isJsonNull() ? p.get("commissions").getAsDouble() : 0.0);
         boolean isBond       = "bond".equals(assetType);
         double pureAmount    = r2(isBond ? qty * price / 100.0 : qty * price);
-        double amount        = r2(pureAmount + commissions);
 
         return inTx(() -> {
             var cat = queryOne("SELECT id FROM categories WHERE type='transfer' LIMIT 1");
             Integer catId = cat != null ? ((Number)cat.get("id")).intValue() : null;
 
+            // Bonifico solo per l'importo "puro" (commissione gestita come expense separata sotto)
             long txId = execute("""
                 INSERT INTO transactions(date,amount,type,category_id,account_id,to_account_id,description,reconciled)
                 VALUES(?,?,?,?,?,?,?,0)
-            """, date, amount, "transfer", catId, fromAccountId, investAccountId,
-                "Acquisto " + ticker + (commissions > 0 ? String.format(" (comm. %.2f)", commissions) : ""));
+            """, date, pureAmount, "transfer", catId, fromAccountId, investAccountId,
+                "Acquisto " + ticker);
 
             var existing = queryOne("SELECT * FROM portfolio WHERE account_id=? AND ticker=?",
                     investAccountId, ticker);
@@ -2353,6 +2353,24 @@ public class Database {
                 INSERT INTO portfolio_transactions(portfolio_id,type,quantity,price,date,transaction_id,notes,commission)
                 VALUES(?,?,?,?,?,?,?,?)
             """, portfolioId, "buy", qty, price, date, txId, notes, commissions);
+
+            if (commissions > 0) {
+                // Cerca categoria expense per commissioni: prima "Commissioni", poi "Spese/Tasse", poi "Investimenti", infine fallback ordinato
+                var expCat = queryOne("SELECT id FROM categories WHERE type='expense' AND LOWER(name) LIKE '%commission%' ORDER BY id LIMIT 1");
+                if (expCat == null) expCat = queryOne("SELECT id FROM categories WHERE type='expense' AND (LOWER(name) LIKE '%spese/tasse%' OR LOWER(name) LIKE '%tasse%') ORDER BY id LIMIT 1");
+                if (expCat == null) expCat = queryOne("SELECT id FROM categories WHERE type='expense' AND LOWER(name) LIKE '%nvestiment%' ORDER BY id LIMIT 1");
+                if (expCat == null) expCat = queryOne("SELECT id FROM categories WHERE type='expense' ORDER BY id LIMIT 1");
+                Integer expCatId = expCat != null ? ((Number)expCat.get("id")).intValue() : null;
+                long commTxId = execute("""
+                    INSERT INTO transactions(date,amount,type,category_id,account_id,description,reconciled)
+                    VALUES(?,?,?,?,?,?,0)
+                """, date, commissions, "expense", expCatId, fromAccountId, "Commissione acquisto " + ticker);
+                execute("""
+                    INSERT INTO portfolio_transactions(portfolio_id,type,quantity,price,date,transaction_id,notes,commission)
+                    VALUES(?,?,?,?,?,?,?,?)
+                """, portfolioId, "expense", 0, commissions, date, commTxId, "Commissione acquisto", commissions);
+                logger.log("COMMISSIONE ACQUISTO", "ticker:" + ticker, "importo:" + DbLogger.amt(commissions));
+            }
 
             logger.log("TITOLO ACQUISTATO", "ticker:" + ticker, "nome:" + name,
                        "quantita:" + qty, "prezzo:" + DbLogger.amt(price),
@@ -2399,8 +2417,11 @@ public class Database {
             """, portfolioId, "sell", qty, price, date, txId, notes);
 
             if (commission > 0) {
-                var expCat = queryOne("SELECT id FROM categories WHERE type='expense' AND name LIKE '%nvestiment%' LIMIT 1");
-                if (expCat == null) expCat = queryOne("SELECT id FROM categories WHERE type='expense' LIMIT 1");
+                // Cerca categoria expense per commissioni: prima "Commissioni", poi "Spese/Tasse", poi "Investimenti", infine fallback ordinato
+                var expCat = queryOne("SELECT id FROM categories WHERE type='expense' AND LOWER(name) LIKE '%commission%' ORDER BY id LIMIT 1");
+                if (expCat == null) expCat = queryOne("SELECT id FROM categories WHERE type='expense' AND (LOWER(name) LIKE '%spese/tasse%' OR LOWER(name) LIKE '%tasse%') ORDER BY id LIMIT 1");
+                if (expCat == null) expCat = queryOne("SELECT id FROM categories WHERE type='expense' AND LOWER(name) LIKE '%nvestiment%' ORDER BY id LIMIT 1");
+                if (expCat == null) expCat = queryOne("SELECT id FROM categories WHERE type='expense' ORDER BY id LIMIT 1");
                 Integer expCatId = expCat != null ? ((Number)expCat.get("id")).intValue() : null;
                 long commTxId = execute("""
                     INSERT INTO transactions(date,amount,type,category_id,account_id,description,reconciled)

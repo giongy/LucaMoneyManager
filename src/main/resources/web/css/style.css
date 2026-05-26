@@ -358,7 +358,7 @@ input,select,textarea { font-family:inherit; }
 .stat-card { background:var(--bg2); border:1px solid var(--border); border-radius:var(--radius); padding:4px 12px;
              display:flex; flex-direction:column; position:relative; overflow:hidden;
              transition:transform .15s ease, box-shadow .15s ease, border-color .15s ease; }
-.stat-card::before { content:''; position:absolute; top:0; left:0; right:0; height:2px;
+.stat-card::before { content:''; position:absolute; top:0; left:0; bottom:0; width:2px;
                      background:var(--accent); opacity:.7; }
 .stat-income::before  { background:var(--income); }
 .stat-expense::before { background:var(--expense); }
@@ -366,7 +366,7 @@ input,select,textarea { font-family:inherit; }
 .stat-net::before     { background:var(--accent2); }
 .stat-card:hover { transform:translateY(-2px); box-shadow:0 6px 18px rgba(0,0,0,.22);
                    border-color:color-mix(in srgb, var(--accent) 35%, var(--border)); }
-.stat-card:hover::before { opacity:1; height:3px; transition:opacity .15s ease, height .15s ease; }
+.stat-card:hover::before { opacity:1; width:3px; transition:opacity .15s ease, width .15s ease; }
 .stat-label { font-size:var(--fs-sm,11px); color:var(--txt2); margin-bottom:1px; text-transform:uppercase; letter-spacing:.5px; line-height:1.2; }
 .stat-value { font-size:18px; font-weight:700; margin-bottom:0; line-height:1.2; }
 .stat-sub   { font-size:var(--fs-sm,11px); color:var(--txt3); line-height:1.2; }
@@ -374,10 +374,6 @@ input,select,textarea { font-family:inherit; }
 .stat-expense .stat-value { color:var(--expense); }
 .stat-balance .stat-value { color:var(--accent); }
 .stat-net     .stat-value { color:var(--accent2); }
-.stat-income  { border-left:3px solid var(--income);  }
-.stat-expense { border-left:3px solid var(--expense); }
-.stat-balance { border-left:3px solid var(--accent);  }
-.stat-net     { border-left:3px solid var(--accent2); }
 
 /* ─── Grid a 2 colonne ───────────────────────────────────────────────────── */
 .grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:16px; }

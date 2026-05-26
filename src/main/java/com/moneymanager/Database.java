@@ -467,10 +467,25 @@ public class Database {
                 reconciled    INTEGER DEFAULT 1,
                 created_at    TEXT    DEFAULT CURRENT_TIMESTAMP
             );
+            CREATE TABLE IF NOT EXISTS notes (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                title      TEXT    NOT NULL DEFAULT '',
+                content    TEXT    NOT NULL DEFAULT '',
+                color      TEXT    DEFAULT '',
+                pinned     INTEGER DEFAULT 0,
+                sort_order INTEGER DEFAULT 0,
+                created_at TEXT    DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT    DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS note_tags (
+                note_id INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+                tag_id  INTEGER NOT NULL REFERENCES tags(id)  ON DELETE CASCADE,
+                PRIMARY KEY (note_id, tag_id)
+            );
         """);
     }
 
-    private static final int SCHEMA_VERSION = 15;
+    private static final int SCHEMA_VERSION = 16;
 
     private void migrate() throws SQLException {
         // Crea tabella versione se non esiste
@@ -775,6 +790,30 @@ public class Database {
                   AND price > 0 AND price < 5
                   AND portfolio_id IN (SELECT id FROM portfolio WHERE asset_type='bond')
             """);
+        }
+
+        // ── v16: tabella notes (note libere con formattazione + tag + colore) ─
+        if (currentVersion < 16) {
+            executePlain("""
+                CREATE TABLE IF NOT EXISTS notes (
+                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                    title      TEXT    NOT NULL DEFAULT '',
+                    content    TEXT    NOT NULL DEFAULT '',
+                    color      TEXT    DEFAULT '',
+                    pinned     INTEGER DEFAULT 0,
+                    sort_order INTEGER DEFAULT 0,
+                    created_at TEXT    DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT    DEFAULT CURRENT_TIMESTAMP
+                )
+            """);
+            executePlain("""
+                CREATE TABLE IF NOT EXISTS note_tags (
+                    note_id INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+                    tag_id  INTEGER NOT NULL REFERENCES tags(id)  ON DELETE CASCADE,
+                    PRIMARY KEY (note_id, tag_id)
+                )
+            """);
+            executePlain("CREATE INDEX IF NOT EXISTS idx_note_tags_tag ON note_tags(tag_id)");
         }
 
         // Segna il DB come aggiornato all'ultima versione
@@ -1423,6 +1462,86 @@ public class Database {
         execute("DELETE FROM tags WHERE id=?", id);
         logger.log("TAG ELIMINATO", "id:" + id, "nome:" + DbLogger.s(old != null ? old.get("name") : null));
         return Map.of("id", id, "deleted", true);
+    }
+
+    // ─── Note ─────────────────────────────────────────────────────────────────
+
+    /** Restituisce tutte le note con tag_ids aggregati. Ordine: pinned DESC, updated_at DESC. */
+    public List<Map<String, Object>> getNotes() throws SQLException {
+        List<Map<String, Object>> rows = queryList("""
+            SELECT n.*, GROUP_CONCAT(nt.tag_id) AS tag_ids_csv
+            FROM notes n
+            LEFT JOIN note_tags nt ON nt.note_id = n.id
+            GROUP BY n.id
+            ORDER BY n.pinned DESC, n.sort_order, n.updated_at DESC
+        """);
+        for (Map<String, Object> r : rows) {
+            String csv = (String) r.get("tag_ids_csv");
+            List<Integer> ids = new ArrayList<>();
+            if (csv != null && !csv.isBlank())
+                for (String s : csv.split(",")) ids.add(Integer.parseInt(s.trim()));
+            r.put("tag_ids", ids);
+            r.remove("tag_ids_csv");
+        }
+        return rows;
+    }
+
+    public Map<String, Object> getNote(int id) throws SQLException {
+        Map<String, Object> n = queryOne("SELECT * FROM notes WHERE id=?", id);
+        if (n == null) return null;
+        List<Map<String, Object>> tagRows = queryList("SELECT tag_id FROM note_tags WHERE note_id=?", id);
+        List<Integer> ids = new ArrayList<>();
+        for (Map<String, Object> t : tagRows) ids.add(((Number) t.get("tag_id")).intValue());
+        n.put("tag_ids", ids);
+        return n;
+    }
+
+    public Map<String, Object> saveNote(JsonObject p) throws SQLException {
+        Integer id  = intVal(p, "id");
+        String title   = str(p, "title")   != null ? str(p, "title")   : "";
+        String content = str(p, "content") != null ? str(p, "content") : "";
+        String color   = str(p, "color")   != null ? str(p, "color")   : "";
+        int pinned     = intVal(p, "pinned") != null ? intVal(p, "pinned") : 0;
+        String now = java.time.Instant.now().toString();
+        long newId;
+        if (id != null) {
+            execute("UPDATE notes SET title=?, content=?, color=?, pinned=?, updated_at=? WHERE id=?",
+                    title, content, color, pinned, now, id);
+            newId = id;
+            logger.log("NOTA MODIFICATA", "id:" + id, "titolo:" + DbLogger.s(title));
+        } else {
+            newId = execute("INSERT INTO notes(title,content,color,pinned,updated_at) VALUES(?,?,?,?,?)",
+                    title, content, color, pinned, now);
+            logger.log("NOTA AGGIUNTA", "id:" + newId, "titolo:" + DbLogger.s(title));
+        }
+        // Tag (sostituisce tutti)
+        if (p.has("tag_ids") && p.get("tag_ids").isJsonArray()) {
+            execute("DELETE FROM note_tags WHERE note_id=?", newId);
+            for (var el : p.get("tag_ids").getAsJsonArray())
+                execute("INSERT OR IGNORE INTO note_tags(note_id,tag_id) VALUES(?,?)", newId, el.getAsInt());
+        }
+        touchSyncMeta();
+        return getNote((int) newId);
+    }
+
+    public Map<String, Object> deleteNote(int id) throws SQLException {
+        Map<String, Object> old = queryOne("SELECT title FROM notes WHERE id=?", id);
+        execute("DELETE FROM notes WHERE id=?", id);
+        touchSyncMeta();
+        logger.log("NOTA ELIMINATA", "id:" + id, "titolo:" + DbLogger.s(old != null ? old.get("title") : null));
+        return Map.of("id", id, "deleted", true);
+    }
+
+    public Map<String, Object> setNotePinned(int id, boolean pinned) throws SQLException {
+        execute("UPDATE notes SET pinned=? WHERE id=?", pinned ? 1 : 0, id);
+        touchSyncMeta();
+        return getNote(id);
+    }
+
+    public Map<String, Object> setNoteColor(int id, String color) throws SQLException {
+        execute("UPDATE notes SET color=? WHERE id=?", color != null ? color : "", id);
+        touchSyncMeta();
+        return getNote(id);
     }
 
     // ─── Range Preset ─────────────────────────────────────────────────────────

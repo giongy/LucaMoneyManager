@@ -110,6 +110,14 @@ const api = {
   deleteTag:              async id   => { api._invalidateTags(); return callJava('deleteTag', {id}); },
   getTransactionsWithTag: name => callJava('getTransactionsWithTag', {name}),
 
+  // Note
+  getNotes:       ()           => callJava('getNotes'),
+  getNote:        id           => callJava('getNote',       {id}),
+  saveNote:       data         => callJava('saveNote',      data),
+  deleteNote:     id           => callJava('deleteNote',    {id}),
+  setNotePinned:  (id, pinned) => callJava('setNotePinned', {id, pinned}),
+  setNoteColor:   (id, color)  => callJava('setNoteColor',  {id, color}),
+
   // Range Preset
   getRangePresets:    ()     => callJava('getRangePresets'),
   addRangePreset:     data   => callJava('addRangePreset',    data),

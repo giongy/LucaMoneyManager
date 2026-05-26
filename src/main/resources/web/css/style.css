@@ -115,13 +115,14 @@
   --txt3:     #6d7888;
   --shadow:   0 8px 32px rgba(0,0,0,.55);
 }
-/* Sfondo con gradiente diagonale per dare profondità visibile attraverso il blur */
+/* Sfondo con gradiente diagonale per dare profondità visibile attraverso il blur.
+   NB: niente background-attachment:fixed — costringerebbe a ricalcolare il blur dietro
+   ogni card ad ogni scroll (il gradiente "non scorre" con il contenuto). */
 [data-theme="glassy"] body {
   background:
     radial-gradient(1100px 750px at 18% -5%, rgba(106,183,255,.20), transparent 65%),
     radial-gradient(900px 650px at 92% 105%, rgba(20,217,180,.14), transparent 65%),
     linear-gradient(135deg, #1a2030 0%, #161b25 50%, #1d2333 100%);
-  background-attachment: fixed;
 }
 /* Blur su cards, sidebar, modale, titlebar — l'effetto vetro */
 [data-theme="glassy"] .card,
@@ -129,8 +130,8 @@
 [data-theme="glassy"] .sidebar,
 [data-theme="glassy"] .titlebar,
 [data-theme="glassy"] .modal {
-  backdrop-filter: blur(18px) saturate(160%);
-  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  backdrop-filter: blur(10px) saturate(130%);
+  -webkit-backdrop-filter: blur(10px) saturate(130%);
 }
 /* Bordi più sottili e luminosi per il look "frosted glass" */
 [data-theme="glassy"] .card,
@@ -169,8 +170,8 @@
 [data-theme="glassy"] #sched-ctx-menu {
   background: rgba(28,34,48,.96) !important;
   border-color: rgba(255,255,255,.14);
-  backdrop-filter: blur(18px) saturate(160%);
-  -webkit-backdrop-filter: blur(18px) saturate(160%);
+  backdrop-filter: blur(10px) saturate(130%);
+  -webkit-backdrop-filter: blur(10px) saturate(130%);
   box-shadow: 0 12px 32px rgba(0,0,0,.55);
 }
 [data-theme="glassy"] .cat-picker-item:hover,
@@ -190,6 +191,13 @@
 /* Stesso problema sulle altre tabelle con thead sticky */
 [data-theme="glassy"] .analytics-table thead th,
 [data-theme="glassy"] #txTable thead th { background: #1c2230 !important; }
+/* Notifiche flottanti (#noticeStack): effetto vetro come cards/modali */
+[data-theme="glassy"] .overdue-notice {
+  background: rgba(28,34,48,.55);
+  backdrop-filter: blur(10px) saturate(130%);
+  -webkit-backdrop-filter: blur(10px) saturate(130%);
+  box-shadow: 0 12px 32px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.06);
+}
 
 /* ─── Reset ──────────────────────────────────────────────────────────────── */
 *,*::before,*::after { box-sizing:border-box; margin:0; padding:0; }
@@ -1506,3 +1514,228 @@ tr.tx-selected td { background:rgba(88,166,255,.07); }
 
 .port-storico-row { border-radius:4px; transition:background .15s; }
 .port-storico-collapsed:hover { background:var(--bg3); }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   NOTE — griglia post-it, card colorate, editor Quill
+═══════════════════════════════════════════════════════════════════════════ */
+
+/* Filter bar tag */
+.notes-tagbar {
+  display:flex; flex-wrap:wrap; gap:6px;
+  padding:8px 0 14px;
+}
+.notes-tagchip {
+  background:var(--bg2); border:1px solid var(--border);
+  color:var(--txt2); font-weight:600; font-size:11.5px;
+  padding:5px 11px; border-radius:999px; cursor:pointer;
+  transition:all .12s; user-select:none;
+  border-left:3px solid var(--tc, var(--border));
+}
+.notes-tagchip:hover { background:var(--bg3); color:var(--txt); }
+.notes-tagchip.active {
+  background:color-mix(in srgb, var(--tc, var(--accent)) 22%, var(--bg2));
+  color:var(--txt); border-color:var(--tc, var(--accent));
+}
+
+/* Griglia card */
+.notes-grid {
+  display:grid;
+  grid-template-columns:repeat(auto-fill, minmax(240px, 1fr));
+  gap:14px;
+}
+
+.note-card {
+  background:var(--bg2); border:1px solid var(--border);
+  border-radius:12px; padding:14px 14px 10px;
+  cursor:pointer; transition:transform .15s, box-shadow .15s, border-color .15s;
+  display:flex; flex-direction:column; gap:8px;
+  min-height:140px; max-height:260px; overflow:hidden;
+  box-shadow:0 1px 2px rgba(0,0,0,.08);
+  position:relative;
+}
+.note-card:hover {
+  transform:translateY(-2px);
+  box-shadow:0 8px 20px rgba(0,0,0,.18);
+  border-color:color-mix(in srgb, var(--accent) 35%, var(--border));
+}
+/* Tint colorato sopra al bg2 del tema (funziona su dark/light/glassy) */
+.note-card.has-color {
+  background:color-mix(in srgb, var(--note-color) 32%, var(--bg2));
+  border-color:color-mix(in srgb, var(--note-color) 55%, var(--border));
+}
+.note-card.pinned {
+  border-color:color-mix(in srgb, var(--warn,#d29922) 55%, var(--border));
+  box-shadow:0 2px 6px rgba(210,153,34,.18);
+}
+.note-card-head {
+  display:flex; align-items:flex-start; gap:8px;
+}
+.note-title {
+  flex:1; font-weight:700; font-size:14px; color:var(--txt);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.note-pin {
+  background:none; border:none; cursor:pointer;
+  font-size:16px; color:var(--txt3); padding:0 2px; line-height:1;
+  transition:color .12s, transform .12s;
+}
+.note-pin:hover { color:var(--warn,#d29922); transform:scale(1.15); }
+.note-card.pinned .note-pin { color:var(--warn,#d29922); }
+.note-snippet {
+  flex:1; font-size:12px; color:var(--txt2); line-height:1.5;
+  overflow:hidden;
+  display:-webkit-box; -webkit-line-clamp:6; -webkit-box-orient:vertical;
+  white-space:normal; word-break:break-word;
+}
+.note-empty { font-style:italic; color:var(--txt3); }
+.note-card-foot {
+  display:flex; align-items:center; justify-content:space-between; gap:8px;
+  padding-top:6px; border-top:1px solid var(--border);
+}
+.note-tags-row { display:flex; flex-wrap:wrap; gap:3px; flex:1; overflow:hidden; min-width:0; }
+.note-tags-more { font-size:10px; color:var(--txt3); font-weight:600; }
+.note-card-actions { display:flex; align-items:center; gap:6px; flex-shrink:0; }
+.note-date { font-size:10.5px; color:var(--txt3); font-weight:600; }
+.note-del {
+  background:none; border:none; cursor:pointer;
+  font-size:13px; color:var(--txt3); padding:2px 4px; border-radius:4px;
+  opacity:0; transition:opacity .12s, color .12s, background .12s;
+}
+.note-card:hover .note-del { opacity:1; }
+.note-del:hover { color:var(--expense,#ff6b62); background:var(--bg3); }
+.note-card.has-color .note-card-foot { border-top-color:rgba(0,0,0,.12); }
+.note-card.has-color .note-title,
+.note-card.has-color .note-snippet,
+.note-card.has-color .note-date { color:#1a1f2b; }
+.note-card.has-color .note-pin,
+.note-card.has-color .note-del { color:rgba(0,0,0,.5); }
+.note-card.has-color .note-pin:hover,
+.note-card.has-color .note-del:hover { color:#1a1f2b; }
+.note-card.has-color .note-tags-more { color:rgba(0,0,0,.55); }
+
+/* ─── Modale editor (più ampio + alto) ─────────────────────────────────── */
+.modal.modal-notes {
+  width:min(820px, 95vw); max-width:95vw;
+  height:min(82vh, 720px); max-height:90vh;
+}
+.modal.modal-notes .modal-body {
+  display:flex; flex-direction:column; padding:14px 18px 4px;
+}
+.note-editor { display:flex; flex-direction:column; gap:10px; flex:1; min-height:0; }
+.note-editor-title {
+  width:100%; background:transparent; border:none; outline:none;
+  font-size:20px; font-weight:700; color:var(--txt);
+  padding:4px 0 6px; border-bottom:1px solid var(--border);
+}
+.note-editor-title::placeholder { color:var(--txt3); font-weight:500; }
+.note-editor-title:focus { border-bottom-color:var(--accent); }
+
+.note-editor-bar {
+  display:flex; align-items:center; justify-content:space-between; gap:14px;
+  flex-wrap:wrap;
+}
+.note-color-row { display:flex; gap:6px; align-items:center; }
+.note-color-dot {
+  width:24px; height:24px; border-radius:50%;
+  border:2px solid var(--border); background:transparent;
+  cursor:pointer; transition:transform .12s, border-color .12s;
+  display:inline-flex; align-items:center; justify-content:center;
+  font-size:11px; color:var(--txt3);
+}
+.note-color-dot:hover { transform:scale(1.12); }
+.note-color-dot.active {
+  border-color:var(--accent); border-width:2.5px;
+  box-shadow:0 0 0 2px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+.note-pin-toggle {
+  display:inline-flex; align-items:center; gap:6px;
+  font-size:12px; color:var(--txt2); cursor:pointer; user-select:none;
+}
+.note-pin-toggle input { cursor:pointer; }
+.note-pin-toggle:hover { color:var(--txt); }
+
+.note-tags-picker { display:flex; flex-wrap:wrap; gap:5px; }
+.note-tags-empty { font-size:11.5px; color:var(--txt3); padding:4px 0; }
+
+/* Contenitore Quill */
+.note-editor-quill {
+  flex:1; min-height:260px;
+  border:1px solid var(--border); border-radius:8px;
+  background:var(--bg); overflow:hidden;
+  display:flex; flex-direction:column;
+}
+
+/* ─── Override Quill Snow per integrarsi col tema ──────────────────────── */
+.ql-toolbar.ql-snow {
+  border:none !important; border-bottom:1px solid var(--border) !important;
+  background:var(--bg2);
+  padding:6px 8px !important;
+}
+.ql-container.ql-snow {
+  border:none !important;
+  font-family:inherit !important;
+  font-size:14px !important;
+  background:transparent;
+  flex:1; min-height:0; overflow:auto;
+}
+.ql-editor {
+  color:var(--txt) !important; min-height:220px;
+  padding:14px 16px !important;
+}
+.ql-editor.ql-blank::before {
+  color:var(--txt3) !important; font-style:normal !important;
+  left:16px !important; right:16px !important;
+}
+.ql-editor h1, .ql-editor h2, .ql-editor h3 { color:var(--txt) !important; }
+.ql-editor blockquote {
+  border-left:3px solid var(--accent) !important;
+  color:var(--txt2) !important;
+  background:var(--bg3); padding:6px 12px; border-radius:0 6px 6px 0;
+}
+.ql-editor pre.ql-syntax, .ql-editor code {
+  background:var(--bg3) !important; color:var(--accent2,#14d9b4) !important;
+  border-radius:4px; padding:2px 6px;
+}
+.ql-editor pre.ql-syntax { padding:10px 14px; font-size:12.5px; }
+.ql-editor a { color:var(--accent) !important; text-decoration:underline; }
+.ql-snow .ql-stroke      { stroke:var(--txt2) !important; }
+.ql-snow .ql-fill,
+.ql-snow .ql-stroke.ql-fill { fill:var(--txt2) !important; }
+.ql-snow .ql-picker       { color:var(--txt2) !important; }
+.ql-snow .ql-picker-label { color:var(--txt2) !important; }
+.ql-snow.ql-toolbar button:hover .ql-stroke,
+.ql-snow.ql-toolbar button.ql-active .ql-stroke,
+.ql-snow .ql-picker-label:hover .ql-stroke,
+.ql-snow .ql-picker-label.ql-active .ql-stroke {
+  stroke:var(--accent) !important;
+}
+.ql-snow.ql-toolbar button:hover .ql-fill,
+.ql-snow.ql-toolbar button.ql-active .ql-fill {
+  fill:var(--accent) !important;
+}
+.ql-snow.ql-toolbar button:hover,
+.ql-snow.ql-toolbar button.ql-active,
+.ql-snow .ql-picker-label:hover,
+.ql-snow .ql-picker-label.ql-active { color:var(--accent) !important; }
+.ql-snow .ql-picker-options {
+  background:var(--bg2) !important; border-color:var(--border) !important;
+  color:var(--txt) !important; box-shadow:var(--shadow);
+}
+.ql-snow .ql-tooltip {
+  background:var(--bg2) !important; border-color:var(--border) !important;
+  color:var(--txt) !important; box-shadow:var(--shadow);
+}
+.ql-snow .ql-tooltip input[type=text] {
+  background:var(--bg) !important; border-color:var(--border) !important;
+  color:var(--txt) !important;
+}
+
+/* Glassy: popup Quill opachi (non hanno blur dietro) */
+[data-theme="glassy"] .ql-snow .ql-picker-options,
+[data-theme="glassy"] .ql-snow .ql-tooltip {
+  background:rgba(28,34,48,.96) !important;
+  backdrop-filter:blur(10px) saturate(130%);
+  -webkit-backdrop-filter:blur(10px) saturate(130%);
+}
+[data-theme="glassy"] .note-editor-quill { background:rgba(0,0,0,.18); }

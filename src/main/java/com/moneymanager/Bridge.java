@@ -395,6 +395,14 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             case "updateTag"  -> db.updateTag(p.get("id").getAsInt(), p);
             case "deleteTag"  -> db.deleteTag(p.get("id").getAsInt());
 
+            // ─── Note ──────────────────────────────────────────────────────────────
+            case "getNotes"      -> db.getNotes();
+            case "getNote"       -> db.getNote(p.get("id").getAsInt());
+            case "saveNote"      -> db.saveNote(p);
+            case "deleteNote"    -> db.deleteNote(p.get("id").getAsInt());
+            case "setNotePinned" -> db.setNotePinned(p.get("id").getAsInt(), p.get("pinned").getAsBoolean());
+            case "setNoteColor"  -> db.setNoteColor(p.get("id").getAsInt(), p.has("color") && !p.get("color").isJsonNull() ? p.get("color").getAsString() : "");
+
             // ─── Range Preset ──────────────────────────────────────────────────────
             case "getRangePresets"    -> db.getRangePresets();
             case "addRangePreset"     -> db.addRangePreset(p);

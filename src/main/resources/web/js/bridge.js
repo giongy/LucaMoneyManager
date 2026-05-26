@@ -63,6 +63,7 @@ const api = {
   minimize:    ()          => callJava('minimize'),
   maximize:    ()          => callJava('maximize'),
   close:       ()          => callJava('close'),
+  uiReady:     ()          => callJava('uiReady'),
   getDbPath:      ()          => callJava('getDbPath'),
   getWindowPos:   ()          => callJava('getWindowPos'),
   setWindowPos:   (x,y)       => callJava('setWindowPos', {x,y}),

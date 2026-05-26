@@ -40,6 +40,12 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
     private final java.util.Deque<java.util.Map<String,Object>> _perfBuf =
             new java.util.ArrayDeque<>();
 
+    // Callback invocato quando il JS segnala "primo frame dipinto" (vedi case "uiReady").
+    // Permette a MainWindow di nascondere la splash al momento giusto invece che su onLoadEnd
+    // (che con GPU attiva precede il primo composite di ~500ms → flash nero).
+    private volatile Runnable uiReadyCallback;
+    public void setUiReadyCallback(Runnable r) { this.uiReadyCallback = r; }
+
     public Bridge(Database db, Settings settings, JFrame window, java.nio.file.Path dataDir) {
         this.db = db;
         this.settings = settings;
@@ -246,6 +252,14 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             case "close" -> {
                 SwingUtilities.invokeLater(() ->
                     window.dispatchEvent(new WindowEvent(window, WindowEvent.WINDOW_CLOSING)));
+                yield Map.of("ok", true);
+            }
+            // Segnalato dal JS dopo il primo render della dashboard + un rAF.
+            // A questo punto il compositor GPU ha sicuramente disegnato un frame,
+            // quindi possiamo nascondere la splash senza rischiare flash neri.
+            case "uiReady" -> {
+                Runnable cb = uiReadyCallback;
+                if (cb != null) { cb.run(); uiReadyCallback = null; }
                 yield Map.of("ok", true);
             }
             case "getDbPath"    -> Map.of("path", db.getDbPath());

@@ -120,7 +120,14 @@ public class App {
         // Inizializza JCEF (scarica ~200MB di Chromium al primo avvio)
         CefAppBuilder builder = new CefAppBuilder();
         builder.setInstallDir(dataDir.resolve("jcef").toFile());
-        builder.addJcefArgs("--disable-gpu");
+        // GPU acceleration: di default JCEF è prudente, ma su Windows recente con
+        // windowed_rendering (non OSR) Chromium gestisce bene il compositing GPU.
+        // Notevole impatto sul tema glassy (backdrop-filter è GPU-bound).
+        // Se compaiono artefatti/finestra nera, ripristinare "--disable-gpu".
+        builder.addJcefArgs(
+            "--ignore-gpu-blocklist",
+            "--enable-gpu-rasterization",
+            "--enable-zero-copy");
         builder.getCefSettings().windowless_rendering_enabled = false;
         builder.getCefSettings().root_cache_path = dataDir.resolve("jcef_cache").toAbsolutePath().toString();
         builder.getCefSettings().log_severity = org.cef.CefSettings.LogSeverity.LOGSEVERITY_DISABLE;

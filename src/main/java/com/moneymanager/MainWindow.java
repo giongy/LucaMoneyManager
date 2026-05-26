@@ -3,8 +3,6 @@ package com.moneymanager;
 import org.cef.CefApp;
 import org.cef.CefClient;
 import org.cef.browser.CefBrowser;
-import org.cef.browser.CefFrame;
-import org.cef.handler.CefLoadHandlerAdapter;
 
 import javax.swing.*;
 import java.awt.*;
@@ -104,22 +102,33 @@ public class MainWindow {
 
     /** Mostra la finestra solo dopo che index.html è completamente caricato,
      *  poi nasconde la splash Swing. La finestra parte già massimizzata dietro
-     *  la splash, così non si vede alcuno scatto di ridimensionamento. */
+     *  la splash, così non si vede alcuno scatto di ridimensionamento.
+     *
+     *  La splash viene chiusa quando il JS chiama api.uiReady() dopo il primo
+     *  frame dipinto (vedi Bridge.case "uiReady"). Con GPU attiva, onLoadEnd
+     *  precede di ~500ms il primo composite, quindi affidarsi solo a quello
+     *  causerebbe un flash nero visibile dietro la splash che svanisce.
+     *  Fallback: se il JS non segnala entro 4s, fade comunque per non bloccare. */
     public void showWhenReady(SplashWindow loading) {
         GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
         frame.setMaximizedBounds(ge.getMaximumWindowBounds());
         frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
         frame.setVisible(true);
 
-        client.addLoadHandler(new CefLoadHandlerAdapter() {
-            private boolean shown = false;
-            @Override
-            public void onLoadEnd(CefBrowser b, CefFrame f, int httpStatusCode) {
-                if (!f.isMain() || shown) return;
-                shown = true;
-                SwingUtilities.invokeLater(() -> loading.fadeOut(700, frame::toFront));
-            }
+        final boolean[] faded = {false};
+        Runnable fade = () -> SwingUtilities.invokeLater(() -> {
+            if (faded[0]) return;
+            faded[0] = true;
+            loading.fadeOut(700, frame::toFront);
         });
+
+        bridge.setUiReadyCallback(fade);
+
+        // Fallback: se per qualche motivo uiReady non arriva (es. errore JS), fade dopo 4s
+        new javax.swing.Timer(4000, e -> fade.run()) {{
+            setRepeats(false);
+            start();
+        }};
     }
 
     /** Riapre il DB, porta la finestra in primo piano e aggiorna il frontend.

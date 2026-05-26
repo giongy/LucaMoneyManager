@@ -318,6 +318,12 @@ async function init() {
 
   await updateSidebar();
   await renderDashboard();
+  // Segnala a Java che il primo frame è stato dipinto (double-rAF garantisce che
+  // il compositor GPU abbia almeno un frame submitted, evitando flash neri dietro
+  // la splash che svanisce). Vedi Bridge.case "uiReady" / MainWindow.showWhenReady.
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    try { api.uiReady(); } catch(e) {}
+  }));
   // Notifica transazioni da telefono
   try {
     const daTelefono = await api.getTransactionsWithTag('phone');

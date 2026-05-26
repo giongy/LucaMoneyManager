@@ -124,18 +124,20 @@
     radial-gradient(900px 650px at 92% 105%, rgba(20,217,180,.14), transparent 65%),
     linear-gradient(135deg, #1a2030 0%, #161b25 50%, #1d2333 100%);
 }
-/* Blur su cards, sidebar, modale, titlebar — l'effetto vetro */
-[data-theme="glassy"] .card,
-[data-theme="glassy"] .stat-card,
+/* Blur solo su chrome (sidebar, modale, titlebar). Le card NON usano backdrop-filter:
+   sono troppe (dashboard/analytics ne hanno decine) e ciascuna avvia una passata GPU.
+   Le card restano trasparenti e mostrano il gradiente del body sotto — l'effetto vetro
+   resta percepito perché sidebar/titlebar sfocate fanno da cornice. */
 [data-theme="glassy"] .sidebar,
 [data-theme="glassy"] .titlebar,
 [data-theme="glassy"] .modal {
   backdrop-filter: blur(10px) saturate(130%);
   -webkit-backdrop-filter: blur(10px) saturate(130%);
 }
-/* Bordi più sottili e luminosi per il look "frosted glass" */
+/* Card: nessun blur, sfondo leggermente translucido + bordo per "vetro piatto" */
 [data-theme="glassy"] .card,
 [data-theme="glassy"] .stat-card {
+  background: rgba(255,255,255,.05);
   border-color: rgba(255,255,255,.10);
   box-shadow: 0 4px 24px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.04);
 }

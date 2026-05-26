@@ -100,32 +100,40 @@ public class MainWindow {
     /** Restituisce il JFrame principale (usato da TrayManager). */
     public JFrame getFrame() { return frame; }
 
-    /** Mostra la finestra solo dopo che index.html è completamente caricato,
-     *  poi nasconde la splash Swing. La finestra parte già massimizzata dietro
-     *  la splash, così non si vede alcuno scatto di ridimensionamento.
+    /** Mostra la finestra solo dopo che index.html è completamente caricato.
      *
-     *  La splash viene chiusa quando il JS chiama api.uiReady() dopo il primo
-     *  frame dipinto (vedi Bridge.case "uiReady"). Con GPU attiva, onLoadEnd
-     *  precede di ~500ms il primo composite, quindi affidarsi solo a quello
-     *  causerebbe un flash nero visibile dietro la splash che svanisce.
-     *  Fallback: se il JS non segnala entro 4s, fade comunque per non bloccare. */
+     *  Trucco off-screen: la JFrame deve essere visibile per far renderizzare
+     *  JCEF (richiede un HWND realizzato), ma se la mettiamo sullo schermo
+     *  prima del primo paint l'utente vede il Canvas vuoto (bianco/nero) prima
+     *  che Chromium disegni la pagina. Soluzione: la posizioniamo fuori dallo
+     *  schermo (-30000,-30000), così Windows non disegna nulla di visibile, e
+     *  la portiamo dentro solo quando il JS conferma il primo frame via
+     *  api.uiReady() (vedi Bridge.case "uiReady"). A quel punto è già dipinta
+     *  con la dashboard → fade splash su contenuto reale, niente flash.
+     *
+     *  Fallback: se uiReady non arriva entro 4s (errore JS, ecc.) fade comunque. */
     public void showWhenReady(SplashWindow loading) {
         GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
-        frame.setMaximizedBounds(ge.getMaximumWindowBounds());
-        frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
+        Rectangle bounds = ge.getMaximumWindowBounds();
+        frame.setMaximizedBounds(bounds);
+
+        // setVisible off-screen: Chromium ha un HWND e renderizza, l'utente non vede.
+        frame.setBounds(-30000, -30000, bounds.width, bounds.height);
         frame.setVisible(true);
 
-        final boolean[] faded = {false};
-        Runnable fade = () -> SwingUtilities.invokeLater(() -> {
-            if (faded[0]) return;
-            faded[0] = true;
-            loading.fadeOut(700, frame::toFront);
+        final boolean[] shown = {false};
+        Runnable showAndFade = () -> SwingUtilities.invokeLater(() -> {
+            if (shown[0]) return;
+            shown[0] = true;
+            // Riporta on-screen e massimizza: la pagina è già renderizzata.
+            frame.setLocation(bounds.x, bounds.y);
+            frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
+            loading.fadeOut(1000, frame::toFront);
         });
 
-        bridge.setUiReadyCallback(fade);
+        bridge.setUiReadyCallback(showAndFade);
 
-        // Fallback: se per qualche motivo uiReady non arriva (es. errore JS), fade dopo 4s
-        new javax.swing.Timer(4000, e -> fade.run()) {{
+        new javax.swing.Timer(4000, e -> showAndFade.run()) {{
             setRepeats(false);
             start();
         }};

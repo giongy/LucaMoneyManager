@@ -15,6 +15,9 @@ public class SplashWindow extends JWindow {
         int h = (int)(screen.height * 0.70);
         setBounds(screen.x + (screen.width - w) / 2, screen.y + (screen.height - h) / 2, w, h);
         setBackground(new Color(0x2f, 0x6b, 0x5e));
+        // Always-on-top dalla creazione: copre la JFrame mentre Chromium si
+        // inizializza, evitando flash dello sfondo dark prima del primo paint.
+        setAlwaysOnTop(true);
 
         JPanel panel = new JPanel() {
             @Override
@@ -106,20 +109,20 @@ public class SplashWindow extends JWindow {
             return;
         }
 
-        // La JFrame principale è stata appena resa visibile e maximizzata: si trova
-        // sopra la JWindow nello z-order Windows. Riportiamo la splash in primo piano
-        // così il fade è effettivamente visibile.
-        setAlwaysOnTop(true);
+        // Già always-on-top dalla creazione: ci limitiamo a riportarla davanti.
         toFront();
 
-        final int steps = 30;
+        final int steps = 40;
         final int delay = Math.max(16, durationMs / steps);
         final int[] i = {0};
         javax.swing.Timer timer = new javax.swing.Timer(delay, null);
         timer.setInitialDelay(0);
         timer.addActionListener(e -> {
             i[0]++;
-            float op = Math.max(0f, 1f - (i[0] / (float) steps));
+            // Easing ease-out cubic: parte veloce e rallenta sul finale, transizione più "naturale"
+            float t  = i[0] / (float) steps;
+            float ec = 1f - (1f - t) * (1f - t) * (1f - t);
+            float op = Math.max(0f, 1f - ec);
             try {
                 setOpacity(op);
             } catch (Exception ex) {

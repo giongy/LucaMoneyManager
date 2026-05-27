@@ -1486,13 +1486,14 @@ function _prevSchedDate(dateStr, freq) {
 // Se presente viene usata come limite inferiore così le transazioni create
 // a metà anno non vengono proiettate prima della loro vera data di inizio.
 // Se NULL (record pre-migrazione) si usa il comportamento storico (proiezione a yStart).
-function _countSchedYearOcc(freq, startDate, endDate, year, origStart) {
+function _countSchedYearOcc(freq, startDate, endDate, year, origStart, fromDate) {
   const yStart = `${year}-01-01`;
   const yEnd   = `${year}-12-31`;
   if (!startDate) return 0;
   if (endDate && endDate < yStart) return 0;
   const effEnd   = (endDate   && endDate   < yEnd)   ? endDate   : yEnd;
-  const effStart = (origStart && origStart > yStart)  ? origStart : yStart;
+  let effStart   = (origStart && origStart > yStart)  ? origStart : yStart;
+  if (fromDate && fromDate > effStart) effStart = fromDate;
 
   // 'once': conta solo se la data cade nel range effettivo
   if (freq === 'once') return (startDate >= effStart && startDate <= effEnd) ? 1 : 0;
@@ -1566,7 +1567,7 @@ async function renderBudgetVsPianificate() {
     if (budgByCat[catIdStr] === undefined) budgByCat[catIdStr] = _getAnnual(parseInt(catIdStr));
   }
 
-  // Pianificate annuali per categoria (solo attive, no trasferimenti)
+  // Pianificate dell'anno (full year, proiezione completa Gen→Dic per ogni ricorrente)
   const schedByCat = {};
   for (const s of scheds) {
     if (!s.is_active || s.type === 'transfer' || !s.category_id) continue;
@@ -1574,7 +1575,17 @@ async function renderBudgetVsPianificate() {
     schedByCat[s.category_id] = (schedByCat[s.category_id] || 0) + occ * s.amount;
   }
 
-  // Righe di confronto (solo categorie con budget > 0)
+  // Effettivi YTD per categoria
+  const actualsByCat = {};
+  for (const a of (budgetData.actuals || [])) {
+    actualsByCat[a.category_id] = (actualsByCat[a.category_id] || 0) + (a.total || 0);
+  }
+
+  // gap = budget - pianificate. Se >0, le pianificate non bastano: gli actuals YTD possono
+  // colmarlo (spese reali fuori piano = Caso B); altrimenti manca da pianificare.
+  // Se gap <0 ci sono pianificate in eccesso rispetto al budget (segnalato come eccesso).
+  // Variazioni speso/pianificato sotto le aspettative vengono ignorate: il check guarda il
+  // piano, non l'esecuzione (= Caso A: pianificata 1200/mese ↔ budget 14400 → ✓ sempre).
   const rows = [];
   for (const [catIdStr, budgAnnual] of Object.entries(budgByCat)) {
     if (budgAnnual <= 0) continue;
@@ -1582,8 +1593,13 @@ async function renderBudgetVsPianificate() {
     const cat = catMap[catId];
     if (!cat) continue;
     const scheduled = schedByCat[catId] || 0;
-    const diff = budgAnnual - scheduled;
-    rows.push({ catId, cat, budgAnnual, scheduled, diff });
+    const actualYtd = actualsByCat[catId] || 0;
+    const gap = budgAnnual - scheduled;
+    // Segno UI: diff>0 = manca (deficit, mostra "Integra"); diff<0 = eccesso pianificato
+    const diff = gap > 0
+      ? Math.max(0, gap - actualYtd)
+      : gap;
+    rows.push({ catId, cat, budgAnnual, scheduled, actualYtd, diff });
   }
   const sortRows = arr => {
     const disc = arr.filter(r => Math.abs(r.diff) > 0.01);
@@ -1626,6 +1642,7 @@ async function renderBudgetVsPianificate() {
       <td><a style="cursor:pointer;color:inherit;text-decoration:none" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color=''" onclick="schedTab='lista';_schedFilter.category='${r.catId}';renderScheduled()">${r.cat.icon||''} ${catLabel}</a></td>
       <td class="num">${fmt.currency(r.budgAnnual)}</td>
       <td class="num">${fmt.currency(r.scheduled)}</td>
+      <td class="num" style="color:var(--text2)">${r.actualYtd > 0 ? fmt.currency(r.actualYtd) : '—'}</td>
       <td class="num ${diffCls}">${diffTxt}</td>
       <td style="text-align:right">${action}</td>
     </tr>`;
@@ -1633,17 +1650,19 @@ async function renderBudgetVsPianificate() {
 
   const renderSection = (label, sRows) => {
     if (!sRows.length) return '';
-    const tBudg  = sRows.reduce((s, r) => s + r.budgAnnual, 0);
-    const tSched = sRows.reduce((s, r) => s + r.scheduled, 0);
-    const tDiff  = tBudg - tSched;
-    const tOk    = Math.abs(tDiff) <= 0.01;
+    const tBudg   = sRows.reduce((s, r) => s + r.budgAnnual, 0);
+    const tSched  = sRows.reduce((s, r) => s + r.scheduled, 0);
+    const tActual = sRows.reduce((s, r) => s + r.actualYtd, 0);
+    const tDiff   = sRows.reduce((s, r) => s + r.diff, 0);
+    const tOk     = Math.abs(tDiff) <= 0.01;
     return `
-      <tr class="sync-section-header"><td colspan="5">${label}</td></tr>
+      <tr class="sync-section-header"><td colspan="6">${label}</td></tr>
       ${sRows.map(renderRow).join('')}
       <tr class="sync-subtotal">
         <td>Totale ${label}</td>
         <td class="num">${fmt.currency(tBudg)}</td>
         <td class="num">${fmt.currency(tSched)}</td>
+        <td class="num">${tActual > 0 ? fmt.currency(tActual) : '—'}</td>
         <td class="num ${tOk?'':(tDiff>0?'amount-expense':'amount-income')}">
           ${tOk ? '✓' : (tDiff>0?'-':'+') + fmt.currency(Math.abs(tDiff))}
         </td>
@@ -1663,6 +1682,7 @@ async function renderBudgetVsPianificate() {
           <th>Categoria</th>
           <th class="num">Budget annuale</th>
           <th class="num">Pianificate</th>
+          <th class="num" title="Spese reali registrate YTD (informativo)">Già fatto</th>
           <th class="num">Differenza</th>
           <th></th>
         </tr></thead>
@@ -1684,15 +1704,20 @@ window.showBudgetIntegraModal = async function(catId) {
   let tag = tags.find(t => t.name === 'Da Budget');
   if (!tag) tag = await api.addTag({ name: 'Da Budget', color: '#8b5cf6' });
 
-  const startDef  = `${budgetYear}-01-01`;
+  const _t = new Date();
+  const _isCurYear = budgetYear === _t.getFullYear();
+  const startDef  = _isCurYear
+    ? `${_t.getFullYear()}-${String(_t.getMonth()+1).padStart(2,'0')}-${String(_t.getDate()).padStart(2,'0')}`
+    : `${budgetYear}-01-01`;
   const yearEnd   = `${budgetYear}-12-31`;
-  const monthlyAmt = (Math.abs(diff) / 12).toFixed(2);
+  const monthsLeft = _isCurYear ? (12 - _t.getMonth()) : 12;
+  const monthlyAmt = (Math.abs(diff) / monthsLeft).toFixed(2);
   const txType = catType === 'expense' ? 'Uscita' : 'Entrata';
 
   const body = `
     <div class="form-row">
       <div class="form-group">
-        <label>Mancante annuale</label>
+        <label>Mancante residuo</label>
         <input class="form-control" value="${fmt.currency(Math.abs(diff))}" disabled>
       </div>
       <div class="form-group">

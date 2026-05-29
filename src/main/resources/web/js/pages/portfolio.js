@@ -131,28 +131,26 @@ async function renderPortfolio() {
                color:${_portfolioTab==='storico'?'var(--accent)':'var(--txt2)'};font-weight:${_portfolioTab==='storico'?'600':'400'};
                padding:8px 18px;background:none">📋 Storico</button>
       ${investAccounts.length && _portfolioTab==='portfolio' ? `
-        <div style="margin-left:auto;padding-bottom:2px;display:flex;align-items:center;gap:6px">
-          <div style="display:flex;flex-direction:column;align-items:center;gap:3px;padding:4px 8px;background:var(--bg3);border-radius:8px">
-            <span style="font-size:10px;color:var(--txt3);text-transform:uppercase;letter-spacing:.5px;line-height:1">Visualizza</span>
+        <div style="margin-left:auto;padding-bottom:2px;display:flex;align-items:center;gap:10px">
+          <div style="display:flex;flex-direction:column;align-items:center;gap:5px;padding:6px 10px;background:var(--bg3);border-radius:10px;border-top:2px solid var(--accent);box-shadow:0 0 0 1px color-mix(in srgb,var(--accent) 22%,transparent) inset">
+            <span style="font-size:10px;color:var(--accent);text-transform:uppercase;letter-spacing:.7px;line-height:1;font-weight:700">Visualizza</span>
             <div class="theme-toggle-group" style="margin:0">
-              <button class="btn theme-btn ${_portfolioActiveOnly==='active'?'theme-btn-active':''}"  onclick="_setPortfolioFilter('active')">Solo attivi</button>
-              <button class="btn theme-btn ${_portfolioActiveOnly==='closed'?'theme-btn-active':''}" onclick="_setPortfolioFilter('closed')">Chiusi</button>
-              <button class="btn theme-btn ${_portfolioActiveOnly==='all'?'theme-btn-active':''}"    onclick="_setPortfolioFilter('all')">Tutti</button>
+              <button class="btn theme-btn ${_portfolioActiveOnly==='active'?'theme-btn-active':''}" style="${_portfolioActiveOnly==='active'?'background:var(--accent);border-color:var(--accent);color:#fff':''}" onclick="_setPortfolioFilter('active')">Solo attivi</button>
+              <button class="btn theme-btn ${_portfolioActiveOnly==='closed'?'theme-btn-active':''}" style="${_portfolioActiveOnly==='closed'?'background:var(--accent);border-color:var(--accent);color:#fff':''}" onclick="_setPortfolioFilter('closed')">Chiusi</button>
+              <button class="btn theme-btn ${_portfolioActiveOnly==='all'?'theme-btn-active':''}"    style="${_portfolioActiveOnly==='all'?'background:var(--accent);border-color:var(--accent);color:#fff':''}" onclick="_setPortfolioFilter('all')">Tutti</button>
             </div>
           </div>
-          <div style="display:flex;flex-direction:column;align-items:center;gap:3px;padding:4px 8px;background:var(--bg3);border-radius:8px">
-            <span style="font-size:10px;color:var(--txt3);text-transform:uppercase;letter-spacing:.5px;line-height:1">Tipo</span>
+          <div style="display:flex;flex-direction:column;align-items:center;gap:5px;padding:6px 10px;background:var(--bg3);border-radius:10px;border-top:2px solid var(--accent2);box-shadow:0 0 0 1px color-mix(in srgb,var(--accent2) 22%,transparent) inset">
+            <span style="font-size:10px;color:var(--accent2);text-transform:uppercase;letter-spacing:.7px;line-height:1;font-weight:700">Tipo</span>
             <div class="theme-toggle-group" style="margin:0">
-              <button class="btn theme-btn ${_portfolioTypeFilter==='all'?'theme-btn-active':''}"    onclick="_setPortfolioTypeFilter('all')">Tutti</button>
-              <button class="btn theme-btn ${_portfolioTypeFilter==='equity'?'theme-btn-active':''}" onclick="_setPortfolioTypeFilter('equity')">Azioni</button>
-              <button class="btn theme-btn ${_portfolioTypeFilter==='bond'?'theme-btn-active':''}"   onclick="_setPortfolioTypeFilter('bond')">Obbligazioni</button>
+              <button class="btn theme-btn ${_portfolioTypeFilter==='all'?'theme-btn-active':''}"    style="${_portfolioTypeFilter==='all'?'background:var(--accent2);border-color:var(--accent2);color:#fff':''}" onclick="_setPortfolioTypeFilter('all')">Tutti</button>
+              <button class="btn theme-btn ${_portfolioTypeFilter==='equity'?'theme-btn-active':''}" style="${_portfolioTypeFilter==='equity'?'background:var(--accent2);border-color:var(--accent2);color:#fff':''}" onclick="_setPortfolioTypeFilter('equity')">Azioni</button>
+              <button class="btn theme-btn ${_portfolioTypeFilter==='bond'?'theme-btn-active':''}"   style="${_portfolioTypeFilter==='bond'?'background:var(--accent2);border-color:var(--accent2);color:#fff':''}" onclick="_setPortfolioTypeFilter('bond')">Obbligazioni</button>
             </div>
           </div>
-          <div style="width:1px;height:36px;background:var(--border);margin:0 10px;flex-shrink:0"></div>
+          <div style="width:1px;height:36px;background:var(--border);margin:0 4px;flex-shrink:0"></div>
           <button class="btn btn-success" id="btnRefreshPrices">🌐 Aggiorna valori online</button>
-          <div style="width:8px;flex-shrink:0"></div>
-          <button class="btn btn-secondary" id="btnImportPos">📥 Carica esistente</button>
-          <div style="width:8px;flex-shrink:0"></div>
+          <div style="width:1px;height:36px;background:var(--border);margin:0 4px;flex-shrink:0"></div>
           <button class="btn btn-primary" id="btnBuyStock">+ Acquista</button>
         </div>` : ''}
     </div>
@@ -327,7 +325,6 @@ async function renderPortfolio() {
 
   if (investAccounts.length && _portfolioTab === 'portfolio') {
     document.getElementById('btnBuyStock').onclick      = () => showBuyModal(null, investAccounts, accounts).catch(e => toast(e.message,'error'));
-    document.getElementById('btnImportPos').onclick     = () => showImportModal(investAccounts);
     document.getElementById('btnRefreshPrices').onclick = () => refreshPortfolioPrices();
   }
   if (investAccounts.length && _portfolioTab === 'analisi') {
@@ -1143,172 +1140,6 @@ async function showBuyModal(portfolioId, investAccounts, allAccounts) {
   }, 50);
 }
 
-async function showImportModal(investAccounts) {
-  const body = `
-    <div class="settings-hint" style="margin-bottom:14px">
-      Carica una posizione già in tuo possesso senza creare movimenti bancari.
-    </div>
-    <div class="form-row">
-      <div class="form-group">
-        <label class="form-label">Tipo titolo *</label>
-        <div class="theme-toggle-group" style="width:100%">
-          <button type="button" id="ip_type_equity" class="btn theme-btn theme-btn-active" onclick="_setImportType('equity')">📈 Azionario</button>
-          <button type="button" id="ip_type_bond"   class="btn theme-btn"                  onclick="_setImportType('bond')">📄 Obbligazionario</button>
-        </div>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Conto investimento *</label>
-        <select class="form-control" id="ip_account">
-          ${investAccounts.map(a=>`<option value="${a.id}">${a.icon} ${a.name}</option>`).join('')}
-        </select>
-      </div>
-    </div>
-    <div class="form-row">
-      <div class="form-group">
-        <label class="form-label">Ticker *</label>
-        <input class="form-control" id="ip_ticker" placeholder="Es. ENI.MI / IT0001234567" style="text-transform:uppercase">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Nome titolo *</label>
-        <input class="form-control" id="ip_name" placeholder="Es. Eni SpA">
-      </div>
-    </div>
-    <!-- Campi specifici obbligazione -->
-    <div id="ip_bond_fields" style="display:none">
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-label">Data scadenza</label>
-          <input type="date" class="form-control" id="ip_maturity">
-        </div>
-        <div class="form-group">
-          <label class="form-label">Tasso cedola (%/anno)</label>
-          <input type="text" inputmode="decimal" class="form-control" id="ip_coupon_rate" placeholder="Es. 4,5">
-        </div>
-      </div>
-      <div class="form-row">
-        <div class="form-group">
-          <label class="form-label">Frequenza cedola</label>
-          <select class="form-control" id="ip_coupon_freq">
-            <option value="annual">Annuale</option>
-            <option value="semiannual" selected>Semestrale</option>
-            <option value="quarterly">Trimestrale</option>
-            <option value="monthly">Mensile</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Tassazione cedola (%)</label>
-          <input type="text" inputmode="decimal" class="form-control" id="ip_coupon_tax" value="12.5" placeholder="12,5">
-        </div>
-      </div>
-    </div>
-    <div class="form-row">
-      <div class="form-group">
-        <label class="form-label" id="ip_qty_label">Quantità *</label>
-        <input type="text" inputmode="decimal" class="form-control" id="ip_qty" placeholder="Es. 10">
-      </div>
-      <div class="form-group">
-        <label class="form-label" id="ip_price_label">Prezzo pagato (€) *</label>
-        <input type="text" inputmode="decimal" class="form-control" id="ip_price" placeholder="Es. 0,13">
-      </div>
-    </div>
-    <div class="form-row">
-      <div class="form-group">
-        <label class="form-label">Commissioni totali (€)</label>
-        <input type="text" inputmode="decimal" class="form-control" id="ip_comm" placeholder="0">
-      </div>
-      <div class="form-group">
-        <label class="form-label" id="ip_avg_label">Prezzo medio effettivo</label>
-        <input type="text" class="form-control" id="ip_avg" style="background:var(--bg3)" readonly
-               placeholder="Calcolato automaticamente">
-      </div>
-    </div>
-    <div class="form-row">
-      <div class="form-group">
-        <label class="form-label" id="ip_cur_label">Prezzo attuale (€)</label>
-        <input type="text" inputmode="decimal" class="form-control" id="ip_cur" placeholder="Opzionale">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Note</label>
-        <input class="form-control" id="ip_notes" placeholder="Opzionale">
-      </div>
-    </div>`;
-
-  openModal('Carica posizione esistente', body, async () => {
-    const isBond = document.getElementById('ip_type_bond')?.classList.contains('theme-btn-active');
-    const qty    = evalAmount(document.getElementById('ip_qty').value);
-    const price  = evalAmount(document.getElementById('ip_price').value);
-    const comm   = evalAmount(document.getElementById('ip_comm').value) || 0;
-    // Per bond: qty = nominale €, prezzo in %, comm in € → avg% = price + (comm/qty)*100
-    // Per equity: avg = (qty*price + comm) / qty
-    const avg    = qty && price ? (isBond ? price + (comm / qty) * 100 : (qty * price + comm) / qty) : NaN;
-    const cur    = evalAmount(document.getElementById('ip_cur').value) || null;
-    const data  = {
-      account_id:       parseInt(document.getElementById('ip_account').value),
-      ticker:           document.getElementById('ip_ticker').value.trim().toUpperCase(),
-      name:             document.getElementById('ip_name').value.trim(),
-      quantity:         qty,
-      avg_price:        avg,
-      current_price:    cur,
-      notes:            document.getElementById('ip_notes').value.trim() || null,
-      commissions:      comm,
-      asset_type:       isBond ? 'bond' : 'equity',
-      face_value:       1,
-      maturity_date:    isBond ? (document.getElementById('ip_maturity')?.value || null) : null,
-      coupon_rate:      isBond ? (parseFloat((document.getElementById('ip_coupon_rate')?.value||'').replace(',','.')) || 0) : 0,
-      coupon_frequency: isBond ? (document.getElementById('ip_coupon_freq')?.value || null) : null,
-      coupon_tax:       isBond ? (parseFloat((document.getElementById('ip_coupon_tax')?.value||'').replace(',','.')) ?? 12.5) : 0,
-    };
-    if (!data.ticker)              { toast('Inserisci il ticker','error'); return; }
-    if (!data.name)                { toast('Inserisci il nome','error'); return; }
-    if (!qty   || qty   <= 0)      { toast('Inserisci un nominale/quantità valido','error'); return; }
-    if (!price || price <= 0)      { toast('Inserisci un prezzo valido','error'); return; }
-    try {
-      await api.importPosition(data);
-      closeModal();
-      toast('Posizione caricata');
-      renderPortfolio();
-    } catch(e) { toast(e.message,'error'); }
-  });
-
-  window._setImportType = (type) => {
-    const isBond = type === 'bond';
-    document.getElementById('ip_type_equity')?.classList.toggle('theme-btn-active', !isBond);
-    document.getElementById('ip_type_bond')?.classList.toggle('theme-btn-active', isBond);
-    const bondFields = document.getElementById('ip_bond_fields');
-    if (bondFields) bondFields.style.display = isBond ? 'block' : 'none';
-    const ql = document.getElementById('ip_qty_label');
-    if (ql) ql.textContent = isBond ? 'Nominale (€) *' : 'Quantità *';
-    const pl = document.getElementById('ip_price_label');
-    if (pl) pl.textContent = isBond ? 'Prezzo di regolamento (%) *' : 'Prezzo pagato (€) *';
-    const al = document.getElementById('ip_avg_label');
-    if (al) al.textContent = isBond ? 'Prezzo medio effettivo (%)' : 'Prezzo medio effettivo (€)';
-    const cl = document.getElementById('ip_cur_label');
-    if (cl) cl.textContent = isBond ? 'Prezzo attuale (%)' : 'Prezzo attuale (€)';
-    calcAvg();
-  };
-
-  // Calcola prezzo medio al cambio di qty/prezzo/commissioni
-  const calcAvg = () => {
-    const isBond = document.getElementById('ip_type_bond')?.classList.contains('theme-btn-active');
-    const q  = evalAmount(document.getElementById('ip_qty')?.value)   || 0;
-    const p  = evalAmount(document.getElementById('ip_price')?.value) || 0;
-    const c  = evalAmount(document.getElementById('ip_comm')?.value)  || 0;
-    const el = document.getElementById('ip_avg');
-    if (!el) return;
-    if (!q || !p) { el.value = ''; return; }
-    if (isBond) {
-      // avg% = prezzo% + (commissioni€ / nominale€) * 100
-      el.value = (p + (c / q) * 100).toFixed(4) + ' %';
-    } else {
-      el.value = ((q * p + c) / q).toFixed(5) + ' €';
-    }
-  };
-  setTimeout(() => {
-    ['ip_qty','ip_price','ip_comm'].forEach(id =>
-      document.getElementById(id)?.addEventListener('input', calcAvg));
-  }, 50);
-}
-
 async function showSellModal(portfolioId) {
   const [items, accounts] = await Promise.all([api.getPortfolio(), api.getAccounts()]);
   const pos = items.find(i => i.id === portfolioId);
@@ -2120,7 +1951,10 @@ async function refreshPortfolioPrices() {
     .filter(i => _portfolioTypeFilter === 'all' ? true : (i.asset_type || 'equity') === _portfolioTypeFilter);
   if (!items.length) { toast('Nessun titolo da aggiornare', 'info'); return; }
 
-  if (btn) btn.disabled = true;
+  if (btn) {
+    btn.style.minWidth = btn.offsetWidth + 'px';
+    btn.disabled = true;
+  }
   let updated = 0, failed = 0;
 
   for (const item of items) {

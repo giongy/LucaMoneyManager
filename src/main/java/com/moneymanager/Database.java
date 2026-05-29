@@ -2744,53 +2744,6 @@ public class Database {
         return queryOne("SELECT * FROM portfolio WHERE id=?", id);
     }
 
-    /** Carica una posizione esistente senza creare transazioni bancarie. */
-    public Map<String, Object> importPosition(JsonObject p) throws SQLException {
-        int accountId    = p.get("account_id").getAsInt();
-        String ticker    = p.get("ticker").getAsString().toUpperCase();
-        String name      = p.get("name").getAsString();
-        double qty       = p.get("quantity").getAsDouble();
-        double avgPrice  = r4(p.get("avg_price").getAsDouble());
-        double curPrice  = r4(p.has("current_price") && !p.get("current_price").isJsonNull()
-                ? p.get("current_price").getAsDouble() : avgPrice);
-        String notes     = p.has("notes") && !p.get("notes").isJsonNull() ? p.get("notes").getAsString() : null;
-        String assetType = p.has("asset_type") && !p.get("asset_type").isJsonNull() ? p.get("asset_type").getAsString() : "equity";
-        double faceValue = r4(p.has("face_value") && !p.get("face_value").isJsonNull() ? p.get("face_value").getAsDouble() : 1.0);
-        String maturityDate = p.has("maturity_date") && !p.get("maturity_date").isJsonNull() ? p.get("maturity_date").getAsString() : null;
-        double couponRate   = p.has("coupon_rate") && !p.get("coupon_rate").isJsonNull() ? p.get("coupon_rate").getAsDouble() : 0.0;
-        String couponFreq   = p.has("coupon_frequency") && !p.get("coupon_frequency").isJsonNull() ? p.get("coupon_frequency").getAsString() : null;
-        double couponTax    = p.has("coupon_tax") && !p.get("coupon_tax").isJsonNull() ? p.get("coupon_tax").getAsDouble() : 12.5;
-
-        double commissions  = r2(p.has("commissions") && !p.get("commissions").isJsonNull() ? p.get("commissions").getAsDouble() : 0.0);
-
-        var existing = queryOne("SELECT * FROM portfolio WHERE account_id=? AND ticker=?", accountId, ticker);
-        long id;
-        boolean isBondImp   = "bond".equals(assetType);
-        // Bond: qty = nominale €, avgPrice = %; valore = nominale * prezzo% / 100
-        double addedValue   = r2(isBondImp ? qty * avgPrice / 100.0 : qty * avgPrice);
-        if (existing != null) {
-            double existQty  = ((Number)existing.get("quantity")).doubleValue();
-            double existAvg  = ((Number)existing.get("avg_price")).doubleValue();
-            double existComm = existing.get("total_commissions") != null
-                    ? ((Number)existing.get("total_commissions")).doubleValue() : 0.0;
-            double newAvg    = r4((existQty * existAvg + qty * avgPrice) / (existQty + qty));
-            id = ((Number)existing.get("id")).longValue();
-            execute("UPDATE portfolio SET quantity=?, avg_price=?, current_price=?, total_commissions=? WHERE id=?",
-                    existQty + qty, newAvg, curPrice, r2(existComm + commissions), id);
-        } else {
-            id = execute("""
-                INSERT INTO portfolio(account_id,ticker,name,quantity,avg_price,current_price,notes,
-                                      asset_type,face_value,maturity_date,coupon_rate,coupon_frequency,coupon_tax,total_commissions)
-                VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """, accountId, ticker, name, qty, avgPrice, curPrice, notes,
-                 assetType, faceValue, maturityDate, couponRate, couponFreq, couponTax, commissions);
-        }
-        execute("UPDATE accounts SET initial_balance = initial_balance + ? WHERE id = ?", addedValue, accountId);
-        logger.log("POSIZIONE IMPORTATA", "ticker:" + ticker, "nome:" + name,
-                   "quantita:" + qty, "prezzo_medio:" + DbLogger.amt(avgPrice));
-        return queryOne("SELECT * FROM portfolio WHERE id=?", id);
-    }
-
     /** Registra il pagamento di una cedola come transazione income. */
     public Map<String, Object> registerCoupon(JsonObject p) throws SQLException {
         int portfolioId = p.get("portfolio_id").getAsInt();

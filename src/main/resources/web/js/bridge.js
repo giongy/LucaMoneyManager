@@ -153,7 +153,6 @@ const api = {
   sellStock:                async (data)  => { api._invalidateAccounts(); return callJava('sellStock', data); },
   updateStockPrice:         async (id, p) => { api._invalidateAccounts(); return callJava('updateStockPrice', {id, price: p}); },
   fetchOnlinePrice:         (isin)  => callJava('fetchOnlinePrice', {isin}),
-  importPosition:           async (data)  => { api._invalidateAccounts(); return callJava('importPosition', data); },
   registerCoupon:           async (data)  => { api._invalidateAccounts(); return callJava('registerCoupon', data); },
   registerDividend:         async (data)  => { api._invalidateAccounts(); return callJava('registerDividend', data); },
   registerPortfolioExpense: async (data)  => { api._invalidateAccounts(); return callJava('registerPortfolioExpense', data); },

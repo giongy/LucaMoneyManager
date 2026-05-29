@@ -875,7 +875,7 @@ function showScheduledModal(sched, accounts, categories, tags = []) {
       </div>
       <div class="form-group">
         <label class="form-label">Data fine (opzionale)</label>
-        <input type="date" class="form-control" id="sc_end" value="${sched?.end_date||''}">
+        <input type="date" class="form-control" id="sc_end" value="${sched?.end_date||''}" min="${sched?.start_date||today}">
       </div>
     </div>
     <div class="form-row">
@@ -968,6 +968,7 @@ function showScheduledModal(sched, accounts, categories, tags = []) {
     if (!data.account_id) { _markErr('sc_account', 'Seleziona il conto'); return false; }
     if (data.type !== 'transfer' && !data.category_id) { _markErr('sc_cat_input', 'Seleziona la categoria'); return false; }
     if (!data.start_date) { _markErr('sc_start', 'Inserisci la data di inizio'); return false; }
+    if (data.end_date && data.end_date < data.start_date) { _markErr('sc_end', 'La data fine non può essere precedente alla data inizio'); return false; }
     try {
       if (isEdit) await api.updateScheduled(data);
       else        await api.addScheduled(data);
@@ -986,6 +987,15 @@ function showScheduledModal(sched, accounts, categories, tags = []) {
       sc_selectedTagIds.has(id) ? sc_selectedTagIds.delete(id) : sc_selectedTagIds.add(id);
     };
   });
+
+  const _scStart = document.getElementById('sc_start');
+  const _scEnd   = document.getElementById('sc_end');
+  if (_scStart && _scEnd) {
+    _scStart.addEventListener('change', () => {
+      _scEnd.min = _scStart.value || '';
+      if (_scEnd.value && _scStart.value && _scEnd.value < _scStart.value) _scEnd.value = '';
+    });
+  }
 
   initCatPicker('sc_cat_input', 'sc_cat', 'sc_catPickerList');
   updateSchedCatSelect(sched?.category_id);

@@ -174,7 +174,7 @@ async function renderSettings() {
           <div class="settings-control">
             <div style="display:flex;flex-direction:column;gap:10px">
               <div style="display:flex;gap:6px;flex-wrap:wrap">
-                ${[['dark','🌙 Scuro'],['glassy','🪟 Vetro'],['carta','📜 Carta'],['salvia','🌿 Salvia']].map(([key,label]) => `
+                ${[['dark','🌙 Scuro'],['glassy','🪟 Vetro'],['cristallo','🧊 Cristallo'],['carta','📜 Carta']].map(([key,label]) => `
                   <button class="btn theme-btn ${(s['appearance.theme']||'dark')===key?'theme-btn-active':''}"
                           onclick="settingsSetTheme('${key}')">${label}</button>
                   <button class="btn btn-ghost btn-icon" title="Duplica e personalizza" onclick="duplicateTheme('${key}')">⧉</button>`).join('')}
@@ -788,11 +788,11 @@ const _BUILTIN_VARS = {
     '--income':'#1e6b2e','--expense':'#b52a1a','--warn':'#7a5600',
     '--txt':'#241a08','--txt2':'#5c4a2c','--txt3':'#8a7860',
   },
-  salvia: {
-    '--bg':'#d8e4da','--bg2':'#e4ede6','--bg3':'#c8d5ca','--bg4':'#baccbe',
-    '--border':'#a8b8aa','--accent':'#2563eb','--accent2':'#0891b2',
+  cristallo: {
+    '--bg':'#e7edf5','--bg2':'#f4f7fb','--bg3':'#dde6f0','--bg4':'#eef2f8',
+    '--border':'#c2cfdf','--accent':'#2f6df0','--accent2':'#0e9e8e',
     '--income':'#15803d','--expense':'#dc2626','--warn':'#b45309',
-    '--txt':'#0d1f12','--txt2':'#2d4a32','--txt3':'#5a7a60',
+    '--txt':'#16202e','--txt2':'#45556b','--txt3':'#6c7b91',
   },
   sintesi: {
     '--bg':'#0d0618','--bg2':'#140a28','--bg3':'#1c1038','--bg4':'#261548',
@@ -875,6 +875,7 @@ function _clearCustomVars() {
 }
 
 function applyTheme(theme) {
+  if (theme === 'salvia') theme = 'cristallo'; // migrazione: il tema Salvia è stato sostituito da Cristallo
   _activeThemeKey = theme || 'dark';
   _clearCustomVars();
   if (theme && theme.startsWith('c:')) {
@@ -882,7 +883,7 @@ function applyTheme(theme) {
     document.documentElement.dataset.theme = '';
     if (ct) _applyCustomVars(ct);
   } else {
-    const valid = ['carta', 'salvia', 'glassy'];
+    const valid = ['carta', 'cristallo', 'glassy'];
     document.documentElement.dataset.theme = valid.includes(theme) ? theme : '';
   }
   _updateThemeBtn();
@@ -896,10 +897,10 @@ async function settingsSetTheme(theme) {
 }
 
 const _THEME_CYCLE = [
-  { key: '',       icon: '🌙', label: 'Scuro' },
-  { key: 'glassy', icon: '🪟', label: 'Vetro' },
-  { key: 'carta',  icon: '📜', label: 'Carta' },
-  { key: 'salvia', icon: '🌿', label: 'Salvia' },
+  { key: '',          icon: '🌙', label: 'Scuro' },
+  { key: 'glassy',    icon: '🪟', label: 'Vetro' },
+  { key: 'cristallo', icon: '🧊', label: 'Cristallo' },
+  { key: 'carta',     icon: '📜', label: 'Carta' },
 ];
 
 function _fullThemeCycle() {
@@ -935,7 +936,7 @@ function duplicateTheme(sourceKey) {
     if (!ct) return;
     base = { ...ct, id: Date.now().toString(36), name: ct.name + ' (copia)', vars: { ...ct.vars } };
   } else {
-    const names = { dark: 'Scuro', carta: 'Carta', salvia: 'Salvia', sintesi: 'Sintesi' };
+    const names = { dark: 'Scuro', carta: 'Carta', cristallo: 'Cristallo', sintesi: 'Sintesi' };
     base = {
       id: Date.now().toString(36),
       name: (names[sourceKey] || 'Tema') + ' (copia)',

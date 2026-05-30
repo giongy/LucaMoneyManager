@@ -70,30 +70,103 @@
 }
 
 
-/* ─── Salvia theme (verde salvia, naturale e riposante) ───────────────────── */
-[data-theme="salvia"] th { background: var(--bg3); }
-[data-theme="salvia"] td { border-bottom-color: #a8b8aa; }
-[data-theme="salvia"] .budget-row-child td { background: var(--bg); }
-[data-theme="salvia"] .budget-row-parent td { background: var(--bg2); }
-[data-theme="salvia"] .budget-gestione-badge.monthly { background: #c8dff0; color: #1a3f72; border-color: #1a3f7244; }
-[data-theme="salvia"] .budget-gestione-badge.annual  { background: #c2e8ce; color: #1a5230; border-color: #1a523044; }
-[data-theme="salvia"] {
-  --bg:       #d8e4da;
-  --bg2:      #e4ede6;
-  --bg3:      #baccbf;
-  --bg4:      #aebfb2;
-  --border:   #a8b8aa;
-  --accent:   #2563eb;
-  --accent2:  #0891b2;
+/* ─── Cristallo theme (vetro chiaro: effetto glass su sfondo luminoso) ─────── */
+[data-theme="cristallo"] {
+  --bg:       #e7edf5;
+  --bg2:      rgba(255,255,255,.58);
+  --bg3:      rgba(255,255,255,.40);
+  --bg4:      rgba(255,255,255,.78);
+  --border:   rgba(120,145,180,.30);
+  --accent:   #2f6df0;
+  --accent2:  #0e9e8e;
   --income:   #15803d;
   --expense:  #dc2626;
   --warn:     #b45309;
   --purple:   #7c3aed;
   --orange:   #c2410c;
-  --txt:      #0d1f12;
-  --txt2:     #2d4a32;
-  --txt3:     #5a7a60;
-  --shadow:   0 8px 32px rgba(0,0,0,.08);
+  --txt:      #16202e;
+  --txt2:     #45556b;
+  --txt3:     #6c7b91;
+  --shadow:   0 8px 32px rgba(60,80,120,.14);
+}
+/* Sfondo chiaro con due aloni freddi (blu + menta) per dare profondità sotto il blur.
+   Niente background-attachment:fixed (ricalcolerebbe il blur ad ogni scroll). */
+[data-theme="cristallo"] body {
+  background:
+    radial-gradient(1100px 750px at 18% -5%, rgba(110,160,255,.30), transparent 65%),
+    radial-gradient(900px 650px at 92% 105%, rgba(40,200,180,.22), transparent 65%),
+    linear-gradient(135deg, #e9eef8 0%, #eef2f9 50%, #e6f1ef 100%);
+}
+/* Blur solo su chrome (sidebar, modale, titlebar): bg2 translucido + blur = vetro smerigliato.
+   Le card NON usano backdrop-filter (troppe → una passata GPU ciascuna): restano white
+   translucide e mostrano il gradiente sotto. */
+[data-theme="cristallo"] .sidebar,
+[data-theme="cristallo"] .titlebar,
+[data-theme="cristallo"] .modal {
+  backdrop-filter: blur(12px) saturate(150%);
+  -webkit-backdrop-filter: blur(12px) saturate(150%);
+}
+[data-theme="cristallo"] .card,
+[data-theme="cristallo"] .stat-card {
+  background: rgba(255,255,255,.55);
+  border-color: rgba(255,255,255,.65);
+  box-shadow: 0 4px 24px rgba(70,90,130,.12), inset 0 1px 0 rgba(255,255,255,.55);
+}
+[data-theme="cristallo"] .modal {
+  background: rgba(255,255,255,.62);
+  border-color: rgba(255,255,255,.7);
+  box-shadow: 0 20px 60px rgba(60,80,120,.28), inset 0 1px 0 rgba(255,255,255,.6);
+}
+[data-theme="cristallo"] .modal-overlay { background: rgba(40,55,80,.22); }
+[data-theme="cristallo"] .modal-header,
+[data-theme="cristallo"] .modal-footer { border-color: rgba(120,145,180,.25); }
+/* Form controls: sfondo quasi opaco per emergere dal vetro e restare leggibili */
+[data-theme="cristallo"] .form-control {
+  background: rgba(255,255,255,.85);
+  border-color: rgba(120,145,180,.35);
+}
+[data-theme="cristallo"] .form-control:hover { border-color: rgba(120,145,180,.55); }
+[data-theme="cristallo"] select { background-color: rgba(255,255,255,.92); }
+[data-theme="cristallo"] select option { background-color: #eef2f8; color: var(--txt); }
+/* Popover flottanti: sfondo opaco chiaro — non hanno nulla dietro su cui sfocare */
+[data-theme="cristallo"] .cat-picker-list,
+[data-theme="cristallo"] .sched-tag-dropdown,
+[data-theme="cristallo"] #dash-tooltip,
+[data-theme="cristallo"] .ctx-menu,
+[data-theme="cristallo"] #portfolio-ctx-menu,
+[data-theme="cristallo"] #sched-ctx-menu {
+  background: rgba(244,247,251,.97) !important;
+  border-color: rgba(120,145,180,.30);
+  backdrop-filter: blur(12px) saturate(150%);
+  -webkit-backdrop-filter: blur(12px) saturate(150%);
+  box-shadow: 0 12px 32px rgba(60,80,120,.20);
+}
+[data-theme="cristallo"] .cat-picker-item:hover,
+[data-theme="cristallo"] .cat-picker-item.active,
+[data-theme="cristallo"] .sched-tag-opt:hover { background: rgba(47,109,240,.10); }
+/* Tabelle: header e celle sticky con sfondo solido chiaro (il contenuto scorre dietro) */
+[data-theme="cristallo"] th { background: #e3e9f2; }
+[data-theme="cristallo"] td { border-bottom-color: rgba(120,145,180,.22); }
+[data-theme="cristallo"] .budget-row-child td  { background: rgba(255,255,255,.30); }
+[data-theme="cristallo"] .budget-row-parent td { background: rgba(255,255,255,.48); }
+[data-theme="cristallo"] .budget-table thead th,
+[data-theme="cristallo"] .budget-table thead td,
+[data-theme="cristallo"] .budget-cat-th,
+[data-theme="cristallo"] .budget-cat-cell { background: #e3e9f2 !important; }
+[data-theme="cristallo"] .budget-total-th { background: #dbe3ee !important; }
+[data-theme="cristallo"] .budget-row-parent .budget-cat-cell { background: #e3e9f2 !important; }
+[data-theme="cristallo"] .budget-row-child  .budget-cat-cell { background: #eaf0f7 !important; }
+[data-theme="cristallo"] .analytics-table thead th,
+[data-theme="cristallo"] #txTable thead th { background: #e3e9f2 !important; }
+/* Badge budget: in chiaro servono colori solidi (le trasparenze dark non funzionano) */
+[data-theme="cristallo"] .budget-gestione-badge.monthly { background: #d6e6fb; color: #1a3f72; border-color: #1a3f7244; }
+[data-theme="cristallo"] .budget-gestione-badge.annual  { background: #cfeede; color: #15532f; border-color: #15532f44; }
+/* Notifiche flottanti: vetro chiaro come card/modali */
+[data-theme="cristallo"] .overdue-notice {
+  background: rgba(255,255,255,.58);
+  backdrop-filter: blur(12px) saturate(150%);
+  -webkit-backdrop-filter: blur(12px) saturate(150%);
+  box-shadow: 0 12px 32px rgba(60,80,120,.20), inset 0 1px 0 rgba(255,255,255,.6);
 }
 
 /* ─── Glassy theme (scuro morbido con effetto vetro) ─────────────────────── */
@@ -1737,3 +1810,12 @@ tr.tx-selected td { background:rgba(88,166,255,.07); }
   -webkit-backdrop-filter:blur(10px) saturate(130%);
 }
 [data-theme="glassy"] .note-editor-quill { background:rgba(0,0,0,.18); }
+
+/* Cristallo: popup Quill opachi chiari (non hanno blur dietro) */
+[data-theme="cristallo"] .ql-snow .ql-picker-options,
+[data-theme="cristallo"] .ql-snow .ql-tooltip {
+  background:rgba(244,247,251,.97) !important;
+  backdrop-filter:blur(12px) saturate(150%);
+  -webkit-backdrop-filter:blur(12px) saturate(150%);
+}
+[data-theme="cristallo"] .note-editor-quill { background:rgba(255,255,255,.40); }

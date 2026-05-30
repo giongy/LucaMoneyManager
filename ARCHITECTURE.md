@@ -203,7 +203,7 @@ init() async
   ├─ isMaximized → mostra/nasconde resize handles
   ├─ getSettings → carica preferenze persistenti
   │     appearance.theme, accounts.favorites_only, proj.range, ecc.
-  ├─ applyTheme(...)              (data-theme="dark|light|carta|salvia|glassy|...")
+  ├─ applyTheme(...)              (data-theme="dark|light|carta|cristallo|glassy|...")
   ├─ updateSidebar()              (lista conti preferiti + tipi)
   ├─ renderDashboard()            (PRIMA pagina visibile)
   ├─ requestAnimationFrame×2 → api.uiReady()  ← splash svanisce
@@ -372,7 +372,7 @@ Disabilitabile con `http.enabled=0` in `settings.properties`.
 
 - Foglio unico: [css/style.css](src/main/resources/web/css/style.css) (~3000 righe)
 - Tema via `<html data-theme="...">` impostato da `applyTheme()` in [pages/settings.js](src/main/resources/web/js/pages/settings.js)
-- Temi built-in: `dark` (default), `light`, `carta`, `salvia`, `glassy`
+- Temi built-in: `dark` (default), `light`, `carta`, `cristallo`, `glassy`
 - Temi custom utente: salvati in `app_settings` chiave `appearance.custom_themes` (JSON)
 - **Regola tema light:** mai bianco puro — vedi [CLAUDE.md](CLAUDE.md) sezione "UI — Tema light"
 

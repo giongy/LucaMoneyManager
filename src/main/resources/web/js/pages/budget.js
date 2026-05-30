@@ -1486,7 +1486,7 @@ function _prevSchedDate(dateStr, freq) {
 // Se presente viene usata come limite inferiore così le transazioni create
 // a metà anno non vengono proiettate prima della loro vera data di inizio.
 // Se NULL (record pre-migrazione) si usa il comportamento storico (proiezione a yStart).
-function _countSchedYearOcc(freq, startDate, endDate, year, origStart, fromDate) {
+function _countSchedYearOcc(freq, startDate, endDate, year, origStart, fromDate, excludeMonths) {
   const yStart = `${year}-01-01`;
   const yEnd   = `${year}-12-31`;
   if (!startDate) return 0;
@@ -1495,8 +1495,13 @@ function _countSchedYearOcc(freq, startDate, endDate, year, origStart, fromDate)
   let effStart   = (origStart && origStart > yStart)  ? origStart : yStart;
   if (fromDate && fromDate > effStart) effStart = fromDate;
 
+  const isExcl = d => excludeMonths && excludeMonths.has(parseInt(d.substring(5,7)));
+
   // 'once': conta solo se la data cade nel range effettivo
-  if (freq === 'once') return (startDate >= effStart && startDate <= effEnd) ? 1 : 0;
+  if (freq === 'once') {
+    if (startDate < effStart || startDate > effEnd) return 0;
+    return isExcl(startDate) ? 0 : 1;
+  }
 
   // Per le ricorrenze, start_date è la PROSSIMA occorrenza futura (aggiornata dopo
   // ogni registrazione, può essere in un anno successivo).
@@ -1511,7 +1516,7 @@ function _countSchedYearOcc(freq, startDate, endDate, year, origStart, fromDate)
 
   let count = 0;
   for (let i = 0; i < 400 && cur <= effEnd; i++) {
-    if (cur >= effStart) count++;
+    if (cur >= effStart && !isExcl(cur)) count++;
     const next = _nextSchedDate(cur, freq);
     if (!next || next === cur) break;
     cur = next;
@@ -1567,11 +1572,23 @@ async function renderBudgetVsPianificate() {
     if (budgByCat[catIdStr] === undefined) budgByCat[catIdStr] = _getAnnual(parseInt(catIdStr));
   }
 
-  // Pianificate dell'anno (full year, proiezione completa Gen→Dic per ogni ricorrente)
+  // Mesi coperti da pianificate "una volta" per categoria nell'anno: per le ricorrenti
+  // dello stessa categoria sono "override" → la ricorrente NON conta quel mese (evita
+  // doppio conteggio quando una bolletta media viene sostituita con un importo specifico).
+  const onceMonthsByCat = {};
+  for (const s of scheds) {
+    if (!s.is_active || s.type === 'transfer' || !s.category_id) continue;
+    if (s.frequency !== 'once' || !s.start_date) continue;
+    if (!s.start_date.startsWith(budgetYear + '-')) continue;
+    if (!onceMonthsByCat[s.category_id]) onceMonthsByCat[s.category_id] = new Set();
+    onceMonthsByCat[s.category_id].add(parseInt(s.start_date.substring(5,7)));
+  }
+
   const schedByCat = {};
   for (const s of scheds) {
     if (!s.is_active || s.type === 'transfer' || !s.category_id) continue;
-    const occ = _countSchedYearOcc(s.frequency, s.start_date, s.end_date, budgetYear, s.original_start_date);
+    const excl = s.frequency !== 'once' ? onceMonthsByCat[s.category_id] : null;
+    const occ = _countSchedYearOcc(s.frequency, s.start_date, s.end_date, budgetYear, s.original_start_date, null, excl);
     schedByCat[s.category_id] = (schedByCat[s.category_id] || 0) + occ * s.amount;
   }
 

@@ -19,6 +19,23 @@ const zoomOpts = () => ({
   pan:  { enabled: true, mode: 'x' }
 });
 
+/* ─── Lazy-load script vendor (caricamento on-demand) ─────────────────────── */
+// Carica uno script una sola volta, restituendo una Promise risolta quando è
+// pronto. Usato per librerie pesanti non necessarie all'avvio (es. Quill, usato
+// solo nell'editor delle Note) così da non parsarle a ogni avvio dell'app.
+const _lazyScripts = {};
+function loadVendorScript(src) {
+  if (_lazyScripts[src]) return _lazyScripts[src];
+  _lazyScripts[src] = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = () => resolve();
+    s.onerror = () => { delete _lazyScripts[src]; reject(new Error('Caricamento fallito: ' + src)); };
+    document.head.appendChild(s);
+  });
+  return _lazyScripts[src];
+}
+
 /* ─── Account visibility helpers ─────────────────────────────────────────── */
 // Dipende da _accFavoritesOnly (let globale dichiarata in app.js).
 const isAccountVisible = a =>

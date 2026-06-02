@@ -48,6 +48,23 @@ public class MainWindow {
         // Menu contestuale (tasto destro) personalizzato al posto di quello Chromium di default
         client.addContextMenuHandler(new ContextMenuHandler());
 
+        // Zoom predefinito all'avvio: CEF persiste il livello di zoom per origine nella
+        // propria cache e lo ripristina ad ogni avvio. Senza questo, un "Riduci zoom"
+        // fatto in passato resterebbe applicato per sempre. Reimpostiamo lo zoom al
+        // default (0) una sola volta, al primo caricamento: gli zoom manuali fatti
+        // durante la sessione restano (i reload interni non azzerano, grazie al flag).
+        client.addLoadHandler(new org.cef.handler.CefLoadHandlerAdapter() {
+            private boolean zoomReset = false;
+            @Override
+            public void onLoadingStateChange(CefBrowser br, boolean isLoading,
+                                             boolean canGoBack, boolean canGoForward) {
+                if (!isLoading && !zoomReset) {
+                    zoomReset = true;
+                    br.setZoomLevel(0);
+                }
+            }
+        });
+
         // HTTP server sulla LAN — avviato in background solo se abilitato
         if ("0".equals(settings.get(Settings.HTTP_ENABLED, "1"))) {
             System.out.println("WebServer disabilitato dalle impostazioni.");

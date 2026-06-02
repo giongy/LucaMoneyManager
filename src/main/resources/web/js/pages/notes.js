@@ -234,9 +234,24 @@ function showNoteEditor(note) {
   });
 }
 
-function _initNoteEditor(note) {
-  const el = document.getElementById('noteEditor');
+async function _initNoteEditor(note) {
+  let el = document.getElementById('noteEditor');
   if (!el) return;
+  // Quill è caricato on-demand: pesa ~210 KB e serve solo qui (editor Note)
+  if (typeof Quill === 'undefined') {
+    el.innerHTML = '<div style="padding:12px;color:var(--muted)">Caricamento editor…</div>';
+    try {
+      await loadVendorScript('js/vendor/quill.min.js');
+    } catch (e) {
+      toast('Impossibile caricare l\'editor: ' + e.message, 'error');
+      return;
+    }
+    // Il modale potrebbe essere stato chiuso/riaperto durante il caricamento:
+    // rileggo l'elemento corrente ed esco se non esiste più.
+    el = document.getElementById('noteEditor');
+    if (!el) return;
+    el.innerHTML = '';
+  }
   _quill = new Quill(el, {
     theme: 'snow',
     placeholder: 'Inizia a scrivere…',

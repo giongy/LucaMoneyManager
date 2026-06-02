@@ -11,7 +11,7 @@ Due piattaforme: **desktop (primaria)** e **Android (secondaria)**, database SQL
 - **Linguaggio:** Java 25, Maven 3.x
 - **UI:** JCEF v143 (Chromium embedded) + Swing per dialogs/titlebar/splash
 - **Frontend:** Vanilla JS puro (`src/main/resources/web/`, modulare in `js/pages/*.js`), no React/Vue
-- **Versione:** 1.14.2 — output `target/moneymanager-1.14.2.jar` (fat JAR, web/ esclusa)
+- **Versione:** 1.15.0 — output `target/moneymanager-1.15.0.jar` (fat JAR, web/ esclusa)
 - **Web assets:** serviti da filesystem (cartella `web/` accanto al `.exe` in produzione, `target/classes/web/` in IDE)
 - **DB path:** `%APPDATA%\Roaming\LucaMoneyManager\data.db`
 - **Build:** `mvn package` oppure `build.bat`
@@ -37,20 +37,23 @@ Database.java (~3170 LOC) — tutte le query JDBC
 SQLite
 ```
 
-**Classi Java:** `App` (entry point), `MainWindow` (Swing + JCEF), `Bridge` (dispatch JS↔Java), `Database` (JDBC), `Settings` (preferenze utente), `IconFactory` (generazione .ico), `SplashWindow` (splash Swing 700ms), `TrayManager` (system tray), `SingleInstance` (lock istanza unica), `WebServer` (serve web/ da filesystem), `DbLogger` (logging query)
+**Classi Java:** `App` (entry point), `MainWindow` (Swing + JCEF), `Bridge` (dispatch JS↔Java), `Database` (JDBC), `Settings` (preferenze utente), `IconFactory` (generazione .ico), `SplashWindow` (splash Swing 700ms), `TrayManager` (system tray), `SingleInstance` (lock istanza unica), `WebServer` (serve web/ da filesystem), `DbLogger` (logging query), `ContextMenuHandler` (menu tasto destro nativo: ricarica/zoom/devtools)
 
-**Moduli JS pagine** (LOC indicativi): `analytics` (2500), `portfolio` (1790), `budget` (1760), `settings` (1400), `transactions` (1100), `scheduled` (1010), `dashboard` (580), `accounts` (360), `categories` (250), `forecasts` (230), `ranges` (190), `logviewer` (190), `tags` (85)
+**Moduli JS pagine** (LOC indicativi): `analytics` (2500), `portfolio` (1790), `budget` (1760), `settings` (1400), `transactions` (1100), `scheduled` (1010), `dashboard` (580), `accounts` (360), `categories` (250), `forecasts` (230), `ranges` (190), `logviewer` (190), `notes` (300), `tags` (85)
 
 ---
 
-## Schema DB (v13, 20 tabelle)
+## Schema DB (v17, 22 tabelle)
 
 - **Core:** `accounts`, `categories` (gerarchiche, `expense_nature`), `transactions` (`reconciled`, `attachment_path`, `color`), `transaction_splits`, `transaction_tags`, `tags` (`is_system`, `system_key`)
 - **Budget:** `budgets`, `budget_config` (master_amount mensile/annuale)
 - **Pianificate:** `scheduled_transactions` (`portfolio_id`, `original_start_date`), `scheduled_transaction_tags`
 - **Portfolio:** `portfolio` (equity/bond: `asset_type`, `face_value`, `maturity_date`, `coupon_*`, `country`), `portfolio_transactions`
 - **Previsioni:** `forecasts` (archived), `forecast_categories`, `forecast_excluded`
+- **Note:** `notes` (`pinned`, `color`, editor Quill), `note_tags`
 - **Sistema:** `reports`, `range_presets`, `app_settings`, `sync_meta`, `schema_version`
+
+**Indici (oltre alle PK):** su `transactions(date, account_id, category_id, to_account_id)` + composito `(account_id, date)`; su `transaction_splits(transaction_id)` e `portfolio_transactions(transaction_id)` (FK non indicizzate da SQLite); su `categories(parent_id)`, `budgets(year)`, `scheduled_transactions(is_active)`, `transaction_tags(tag_id)`, `note_tags(tag_id)`, `portfolio(account_id)`
 
 **SQLite config:** journal=DELETE, synchronous=FULL, cache=16MB, FK abilitati
 
@@ -79,7 +82,7 @@ Il tema light **non deve essere bianco puro** — l'utente lo trova aggressivo.
 
 ## Funzionalità principali
 
-Dashboard · Conti (tipi, valute, icone emoji, colori) · Transazioni (split, tag, riconciliazione) · Categorie (gerarchiche, colori) · Budget (mensile/annuale, master amount) · Pianificate (ricorrenti, previsioni) · Portfolio (ticker, buy/sell, dividendi) · Report (Chart.js) · Impostazioni (tema, backup)
+Dashboard · Conti (tipi, valute, icone emoji, colori) · Transazioni (split, tag, riconciliazione) · Categorie (gerarchiche, colori) · Budget (mensile/annuale, master amount) · Pianificate (ricorrenti, previsioni) · Portfolio (ticker, buy/sell, dividendi) · Report (Chart.js) · Note (editor Quill, lazy-load) · Impostazioni (tema, backup)
 
 ---
 

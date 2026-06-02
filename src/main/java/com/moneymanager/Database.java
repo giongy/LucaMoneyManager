@@ -485,7 +485,7 @@ public class Database {
         """);
     }
 
-    private static final int SCHEMA_VERSION = 16;
+    private static final int SCHEMA_VERSION = 17;
 
     private void migrate() throws SQLException {
         // Crea tabella versione se non esiste
@@ -814,6 +814,17 @@ public class Database {
                 )
             """);
             executePlain("CREATE INDEX IF NOT EXISTS idx_note_tags_tag ON note_tags(tag_id)");
+        }
+
+        // ── v17: indici su transaction_id mancanti ─────────────────────────────
+        // SQLite NON indicizza automaticamente le foreign key: senza questi indici
+        // le numerose subquery correlate "WHERE ts.transaction_id=t.id" (aggregazioni
+        // budget/analytics) e i GROUP BY per transaction_id facevano una scansione
+        // completa delle tabelle per ogni transazione (O(N×M)).
+        if (currentVersion < 17) {
+            executePlain("CREATE INDEX IF NOT EXISTS idx_splits_tx  ON transaction_splits(transaction_id)");
+            executePlain("CREATE INDEX IF NOT EXISTS idx_porttx_tx  ON portfolio_transactions(transaction_id)");
+            executePlain("PRAGMA optimize");
         }
 
         // Segna il DB come aggiornato all'ultima versione

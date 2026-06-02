@@ -808,24 +808,24 @@ async function renderAnalyticsHealth() {
     totalIncome, totalExpense, totalSavings, avgSavingsRate,
     scoreSavings, scorePos, scoreRunway, scoreIncTrend, scoreVol,
     score, scoreColor, scoreLabel,
-    posMonths, posPct,
-    expMedian, liquidBalance, liquidAccs, runwayMonths,
-    incMedian, savSlope, savSlopePct, savXMean, savAvg,
+    posMonths, posPct, roll3Pos, roll3Total, roll3Pct,
+    expMedian, cashBalance, investBalance, reserveBalance, liquidAccs, investAccs, runwayMonths, investHaircut,
+    incMedian, savSlope, savSlopePct, savMedFirst, savMedSecond, trendHalf,
     incStddev, incCV,
   } = computeHealthScore(aligned, accounts);
 
   const cc = chartColors();
 
   // ── Colori badge componenti ───────────────────────────────────────────────
-  const colS = scoreSavings >= 29 ? 'var(--income)' : scoreSavings >= 16 ? '#e8a838' : 'var(--expense)';
-  const colP = scorePos >= 15 ? 'var(--income)' : scorePos >= 7 ? '#e8a838' : 'var(--expense)';
-  const colR = scoreRunway >= 7 ? 'var(--income)' : scoreRunway >= 4 ? '#e8a838' : 'var(--expense)';
-  const colI = scoreIncTrend >= 16 ? 'var(--income)' : scoreIncTrend >= 7 ? '#e8a838' : 'var(--expense)';
+  const colS = scoreSavings >= 33 ? 'var(--income)' : scoreSavings >= 18 ? '#e8a838' : 'var(--expense)';
+  const colP = scorePos >= 11 ? 'var(--income)' : scorePos >= 5 ? '#e8a838' : 'var(--expense)';
+  const colR = scoreRunway >= 10 ? 'var(--income)' : scoreRunway >= 6 ? '#e8a838' : 'var(--expense)';
+  const colI = scoreIncTrend >= 13 ? 'var(--income)' : scoreIncTrend >= 6 ? '#e8a838' : 'var(--expense)';
   const colV = scoreVol >= 7 ? 'var(--income)' : scoreVol >= 4 ? '#e8a838' : 'var(--expense)';
 
   // ── Dati grafici dettaglio ────────────────────────────────────────────────
   const monthlyRates = monthCols.map((_,i) => incomes[i] > 0 ? +(savings[i] / incomes[i] * 100).toFixed(2) : 0);
-  const savRegLine   = monthCols.map((_,i) => savAvg + savSlope * (i - savXMean));
+  const savRegLine   = monthCols.map((_,i) => i < trendHalf ? savMedFirst : savMedSecond);
   const labels       = monthCols.map(m => m.label);
 
   // Runway display + posizione marker (clamp visivo a 0..12 mesi)
@@ -850,31 +850,31 @@ async function renderAnalyticsHealth() {
           ${[
             {
               label: 'Tasso di risparmio',
-              desc:  `Quota media di entrate risparmiata negli ultimi ${n} mesi. ≥20% = eccellente (40 pt) · ≥15% = ottimo · ≥10% = buono · ≥5% = sufficiente · ≤3% = scarso · =0% = nullo · <0% = penalità (fino a −20 pt).`,
-              got: scoreSavings, max: 40,
-              detail: `${avgSavingsRate.toFixed(1)}% medio → ${scoreSavings}/40 pt`,
-              col: scoreSavings>=29?'var(--income)':scoreSavings>=16?'#e8a838':'var(--expense)'
+              desc:  `Quota media di entrate risparmiata negli ultimi ${n} mesi. ≥20% = eccellente (46 pt) · ≥15% = ottimo · ≥10% = buono · ≥5% = sufficiente · ≤3% = scarso · =0% = nullo · <0% = penalità (fino a −23 pt).`,
+              got: scoreSavings, max: 46,
+              detail: `${avgSavingsRate.toFixed(1)}% medio → ${scoreSavings}/46 pt`,
+              col: scoreSavings>=33?'var(--income)':scoreSavings>=18?'#e8a838':'var(--expense)'
             },
             {
               label: 'Stabilità mensile',
-              desc:  `Percentuale di mesi su ${n} chiusi in positivo (entrate > uscite). 100% = ottimo · ≥75% = buono · <40% = attenzione.`,
-              got: scorePos, max: 20,
-              detail: `${posMonths}/${n} mesi positivi (${(posPct*100).toFixed(0)}%) → ${scorePos}/20 pt`,
-              col: scorePos>=15?'var(--income)':scorePos>=7?'#e8a838':'var(--expense)'
+              desc:  `Quota di finestre mobili di 3 mesi chiuse in positivo (somma risparmio &gt; 0). Usare 3 mesi invece del singolo mese evita che una grossa spesa annuale pianificata (tasse, assicurazione) conti come "fallimento" se i mesi vicini la assorbono. 100% = ottimo · ≥75% = buono · &lt;40% = attenzione.`,
+              got: scorePos, max: 14,
+              detail: `${roll3Pos}/${roll3Total} finestre di 3 mesi positive (${(roll3Pct*100).toFixed(0)}%) → ${scorePos}/14 pt`,
+              col: scorePos>=11?'var(--income)':scorePos>=5?'#e8a838':'var(--expense)'
             },
             {
               label: 'Riserva di emergenza',
-              desc:  `Mesi di vita coperti dalla liquidità attuale (saldi conti non-investimento, esclusi quelli chiusi) divisi per la spesa di un mese tipico (media interquartile su ${n} mesi: scarta il 25% più alto e più basso per ignorare outlier come tasse o vacanze). ≥6 mesi = ottimo (10 pt) · ≥3 = buono · ≥1.5 = sufficiente · ≥0.5 = scarso · &lt;0.5 = critico.`,
-              got: scoreRunway, max: 10,
-              detail: `${fmt.currency(liquidBalance)} liquidi ÷ ${fmt.currency(expMedian)}/mese tipico = <strong>${runwayDisplay} mesi</strong> → ${scoreRunway}/10 pt`,
-              col: scoreRunway>=7?'var(--income)':scoreRunway>=4?'#e8a838':'var(--expense)'
+              desc:  `Mesi di vita coperti dalla riserva disponibile — liquidità (conti non-investimento) più investimenti scontati al ${(investHaircut*100).toFixed(0)}% — divisa per la spesa di un mese tipico (media interquartile su ${n} mesi: scarta il 25% più alto e più basso per ignorare outlier come tasse o vacanze). ≥6 mesi = ottimo (14 pt) · ≥3 = buono · ≥1.5 = sufficiente · ≥0.5 = scarso · &lt;0.5 = critico.`,
+              got: scoreRunway, max: 14,
+              detail: `${fmt.currency(reserveBalance)} riserva ÷ ${fmt.currency(expMedian)}/mese tipico = <strong>${runwayDisplay} mesi</strong> → ${scoreRunway}/14 pt`,
+              col: scoreRunway>=10?'var(--income)':scoreRunway>=6?'#e8a838':'var(--expense)'
             },
             {
               label: 'Trend del risparmio',
-              desc:  `Direzione della regressione lineare sul risparmio mensile (entrate − uscite). Cattura insieme l'effetto di entrate e uscite: se le spese crescono e le entrate restano stabili, il risparmio scende. Pendenza normalizzata sul reddito mediano. Crescita &gt;+3%/mese = ottimo · stabile = sufficiente · calo &gt;−3%/mese = critico. Se tutti i mesi sono positivi e risparmi ≥10%, il punteggio minimo è 8 — un calo di tendenza conta meno quando sei sempre in attivo.`,
-              got: scoreIncTrend, max: 20,
-              detail: `${savSlopePct>=0?'+':''}${savSlopePct.toFixed(1)}%/mese del reddito (${savSlope>=0?'+':''}${fmt.currency(savSlope)}/mese) → ${scoreIncTrend}/20 pt`,
-              col: scoreIncTrend>=16?'var(--income)':scoreIncTrend>=7?'#e8a838':'var(--expense)'
+              desc:  `Confronto robusto tra la mediana del risparmio mensile della seconda metà del periodo e quella della prima metà (più stabile di una regressione: un singolo mese-outlier non lo sposta). Normalizzato sul reddito mediano. Crescita &gt;+3%/mese = ottimo · stabile = sufficiente · calo &gt;−3%/mese = critico. Se tutti i mesi sono positivi e risparmi ≥10%, il punteggio minimo è 7 — un calo di tendenza conta meno quando sei sempre in attivo.`,
+              got: scoreIncTrend, max: 16,
+              detail: `mediana ${fmt.currency(savMedFirst)} → ${fmt.currency(savMedSecond)} (${savSlopePct>=0?'+':''}${savSlopePct.toFixed(1)}%/mese del reddito) → ${scoreIncTrend}/16 pt`,
+              col: scoreIncTrend>=13?'var(--income)':scoreIncTrend>=6?'#e8a838':'var(--expense)'
             },
             {
               label: 'Stabilità delle entrate',
@@ -920,7 +920,7 @@ async function renderAnalyticsHealth() {
         <div class="card-section">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
             <div style="font-size:13px;font-weight:600">Tasso di risparmio</div>
-            <div class="score-badge" style="color:${colS}">${scoreSavings > 0 ? '+' : ''}${scoreSavings} / 40 pt</div>
+            <div class="score-badge" style="color:${colS}">${scoreSavings > 0 ? '+' : ''}${scoreSavings} / 46 pt</div>
           </div>
           <div class="health-desc" style="margin-bottom:10px">
             Percentuale di entrate risparmiata ogni mese. Media: <strong style="color:${avgSavingsRate>=10?'var(--income)':avgSavingsRate>=0?'#e8a838':'var(--expense)'}">${avgSavingsRate.toFixed(1)}%</strong>.
@@ -933,11 +933,13 @@ async function renderAnalyticsHealth() {
         <div class="card-section">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
             <div style="font-size:13px;font-weight:600">Stabilità mensile</div>
-            <div class="score-badge" style="color:${colP}">${scorePos} / 20 pt</div>
+            <div class="score-badge" style="color:${colP}">${scorePos} / 14 pt</div>
           </div>
           <div class="health-desc" style="margin-bottom:12px">
-            Mesi chiusi con entrate &gt; uscite: <strong style="color:${colP}">${posMonths} su ${n}</strong> (${(posPct*100).toFixed(0)}%).
-            100% = 20 pt · ≥90% = 18 pt · ≥75% = 15 pt · ≥60% = 11 pt · ≥40% = 7 pt · ≥20% = 3 pt · &lt;20% = 0 pt.
+            Finestre mobili di 3 mesi chiuse in positivo: <strong style="color:${colP}">${roll3Pos} su ${roll3Total}</strong> (${(roll3Pct*100).toFixed(0)}%).
+            Valutare 3 mesi alla volta evita che una grossa spesa annuale (tasse, assicurazione) penalizzi se i mesi vicini la assorbono.
+            100% = 14 pt · ≥90% = 13 · ≥75% = 11 · ≥60% = 8 · ≥40% = 5 · ≥20% = 2 · &lt;20% = 0 pt.
+            <span style="color:var(--txt3)">I riquadri sotto mostrano comunque il singolo mese.</span>
           </div>
           <div style="display:flex;flex-wrap:wrap;gap:6px">
             ${monthCols.map((m,i) => {
@@ -962,11 +964,12 @@ async function renderAnalyticsHealth() {
         <div class="card-section">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
             <div style="font-size:13px;font-weight:600">Riserva di emergenza</div>
-            <div class="score-badge" style="color:${colR}">${scoreRunway} / 10 pt</div>
+            <div class="score-badge" style="color:${colR}">${scoreRunway} / 14 pt</div>
           </div>
           <div class="health-desc" style="margin-bottom:14px">
-            Mesi di vita coperti dalla <strong>liquidità attuale</strong> (saldi conti non-investimento)
-            dividendo per la spesa di un mese tipico. Indica la tua <em>resilienza</em>: quanto duri se le entrate si fermano.
+            Mesi di vita coperti dalla <strong>riserva disponibile</strong> — liquidità (conti non-investimento)
+            più gli investimenti scontati al ${(investHaircut*100).toFixed(0)}% (in una crisi possono valere meno e richiedono tempo/tasse per essere venduti) —
+            divisa per la spesa di un mese tipico. Indica la tua <em>resilienza</em>: quanto duri se le entrate si fermano.
             Soglie: ≥6 mesi ottimo · ≥3 buono · ≥1.5 sufficiente · &lt;0.5 critico.
           </div>
 
@@ -996,9 +999,11 @@ async function renderAnalyticsHealth() {
 
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:12px;padding-top:10px;border-top:1px solid var(--border)">
             <div>
-              <div style="color:var(--txt3);font-size:10px;margin-bottom:2px">Liquidità totale</div>
-              <div style="font-weight:600;color:${liquidBalance>=0?'var(--income)':'var(--expense)'}">${fmt.currency(liquidBalance)}</div>
-              <div style="font-size:10px;color:var(--txt3);margin-top:1px">${liquidAccs.length} cont${liquidAccs.length===1?'o':'i'} non-investimento</div>
+              <div style="color:var(--txt3);font-size:10px;margin-bottom:2px">Riserva disponibile</div>
+              <div style="font-weight:600;color:${reserveBalance>=0?'var(--income)':'var(--expense)'}">${fmt.currency(reserveBalance)}</div>
+              <div style="font-size:10px;color:var(--txt3);margin-top:1px">
+                ${fmt.currency(cashBalance)} liquidi${investBalance>0?` + ${fmt.currency(investBalance*investHaircut)} invest. (${(investHaircut*100).toFixed(0)}% di ${fmt.currency(investBalance)})`:''}
+              </div>
             </div>
             <div>
               <div style="color:var(--txt3);font-size:10px;margin-bottom:2px">Spesa mensile tipica</div>
@@ -1012,14 +1017,15 @@ async function renderAnalyticsHealth() {
         <div class="card-section">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
             <div style="font-size:13px;font-weight:600">Trend del risparmio</div>
-            <div class="score-badge" style="color:${colI}">${scoreIncTrend} / 20 pt</div>
+            <div class="score-badge" style="color:${colI}">${scoreIncTrend} / 16 pt</div>
           </div>
           <div class="health-desc" style="margin-bottom:10px">
-            Regressione lineare sul <strong>risparmio mensile</strong> (entrate − uscite).
-            Cattura insieme l'effetto di entrate e uscite: se le spese crescono mentre le entrate restano stabili, il risparmio scende e il punteggio peggiora.
-            Pendenza attuale: <strong style="color:${savSlopePct>=0?'var(--income)':'var(--expense)'}">${savSlopePct>=0?'+':''}${savSlopePct.toFixed(1)}% del reddito/mese</strong>
-            (${savSlope>=0?'+':''}${fmt.currency(savSlope)}/mese). La linea tratteggiata indica la tendenza.
-            ${(posPct===1&&avgSavingsRate>=10)?'<em style="color:var(--income)">Tutti i mesi in attivo con risparmio ≥10%: punteggio minimo garantito a 8.</em>':(posPct>=0.75&&avgSavingsRate>=5)?'<em style="color:#e8a838">Situazione complessivamente positiva: punteggio minimo garantito a 4.</em>':''}
+            Confronto robusto tra la <strong>mediana del risparmio mensile</strong> della seconda metà del periodo e quella della prima metà
+            (più stabile di una regressione: un singolo mese-outlier non lo sposta).
+            Mediana: <strong>${fmt.currency(savMedFirst)}</strong> → <strong>${fmt.currency(savMedSecond)}</strong>, pari a
+            <strong style="color:${savSlopePct>=0?'var(--income)':'var(--expense)'}">${savSlopePct>=0?'+':''}${savSlopePct.toFixed(1)}% del reddito/mese</strong>.
+            La linea a gradino indica i due livelli mediani.
+            ${(posPct===1&&avgSavingsRate>=10)?'<em style="color:var(--income)">Tutti i mesi in attivo con risparmio ≥10%: punteggio minimo garantito a 7.</em>':(posPct>=0.75&&avgSavingsRate>=5)?'<em style="color:#e8a838">Situazione complessivamente positiva: punteggio minimo garantito a 5.</em>':''}
           </div>
           <div style="height:150px"><canvas id="healthIncChart"></canvas></div>
         </div>
@@ -1119,7 +1125,7 @@ async function renderAnalyticsHealth() {
           borderWidth:1 },
         { type:'line', label:'Tendenza', data:savRegLine,
           borderColor:'rgba(255,200,80,.75)', borderDash:[6,3],
-          pointRadius:0, tension:0, fill:false, borderWidth:2 }
+          pointRadius:0, stepped:'middle', fill:false, borderWidth:2 }
       ]
     },
     options:{

@@ -127,13 +127,18 @@ function computeHealthScore(balRows, accounts) {
   const totalSavings   = totalIncome - totalExpense;
   const avgSavingsRate = totalIncome > 0 ? (totalSavings / totalIncome) * 100 : 0;
 
-  // 1. Tasso risparmio (0–40 pt) — 8 soglie
-  const scoreSavings = avgSavingsRate >= 20 ? 40 : avgSavingsRate >= 15 ? 35 : avgSavingsRate >= 10 ? 29 : avgSavingsRate >= 7 ? 23 : avgSavingsRate >= 5 ? 16 : avgSavingsRate >= 3 ? 9 : avgSavingsRate > 0 ? 4 : avgSavingsRate === 0 ? 0 : avgSavingsRate >= -5 ? -7 : avgSavingsRate >= -10 ? -13 : -20;
+  // 1. Tasso risparmio (0–46 pt) — 8 soglie
+  const scoreSavings = avgSavingsRate >= 20 ? 46 : avgSavingsRate >= 15 ? 40 : avgSavingsRate >= 10 ? 33 : avgSavingsRate >= 7 ? 26 : avgSavingsRate >= 5 ? 18 : avgSavingsRate >= 3 ? 11 : avgSavingsRate > 0 ? 5 : avgSavingsRate === 0 ? 0 : avgSavingsRate >= -5 ? -8 : avgSavingsRate >= -10 ? -15 : -23;
 
-  // 2. Stabilità mensile (0–20 pt) — 7 soglie %
-  const posMonths = savings.filter(s => s > 0).length;
+  // 2. Stabilità mensile (0–14 pt) — finestre rolling di 3 mesi (robusta alle spese annuali lumpy)
+  // Una grossa uscita pianificata in un mese (tasse, assicurazione, IMU) non conta come
+  // "fallimento" se i mesi adiacenti la assorbono: valutiamo la somma mobile su 3 mesi.
+  const posMonths = savings.filter(s => s > 0).length;   // per-month: usata per i chip e per i floor del trend
   const posPct    = n > 0 ? posMonths / n : 0;
-  const scorePos  = posPct === 1 ? 20 : posPct >= 0.9 ? 18 : posPct >= 0.75 ? 15 : posPct >= 0.6 ? 11 : posPct >= 0.4 ? 7 : posPct >= 0.2 ? 3 : 0;
+  let roll3Pos = 0, roll3Total = 0;
+  for (let i = 0; i + 3 <= n; i++) { roll3Total++; if (savings[i] + savings[i + 1] + savings[i + 2] > 0) roll3Pos++; }
+  const roll3Pct  = roll3Total > 0 ? roll3Pos / roll3Total : posPct;   // fallback per-month se n < 3
+  const scorePos  = roll3Pct === 1 ? 14 : roll3Pct >= 0.9 ? 13 : roll3Pct >= 0.75 ? 11 : roll3Pct >= 0.6 ? 8 : roll3Pct >= 0.4 ? 5 : roll3Pct >= 0.2 ? 2 : 0;
 
   // IQM uscite (media interquartile, robusta agli outlier)
   const expSorted = [...expenses].sort((a, b) => a - b);
@@ -142,23 +147,34 @@ function computeHealthScore(balRows, accounts) {
   const expMedian = expDiv > 0 ? expSorted.slice(expQ1, expQ3).reduce((a, b) => a + b, 0) / expDiv : 0;
 
   // 3. Riserva di emergenza (0–10 pt)
-  const liquidAccs    = accounts.filter(a => a.type !== 'investment' && !a.is_closed);
-  const liquidBalance = liquidAccs.reduce((s, a) => s + (a.balance || 0), 0);
-  const runwayMonths  = expMedian > 0 ? liquidBalance / expMedian : (liquidBalance > 0 ? 99 : 0);
-  const scoreRunway   = runwayMonths >= 6 ? 10 : runwayMonths >= 3 ? 7 : runwayMonths >= 1.5 ? 4 : runwayMonths >= 0.5 ? 2 : 0;
+  // Riserva = liquidità immediata (conti non-investimento) + investimenti scontati (haircut):
+  // in una crisi gli asset investiti possono valere meno, c'è tassazione e serve tempo per
+  // venderli — ma restano una riserva reale, quindi contano (al netto dello sconto) per chi
+  // sceglie di investire la liquidità invece di tenerla ferma.
+  const INVEST_HAIRCUT = 0.75;
+  const liquidAccs     = accounts.filter(a => a.type !== 'investment' && !a.is_closed);
+  const investAccs     = accounts.filter(a => a.type === 'investment' && !a.is_closed);
+  const cashBalance    = liquidAccs.reduce((s, a) => s + (a.balance || 0), 0);
+  const investBalance  = investAccs.reduce((s, a) => s + (a.balance || 0), 0);
+  const reserveBalance = cashBalance + investBalance * INVEST_HAIRCUT;
+  const runwayMonths   = expMedian > 0 ? reserveBalance / expMedian : (reserveBalance > 0 ? 99 : 0);
+  const scoreRunway    = runwayMonths >= 6 ? 14 : runwayMonths >= 3 ? 10 : runwayMonths >= 1.5 ? 6 : runwayMonths >= 0.5 ? 3 : 0;
 
-  // 4. Trend del risparmio (0–20 pt) — pendenza regressione lineare normalizzata sul reddito IQM
+  // 4. Trend del risparmio (0–16 pt) — confronto robusto mediana 2ª metà vs 1ª metà del periodo.
+  // Più stabile della regressione OLS su pochi mesi: un singolo mese-outlier non sposta il risultato.
   const incSorted = [...incomes].sort((a, b) => a - b);
   const incQ1 = Math.floor(n * 0.25), incQ3 = Math.ceil(n * 0.75);
   const incMedian = incQ3 > incQ1 ? incSorted.slice(incQ1, incQ3).reduce((a, b) => a + b, 0) / (incQ3 - incQ1) : 0;
-  const savXMean = (n - 1) / 2, savAvg = savings.reduce((a, b) => a + b, 0) / (n || 1);
-  let savNum = 0, savDen = 0;
-  savings.forEach((v, i) => { savNum += (i - savXMean) * (v - savAvg); savDen += (i - savXMean) ** 2; });
-  const savSlope    = savDen ? savNum / savDen : 0;
-  const savSlopePct = incMedian > 0 ? savSlope / incMedian * 100 : 0;
-  const scoreIncTrendRaw = savSlopePct > 3 ? 20 : savSlopePct > 1 ? 16 : savSlopePct >= 0 ? 9 : savSlopePct > -1 ? 7 : savSlopePct > -3 ? 3 : 0;
-  const scoreIncTrend = (posPct === 1 && avgSavingsRate >= 10) ? Math.max(scoreIncTrendRaw, 8)
-    : (posPct >= 0.75 && avgSavingsRate >= 5) ? Math.max(scoreIncTrendRaw, 6) : scoreIncTrendRaw;
+  const _median = arr => { if (!arr.length) return 0; const s = [...arr].sort((a, b) => a - b); const m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
+  const trendHalf    = Math.floor(n / 2);
+  const savMedFirst  = _median(savings.slice(0, trendHalf));
+  const savMedSecond = _median(savings.slice(n - trendHalf));
+  const trendMonths  = (n - trendHalf) || 1;   // ~distanza tra i centri delle due metà
+  const savSlope     = trendHalf > 0 ? (savMedSecond - savMedFirst) / trendMonths : 0;   // €/mese (robusto)
+  const savSlopePct  = incMedian > 0 ? savSlope / incMedian * 100 : 0;
+  const scoreIncTrendRaw = savSlopePct > 3 ? 16 : savSlopePct > 1 ? 13 : savSlopePct >= 0 ? 7 : savSlopePct > -1 ? 6 : savSlopePct > -3 ? 2 : 0;
+  const scoreIncTrend = (posPct === 1 && avgSavingsRate >= 10) ? Math.max(scoreIncTrendRaw, 7)
+    : (posPct >= 0.75 && avgSavingsRate >= 5) ? Math.max(scoreIncTrendRaw, 5) : scoreIncTrendRaw;
 
   // 5. Stabilità entrate (0–10 pt) — semi-deviazione downside
   const incSemiVar = n > 1 ? incomes.reduce((a, v) => a + (v < incMedian ? (v - incMedian) ** 2 : 0), 0) / n : 0;
@@ -180,9 +196,9 @@ function computeHealthScore(balRows, accounts) {
     // aggregato
     score, scoreColor, scoreLabel,
     // dettaglio
-    posMonths, posPct,
-    expMedian, liquidBalance, liquidAccs, runwayMonths,
-    incMedian, savSlope, savSlopePct, savXMean, savAvg,
+    posMonths, posPct, roll3Pos, roll3Total, roll3Pct,
+    expMedian, cashBalance, investBalance, reserveBalance, liquidAccs, investAccs, runwayMonths, investHaircut: INVEST_HAIRCUT,
+    incMedian, savSlope, savSlopePct, savMedFirst, savMedSecond, trendHalf,
     incStddev, incCV,
   };
 }

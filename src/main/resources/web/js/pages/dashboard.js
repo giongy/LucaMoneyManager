@@ -694,7 +694,7 @@ function _renderDashHealth(balRows12, accounts) {
   if (!body) return;
   const h = computeHealthScore(balRows12, accounts);
   const runwayDisplay = !isFinite(h.runwayMonths) || h.runwayMonths >= 99 ? '99+' : h.runwayMonths.toFixed(1);
-  const runwayColor = h.scoreRunway >= 7 ? 'var(--income)' : h.scoreRunway >= 4 ? '#e8a838' : 'var(--expense)';
+  const runwayColor = h.scoreRunway >= 10 ? 'var(--income)' : h.scoreRunway >= 6 ? '#e8a838' : 'var(--expense)';
   const rateColor   = h.avgSavingsRate >= 10 ? 'var(--income)' : h.avgSavingsRate >= 5 ? '#e8a838' : 'var(--expense)';
   body.innerHTML = `
     <div style="display:flex;align-items:center;gap:18px;width:100%">

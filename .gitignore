@@ -18,8 +18,9 @@ debug.log
 *.iml
 .vscode/
 
-# Claude Code (configurazione locale)
-.claude/
+# Claude Code (configurazione locale, ma i comandi di progetto sono versionati)
+.claude/*
+!.claude/commands/
 
 # OS
 Thumbs.db

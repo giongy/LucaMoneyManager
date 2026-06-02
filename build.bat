@@ -13,7 +13,7 @@
 :: ============================================================================
 setlocal
 
-:: ── Configurazione ──────────────────────────────────────────────────────────
+:: -- Configurazione ----------------------------------------------------------
 set JAVA_HOME=C:\Program Files\Java\jdk-25
 set MVN=C:\Tools\apache-maven-3.9.6\bin\mvn.cmd
 set ROOT=%~dp0
@@ -34,7 +34,7 @@ echo.
 if not exist "%JAVA_HOME%\bin\java.exe" ( echo [ERRORE] Java non trovato in %JAVA_HOME% & pause & exit /b 1 )
 if not exist "%MVN%" ( echo [ERRORE] Maven non trovato in %MVN% & pause & exit /b 1 )
 
-:: ── Scelta utente ───────────────────────────────────────────────────────────
+:: -- Scelta utente -----------------------------------------------------------
 :: Entrambe le opzioni fanno build + deploy; la 2 aggiunge in coda lo ZIP.
 echo Scegli il tipo di build:
 echo.
@@ -44,7 +44,7 @@ echo.
 set /p SCELTA="Scelta [1/2]: "
 if "%SCELTA%"=="" set SCELTA=1
 
-:: ── 1) Maven ────────────────────────────────────────────────────────────────
+:: -- 1) Maven ----------------------------------------------------------------
 :: clean package produce il fat JAR (shade plugin); -q riduce l'output ai soli
 :: errori/warning. Lo "original-*.jar" e' il JAR pre-shade lasciato dal plugin
 :: e non serve a runtime -> lo cancelliamo per non confondere il deploy.
@@ -55,7 +55,7 @@ if errorlevel 1 ( echo [ERRORE] Build Maven fallita. & pause & exit /b 1 )
 del /q "%ROOT%target\original-moneymanager-*.jar" 2>nul
 echo       OK - %JAR%
 
-:: ── 2) jlink ────────────────────────────────────────────────────────────────
+:: -- 2) jlink ----------------------------------------------------------------
 :: Costruisce un JRE minimale contenente solo i moduli effettivamente usati.
 :: Modules:
 ::   java.base/desktop/sql/logging/xml/naming/management  -> core + Swing + JDBC
@@ -75,7 +75,7 @@ set MODULES=java.base,java.desktop,java.sql,java.logging,java.xml,java.naming,ja
 "%JAVA_HOME%\bin\jlink" --module-path "%JAVA_HOME%\jmods" --add-modules %MODULES% --output "%DIST%\runtime" --strip-debug --compress zip-2 --no-header-files --no-man-pages
 if errorlevel 1 ( echo [ERRORE] jlink fallito. & pause & exit /b 1 )
 
-:: ── 3) jpackage ─────────────────────────────────────────────────────────────
+:: -- 3) jpackage -------------------------------------------------------------
 :: Crea l'app-image (cartella LucaMoneyManager\ con .exe + app\ + runtime\).
 :: --runtime-image riusa il JRE creato sopra al posto di farne uno nuovo.
 :: --input contiene SOLO il JAR principale (le deps sono gia' nel fat JAR).
@@ -94,7 +94,7 @@ if errorlevel 1 ( echo [ERRORE] jpackage fallito. & pause & exit /b 1 )
 rmdir /s /q "%DIST%\runtime"
 rmdir /s /q "%DIST%\input"
 
-:: ── 4) Copia risorse web ────────────────────────────────────────────────────
+:: -- 4) Copia risorse web ----------------------------------------------------
 :: I file HTML/CSS/JS NON sono dentro il JAR (esclusi dal maven-shade-plugin):
 :: devono stare accanto al .exe. App.findWebDir() li cerca in <deploy>\web\ e
 :: li passa sia a JCEF (file://) sia al WebServer (HTTP LAN).
@@ -107,7 +107,7 @@ echo Copia risorse web in build...
 if errorlevel 8 ( echo [ERRORE] Copia web fallita. & pause & exit /b 1 )
 echo       OK - web/ nel build
 
-:: ── 5a) Deploy ──────────────────────────────────────────────────────────────
+:: -- 5a) Deploy --------------------------------------------------------------
 :: Sincronizza l'app-image verso la cartella di deploy. /purge rimuove dal
 :: destination i file non piu' presenti alla sorgente (es. vecchio JAR di
 :: una versione precedente). Le esclusioni /xf e /xd proteggono i file
@@ -122,7 +122,7 @@ echo       OK - deploy in %DEPLOY%
 :: Solo deploy: fine. ZIP solo se scelta = 2.
 if "%SCELTA%"=="1" goto :fine
 
-:: ── 5b) ZIP distribuibile (solo opzione 2) ──────────────────────────────────
+:: -- 5b) ZIP distribuibile (solo opzione 2) ----------------------------------
 :: Compress-Archive di PowerShell -> ZIP pulito senza dover installare 7zip.
 :: Si parte da build\ (non da DEPLOY) per evitare di includere dati utente.
 echo Creazione ZIP...

@@ -1569,20 +1569,6 @@ tr.tx-selected td { background:rgba(88,166,255,.07); }
 #txTable .btn-icon  { padding:2px 5px; font-size:var(--fs-sm,11px); }
 #txTable .tag-inline { font-size:var(--fs-xs,10px); padding:1px 5px; }
 
-/* ── Print / Export PDF ─────────────────────────────────────────────────── */
-@media print {
-  .no-print, .sidebar, .titlebar, #aiPanel, #ctxMenu { display:none !important; }
-  .main-content { margin-left:0 !important; }
-  body, .main-content, #pg-analytics { background:#fff !important; color:#111 !important; }
-  #analyticsContent { overflow:visible !important; height:auto !important; }
-  .sched-tab, [data-atab] { display:none !important; }
-  canvas { max-width:100% !important; }
-  #healthReport { padding:0 !important; }
-  #healthReport .no-print { display:none !important; }
-  * { box-shadow:none !important; }
-  @page { margin:15mm; size:A4 portrait; }
-}
-
 .port-storico-row { border-radius:4px; transition:background .15s; }
 .port-storico-collapsed:hover { background:var(--bg3); }
 

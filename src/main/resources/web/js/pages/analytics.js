@@ -837,7 +837,6 @@ async function renderAnalyticsHealth() {
   el.innerHTML = `
     <div id="healthReport" style="padding-bottom:24px">
 
-      <!-- Toolbar stampa -->
       <!-- Score principale -->
       <div style="display:grid;grid-template-columns:auto 1fr;gap:16px;margin-bottom:16px;align-items:stretch">
         <div style="text-align:center;padding:20px 28px;background:var(--bg3);border-radius:12px;min-width:120px;display:flex;flex-direction:column;justify-content:center">

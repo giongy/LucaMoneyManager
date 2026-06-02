@@ -45,6 +45,9 @@ public class MainWindow {
         router.addHandler(bridge, true);
         client.addMessageRouter(router);
 
+        // Menu contestuale (tasto destro) personalizzato al posto di quello Chromium di default
+        client.addContextMenuHandler(new ContextMenuHandler());
+
         // HTTP server sulla LAN — avviato in background solo se abilitato
         if ("0".equals(settings.get(Settings.HTTP_ENABLED, "1"))) {
             System.out.println("WebServer disabilitato dalle impostazioni.");

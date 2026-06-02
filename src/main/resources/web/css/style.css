@@ -36,7 +36,7 @@
   --font-size: 13px;
   --fs-lg:     13px;
   --fs-xl:     16px;
-  --sidebar:   220px;
+  --sidebar:   236px;
   --titlebar:  44px;
   --dash-gap:  10px;
   --dash-row-h: 400px;
@@ -352,19 +352,30 @@ input,select,textarea { font-family:inherit; }
 
 .sidebar-accounts {
   padding:6px 8px; margin-top:10px; border-top:1px solid var(--border);
-  display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:4px;
+  display:grid; grid-template-columns:repeat(3, 1fr); gap:4px;
 }
 .sidebar-account-item {
   display:flex; flex-direction:column; align-items:center;
-  padding:5px 3px 4px; border-radius:7px; background:var(--bg3);
-  transition:background .15s; gap:2px; min-width:0; cursor:pointer;
-  border-top:2px solid var(--acc-color, var(--border));
+  padding:7px 4px 6px; border-radius:9px; background:var(--bg3);
+  border:1px solid transparent;
+  transition:background .15s, border-color .15s; gap:4px; min-width:0; cursor:pointer;
 }
-.sidebar-account-item:hover { background:var(--bg4,var(--border)); }
-.acc-tile-icon { font-size:16px; line-height:1.2; }
+.sidebar-account-item:hover {
+  background:var(--bg4,var(--border));
+  border-color:color-mix(in srgb, var(--acc-color, var(--border)) 40%, transparent);
+}
+.acc-tile-icon {
+  font-size:15px; line-height:1;
+  width:30px; height:30px; border-radius:8px;
+  display:flex; align-items:center; justify-content:center;
+  background:color-mix(in srgb, var(--acc-color, var(--border)) 16%, transparent);
+  box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--acc-color, var(--border)) 32%, transparent);
+}
 .acc-tile-name {
   font-size:var(--fs-xs,10px); color:var(--txt2); text-align:center;
-  word-break:break-word; width:100%; line-height:1.2;
+  width:100%; line-height:1.2;
+  display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2;
+  overflow:hidden; overflow-wrap:break-word;
 }
 .acc-tile-bal {
   font-size:var(--fs-xs,10px); font-weight:700; text-align:center;

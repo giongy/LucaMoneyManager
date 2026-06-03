@@ -90,12 +90,33 @@ document.addEventListener('mousemove', e => {
 
 /* ─── Bottoni titlebar ───────────────────────────────────────────────────── */
 // _toggleTheme e showShortcutsHelp sono definite in app.js: risolte lazy al click.
-document.getElementById('btnMin').onclick   = () => api.minimize();
-document.getElementById('btnMax').onclick   = async () => {
+
+// Sincronizza icona/tooltip del bottone e handle di resize con lo stato finestra.
+// Globale: chiamata anche da init.js all'avvio.
+function _applyMaxState(maximized) {
+  document.querySelectorAll('.rh').forEach(el => el.style.display = maximized ? 'none' : '');
+  const btn = document.getElementById('btnMax');
+  if (btn) {
+    btn.textContent = maximized ? '❐' : '□';
+    btn.title       = maximized ? 'Ripristina' : 'Ingrandisci';
+  }
+}
+
+async function _toggleMaximize() {
   await api.maximize();
   const {maximized} = await api.isMaximized();
-  document.querySelectorAll('.rh').forEach(el => el.style.display = maximized ? 'none' : '');
-};
+  _applyMaxState(maximized);
+}
+
+document.getElementById('btnMin').onclick   = () => api.minimize();
+document.getElementById('btnMax').onclick   = _toggleMaximize;
 document.getElementById('btnClose').onclick = () => api.close();
+
+// Doppio click sulla titlebar = massimizza/ripristina (standard desktop)
+titlebar.addEventListener('dblclick', e => {
+  if (e.target.closest('.tb-btn')) return;
+  drag = false;
+  _toggleMaximize();
+});
 document.getElementById('themeToggleBtn').onclick = () => _toggleTheme();
 document.getElementById('shortcutsBtn').onclick   = () => showShortcutsHelp();

@@ -23,6 +23,25 @@ async function updateSidebar() {
   if (_reportsGroupOpen) renderSidebarReports();
 }
 
+/* ─── Sidebar: data del giorno ───────────────────────────────────────────── */
+function renderSidebarDate() {
+  const el = document.getElementById('sidebarDate');
+  if (!el) return;
+  const now = new Date();
+  const weekday = now.toLocaleDateString('it-IT', { weekday: 'long' });
+  const month   = now.toLocaleDateString('it-IT', { month: 'long' });
+  el.innerHTML = `
+    <div class="sd-weekday">${weekday}</div>
+    <div class="sd-day">${now.getDate()}</div>
+    <div class="sd-month">${month} ${now.getFullYear()}</div>
+    <div class="sd-rule"></div>`;
+}
+
+// Aggiorna la data se l'app resta aperta oltre la mezzanotte (controllo ogni minuto).
+if (!window._sidebarDateTimer) {
+  window._sidebarDateTimer = setInterval(renderSidebarDate, 60000);
+}
+
 function toggleReportsGroup(e) {
   if (e) e.stopPropagation();
   _reportsGroupOpen = !_reportsGroupOpen;

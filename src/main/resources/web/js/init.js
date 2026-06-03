@@ -292,9 +292,9 @@ async function init() {
     const tog = document.getElementById('webDbToggle');
     if (tog) tog.style.display = '';
   }
-  // Nascondo gli handle se si parte massimizzato
+  // Sincronizzo handle di resize e icona del bottone con lo stato finestra
   const {maximized} = await api.isMaximized();
-  document.querySelectorAll('.rh').forEach(el => el.style.display = maximized ? 'none' : '');
+  _applyMaxState(maximized);
   // Carica preferenze persistenti (non richiedono DB)
   const s = await api.getSettings();
   window._appVersion = s['_app_version'] || '';
@@ -317,6 +317,7 @@ async function init() {
   }
 
   await updateSidebar();
+  renderSidebarDate();
   await renderDashboard();
   // Segnala a Java che il primo frame è stato dipinto (double-rAF garantisce che
   // il compositor GPU abbia almeno un frame submitted, evitando flash neri dietro

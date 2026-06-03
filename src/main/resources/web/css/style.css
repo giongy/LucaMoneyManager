@@ -309,18 +309,42 @@ input,select,textarea { font-family:inherit; }
   background:var(--bg2); border-right:1px solid var(--border);
   display:flex; flex-direction:column;
   user-select:none;
+  overflow-y:auto; overflow-x:hidden;
 }
 .sidebar-logo {
   display:flex; align-items:center; gap:8px;
   height:var(--titlebar); padding:0 14px; border-bottom:1px solid var(--border);
   box-sizing:border-box;
+  position:sticky; top:0; z-index:2; background:var(--bg2);
 }
 .logo-icon { font-size:18px; }
 .logo-icon-svg { width:20px; height:20px; stroke:var(--accent); flex-shrink:0; }
 .logo-text  { font-size:var(--font-size,13px); font-weight:700; color:var(--txt); letter-spacing:.3px; }
 
 .sidebar-nav { padding:6px 0; }
-.sidebar-spacer { flex:1; }
+/* flex-basis 0 + min-height 0: gli spacer riempiono lo spazio quando c'è,
+   ma collassano quando la sidebar deve scorrere (finestra bassa). */
+.sidebar-spacer { flex:1 1 0; min-height:0; }
+.sidebar-date {
+  text-align:center; padding:4px 10px; user-select:none;
+  line-height:1;
+}
+.sidebar-date .sd-weekday {
+  font-size:10px; font-weight:700; letter-spacing:2px;
+  text-transform:uppercase; color:var(--txt3);
+}
+.sidebar-date .sd-day {
+  font-size:42px; font-weight:300; color:var(--accent);
+  margin:5px 0 3px; font-variant-numeric:tabular-nums;
+}
+.sidebar-date .sd-month {
+  font-size:12px; font-weight:600; letter-spacing:.5px;
+  text-transform:capitalize; color:var(--txt2);
+}
+.sidebar-date .sd-rule {
+  width:34px; height:2px; margin:8px auto 0;
+  background:var(--accent); opacity:.45; border-radius:2px;
+}
 .web-db-bar {
   display:flex; align-items:center; gap:8px;
   padding:8px 10px; margin:6px 8px 2px; border-radius:8px;
@@ -1067,7 +1091,10 @@ tr.tx-selected td { background:rgba(88,166,255,.07); }
 .cat-chip { display:inline-flex; align-items:center; gap:4px; }
 
 /* ─── Sidebar bottom (Impostazioni) ─────────────────────────────────────── */
-.sidebar-bottom { margin-top:auto; border-top:1px solid var(--border); padding-top:6px; }
+.sidebar-bottom {
+  margin-top:auto; border-top:1px solid var(--border); padding-top:6px;
+  position:sticky; bottom:0; z-index:2; background:var(--bg2);
+}
 
 /* ─── Categorie ──────────────────────────────────────────────────────────── */
 .cats-section-title { font-size:var(--fs-sm,11px); font-weight:700; text-transform:uppercase;

@@ -1203,6 +1203,10 @@ function _openBudgetDetail(catId, catName, isFirstOpen) {
   const catObj = categories.find(c => c.id === catId);
   const isIncome = catObj ? catObj.type === 'income' : false;
 
+  // Nome completo con parent (es. "Abbigliamento:Figli") per sottocategorie
+  const parentObj = catObj && catObj.parent_id ? categories.find(c => c.id === catObj.parent_id) : null;
+  const catFullName = parentObj ? `${parentObj.name}:${catName}` : catName;
+
   const isGroup = parentIds.has(catId);
   const bm = {}, am = {};
   if (isGroup) {
@@ -1295,9 +1299,9 @@ function _openBudgetDetail(catId, catName, isFirstOpen) {
     </div>`;
 
   if (isFirstOpen) {
-    openModal(`📊 ${catName} — ${budgetYear}`, body, null);
+    openModal(`📊 ${catFullName} — ${budgetYear}`, body, null);
   } else {
-    document.getElementById('modalTitle').textContent = `📊 ${catName} — ${budgetYear}`;
+    document.getElementById('modalTitle').textContent = `📊 ${catFullName} — ${budgetYear}`;
     document.getElementById('modalBody').innerHTML = body;
   }
 

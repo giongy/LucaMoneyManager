@@ -326,23 +326,26 @@ input,select,textarea { font-family:inherit; }
    ma collassano quando la sidebar deve scorrere (finestra bassa). */
 .sidebar-spacer { flex:1 1 0; min-height:0; }
 .sidebar-date {
-  text-align:center; padding:4px 10px; user-select:none;
-  line-height:1;
+  text-align:center; padding:2px 10px; user-select:none;
+  line-height:1.1;
 }
-.sidebar-date .sd-weekday {
-  font-size:10px; font-weight:700; letter-spacing:2px;
-  text-transform:uppercase; color:var(--txt3);
+.sidebar-date .sd-top {
+  display:flex; align-items:baseline; justify-content:center; gap:6px;
 }
 .sidebar-date .sd-day {
-  font-size:42px; font-weight:300; color:var(--accent);
-  margin:5px 0 3px; font-variant-numeric:tabular-nums;
+  font-size:22px; font-weight:300; color:var(--accent);
+  font-variant-numeric:tabular-nums;
+}
+.sidebar-date .sd-weekday {
+  font-size:11px; font-weight:700; letter-spacing:1.5px;
+  text-transform:uppercase; color:var(--txt3);
 }
 .sidebar-date .sd-month {
-  font-size:12px; font-weight:600; letter-spacing:.5px;
-  text-transform:capitalize; color:var(--txt2);
+  font-size:11px; font-weight:600; letter-spacing:.5px;
+  text-transform:capitalize; color:var(--txt2); margin-top:1px;
 }
 .sidebar-date .sd-rule {
-  width:34px; height:2px; margin:8px auto 0;
+  width:30px; height:2px; margin:4px auto 0;
   background:var(--accent); opacity:.45; border-radius:2px;
 }
 .web-db-bar {

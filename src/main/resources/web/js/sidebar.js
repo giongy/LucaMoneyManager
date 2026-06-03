@@ -31,8 +31,7 @@ function renderSidebarDate() {
   const weekday = now.toLocaleDateString('it-IT', { weekday: 'long' });
   const month   = now.toLocaleDateString('it-IT', { month: 'long' });
   el.innerHTML = `
-    <div class="sd-weekday">${weekday}</div>
-    <div class="sd-day">${now.getDate()}</div>
+    <div class="sd-top"><span class="sd-weekday">${weekday}</span><span class="sd-day">${now.getDate()}</span></div>
     <div class="sd-month">${month} ${now.getFullYear()}</div>
     <div class="sd-rule"></div>`;
 }

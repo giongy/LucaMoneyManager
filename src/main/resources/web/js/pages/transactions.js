@@ -11,6 +11,10 @@
 
 let txFilters = { range: '30d' };
 
+// Totale mese corrente per conto carta di credito (mostrato in barra riepilogo).
+// null se il conto filtrato non è una carta. Persiste tra le riconciliazioni.
+let _txCreditMonth = null;
+
 // Le globali _reports* e _fc* sono state spostate in pages/analytics.js (stadio 7e).
 // Le funzioni _dateStr / _todayStr sono state spostate in utils.js (cleanup finale).
 
@@ -277,9 +281,12 @@ function _renderTxSummaryBar(rows, summary) {
   const net     = income - expense;
   const sep     = `<span style="color:var(--txt3);margin:0 4px">|</span>`;
   const val     = (v, id='') => `<span ${id?`id="${id}"`:''} style="color:${v>=0?'var(--income)':'var(--expense)'}">${fmt.currency(v)}</span>`;
+  const ccPart = _txCreditMonth
+    ? `<span style="color:var(--txt3);font-size:11px">💳 ${_txCreditMonth.label}: ${fmt.currency(_txCreditMonth.total)}</span>`
+    : '';
   const accPart = summary
     ? `<span>Saldo <span id="txhsBal" style="color:${summary.balance>=0?'var(--income)':'var(--expense)'}">${fmt.currency(summary.balance)}</span></span>
-       <span style="color:var(--txt3);font-size:11px">✅ ${fmt.currency(summary.reconciled_balance)}</span>${sep}`
+       <span style="color:var(--txt3);font-size:11px">✅ ${fmt.currency(summary.reconciled_balance)}</span>${ccPart}${sep}`
     : '';
   el.innerHTML = `${accPart}
     <span style="color:var(--txt3)">Saldo filtrato:</span>
@@ -290,6 +297,7 @@ function _renderTxSummaryBar(rows, summary) {
 
 async function loadTxRows(categories, accounts) {
   const hasAccount = txFilters.account_id && String(txFilters.account_id).trim() !== '';
+  const acc = hasAccount ? accounts.find(a => a.id === parseInt(txFilters.account_id)) : null;
   const filtersWithSort = { ...txFilters, sort_col: txSort.col, sort_dir: txSort.dir };
   const [rows, summary] = await Promise.all([
     api.getTransactions(filtersWithSort),
@@ -299,6 +307,14 @@ async function loadTxRows(categories, accounts) {
   // Mostra/nascondi colonna Saldo
   const thBal = document.getElementById('thBalance');
   if (thBal) thBal.style.display = hasAccount ? '' : 'none';
+  // Per le carte di credito mostra anche il totale del mese corrente (come in dashboard)
+  if (acc && acc.type === 'credit') {
+    const now = new Date();
+    const total = await _creditCardMonthTotal(acc.id, now.getFullYear(), now.getMonth() + 1);
+    _txCreditMonth = { label: now.toLocaleString('it-IT', { month: 'long' }), total };
+  } else {
+    _txCreditMonth = null;
+  }
   _renderTxSummaryBar(rows, summary);
   renderTxBodyAndHeaders();
 }

@@ -148,7 +148,13 @@ function showDaTelefonoNotice(list, save=true) {
       ${list.length>4?`<div class="overdue-more">+ altre ${list.length-4}…</div>`:''}
     </div>
     <div class="overdue-notice-bar"><div class="overdue-notice-progress"></div></div>`,
-    () => navigate('transactions'));
+    () => {
+      api.getTags().then(tags => {
+        const tag = tags.find(t => t.system_key === 'phone');
+        txFilters = { range: 'all', tag_id: tag ? String(tag.id) : undefined };
+        navigate('transactions');
+      });
+    });
 }
 
 function showForecastReadyNotice(list, save=true) {

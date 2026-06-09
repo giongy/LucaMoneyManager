@@ -116,6 +116,11 @@
                                         <exclude>META-INF/*.SF</exclude>
                                         <exclude>META-INF/*.DSA</exclude>
                                         <exclude>META-INF/*.RSA</exclude>
+                                        <!-- Nativi JOGL (da jcefmaven): teniamo solo windows-amd64 -->
+                                        <exclude>natives/macosx-universal/**</exclude>
+                                        <exclude>natives/linux-aarch64/**</exclude>
+                                        <exclude>natives/linux-amd64/**</exclude>
+                                        <exclude>natives/linux-armv6hf/**</exclude>
                                     </excludes>
                                 </filter>
                                 <!-- web/ è servita dal filesystem (cartella accanto al .exe), non dal JAR -->
@@ -123,6 +128,22 @@
                                     <artifact>com.moneymanager:moneymanager</artifact>
                                     <excludes>
                                         <exclude>web/**</exclude>
+                                    </excludes>
+                                </filter>
+                                <!-- sqlite-jdbc include i nativi di tutte le piattaforme/architetture:
+                                     l'app gira solo su Windows x86_64 (JRE 64-bit), quindi teniamo solo
+                                     org/sqlite/native/Windows/x86_64 ed escludiamo tutto il resto (~11 MB) -->
+                                <filter>
+                                    <artifact>org.xerial:sqlite-jdbc</artifact>
+                                    <excludes>
+                                        <exclude>org/sqlite/native/FreeBSD/**</exclude>
+                                        <exclude>org/sqlite/native/Linux/**</exclude>
+                                        <exclude>org/sqlite/native/Linux-Android/**</exclude>
+                                        <exclude>org/sqlite/native/Linux-Musl/**</exclude>
+                                        <exclude>org/sqlite/native/Mac/**</exclude>
+                                        <exclude>org/sqlite/native/Windows/x86/**</exclude>
+                                        <exclude>org/sqlite/native/Windows/armv7/**</exclude>
+                                        <exclude>org/sqlite/native/Windows/aarch64/**</exclude>
                                     </excludes>
                                 </filter>
                             </filters>

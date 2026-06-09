@@ -36,6 +36,7 @@ public class DbLogger {
     /** Aggiorna il percorso del log file quando si cambia DB. */
     public void setDbPath(String dbPath) { initPath(dbPath); }
 
+    /** Calcola il path del .log accanto al DB e fissa l'offset di inizio sessione. */
     private void initPath(String dbPath) {
         if (dbPath == null || dbPath.isBlank()) { logFile = null; startOffset = 0; return; }
         Path db = Path.of(dbPath);

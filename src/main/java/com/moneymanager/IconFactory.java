@@ -108,10 +108,12 @@ public class IconFactory {
         }
     }
 
+    /** Intero a 16 bit in little-endian (per gli header ICO). */
     private static byte[] le16(int v) {
         return new byte[]{(byte)(v & 0xFF), (byte)((v >> 8) & 0xFF)};
     }
 
+    /** Intero a 32 bit in little-endian (per gli header ICO). */
     private static byte[] le32(int v) {
         return new byte[]{(byte)(v & 0xFF), (byte)((v>>8) & 0xFF), (byte)((v>>16) & 0xFF), (byte)((v>>24) & 0xFF)};
     }

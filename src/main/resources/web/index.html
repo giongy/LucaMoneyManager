@@ -57,12 +57,12 @@
       <div class="nav-group" id="navGroupReports">
         <a class="nav-item" data-page="reports" id="navReports" onclick="toggleReportsGroup(event)">
           <i data-lucide="sliders-horizontal" class="nav-icon-svg"></i>
-          <span style="flex:1">Filtri</span>
+          <span>Filtri</span>
           <span class="nav-group-arrow" id="navReportsArrow">▶</span>
         </a>
         <div class="nav-sub" id="navReportsSub" style="display:none">
           <div id="sidebarReportsList"></div>
-          <a class="nav-sub-item nav-sub-new" onclick="showReportModal()">
+          <a class="nav-sub-item nav-sub-new" onclick="_closeReportsFlyout();showReportModal()">
             <span class="nav-icon" style="font-size:12px">＋</span>
             <span>Nuovo filtro</span>
           </a>

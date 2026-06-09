@@ -3,11 +3,17 @@ package com.moneymanager;
 import javax.swing.*;
 import java.awt.*;
 
+/**
+ * Splash screen Swing mostrato all'avvio, prima che JCEF/Chromium sia pronto.
+ * Disegna il logo a mano (Graphics2D) e, durante il primo download di Chromium,
+ * una barra di progresso. Sparisce con un fade-out quando l'UI è pronta.
+ */
 public class SplashWindow extends JWindow {
 
     private String statusText = "";
     private float  progress   = -1f; // -1 = nascosta, 0..1 = visibile
 
+    /** Crea la finestra splash centrata (70% schermo) con il pannello che disegna il logo. */
     public SplashWindow() {
         GraphicsEnvironment ge = GraphicsEnvironment.getLocalGraphicsEnvironment();
         Rectangle screen = ge.getMaximumWindowBounds();

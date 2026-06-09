@@ -22,6 +22,7 @@ public class WebServer {
 
     private static final Gson gson = new GsonBuilder().serializeNulls().create();
 
+    /** Avvia l'HTTP server: registra /bridge (API JSON via dispatch) e / (file statici web/). */
     public static HttpServer start(Path webDir, Bridge bridge, int port) throws IOException {
         HttpServer server = HttpServer.create(new InetSocketAddress(port), 0);
         server.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
@@ -92,6 +93,7 @@ public class WebServer {
         return server;
     }
 
+    /** Serializza data in JSON, lo codifica in Base64 e lo invia come risposta 200 (come fa Bridge per JCEF). */
     private static void respond(HttpExchange ex, Object data) throws IOException {
         String json = gson.toJson(data);
         String b64  = Base64.getEncoder().encodeToString(json.getBytes(StandardCharsets.UTF_8));
@@ -103,6 +105,7 @@ public class WebServer {
         ex.getResponseBody().close();
     }
 
+    /** Content-Type in base all'estensione del file servito. */
     private static String mimeType(String name) {
         if (name.endsWith(".html")) return "text/html; charset=utf-8";
         if (name.endsWith(".js"))   return "application/javascript; charset=utf-8";

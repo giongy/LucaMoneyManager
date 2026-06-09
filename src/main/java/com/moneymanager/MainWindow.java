@@ -9,6 +9,11 @@ import java.awt.*;
 import java.awt.event.WindowAdapter;
 import java.awt.event.WindowEvent;
 
+/**
+ * Finestra principale: JFrame Swing senza decorazioni che ospita il browser JCEF.
+ * Configura il message router JS↔Java ({@link Bridge}), il menu contestuale, lo zoom,
+ * l'eventuale WebServer LAN, il backup automatico alla chiusura e la logica tray.
+ */
 public class MainWindow {
 
     private final JFrame frame;
@@ -19,6 +24,8 @@ public class MainWindow {
     private final CefClient client;
     private final Bridge bridge;
 
+    /** Costruisce la finestra, il client JCEF, il bridge e il browser, registrando
+     *  i gestori (router, menu contestuale, zoom, chiusura/backup) e avviando il WebServer. */
     public MainWindow(CefApp cefApp, Database db, Settings settings, String htmlUrl,
                       java.nio.file.Path dataDir, java.nio.file.Path webDir) {
         this.cefApp = cefApp;

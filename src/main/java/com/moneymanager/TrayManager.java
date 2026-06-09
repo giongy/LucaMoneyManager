@@ -85,6 +85,7 @@ public class TrayManager {
             "/v", "LucaMoneyManager", "/f");
     }
 
+    /** Esegue il comando Windows `reg` con gli argomenti dati; true se exit code 0. */
     private static boolean runReg(String... args) {
         String[] cmd = new String[args.length + 1];
         cmd[0] = "reg";
@@ -100,6 +101,7 @@ public class TrayManager {
         }
     }
 
+    /** Uscita completa dall'app dal menu tray: rimuove il tray, rilascia il lock e termina. */
     private static void doExit(JFrame frame) {
         disable();
         SingleInstance.release();

@@ -14,6 +14,12 @@ import org.cef.CefApp;
 import me.friwi.jcefmaven.CefAppBuilder;
 import me.friwi.jcefmaven.MavenCefAppHandlerAdapter;
 
+/**
+ * Entry point dell'applicazione desktop.
+ * Orchestra l'avvio: cartella dati utente, lock istanza singola, impostazioni,
+ * apertura DB SQLite, individuazione risorse web, splash, inizializzazione JCEF
+ * (download Chromium al primo avvio) e creazione della finestra principale.
+ */
 public class App {
 
     /** Path del JAR (produzione) o di target/classes (IDE). */
@@ -51,6 +57,10 @@ public class App {
         throw new RuntimeException("Risorse web non trovate. Cerca near: " + codeSrc);
     }
 
+    /**
+     * Sequenza di avvio dell'app. Tutta la creazione di UI Swing/JCEF avviene
+     * sull'Event Dispatch Thread tramite SwingUtilities.
+     */
     public static void main(String[] args) throws Exception {
         // Cartella dati utente
         Path dataDir = Path.of(System.getProperty("user.home"),

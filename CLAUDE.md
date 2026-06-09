@@ -67,7 +67,8 @@ SQLite
 - **Nessun framework JS** — Vanilla JS puro
 - **Commenti sezione** con separatori Unicode `── ──`
 - **SQL:** text blocks Java (`"""..."""`)
-- Non aggiungere feature extra, refactoring non richiesti, o docstring a codice non modificato
+- Non aggiungere feature extra o refactoring non richiesti
+- **Commenti:** ammessi commenti esplicativi su funzioni e parti di codice (Java, JS, HTML, CSS); tenerli aggiornati quando si modifica il codice commentato, per evitare che vadano fuori sync
 
 ---
 

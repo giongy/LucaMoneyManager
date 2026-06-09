@@ -36,6 +36,7 @@ public class SingleInstance {
         }
     }
 
+    /** Loop del listener: a ogni connessione locale che invia "SHOW" esegue onShowSignal sull'EDT. */
     private static void listenLoop(Runnable onShowSignal) {
         while (server != null && !server.isClosed()) {
             try (Socket client = server.accept();
@@ -48,6 +49,7 @@ public class SingleInstance {
         }
     }
 
+    /** Rilascia il lock chiudendo il ServerSocket. */
     public static void release() {
         if (server != null && !server.isClosed()) {
             try { server.close(); } catch (IOException ignored) {}

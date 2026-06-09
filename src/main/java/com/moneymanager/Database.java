@@ -13,12 +13,23 @@ import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
 
+/**
+ * Strato di accesso ai dati: incapsula tutte le query JDBC verso SQLite.
+ * Espone i metodi richiamati da {@link Bridge#dispatch} (conti, categorie, transazioni,
+ * budget, pianificate, portafoglio, note, statistiche, manutenzione DB, ecc.).
+ * Gestisce inoltre creazione schema ({@link #initSchema}), migrazioni ({@link #migrate})
+ * e dati di default ({@link #seedDefaultData}).
+ *
+ * Nota: usa una singola {@link Connection} non thread-safe. È sicuro perché le chiamate
+ * arrivano serializzate dal thread UI di JCEF (vedi {@link Bridge#onQuery}).
+ */
 public class Database {
 
     private Connection conn;
     private String currentDbPath;
     private final DbLogger logger;
 
+    /** Apre il DB e prepara lo schema: crea tabelle, applica migrazioni e dati di default. */
     public Database(String dbPath) throws SQLException {
         currentDbPath = dbPath;
         logger = new DbLogger(dbPath);
@@ -29,6 +40,11 @@ public class Database {
         logger.log("AVVIO", "db:" + dbPath);
     }
 
+    /**
+     * Apre una connessione SQLite con la config scelta per la condivisione via OneDrive:
+     * journal=DELETE e synchronous=FULL (massima sicurezza, niente WAL che non sopravvive
+     * alla sync di rete), cache 16MB, temp in RAM, foreign key abilitati.
+     */
     private static Connection openConnection(String dbPath) throws SQLException {
         SQLiteConfig config = new SQLiteConfig();
         config.setJournalMode(SQLiteConfig.JournalMode.DELETE);
@@ -39,6 +55,7 @@ public class Database {
         return DriverManager.getConnection("jdbc:sqlite:" + dbPath, config.toProperties());
     }
 
+    /** Chiude il DB corrente e ne apre un altro (cambio file DB da Impostazioni). */
     public void reconnect(String dbPath) throws SQLException {
         conn.close();
         currentDbPath = dbPath;
@@ -50,10 +67,12 @@ public class Database {
         logger.log("DB CAMBIATO", "db:" + dbPath);
     }
 
+    /** True se la connessione è aperta e valida. */
     public boolean isOpen() {
         try { return conn != null && !conn.isClosed(); } catch (SQLException e) { return false; }
     }
 
+    /** Chiude la connessione (es. al tray) così OneDrive può sincronizzare il file. */
     public void close() throws SQLException {
         if (conn != null && !conn.isClosed()) conn.close();
     }
@@ -65,11 +84,7 @@ public class Database {
 
     public String getDbPath() { return currentDbPath; }
 
-    /**
-     * Esegue un backup del database corrente nella cartella specificata.
-     * Il file avrà il formato: nomedb_YYYY-MM-DD_HH-mm-ss.db.bak
-     * Mantiene al massimo maxBackups file, eliminando i più vecchi.
-     */
+    /** Versione della libreria SQLite in uso (mostrata in Impostazioni). */
     public String getSQLiteVersion() throws SQLException {
         try (var st = conn.createStatement();
              var rs = st.executeQuery("SELECT sqlite_version()")) {
@@ -83,6 +98,11 @@ public class Database {
     /** Azzera il marcatore di sessione dopo un backup, evitando backup ridondanti. */
     public void resetModifications() { logger.resetSession(); }
 
+    /**
+     * Copia il DB nella cartella di backup come nomedb_YYYY-MM-DD_HH-mm-ss.db.bak,
+     * con un sidecar .json delle modifiche di sessione. Mantiene al massimo
+     * maxBackups file, eliminando i più vecchi (con relativo sidecar).
+     */
     public String backup(String backupDir, int maxBackups) throws IOException {
         if (backupDir == null || backupDir.isBlank())
             throw new IOException("Cartella backup non configurata");
@@ -128,6 +148,11 @@ public class Database {
         return dest.toAbsolutePath().toString();
     }
 
+    /**
+     * Elenca i file di backup trovati nella cartella configurata e in quella del DB,
+     * con timestamp formattato, dimensione e le modifiche lette dal sidecar JSON.
+     * Ordinati dal più recente.
+     */
     public List<Map<String, Object>> listBackups(String backupDir) throws IOException {
         Path src = Path.of(currentDbPath);
 
@@ -191,6 +216,11 @@ public class Database {
         return result;
     }
 
+    /**
+     * Ripristina un backup: archivia il DB corrente (suffisso _PRIMA-RIPRISTINO),
+     * copia il backup al suo posto e riapre la connessione. In caso di errore fa
+     * rollback automatico ripristinando il DB originale.
+     */
     public Map<String, Object> restoreBackup(String backupPath, String backupDir) throws Exception {
         Path bak = Path.of(backupPath);
         if (!Files.exists(bak)) throw new IOException("File backup non trovato: " + backupPath);
@@ -241,8 +271,9 @@ public class Database {
 
     // ─── Helpers JDBC ─────────────────────────────────────────────────────────
 
-    private static final long SLOW_QUERY_MS = 50;
+    private static final long SLOW_QUERY_MS = 50;  // soglia oltre cui logga "[SLOW QUERY]" su stderr
 
+    /** Esegue una SELECT e restituisce le righe come lista di mappe colonna→valore. */
     private List<Map<String, Object>> queryList(String sql, Object... params) throws SQLException {
         long t0 = System.nanoTime();
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -255,11 +286,13 @@ public class Database {
         }
     }
 
+    /** Come {@link #queryList} ma ritorna solo la prima riga (o null se vuota). */
     private Map<String, Object> queryOne(String sql, Object... params) throws SQLException {
         List<Map<String, Object>> rows = queryList(sql, params);
         return rows.isEmpty() ? null : rows.get(0);
     }
 
+    /** Esegue INSERT/UPDATE/DELETE e ritorna la chiave generata (o -1). */
     private long execute(String sql, Object... params) throws SQLException {
         long t0 = System.nanoTime();
         try (PreparedStatement ps = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
@@ -274,6 +307,7 @@ public class Database {
         }
     }
 
+    /** Esegue uno script SQL multi-istruzione (usato da initSchema/migrate). */
     private void executePlain(String sql) throws SQLException {
         // JDBC esegue solo la prima istruzione: splittiamo per ";"
         for (String stmt : sql.split(";")) {
@@ -284,10 +318,12 @@ public class Database {
         }
     }
 
+    /** Associa i parametri posizionali (?,?,...) al PreparedStatement. */
     private void bind(PreparedStatement ps, Object[] params) throws SQLException {
         for (int i = 0; i < params.length; i++) ps.setObject(i + 1, params[i]);
     }
 
+    /** Converte un ResultSet in lista di mappe colonna→valore (chiavi = label colonna). */
     private List<Map<String, Object>> toList(ResultSet rs) throws SQLException {
         ResultSetMetaData meta = rs.getMetaData();
         int cols = meta.getColumnCount();
@@ -301,6 +337,7 @@ public class Database {
         return rows;
     }
 
+    // Lettori sicuri da JsonObject: ritornano null se la chiave manca o è null
     private String str(JsonObject p, String key) {
         return p.has(key) && !p.get(key).isJsonNull() ? p.get(key).getAsString() : null;
     }
@@ -347,6 +384,8 @@ public class Database {
 
     // ─── sync_meta ────────────────────────────────────────────────────────────
 
+    /** Aggiorna i marcatori di sync (last_modified + last_modified_by='desktop')
+     *  letti da Android per sapere chi ha toccato il DB per ultimo via OneDrive. */
     private void touchSyncMeta() throws SQLException {
         executePlain("CREATE TABLE IF NOT EXISTS sync_meta (key TEXT PRIMARY KEY, value TEXT)");
         String now = java.time.Instant.now().toString();
@@ -356,6 +395,7 @@ public class Database {
 
     // ─── Schema ───────────────────────────────────────────────────────────────
 
+    /** Crea tutte le tabelle (CREATE TABLE IF NOT EXISTS) e gli indici dello schema base. */
     private void initSchema() throws SQLException {
         executePlain("""
             CREATE TABLE IF NOT EXISTS accounts (
@@ -487,6 +527,11 @@ public class Database {
 
     private static final int SCHEMA_VERSION = 17;
 
+    /**
+     * Migrazioni incrementali dello schema. Confronta la versione salvata in
+     * schema_version con SCHEMA_VERSION e applica i blocchi v1..v17 mancanti
+     * (ALTER TABLE, nuove tabelle, indici), poi aggiorna il numero di versione.
+     */
     private void migrate() throws SQLException {
         // Crea tabella versione se non esiste
         executePlain("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL DEFAULT 0)");
@@ -834,6 +879,7 @@ public class Database {
 
     // ─── App settings nel DB ──────────────────────────────────────────────────
 
+    /** Legge un'impostazione dalla tabella app_settings, con valore di default. */
     public String getAppSetting(String key, String def) {
         try {
             Map<String, Object> row = queryOne("SELECT value FROM app_settings WHERE key=?", key);
@@ -841,6 +887,7 @@ public class Database {
         } catch (Exception e) { return def; }
     }
 
+    /** Tutte le impostazioni applicative come mappa chiave→valore. */
     public Map<String, String> getAllAppSettings() {
         try {
             List<Map<String, Object>> rows = queryList("SELECT key, value FROM app_settings");
@@ -850,6 +897,7 @@ public class Database {
         } catch (Exception e) { return Map.of(); }
     }
 
+    /** Scrive/aggiorna un'impostazione applicativa (upsert su key). */
     public void setAppSetting(String key, String value) {
         try {
             execute("INSERT INTO app_settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", key, value);
@@ -858,6 +906,7 @@ public class Database {
         }
     }
 
+    /** Garantisce l'esistenza dei tag di sistema (Da Telefono, Da Budget, Investimenti). */
     private void ensureSystemTags() throws SQLException {
         // {system_key, default_name, default_color}
         String[][] sys = {
@@ -873,6 +922,7 @@ public class Database {
         }
     }
 
+    /** ID del tag di sistema con la system_key data (null se assente). */
     private Integer getSystemTagIdByKey(String key) {
         try {
             Map<String, Object> row = queryOne("SELECT id FROM tags WHERE system_key=?", key);
@@ -880,6 +930,8 @@ public class Database {
         } catch (Exception e) { return null; }
     }
 
+    /** Su DB nuovo, popola le categorie di default (entrate/uscite); su DB esistente
+     *  assicura solo la categoria speciale Trasferimento. */
     private void seedDefaultData() throws SQLException {
         Map<String, Object> cnt = queryOne("SELECT COUNT(*) as c FROM categories");
         if (cnt == null || ((Number) cnt.get("c")).intValue() > 0) {
@@ -922,6 +974,7 @@ public class Database {
 
     // ─── Conti ────────────────────────────────────────────────────────────────
 
+    /** Tutti i conti con il saldo calcolato (per gli investment: valore di mercato del portafoglio). */
     public List<Map<String, Object>> getAccounts() throws SQLException {
         // Per investment account: balance = valore di mercato (bond: qty × prezzo% / 100; equity: qty × prezzo).
         // bond_nominal = somma nominale dei bond, esposto separatamente per UI che vuole mostrare il "valore a scadenza".
@@ -951,6 +1004,7 @@ public class Database {
         """);
     }
 
+    /** Crea un conto (in coda all'ordinamento) e aggiorna sync_meta. */
     public Map<String, Object> addAccount(JsonObject p) throws SQLException {
         Map<String,Object> maxRow = queryOne("SELECT COALESCE(MAX(sort_order),0)+1 AS next_order FROM accounts");
         int nextOrder = ((Number) maxRow.get("next_order")).intValue();
@@ -965,6 +1019,7 @@ public class Database {
         return queryOne("SELECT * FROM accounts WHERE id=?", id);
     }
 
+    /** Aggiorna i campi di un conto e sync_meta. */
     public Map<String, Object> updateAccount(int id, JsonObject p) throws SQLException {
         execute("UPDATE accounts SET name=?,type=?,currency=?,initial_balance=?,color=?,icon=?,is_favorite=?,is_closed=? WHERE id=?",
                 str(p,"name"), str(p,"type"), str(p,"currency") != null ? str(p,"currency") : "EUR",
@@ -979,6 +1034,7 @@ public class Database {
         return queryOne("SELECT * FROM accounts WHERE id=?", id);
     }
 
+    /** Riordina i conti (drag&drop): aggiorna sort_order da una lista {id, sort_order}. */
     public void updateAccountOrder(JsonArray items) throws SQLException {
         inTx(() -> {
             for (var el : items) {
@@ -990,6 +1046,7 @@ public class Database {
         });
     }
 
+    /** Elimina un conto (le transazioni collegate cadono in cascata via FK). */
     public Map<String, Object> deleteAccount(int id) throws SQLException {
         Map<String, Object> old = queryOne("SELECT name FROM accounts WHERE id=?", id);
         execute("DELETE FROM accounts WHERE id=?", id);
@@ -1022,6 +1079,7 @@ public class Database {
         """);
     }
 
+    /** Crea una categoria; le sottocategorie ereditano il tipo dal parent. */
     public Map<String, Object> addCategory(JsonObject p) throws SQLException {
         Integer parentId = intVal(p, "parent_id");
         // Le sottocategorie ereditano il tipo dal parent
@@ -1037,6 +1095,7 @@ public class Database {
         return queryOne("SELECT * FROM categories WHERE id=?", id);
     }
 
+    /** Aggiorna una categoria (eredita il tipo dal parent); vieta di toccare Trasferimento. */
     public Map<String, Object> updateCategory(int id, JsonObject p) throws SQLException {
         Map<String, Object> existing = queryOne("SELECT * FROM categories WHERE id=?", id);
         if (existing != null && "transfer".equals(existing.get("type")))
@@ -1054,6 +1113,7 @@ public class Database {
         return queryOne("SELECT * FROM categories WHERE id=?", id);
     }
 
+    /** Elimina una categoria (figlie in cascata); vieta di eliminare Trasferimento. */
     public Map<String, Object> deleteCategory(int id) throws SQLException {
         Map<String, Object> existing = queryOne("SELECT * FROM categories WHERE id=?", id);
         if (existing != null && "transfer".equals(existing.get("type")))
@@ -1063,6 +1123,10 @@ public class Database {
         return Map.of("id", id, "deleted", true);
     }
 
+    /**
+     * Report spese per "natura" (fissa/variabile/ecc.): aggrega le uscite nel periodo
+     * sia per natura sia per categoria, unendo transazioni semplici e righe split.
+     */
     public Map<String, Object> getExpenseNatureReport(JsonObject p) throws SQLException {
         String df = p.has("date_from") && !str(p,"date_from").isBlank() ? str(p,"date_from") : null;
         String dt = p.has("date_to")   && !str(p,"date_to").isBlank()   ? str(p,"date_to")   : null;
@@ -1158,6 +1222,11 @@ public class Database {
 
     // ─── Transazioni ──────────────────────────────────────────────────────────
 
+    /**
+     * Elenco transazioni con filtri dinamici (periodo, tipo, conto/i, categoria/e,
+     * tag, ricerca testo, allegati, ecc.) costruiti via WHERE incrementale + parametri
+     * bindati. Gestisce anche le righe split per il filtro/somma per categoria.
+     */
     public List<Map<String, Object>> getTransactions(JsonObject f) throws SQLException {
         // Pre-calcola il filtro categoria: serve sia nella SELECT (filtered_split_amount) che nella WHERE
         // Supporta sia category_id singolo sia category_ids array (padre + figli)
@@ -1327,6 +1396,7 @@ public class Database {
         return rows;
     }
 
+    /** Inserisce una transazione con eventuali tag e split, in un'unica transazione SQL. */
     public Map<String, Object> addTransaction(JsonObject p) throws SQLException {
         return inTx(() -> {
             int reconciled = p.has("reconciled") && !p.get("reconciled").isJsonNull()
@@ -1355,6 +1425,7 @@ public class Database {
         });
     }
 
+    /** Aggiorna una transazione (tag, split, e prezzo dello storico portfolio se collegato). */
     public Map<String, Object> updateTransaction(int id, JsonObject p) throws SQLException {
         return inTx(() -> {
             int reconciled = p.has("reconciled") && !p.get("reconciled").isJsonNull()
@@ -1386,6 +1457,7 @@ public class Database {
         });
     }
 
+    /** Imposta lo stato di conciliazione di una transazione. */
     public Map<String, Object> updateTransactionReconciled(int id, boolean reconciled) throws SQLException {
         execute("UPDATE transactions SET reconciled=? WHERE id=?", reconciled ? 1 : 0, id);
         touchSyncMeta();
@@ -1393,6 +1465,7 @@ public class Database {
         return Map.of("ok", true);
     }
 
+    /** Saldo totale e saldo conciliato di un conto (per gli investment: valore di mercato). */
     public Map<String, Object> getAccountSummary(int accountId) throws SQLException {
         Map<String, Object> acc = queryOne("SELECT initial_balance, type FROM accounts WHERE id=?", accountId);
         // Per i conti investment il saldo è il valore di mercato del portfolio, non le transazioni
@@ -1431,6 +1504,7 @@ public class Database {
         return Map.of("balance", balance, "reconciled_balance", reconciledBalance);
     }
 
+    /** Elimina una transazione (tag e split cadono in cascata via FK). */
     public Map<String, Object> deleteTransaction(int id) throws SQLException {
         Map<String, Object> tx = queryOne(
             "SELECT t.date, t.amount, t.type, t.description, a.name AS account_name " +
@@ -1449,10 +1523,12 @@ public class Database {
 
     // ─── Tag ──────────────────────────────────────────────────────────────────
 
+    /** Tutti i tag ordinati per nome. */
     public List<Map<String, Object>> getTags() throws SQLException {
         return queryList("SELECT * FROM tags ORDER BY name");
     }
 
+    /** Crea un tag utente. */
     public Map<String, Object> addTag(JsonObject p) throws SQLException {
         long id = execute("INSERT INTO tags(name,color) VALUES(?,?)",
                 str(p,"name"), str(p,"color") != null ? str(p,"color") : "#58a6ff");
@@ -1460,12 +1536,14 @@ public class Database {
         return queryOne("SELECT * FROM tags WHERE id=?", id);
     }
 
+    /** Aggiorna nome/colore di un tag. */
     public Map<String, Object> updateTag(int id, JsonObject p) throws SQLException {
         execute("UPDATE tags SET name=?,color=? WHERE id=?", str(p,"name"), str(p,"color"), id);
         logger.log("TAG MODIFICATO", "id:" + id, "nome:" + str(p,"name"));
         return queryOne("SELECT * FROM tags WHERE id=?", id);
     }
 
+    /** Elimina un tag utente; i tag di sistema non sono eliminabili. */
     public Map<String, Object> deleteTag(int id) throws SQLException {
         Map<String, Object> old = queryOne("SELECT name, is_system FROM tags WHERE id=?", id);
         if (old != null && Integer.valueOf(1).equals(old.get("is_system")))
@@ -1497,6 +1575,7 @@ public class Database {
         return rows;
     }
 
+    /** Una singola nota con la lista dei suoi tag_ids. */
     public Map<String, Object> getNote(int id) throws SQLException {
         Map<String, Object> n = queryOne("SELECT * FROM notes WHERE id=?", id);
         if (n == null) return null;
@@ -1507,6 +1586,7 @@ public class Database {
         return n;
     }
 
+    /** Crea o aggiorna una nota (in base alla presenza di id) e ne sostituisce i tag. */
     public Map<String, Object> saveNote(JsonObject p) throws SQLException {
         Integer id  = intVal(p, "id");
         String title   = str(p, "title")   != null ? str(p, "title")   : "";
@@ -1535,6 +1615,7 @@ public class Database {
         return getNote((int) newId);
     }
 
+    /** Elimina una nota (tag collegati in cascata via FK). */
     public Map<String, Object> deleteNote(int id) throws SQLException {
         Map<String, Object> old = queryOne("SELECT title FROM notes WHERE id=?", id);
         execute("DELETE FROM notes WHERE id=?", id);
@@ -1543,12 +1624,14 @@ public class Database {
         return Map.of("id", id, "deleted", true);
     }
 
+    /** Fissa/sfissa una nota in cima all'elenco. */
     public Map<String, Object> setNotePinned(int id, boolean pinned) throws SQLException {
         execute("UPDATE notes SET pinned=? WHERE id=?", pinned ? 1 : 0, id);
         touchSyncMeta();
         return getNote(id);
     }
 
+    /** Imposta il colore di sfondo di una nota. */
     public Map<String, Object> setNoteColor(int id, String color) throws SQLException {
         execute("UPDATE notes SET color=? WHERE id=?", color != null ? color : "", id);
         touchSyncMeta();
@@ -1557,10 +1640,12 @@ public class Database {
 
     // ─── Range Preset ─────────────────────────────────────────────────────────
 
+    /** Preset di intervalli date salvati dall'utente (per i filtri rapidi). */
     public List<Map<String, Object>> getRangePresets() throws SQLException {
         return queryList("SELECT * FROM range_presets ORDER BY sort_order, label COLLATE NOCASE");
     }
 
+    /** Crea un preset di intervallo. */
     public Map<String, Object> addRangePreset(JsonObject p) throws SQLException {
         long id = execute("INSERT INTO range_presets(label,range_key,sort_order) VALUES(?,?,?)",
                 str(p,"label"), str(p,"range_key"), intVal(p,"sort_order") != null ? intVal(p,"sort_order") : 0);
@@ -1568,6 +1653,7 @@ public class Database {
         return queryOne("SELECT * FROM range_presets WHERE id=?", id);
     }
 
+    /** Aggiorna un preset di intervallo. */
     public Map<String, Object> updateRangePreset(int id, JsonObject p) throws SQLException {
         execute("UPDATE range_presets SET label=?,range_key=?,sort_order=? WHERE id=?",
                 str(p,"label"), str(p,"range_key"), intVal(p,"sort_order") != null ? intVal(p,"sort_order") : 0, id);
@@ -1575,6 +1661,7 @@ public class Database {
         return queryOne("SELECT * FROM range_presets WHERE id=?", id);
     }
 
+    /** Elimina un preset di intervallo. */
     public Map<String, Object> deleteRangePreset(int id) throws SQLException {
         Map<String, Object> old = queryOne("SELECT label FROM range_presets WHERE id=?", id);
         execute("DELETE FROM range_presets WHERE id=?", id);
@@ -1584,10 +1671,12 @@ public class Database {
 
     // ─── Resoconti ────────────────────────────────────────────────────────────
 
+    /** Resoconti salvati (filtri + raggruppamento + tipo grafico). */
     public List<Map<String, Object>> getReports() throws SQLException {
         return queryList("SELECT * FROM reports ORDER BY name COLLATE NOCASE");
     }
 
+    /** Crea o aggiorna un resoconto salvato. */
     public Map<String, Object> saveReport(JsonObject p) throws SQLException {
         Integer id         = intVal(p, "id");
         String name        = str(p, "name");
@@ -1609,6 +1698,7 @@ public class Database {
         return queryOne("SELECT * FROM reports WHERE id=?", newId);
     }
 
+    /** Elimina un resoconto salvato. */
     public Map<String, Object> deleteReport(int id) throws SQLException {
         Map<String, Object> old = queryOne("SELECT name FROM reports WHERE id=?", id);
         execute("DELETE FROM reports WHERE id=?", id);
@@ -1616,6 +1706,7 @@ public class Database {
         return Map.of("id", id, "deleted", true);
     }
 
+    /** Sostituisce tutti i tag di una transazione con quelli passati in p.tag_ids. */
     private void saveTags(long txId, JsonObject p) throws SQLException {
         execute("DELETE FROM transaction_tags WHERE transaction_id=?", txId);
         if (p.has("tag_ids") && p.get("tag_ids").isJsonArray()) {
@@ -1626,6 +1717,7 @@ public class Database {
         }
     }
 
+    /** Sostituisce tutte le righe split di una transazione con quelle in p.splits. */
     private void saveSplits(long txId, JsonObject p) throws SQLException {
         execute("DELETE FROM transaction_splits WHERE transaction_id=?", txId);
         if (p.has("splits") && p.get("splits").isJsonArray()) {
@@ -1640,6 +1732,7 @@ public class Database {
         }
     }
 
+    /** Righe split di una transazione, con i dati della categoria di ciascuna. */
     public List<Map<String, Object>> getTransactionSplits(int txId) throws SQLException {
         return queryList("""
             SELECT ts.*, c.name AS category_name, c.icon AS category_icon, c.color AS category_color
@@ -1650,6 +1743,7 @@ public class Database {
         """, txId);
     }
 
+    /** Carica una singola transazione completa di categoria, conti e tag (usata dopo insert/update). */
     private Map<String, Object> getTransactionById(long id) throws SQLException {
         List<Map<String, Object>> r = parseTags(queryList("""
             SELECT t.*,
@@ -1670,6 +1764,7 @@ public class Database {
         return r.isEmpty() ? null : r.get(0);
     }
 
+    /** Espande la colonna aggregata tags_concat (id§nome§colore||...) in una lista di oggetti tag. */
     private List<Map<String, Object>> parseTags(List<Map<String, Object>> rows) {
         for (Map<String, Object> row : rows) {
             String tc = (String) row.remove("tags_concat");
@@ -1693,6 +1788,7 @@ public class Database {
 
     // ─── Budget ───────────────────────────────────────────────────────────────
 
+    /** Budget di un singolo mese con lo speso effettivo (spent) per categoria. */
     public List<Map<String, Object>> getBudgets(int month, int year) throws SQLException {
         return queryList("""
             WITH cat_amounts AS (
@@ -1719,6 +1815,7 @@ public class Database {
              month, year);
     }
 
+    /** Imposta (upsert) il budget di una categoria per uno specifico mese/anno. */
     public Map<String, Object> setBudget(JsonObject p) throws SQLException {
         int catId = p.get("category_id").getAsInt();
         int month = p.get("month").getAsInt();
@@ -1735,6 +1832,7 @@ public class Database {
         return queryOne("SELECT * FROM budgets WHERE category_id=? AND month=? AND year=?", catId, month, year);
     }
 
+    /** Elimina un singolo budget (cella categoria+mese+anno) per id. */
     public Map<String, Object> deleteBudget(int id) throws SQLException {
         Map<String, Object> old = queryOne(
             "SELECT b.month, b.year, c.name AS cat_name FROM budgets b " +
@@ -1906,6 +2004,7 @@ public class Database {
 
     // ─── Transazioni Pianificate ──────────────────────────────────────────────
 
+    /** Tutte le transazioni pianificate con categoria, conti e tag. */
     public List<Map<String, Object>> getScheduled() throws SQLException {
         return parseTags(queryList("""
             SELECT s.*, c.name AS category_name, c.icon AS category_icon,
@@ -1925,6 +2024,7 @@ public class Database {
         """));
     }
 
+    /** Sostituisce i tag di una pianificata con quelli in p.tag_ids. */
     private void saveSchedTags(long schedId, JsonObject p) throws SQLException {
         execute("DELETE FROM scheduled_transaction_tags WHERE scheduled_id=?", schedId);
         if (p.has("tag_ids") && p.get("tag_ids").isJsonArray()) {
@@ -1935,6 +2035,7 @@ public class Database {
         }
     }
 
+    /** Crea una transazione pianificata (ricorrente) con i suoi tag. */
     public Map<String, Object> addScheduled(JsonObject p) throws SQLException {
         long id = execute("""
             INSERT INTO scheduled_transactions
@@ -1957,6 +2058,7 @@ public class Database {
         return queryOne("SELECT * FROM scheduled_transactions WHERE id=?", id);
     }
 
+    /** Aggiorna una pianificata e i suoi tag (non tocca original_start_date). */
     public Map<String, Object> updateScheduled(int id, JsonObject p) throws SQLException {
         execute("""
             UPDATE scheduled_transactions SET
@@ -1978,6 +2080,7 @@ public class Database {
         return queryOne("SELECT * FROM scheduled_transactions WHERE id=?", id);
     }
 
+    /** Elimina una transazione pianificata. */
     public Map<String, Object> deleteScheduled(int id) throws SQLException {
         Map<String, Object> old = queryOne("SELECT description, amount, type FROM scheduled_transactions WHERE id=?", id);
         execute("DELETE FROM scheduled_transactions WHERE id=?", id);
@@ -1987,7 +2090,8 @@ public class Database {
         return Map.of("id", id, "deleted", true);
     }
 
-    /** Returns the next occurrence of a scheduled transaction on or after `from`. */
+    /** Prima occorrenza di una pianificata a partire da `from` (compreso), data la frequenza.
+     *  Per "once" ritorna null se la data singola è già passata rispetto a `from`. */
     private LocalDate firstOccurrenceFrom(LocalDate start, String freq, LocalDate from) {
         LocalDate cur = start;
         if (!cur.isBefore(from)) return cur;
@@ -2043,6 +2147,7 @@ public class Database {
         return cur;
     }
 
+    /** Data successiva a `d` secondo la frequenza (null se "once"/sconosciuta). */
     private LocalDate advanceDate(LocalDate d, String freq) {
         return switch (freq) {
             case "daily"     -> d.plusDays(1);
@@ -2058,7 +2163,7 @@ public class Database {
         };
     }
 
-    /** Active scheduled transactions with at least one occurrence in the past 30 days. */
+    /** Pianificate attive con almeno un'occorrenza negli ultimi 30 giorni (scadute/da registrare). */
     public List<Map<String, Object>> getOverdue() throws SQLException {
         var scheds = getScheduled().stream()
             .filter(s -> Integer.valueOf(1).equals(s.get("is_active")))
@@ -2083,7 +2188,7 @@ public class Database {
         return overdue;
     }
 
-    /** Active scheduled transactions whose next occurrence is today. */
+    /** Pianificate attive la cui prossima occorrenza è oggi. */
     public List<Map<String, Object>> getDueToday() throws SQLException {
         String today = LocalDate.now().toString();
         return getScheduled().stream()
@@ -2092,6 +2197,7 @@ public class Database {
                 .collect(java.util.stream.Collectors.toList());
     }
 
+    /** Transazioni che hanno il tag di sistema con la system_key data (es. "phone"). */
     public List<Map<String, Object>> getTransactionsWithTag(String systemKey) throws SQLException {
         return queryList("""
             SELECT t.id, t.date, t.description, t.amount, t.type
@@ -2145,7 +2251,7 @@ public class Database {
         });
     }
 
-    /** Next N upcoming occurrences across all active scheduled transactions. */
+    /** Prossime N occorrenze future tra tutte le pianificate attive (orizzonte 2 anni). */
     public List<Map<String, Object>> getUpcoming(int limit) throws SQLException {
         var scheds = getScheduled().stream()
             .filter(s -> Integer.valueOf(1).equals(s.get("is_active")))
@@ -2173,7 +2279,7 @@ public class Database {
         return all.stream().limit(limit).collect(Collectors.toList());
     }
 
-    /** Past 30 days + next N future occurrences, with overdue flag. */
+    /** Occorrenze degli ultimi 30 giorni + prossime N future, ciascuna con flag overdue. */
     public List<Map<String, Object>> getUpcomingAll(int futureLimit) throws SQLException {
         var scheds = getScheduled().stream()
             .filter(s -> Integer.valueOf(1).equals(s.get("is_active")))
@@ -2373,6 +2479,11 @@ public class Database {
 
     // ─── Portafoglio ──────────────────────────────────────────────────────────
 
+    /**
+     * Tutte le posizioni del portafoglio con aggregati storici (buy/sell/cedole/dividendi/
+     * spese/commissioni) e il P&L realizzato, calcolato con un walk-through cronologico
+     * dei buy/sell che ricostruisce il costo medio runtime (corretto anche con vendite parziali).
+     */
     public List<Map<String, Object>> getPortfolio() throws SQLException {
         // Aggregati storici per posizione: somme di buy/sell/cedole/dividendi/spese/commissioni
         // I valori principal (qty*price) sono sommati grezzi: JS converte per bond (÷100)
@@ -2476,6 +2587,7 @@ public class Database {
         return positions;
     }
 
+    /** Storico movimenti (buy/sell/cedole/dividendi/spese) di una posizione. */
     public List<Map<String, Object>> getPortfolioTransactions(int portfolioId) throws SQLException {
         return queryList("""
             SELECT pt.*, t.date AS tx_date, a_from.name AS from_account, a_to.name AS to_account
@@ -2488,6 +2600,11 @@ public class Database {
         """, portfolioId);
     }
 
+    /**
+     * Registra un acquisto: bonifico (transfer) dal conto liquidità a quello investimenti,
+     * crea/aggiorna la posizione ricalcolando il prezzo medio, e registra il movimento "buy".
+     * L'eventuale commissione diventa una transazione expense separata + movimento "expense".
+     */
     public Map<String, Object> buyStock(JsonObject p) throws SQLException {
         int investAccountId  = p.get("account_id").getAsInt();
         int fromAccountId    = p.get("from_account_id").getAsInt();
@@ -2574,6 +2691,10 @@ public class Database {
         });
     }
 
+    /**
+     * Registra una vendita: bonifico dal conto investimenti a quello liquidità, riduce la
+     * quantità in posizione e registra il movimento "sell" (commissione come expense separata).
+     */
     public Map<String, Object> sellStock(JsonObject p) throws SQLException {
         int portfolioId   = p.get("portfolio_id").getAsInt();
         int toAccountId   = p.get("to_account_id").getAsInt();
@@ -2639,6 +2760,11 @@ public class Database {
         });
     }
 
+    /**
+     * Annulla un movimento di portafoglio (buy/sell/cedola/spesa): ripristina la quantità,
+     * ricalcola il prezzo medio dai buy rimanenti, aggiusta le commissioni totali ed elimina
+     * la transazione collegata. È l'inverso di buyStock/sellStock/registerCoupon.
+     */
     public Map<String, Object> deletePortfolioTransaction(int ptId) throws SQLException {
         var pt = queryOne("SELECT * FROM portfolio_transactions WHERE id=?", ptId);
         if (pt == null) throw new SQLException("Operazione non trovata (id:" + ptId + ")");
@@ -2712,6 +2838,7 @@ public class Database {
         });
     }
 
+    /** Aggiorna solo il prezzo corrente di mercato di una posizione. */
     public Map<String, Object> updateStockPrice(int id, double price) throws SQLException {
         execute("UPDATE portfolio SET current_price=? WHERE id=?", r4(price), id);
         return queryOne("SELECT * FROM portfolio WHERE id=?", id);
@@ -2794,6 +2921,7 @@ public class Database {
         });
     }
 
+    /** Registra un dividendo come transazione income (importo netto) + movimento "dividend". */
     public Map<String, Object> registerDividend(JsonObject p) throws SQLException {
         int portfolioId = p.get("portfolio_id").getAsInt();
         int accountId   = p.get("account_id").getAsInt();
@@ -2832,6 +2960,7 @@ public class Database {
         });
     }
 
+    /** Registra una spesa generica legata a un titolo (es. bollo/tasse) come transazione expense. */
     public Map<String, Object> registerPortfolioExpense(JsonObject p) throws SQLException {
         int portfolioId = p.get("portfolio_id").getAsInt();
         int accountId   = p.get("account_id").getAsInt();
@@ -2876,6 +3005,7 @@ public class Database {
         });
     }
 
+    /** Elimina un'intera posizione di portafoglio (i movimenti cadono in cascata via FK). */
     public Map<String, Object> deletePortfolioItem(int id) throws SQLException {
         Map<String, Object> old = queryOne("SELECT ticker, name FROM portfolio WHERE id=?", id);
         execute("DELETE FROM portfolio WHERE id=?", id);
@@ -2949,6 +3079,7 @@ public class Database {
 
     // ─── Statistiche ──────────────────────────────────────────────────────────
 
+    /** Statistiche dashboard per un anno: entrate/uscite/netto, conteggio transazioni e patrimonio totale. */
     public Map<String, Object> getDashboardStats(int year) throws SQLException {
         String yy = String.valueOf(year);
         Map<String,Object> yearly = queryOne("""
@@ -3003,6 +3134,7 @@ public class Database {
         return Map.of("income", inc, "expenses", exp, "net", inc - exp);
     }
 
+    /** Entrate/uscite per mese di un anno (grafico a barre dashboard). */
     public List<Map<String, Object>> getMonthlyChartData(int year) throws SQLException {
         return queryList("""
             SELECT CAST(strftime('%m',date) AS INTEGER) AS month,
@@ -3013,6 +3145,7 @@ public class Database {
         """, String.valueOf(year));
     }
 
+    /** Totale per categoria (income o expense) in un anno, split inclusi (grafico a torta). */
     public List<Map<String, Object>> getCategoryChartData(int year, String type) throws SQLException {
         return queryList("""
             WITH cat_amounts AS (
@@ -3047,6 +3180,7 @@ public class Database {
         }
     }
 
+    /** Info diagnostiche sul DB: dimensione file, pagine, spazio libero, conteggi, versione schema. */
     public Map<String, Object> dbGetInfo() throws SQLException, IOException {
         long fileSize = Files.exists(Path.of(currentDbPath)) ? Files.size(Path.of(currentDbPath)) : 0;
         var pageCount = queryOne("PRAGMA page_count");
@@ -3075,6 +3209,7 @@ public class Database {
         return result;
     }
 
+    /** Compatta il file DB (VACUUM) e riporta i byte liberati. */
     public Map<String, Object> dbVacuum() throws SQLException, IOException {
         long sizeBefore = Files.exists(Path.of(currentDbPath)) ? Files.size(Path.of(currentDbPath)) : 0;
         withExclusiveAccess(c -> {
@@ -3085,6 +3220,7 @@ public class Database {
         return Map.of("ok", true, "size_before", sizeBefore, "size_after", sizeAfter, "saved", sizeBefore - sizeAfter);
     }
 
+    /** Verifica l'integrità del DB (PRAGMA integrity_check). */
     public Map<String, Object> dbIntegrityCheck() throws SQLException {
         var rows = queryList("PRAGMA integrity_check");
         boolean ok = rows.size() == 1 && "ok".equals(String.valueOf(rows.get(0).get("integrity_check")));
@@ -3093,6 +3229,7 @@ public class Database {
         return Map.of("ok", ok, "messages", messages);
     }
 
+    /** Ricostruisce gli indici (REINDEX) e ottimizza (PRAGMA optimize). */
     public Map<String, Object> dbReindex() throws SQLException {
         withExclusiveAccess(c -> {
             try (Statement st = c.createStatement()) { st.execute("REINDEX"); }
@@ -3102,6 +3239,7 @@ public class Database {
         return Map.of("ok", true);
     }
 
+    /** Aggiorna le statistiche del query planner (ANALYZE) e le restituisce. */
     public Map<String, Object> dbAnalyze() throws SQLException {
         try (Statement st = conn.createStatement()) { st.execute("ANALYZE"); }
         List<Map<String, Object>> stats = queryList(
@@ -3113,6 +3251,7 @@ public class Database {
 
     // ─── Analytics ────────────────────────────────────────────────────────────
 
+    /** Entrate/uscite mensili degli ultimi N mesi (per i grafici Analytics). */
     public List<Map<String, Object>> getMonthlyBalance(int months) throws SQLException {
         java.time.LocalDate start = java.time.LocalDate.now()
                 .withDayOfMonth(1).minusMonths(months - 1);
@@ -3131,6 +3270,10 @@ public class Database {
         }
     }
 
+    /**
+     * Andamento del saldo per conto, mese per mese, negli ultimi N mesi: ricostruisce
+     * il saldo cumulato di ogni conto a fine di ciascun mese (serie per il grafico patrimonio).
+     */
     public Map<String, Object> getAccountBalanceHistory(int months) throws SQLException {
         LocalDate today = LocalDate.now();
         LocalDate startDate = today.withDayOfMonth(1).minusMonths(months - 1);
@@ -3276,6 +3419,7 @@ public class Database {
         return ret;
     }
 
+    /** Mese (YYYY-MM) della transazione più vecchia, per limitare i range dei grafici. */
     public String getOldestTransactionMonth() throws SQLException {
         String sql = "SELECT strftime('%Y-%m', MIN(date)) AS ym FROM transactions WHERE type IN ('income','expense')";
         try (Statement s = conn.createStatement(); ResultSet rs = s.executeQuery(sql)) {
@@ -3329,6 +3473,7 @@ public class Database {
         return result;
     }
 
+    /** Salva una previsione (saldo proiettato a una data) con le sue categorie previste. */
     public int saveForecast(String forecastDate, double projectedBalance, JsonArray categories) throws SQLException {
         execute("INSERT INTO forecasts (forecast_date, projected_balance) VALUES (?,?)",
                 forecastDate, r2(projectedBalance));
@@ -3347,6 +3492,7 @@ public class Database {
         return id;
     }
 
+    /** Elenco previsioni salvate, con flag is_ready (data raggiunta) e numero categorie. */
     public List<Map<String, Object>> getForecasts() throws SQLException {
         String today = LocalDate.now().toString();
         var list = queryList(
@@ -3357,16 +3503,22 @@ public class Database {
         return list;
     }
 
+    /** Elimina una previsione (categorie in cascata via FK). */
     public void deleteForecast(int id) throws SQLException {
         execute("DELETE FROM forecasts WHERE id=?", id);
         logger.log("PREVISIONE ELIMINATA", "id:" + id);
     }
 
+    /** Archivia una previsione (la nasconde dall'elenco attivo). */
     public void archiveForecast(int id) throws SQLException {
         execute("UPDATE forecasts SET archived=1 WHERE id=?", id);
         logger.log("PREVISIONE ARCHIVIATA", "id:" + id);
     }
 
+    /**
+     * Dettaglio di una previsione: per ogni categoria confronta il previsto con lo speso/incassato
+     * reale nel periodo (created_at..forecast_date), calcola la differenza e il saldo reale a fine periodo.
+     */
     public Map<String, Object> getForecastDetail(int id) throws SQLException {
         var forecast = queryOne("SELECT * FROM forecasts WHERE id=?", id);
         if (forecast == null) throw new SQLException("Previsione non trovata");
@@ -3418,6 +3570,7 @@ public class Database {
 
     // ── Previsione Saldo — transazioni escluse ────────────────────────────────
 
+    /** Transazioni escluse manualmente dal calcolo della Previsione Saldo. */
     public List<Map<String, Object>> getForecastExcluded() throws SQLException {
         return queryList("""
                 SELECT fe.transaction_id,
@@ -3429,10 +3582,12 @@ public class Database {
                 ORDER BY ym, fe.transaction_id""");
     }
 
+    /** Esclude una transazione dalla Previsione Saldo. */
     public void addForecastExcluded(int txId) throws SQLException {
         execute("INSERT OR IGNORE INTO forecast_excluded (transaction_id) VALUES (?)", txId);
     }
 
+    /** Reinserisce una transazione precedentemente esclusa nella Previsione Saldo. */
     public void removeForecastExcluded(int txId) throws SQLException {
         execute("DELETE FROM forecast_excluded WHERE transaction_id = ?", txId);
     }
@@ -3441,6 +3596,11 @@ public class Database {
     // Restituisce solo i mesi COMPLETATI (esclude il mese corrente, parziale).
     //   categories: nome, frequency (0-1), avg_monthly (media sui mesi completati)
     //   monthly:    ym, fixed_exp (cat freq≥0.75), sporadic_exp (cat freq<0.75)
+    /**
+     * Struttura delle spese per la Previsione Saldo: per ogni categoria calcola frequenza
+     * (in quanti mesi compare) e media mensile sui soli mesi completati, distinguendo spese
+     * fisse (freq≥0.75) da sporadiche. Esclude il mese corrente perché parziale.
+     */
     public Map<String, Object> getForecastExpenseSplit(int histMonths) throws SQLException {
         java.time.LocalDate today     = java.time.LocalDate.now();
         java.time.LocalDate startDate = today.withDayOfMonth(1).minusMonths(histMonths - 1);
@@ -3499,6 +3659,10 @@ public class Database {
     //   sched_income_remaining, sched_expense_remaining   (solo mese corrente:
     //   occorrenze da oggi compreso in poi; per gli altri mesi = totale)
     // I trasferimenti tra conti propri sono esclusi (non spostano il saldo totale).
+    /**
+     * Proietta entrate/uscite pianificate per i prossimi N mesi (trasferimenti esclusi).
+     * Per il mese corrente espone anche i valori "remaining" (solo occorrenze da oggi in poi).
+     */
     public List<Map<String, Object>> getScheduledForecast(int months) throws SQLException {
         java.time.LocalDate today  = java.time.LocalDate.now();
         java.time.LocalDate monStart = today.withDayOfMonth(1);
@@ -3566,6 +3730,7 @@ public class Database {
         return result;
     }
 
+    /** Totale per categoria e per mese negli ultimi N mesi (tabella pivot di Analytics, split inclusi). */
     public List<Map<String, Object>> getCategoryMonthTable(int months) throws SQLException {
         java.time.LocalDate start = java.time.LocalDate.now()
                 .withDayOfMonth(1).minusMonths(months - 1);

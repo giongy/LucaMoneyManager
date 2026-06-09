@@ -78,6 +78,13 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
         callback.success(b64);
     }
 
+    /**
+     * Entry point delle chiamate dal JavaScript (window.cefQuery).
+     * Decodifica il payload Base64 → JSON, estrae method+params e instrada:
+     * i metodi che aprono dialog nativi o fanno I/O di rete partono su virtual thread
+     * (per non bloccare il thread UI di JCEF), tutti gli altri vanno a {@link #dispatch}.
+     * Eseguito sul thread UI di JCEF, serializzato → la connessione DB resta single-thread.
+     */
     @Override
     public boolean onQuery(CefBrowser browser, CefFrame frame, long queryId,
                            String request, boolean persistent, CefQueryCallback callback) {
@@ -230,6 +237,12 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
         return out.isBlank() ? null : out;
     }
 
+    /**
+     * Router centrale JS↔Java: a ogni "method" associa la chiamata corrispondente
+     * (per lo più una query su {@link Database}) e restituisce l'oggetto da serializzare
+     * in JSON per il JS. Organizzato per dominio funzionale (Finestra, Conti, Categorie,
+     * Transazioni, Budget, ecc.). Un metodo sconosciuto solleva eccezione → failure al JS.
+     */
     public Object dispatch(String method, JsonObject p, CefBrowser browser) throws Exception {
         return switch (method) {
 
@@ -711,6 +724,12 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
     private static final Pattern PAT_PRICE_PCT = Pattern.compile(
             "((?:0|[1-9][0-9]{0,4})(?:[.][0-9]{3})*[,][0-9]{1,4})\\s{0,5}[+-][0-9]");
 
+    /**
+     * Recupera il prezzo di un titolo facendo scraping di Borsa Italiana:
+     * cerca il ticker/ISIN, segue il link alla scheda, e ne estrae il prezzo
+     * (formato italiano con virgola) provando in ordine 3 pattern di prezzo.
+     * @return mappa con ticker, price (double) e mic (codice mercato)
+     */
     private Map<String, Object> doFetchOnlinePrice(String ticker) throws Exception {
         // Step 1: cerca su Borsa Italiana search engine
         String q = URLEncoder.encode(ticker, StandardCharsets.UTF_8);
@@ -763,6 +782,7 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
         return HTTP_CLIENT.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8)).body();
     }
 
+    /** Legge la versione di una dipendenza dal suo pom.properties (mostrata in Impostazioni). */
     private static String mavenVersion(String groupId, String artifactId) {
         try (var is = Bridge.class.getResourceAsStream(
                 "/META-INF/maven/" + groupId + "/" + artifactId + "/pom.properties")) {

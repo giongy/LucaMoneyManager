@@ -254,9 +254,16 @@ function renderBudgetTable() {
         </td>`;
       }
       const isCalc = hasCfg && (budgetMap[cat.id]?.[m] === undefined);
+      // Pulsantino "= reale": solo su mesi passati/correnti con spesa reale diversa dal budget
+      const showSetBtn = isPast(m) && actual > 0 && Math.round(budget*100) !== Math.round(actual*100);
+      const setBtn = showSetBtn
+        ? `<button class="budget-cell-setbtn" title="Imposta budget = reale (${fmt.currency(actual)})"
+                   onclick="event.stopPropagation();_budgetSetToActual(${cat.id},${m},${actual})">=</button>`
+        : '';
       return `<td class="budget-cell${isCalc?' budget-cell-calc':''}${curCls}"
                   data-cat="${cat.id}" data-month="${m}" data-over="${over?1:0}"
                   onclick="_budgetCellEdit(this,${cat.id},${m})">
+        ${setBtn}
         <span class="budget-cell-val">${budgetStr}</span>
         ${cellBottom(budget, actual, m)}
       </td>`;
@@ -1066,6 +1073,12 @@ function renderBudgetMese() {
     </div>`;
 }
 
+// Imposta il budget di una cella uguale alla spesa reale di quel mese.
+window._budgetSetToActual = async (catId, month, actual) => {
+  await api.setBudget({category_id: catId, amount: actual, month, year: budgetYear});
+  await loadBudgetTable();
+};
+
 window._budgetCellEdit = (td, catId, month) => {
   const originalHtml = td.innerHTML;
   const valSpan = td.querySelector('.budget-cell-val');
@@ -1128,7 +1141,8 @@ window._budgetEditGestione = (catId, catName) => {
       const mode = document.getElementById('bc_mode').value;
       const amount = parseFloat(document.getElementById('bc_amount').value) || 0;
       await api.setBudgetConfig({category_id: catId, year: budgetYear, mode, master_amount: amount});
-      await api.setBudgetBulk({category_id: catId, year: budgetYear, amounts: Array(12).fill(0)});
+      // Non azzerare i mesi già fissati a mano: _budgetEffective distribuisce il master
+      // solo sui mesi liberi, lasciando intatti i valori pinned nella tabella budgets.
       closeModal();
       await loadBudgetTable();
     });

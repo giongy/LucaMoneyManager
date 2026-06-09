@@ -41,15 +41,63 @@ if (!window._sidebarDateTimer) {
   window._sidebarDateTimer = setInterval(renderSidebarDate, 60000);
 }
 
+// Il menù "Filtri" si apre come popover flottante accanto alla voce: si sceglie
+// un filtro e si richiude da solo (click fuori o Esc), senza riempire la sidebar.
 function toggleReportsGroup(e) {
   if (e) e.stopPropagation();
-  _reportsGroupOpen = !_reportsGroupOpen;
+  if (_reportsGroupOpen) { _closeReportsFlyout(); return; }
+  _reportsGroupOpen = true;
+  const sub    = document.getElementById('navReportsSub');
+  const arrow  = document.getElementById('navReportsArrow');
+  const anchor = document.getElementById('navReports');
+  if (!sub) return;
+  renderSidebarReports();
+  // Sposta su <body>: evita che il backdrop-filter della sidebar (tema glassy)
+  // diventi il contenitore di position:fixed e sfalsi le coordinate.
+  document.body.appendChild(sub);
+  sub.classList.add('nav-sub-flyout');
+  sub.style.display = '';
+  _positionReportsFlyout(sub, anchor);
+  if (arrow) arrow.classList.add('open');
+  // Aggancia le chiusure al ciclo successivo, per non intercettare questo stesso click.
+  setTimeout(() => {
+    document.addEventListener('mousedown', _onReportsOutside, true);
+    document.addEventListener('keydown', _onReportsEsc, true);
+  }, 0);
+}
+
+// Posiziona il popover a destra della voce "Filtri", clampato dentro la finestra.
+function _positionReportsFlyout(sub, anchor) {
+  if (!anchor) return;
+  const r = anchor.getBoundingClientRect();
+  sub.style.left = (r.right - 4) + 'px';
+  sub.style.top  = r.top + 'px';
+  const h = sub.offsetHeight;
+  const maxTop = window.innerHeight - h - 8;
+  if (r.top > maxTop) sub.style.top = Math.max(8, maxTop) + 'px';
+}
+
+function _closeReportsFlyout() {
+  _reportsGroupOpen = false;
   const sub   = document.getElementById('navReportsSub');
   const arrow = document.getElementById('navReportsArrow');
-  if (sub)   sub.style.display  = _reportsGroupOpen ? '' : 'none';
-  if (arrow) arrow.classList.toggle('open', _reportsGroupOpen);
-  if (_reportsGroupOpen) renderSidebarReports();
+  if (sub) {
+    sub.style.display = 'none';
+    sub.classList.remove('nav-sub-flyout');
+    sub.style.left = ''; sub.style.top = '';
+  }
+  if (arrow) arrow.classList.remove('open');
+  document.removeEventListener('mousedown', _onReportsOutside, true);
+  document.removeEventListener('keydown', _onReportsEsc, true);
 }
+
+function _onReportsOutside(e) {
+  const sub    = document.getElementById('navReportsSub');
+  const anchor = document.getElementById('navReports');
+  if (sub && !sub.contains(e.target) && anchor && !anchor.contains(e.target))
+    _closeReportsFlyout();
+}
+function _onReportsEsc(e) { if (e.key === 'Escape') _closeReportsFlyout(); }
 
 async function renderSidebarReports() {
   const el = document.getElementById('sidebarReportsList');
@@ -64,7 +112,7 @@ async function renderSidebarReports() {
       </a>
       <button class="btn btn-ghost btn-icon" style="padding:2px 5px;font-size:10px;flex-shrink:0;opacity:.6"
               onmouseenter="this.style.opacity=1" onmouseleave="this.style.opacity=.6"
-              onclick="showReportModal(${r.id})" title="Modifica">✏️</button>
+              onclick="_closeReportsFlyout();showReportModal(${r.id})" title="Modifica">✏️</button>
       <button class="btn btn-ghost btn-icon" style="padding:2px 5px;font-size:10px;flex-shrink:0;opacity:.4"
               onmouseenter="this.style.opacity=1" onmouseleave="this.style.opacity=.4"
               onclick="deleteReportConfirm(${r.id},'${r.name.replace(/'/g,"\\'")}')">✕</button>
@@ -72,6 +120,7 @@ async function renderSidebarReports() {
 }
 
 async function openSavedReport(id) {
+  _closeReportsFlyout();
   _currentReportId = id;
   if (currentPage !== 'reports') {
     navigate('reports'); // renderReports() will load and run the report

@@ -134,7 +134,8 @@
 [data-theme="cristallo"] #dash-tooltip,
 [data-theme="cristallo"] .ctx-menu,
 [data-theme="cristallo"] #portfolio-ctx-menu,
-[data-theme="cristallo"] #sched-ctx-menu {
+[data-theme="cristallo"] #sched-ctx-menu,
+[data-theme="cristallo"] .nav-sub-flyout {
   background: rgba(244,247,251,.97) !important;
   border-color: rgba(120,145,180,.30);
   backdrop-filter: blur(12px) saturate(150%);
@@ -242,7 +243,8 @@
 [data-theme="glassy"] #dash-tooltip,
 [data-theme="glassy"] .ctx-menu,
 [data-theme="glassy"] #portfolio-ctx-menu,
-[data-theme="glassy"] #sched-ctx-menu {
+[data-theme="glassy"] #sched-ctx-menu,
+[data-theme="glassy"] .nav-sub-flyout {
   background: rgba(28,34,48,.96) !important;
   border-color: rgba(255,255,255,.14);
   backdrop-filter: blur(10px) saturate(130%);
@@ -755,11 +757,21 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 .budget-row-parent:hover td, .budget-row-child:hover td { background:var(--bg4); }
 
 .budget-cell {
-  padding:5px 6px; text-align:right; cursor:pointer;
+  padding:5px 6px; text-align:right; cursor:pointer; position:relative;
   border-bottom:1px solid var(--border); border-left:1px solid var(--border);
   min-width:80px; vertical-align:top; transition:background .1s;
 }
 .budget-cell:hover { background:var(--bg4) !important; }
+/* Pulsantino "= reale": galleggia in alto a sinistra (zona libera), solo all'hover della cella */
+.budget-cell-setbtn {
+  position:absolute; top:3px; left:3px; width:15px; height:15px; padding:0;
+  display:flex; align-items:center; justify-content:center;
+  font-size:11px; line-height:1; font-weight:700; cursor:pointer;
+  color:var(--txt3); background:var(--bg2); border:1px solid var(--border);
+  border-radius:4px; opacity:0; transition:opacity .1s, color .1s, background .1s;
+}
+.budget-cell:hover .budget-cell-setbtn { opacity:.55; }
+.budget-cell-setbtn:hover { opacity:1; color:var(--bg); background:var(--accent); border-color:var(--accent); }
 .budget-cur-month { box-shadow:inset 2px 0 0 rgba(255,255,255,.6), inset -2px 0 0 rgba(255,255,255,.6); }
 .budget-cell-parent { font-weight:600; }
 .budget-cell-readonly { cursor:default; pointer-events:none; opacity:0.85; }
@@ -1486,7 +1498,7 @@ tr.tx-selected td { background:rgba(88,166,255,.07); }
 
 /* ─── Sidebar nav groups (Resoconti collapsible) ─────────────────────────── */
 .nav-group { display:flex; flex-direction:column; }
-.nav-group-arrow { font-size:var(--fs-lg,14px); color:var(--txt2); transition:transform .2s; margin-left:auto; line-height:1; }
+.nav-group-arrow { font-size:var(--fs-sm,11px); color:var(--txt2); transition:transform .2s; margin-left:4px; line-height:1; }
 .nav-group-arrow.open { transform:rotate(90deg); }
 .nav-sub { display:flex; flex-direction:column; background:var(--bg2); }
 .nav-sub-item {
@@ -1502,6 +1514,22 @@ tr.tx-selected td { background:rgba(88,166,255,.07); }
 .nav-sub-label { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; min-width:0; }
 .nav-sub-new { color:var(--accent); border-top:1px solid var(--border); padding-top:6px; margin-top:2px; }
 .nav-sub-new:hover { background:rgba(88,166,255,.1); }
+
+/* Menù "Filtri" come popover flottante: appare accanto alla voce, si chiude dopo la scelta */
+.nav-sub.nav-sub-flyout {
+  position:fixed; z-index:1000;
+  min-width:190px; max-width:280px; max-height:60vh; overflow-y:auto;
+  background:var(--bg2); border:1px solid var(--border); border-radius:8px;
+  box-shadow:0 8px 24px rgba(0,0,0,.35); padding:4px;
+  animation:navFlyoutIn .12s ease-out;
+}
+@keyframes navFlyoutIn {
+  from { opacity:0; transform:translateX(-4px) scale(.98); }
+  to   { opacity:1; transform:none; }
+}
+/* Dentro il popover gli item non hanno il rientro da sotto-menù */
+.nav-sub-flyout .nav-sub-item { padding-left:12px; border-radius:5px; }
+.nav-sub-flyout .nav-sub-new  { padding-left:12px; }
 
 /* ─── Analytics table ────────────────────────────────────────────────────── */
 .analytics-table { width:100%; border-collapse:collapse; font-size:var(--fs-md,12px); white-space:nowrap; }

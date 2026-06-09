@@ -630,6 +630,11 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 .dash-recent-card .table-wrap { flex:1; overflow:hidden; }
 .dash-recent-card .card-header { margin-bottom:4px; padding-bottom:4px; }
 .dash-recent-card th { padding:1px 10px; font-size:var(--fs-xs); }
+/* "Ultime transazioni": ogni riga su una sola linea — nessuna colonna va a capo
+   (es. "Portafoglio Sonia"). La descrizione è la colonna elastica: se troppo lunga
+   tronca con ellissi invece di mandare la riga su due righe. */
+.dash-recent-card td { white-space:nowrap; }
+.dash-recent-card td.td-main { max-width:220px; overflow:hidden; text-overflow:ellipsis; }
 
 .dash-bottom-charts { display:flex; gap:var(--dash-gap); margin-top:var(--dash-gap); height:var(--dash-row-h); }
 .dash-chart-sm { flex:1; min-width:0; display:flex; flex-direction:column; }

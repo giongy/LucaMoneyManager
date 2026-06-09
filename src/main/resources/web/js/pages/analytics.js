@@ -90,6 +90,7 @@ function _buildMonthsForYear(year, fromYm, toYm, selectedMonth) {
   return html;
 }
 
+// Dispatcher: renderizza la tab Analytics attiva nel contenitore #analyticsContent.
 function _renderCurrentAnalyticsTab() {
   if (_analyticsTab === 'balance')     renderAnalyticsBalance();
   else if (_analyticsTab === 'trend')      renderAnalyticsTrend();
@@ -100,6 +101,9 @@ function _renderCurrentAnalyticsTab() {
   else renderAnalyticsCatMonth();
 }
 
+// Disegna la pagina Analytics: barra delle 7 tab (Salute, Categorie/Mese, Bilancio, Andamento,
+// Saldo Conti, Previsione, Natura) + controlli periodo, poi renderizza la tab attiva.
+// Gestisce anche la navigazione "pending" arrivata da altre pagine (es. stat-card dashboard).
 async function renderAnalytics() {
   // Carica il primo mese disponibile in DB (una sola volta per sessione)
   if (_analyticsOldestYm === undefined) {
@@ -158,6 +162,7 @@ let _aCtx = null;
 const _parseYm = ym => ({ y: parseInt(ym.slice(0,4)), m: parseInt(ym.slice(5,7)) });
 const _fmtYm   = (y, m) => `${y}-${String(m).padStart(2,'0')}`;
 
+// Disegna la barra controlli periodo (select da/a mese-anno, scorciatoie) sopra le tab Analytics.
 function _renderAnalyticsControls() {
   const wrap = document.getElementById('aDateControls');
   if (!wrap || !_aCtx) return;
@@ -313,12 +318,14 @@ function _shiftYmByYears(ym, yearDelta) {
   return `${y}-${ym.slice(5,7)}`;
 }
 
+// Attiva/disattiva il troncamento YTD (ultimo mese fino a oggi) nel Bilancio Mensile.
 window._toggleBalanceYtd = () => {
   _analyticsBalanceYtd = !_analyticsBalanceYtd;
   _renderAnalyticsControls();
   renderAnalyticsBalance();
 };
 
+// Cambia la tab Analytics attiva, aggiorna i controlli periodo e renderizza la tab.
 window._setAnalyticsTab = (tab, btn) => {
   _analyticsTab = tab;
   document.querySelectorAll('[data-atab]').forEach(b => b.classList.remove('active'));
@@ -333,6 +340,7 @@ window._setAnalyticsTab = (tab, btn) => {
   if (tab === 'nature')     renderNatureReport();
 };
 
+// Attiva/disattiva la modalità confronto nel Bilancio: periodo A vs B (default B = A −1 anno).
 window._toggleBalanceCompare = () => {
   _analyticsBalanceCompare = !_analyticsBalanceCompare;
   if (_analyticsBalanceCompare) {
@@ -351,6 +359,7 @@ window._toggleBalanceCompare = () => {
 // sovrascrivere dal reset di startYm in renderAnalytics().
 let _pendingAnalyticsNav = null;
 
+// Naviga al Bilancio Mensile in modalità confronto YTD su un periodo (da stat-card dashboard).
 window.navigateToBalanceCompare = (startYm, endYm) => {
   _pendingAnalyticsNav = {
     tab: 'balance', startYm, endYm, compare: true, ytd: true,
@@ -363,6 +372,7 @@ window.navigateToBalanceCompare = (startYm, endYm) => {
 let _analyticsCatSort = { col: null, dir: -1 };
 let _analyticsCatCache = null;
 
+// Tab "Categorie / Mese": carica la tabella pivot categoria×mese e la renderizza.
 async function renderAnalyticsCatMonth() {
   const el = document.getElementById('analyticsContent');
   if (!el) return;
@@ -381,12 +391,14 @@ async function renderAnalyticsCatMonth() {
   _renderAnalyticsCatTable();
 }
 
+// Ordina la tabella Categorie/Mese per la colonna scelta e ridisegna.
 window._sortAnalyticsCat = col => {
   if (_analyticsCatSort.col === col) _analyticsCatSort.dir *= -1;
   else { _analyticsCatSort.col = col; _analyticsCatSort.dir = -1; }
   _renderAnalyticsCatTable();
 };
 
+// Disegna la tabella pivot Categorie×Mese (con totali, ordinamento e colori) da _analyticsCatCache.
 function _renderAnalyticsCatTable() {
   const el = document.getElementById('analyticsContent');
   if (!el || !_analyticsCatCache) return;
@@ -461,6 +473,7 @@ let _analyticsBalanceChart = null;
 
 // Se YTD attivo: tronca i totali dell'ultimo mese al giorno odierno.
 // Modifica gli array in-place e ricalcola balances.
+// Se YTD attivo, tronca i totali dell'ultimo mese al giorno odierno (confronto onesto col mese in corso).
 async function _applyYtdTruncation(cols, incomes, expenses, balances) {
   if (!_analyticsBalanceYtd || !cols.length) return;
   const today = new Date();
@@ -474,6 +487,7 @@ async function _applyYtdTruncation(cols, incomes, expenses, balances) {
 }
 
 // Costruisce array di month-cols { ym, label } per un periodo
+// Costruisce l'array di colonne mese {ym, label} nell'intervallo [startYm, endYm] inclusi.
 function _buildMonthCols(startYm, endYm) {
   const cols = [];
   if (!startYm || !endYm || endYm < startYm) return cols;
@@ -487,6 +501,8 @@ function _buildMonthCols(startYm, endYm) {
   return cols;
 }
 
+// Tab "Bilancio Mensile": entrate/uscite/saldo per mese, con eventuale confronto A vs B e YTD.
+// Instrada alla vista singola o di confronto in base allo stato.
 async function renderAnalyticsBalance() {
   const el = document.getElementById('analyticsContent');
   if (!el) return;
@@ -672,6 +688,7 @@ async function renderAnalyticsBalance() {
   });
 }
 
+// Vista Bilancio "singola" (senza confronto): grafico + tabella entrate/uscite/saldo per mese.
 async function _renderAnalyticsBalanceSingle() {
   const el = document.getElementById('analyticsContent');
   if (!el) return;
@@ -769,6 +786,7 @@ let _healthIncChart  = null;
 let _healthVolChart  = null;
 
 // ── Previsione Saldo nel contesto Analytics ───────────────────────────────────
+// Tab "Previsione Saldo": delega al motore Previsione Saldo (sezione _fc* più in basso).
 async function renderAnalyticsForecast() {
   const el = document.getElementById('analyticsContent');
   if (!el) return;
@@ -781,6 +799,8 @@ async function renderAnalyticsForecast() {
   await _runForecastSaldo();
 }
 
+// Tab "Salute Finanziaria": score 0-100 (via utils.computeHealthScore) con dettaglio di tutte
+// le componenti (tasso risparmio, mesi positivi, riserva, trend, stabilità entrate) e spiegazioni.
 async function renderAnalyticsHealth() {
   const el = document.getElementById('analyticsContent');
   if (!el) return;
@@ -1168,6 +1188,7 @@ let _accBalChart = null;
 let _accBalData  = null;   // { accounts, byAccount: {aid: {ym: balance}}, monthCols }
 let _accBalSel   = null;   // Set di account_id selezionati
 
+// Tab "Saldo Conti": andamento storico del saldo per conto (serie multiple selezionabili).
 async function renderAnalyticsAccBalance() {
   const el = document.getElementById('analyticsContent');
   if (!el) return;
@@ -1212,6 +1233,7 @@ async function renderAnalyticsAccBalance() {
   _renderAccBalChart();
 }
 
+// Disegna il grafico Saldo Conti per i conti selezionati (una linea per conto + totale).
 function _renderAccBalChart() {
   const el = document.getElementById('analyticsContent');
   if (!el || !_accBalData) return;
@@ -1316,6 +1338,7 @@ function _renderAccBalChart() {
   });
 }
 
+// Mostra/nasconde un conto nel grafico Saldo Conti e ridisegna.
 window._toggleAccBal = (aid) => {
   if (_accBalSel.has(aid)) {
     if (_accBalSel.size > 1) _accBalSel.delete(aid);
@@ -1331,6 +1354,7 @@ let _analyticsTrendChart  = null;
 let _analyticsTrendCache  = null; // { monthCols, catMap }
 let _trendIncludeZero     = true;
 
+// Tab "Andamento Categoria": evoluzione mensile della spesa/entrata di una o più categorie scelte.
 async function renderAnalyticsTrend() {
   const el = document.getElementById('analyticsContent');
   if (!el) return;
@@ -1387,6 +1411,7 @@ async function renderAnalyticsTrend() {
   _renderAnalyticsTrendChart();
 }
 
+// Disegna il grafico Andamento Categoria per le categorie selezionate.
 function _renderAnalyticsTrendChart() {
   if (!_analyticsTrendCache) return;
   const { monthCols, catMap } = _analyticsTrendCache;
@@ -1501,6 +1526,8 @@ function _renderAnalyticsTrendChart() {
   });
 }
 
+// Pagina Resoconti (Filtri salvati): mostra il resoconto selezionato dalla sidebar (filtri + grafico)
+// o un placeholder se nessuno è attivo.
 async function renderReports() {
   const pg = document.getElementById('pg-reports');
   pg.innerHTML = `
@@ -1525,6 +1552,7 @@ async function renderReports() {
 }
 
 
+// Tab "Natura Spese": ripartizione delle uscite per natura (essenziale/variabile/superflua) e per categoria.
 async function renderNatureReport() {
   const el = document.getElementById('analyticsContent') || document.getElementById('rNatureContent');
   if (!el) return;
@@ -1618,6 +1646,7 @@ async function renderNatureReport() {
 }
 
 
+// Aggiorna l'intestazione della pagina Resoconti col nome del resoconto attivo e azioni.
 async function _updateReportHeader(r) {
   const headerEl = document.getElementById('rReportHeader');
   if (!headerEl) return;
@@ -1696,6 +1725,7 @@ async function _updateReportHeader(r) {
   headerEl.innerHTML = `${nameHtml}${chipsHtml}`;
 }
 
+// Carica la configurazione di un resoconto salvato (filtri, raggruppamento, tipo grafico) nello stato.
 function _loadReportConfig(r) {
   _currentReportId = r.id;
   _reportGroupby   = r.groupby    || 'none';
@@ -1704,6 +1734,7 @@ function _loadReportConfig(r) {
   runReport();
 }
 
+// Esegue il resoconto attivo: recupera le transazioni filtrate e ne renderizza risultati e grafico.
 async function runReport() {
   const f         = _reportFilters || {};
   const groupby   = _reportGroupby   || 'none';
@@ -1762,6 +1793,8 @@ async function runReport() {
   renderReportResults(txs, groupby, chartType, catMap);
 }
 
+// Modale crea/modifica resoconto: nome, filtri (periodo, conto, categoria, tag, ricerca),
+// raggruppamento e tipo di grafico. reportId=null → nuovo (precompilato da _reportFilters).
 async function showReportModal(reportId = null) {
   const [accounts, categories, tags, reports, rangePresets] = await Promise.all([
     api.getAccounts(), api.getCategories(), api.getTags(), api.getReports(), api.getRangePresets(),
@@ -1982,6 +2015,7 @@ async function showReportModal(reportId = null) {
   setTimeout(() => { const e = document.getElementById('rmName'); if (e) { e.focus(); e.select(); } }, 60);
 }
 
+// Mostra/nasconde i campi data personalizzati nel modale resoconto quando il range è "custom".
 function rmOnRangeChange(range) {
   const show = range === 'custom';
   const fg = document.getElementById('rmDateFromGroup');
@@ -2001,6 +2035,8 @@ const _AMT_BUCKETS = [
 ];
 const _WEEKDAY_NAMES = ['Domenica','Lunedì','Martedì','Mercoledì','Giovedì','Venerdì','Sabato'];
 
+// Renderizza i risultati di un resoconto: tabella transazioni + eventuale aggregazione per gruppo
+// (categoria/conto/tag/mese) e grafico (barre/torta/linea) secondo la configurazione.
 function renderReportResults(txs, groupby, chartType, catMap) {
   if (_reportChart) { _reportChart.destroy(); _reportChart = null; }
   const el = document.getElementById('rResults');
@@ -2389,6 +2425,7 @@ function renderReportResults(txs, groupby, chartType, catMap) {
   }
 }
 
+// Formatta "YYYY-MM" in etichetta mese leggibile (es. "mag 2026").
 function _fmtMonth(yyyyMM) {
   if (!yyyyMM || !/^\d{4}-\d{2}$/.test(yyyyMM)) return yyyyMM || '—';
   const [y, m] = yyyyMM.split('-');
@@ -2397,6 +2434,7 @@ function _fmtMonth(yyyyMM) {
 }
 
 
+// Elimina un resoconto salvato previa conferma e aggiorna sidebar/pagina.
 async function deleteReportConfirm(id, name) {
   openModal('Elimina resoconto',
     `<p style="margin:0">Eliminare <b>${name}</b>?</p>`,
@@ -2427,12 +2465,14 @@ const _fcCurYm   = () => { const d = new Date(); return _fcFmtYm(d.getFullYear()
 const _fcPrevYm  = () => { const d = new Date(); const p = new Date(d.getFullYear(), d.getMonth()-1, 1); return _fcFmtYm(p.getFullYear(), p.getMonth()+1); };
 
 // Conta i mesi inclusivi tra fromYm e toYm (toYm >= fromYm)
+// Numero di mesi tra due "YYYY-MM" inclusi.
 function _fcMonthsBetween(fromYm, toYm) {
   const a = _fcParseYm(fromYm), b = _fcParseYm(toYm);
   return (b.y - a.y) * 12 + (b.m - a.m) + 1;
 }
 
 // Inizializza i default di _fcParams in base a oggi + primo mese in DB
+// Inizializza i parametri di default della Previsione Saldo (storico e orizzonte) se non impostati.
 function _fcInitDefaults(oldestYm) {
   const d = new Date();
   // Storico: 12 mesi indietro, ma clamp a oldestYm
@@ -2447,6 +2487,7 @@ function _fcInitDefaults(oldestYm) {
 }
 
 // Deriva i numeri (histMonths, horizonMonths) da _fcParams + clamp di sicurezza
+// Deriva dai parametri (date scelte) quanti mesi di storico e di proiezione richiedere al backend.
 function _fcDeriveMonths() {
   const curYm  = _fcCurYm();
   const prevYm = _fcPrevYm();
@@ -2457,6 +2498,7 @@ function _fcDeriveMonths() {
   return { histMonths, horizonMonths };
 }
 
+// Entry point della Previsione Saldo: monta controlli e lancia il calcolo della proiezione.
 async function renderForecastSaldo() {
   const container = document.getElementById('rResults');
   if (!container) return;
@@ -2466,6 +2508,7 @@ async function renderForecastSaldo() {
   await _runForecastSaldo();
 }
 
+// Marca la previsione come "da ricalcolare" (mostra il pulsante Aggiorna) dopo una modifica.
 function _fcSetDirty() {
   const badge = document.getElementById('fcDirtyBadge');
   if (badge) badge.style.display = '';
@@ -2473,6 +2516,7 @@ function _fcSetDirty() {
 
 // ── HTML controlli (stesso pattern degli altri report Analytics) ────────────
 // Preset | Da: [Y][M] | A: [Y][M] | Sensibilità: [select]
+// HTML della barra controlli della Previsione Saldo (range storico, orizzonte, sensibilità).
 function _fcControlsHtml() {
   _fcInitDefaults(_analyticsOldestYm);
   const oldestYm = _analyticsOldestYm || _fcPrevYm();
@@ -2523,6 +2567,7 @@ function _fcControlsHtml() {
 }
 
 // Bind handlers ai controlli (chiamato dopo aver inserito _fcControlsHtml nel DOM)
+// Collega gli eventi dei controlli della Previsione Saldo (cambio date/sensibilità → ricalcolo).
 function _fcBindControls() {
   const oldestYm = _analyticsOldestYm || _fcPrevYm();
   const prevYm   = _fcPrevYm();
@@ -2591,6 +2636,9 @@ function _fcBindControls() {
   document.getElementById('fcPresetHoriz12').onclick = () => _applyHorizPreset(12);
 }
 
+// Cuore della Previsione Saldo: prende lo storico mensile, applica esclusioni/aggiustamenti e
+// statistiche robuste (mediane, IQR, regressione) per proiettare il saldo futuro, poi disegna
+// grafico, tabella mesi (espandibili) e card riepilogative. keepExclusions: preserva le esclusioni manuali.
 async function _runForecastSaldo(keepExclusions = false) {
   const { sensitivity } = _fcParams;
   const { histMonths, horizonMonths } = _fcDeriveMonths();
@@ -3235,6 +3283,7 @@ async function _runForecastSaldo(keepExclusions = false) {
 }
 
 // ── Toggle esclusione mese intero ────────────────────────────────────────────
+// Include/esclude manualmente un intero mese dallo storico usato per la previsione.
 function _fcToggleMonth(ym, excluded) {
   if (excluded) { _fcManualExcl.add(ym);    _fcManualIncl.delete(ym); }
   else          { _fcManualIncl.add(ym);    _fcManualExcl.delete(ym); }
@@ -3242,6 +3291,7 @@ function _fcToggleMonth(ym, excluded) {
 }
 
 // ── Toggle espansione mese — DOM manipulation, nessun re-render ──────────────
+// Espande/comprime la riga di un mese mostrando le transazioni che lo compongono (sotto-tabella).
 async function _fcToggleExpand(ym) {
   const btn     = document.getElementById('fcExpBtn-' + ym);
   const mainRow = document.getElementById('fcRow-'   + ym);
@@ -3276,6 +3326,7 @@ async function _fcToggleExpand(ym) {
 }
 
 // ── Carica dal DB le transazioni escluse e popola lo stato in memoria ─────────
+// Carica dal DB le transazioni escluse in modo persistente dalla Previsione Saldo.
 async function _fcLoadExcludedFromDb() {
   const rows = await api.getForecastExcluded();
   _fcExcludedTxIds = new Set((rows || []).map(r => Number(r.transaction_id)));
@@ -3289,6 +3340,7 @@ async function _fcLoadExcludedFromDb() {
 }
 
 // ── Toggle esclusione singola transazione ─────────────────────────────────────
+// Include/esclude una singola transazione dal calcolo (persistito su DB) e ricalcola.
 async function _fcToggleTx(txId, ym, excluded) {
   if (excluded) {
     _fcExcludedTxIds.add(txId);
@@ -3311,6 +3363,7 @@ async function _fcToggleTx(txId, ym, excluded) {
 
 // ── Costruisce HTML sub-tabella transazioni per un mese espanso ──────────────
 // Restituisce un <tr id="fcSub-{ym}"> con la lista delle transazioni del mese
+// Costruisce la sotto-tabella delle transazioni di un mese (con checkbox includi/escludi).
 function _fcBuildTxSubrow(ym) {
   const txs = _fcMonthTxCache[ym];
   if (!txs || txs.length === 0) {
@@ -3357,6 +3410,7 @@ function _fcBuildTxSubrow(ym) {
 // ── Rilevamento outlier IQR ───────────────────────────────────────────────────
 // Restituisce array di boolean: true = il valore è anomalo rispetto alla distribuzione
 // Versione "positiva": ignora zeri/negativi (per entrate/uscite, mai negative)
+// Rileva outlier con il metodo IQR (oltre k×IQR dai quartili); la variante "Signed" distingue alti/bassi.
 function _fcIqrOutliers(values, k) {
   const pos = values.filter(v => v > 0);
   if (pos.length < 4) return values.map(() => false);
@@ -3382,6 +3436,7 @@ function _fcIqrOutliersSigned(values, k) {
   return values.map(v => v > hi || v < lo);
 }
 
+// Percentile p (0-1) di un array già ordinato (interpolazione lineare).
 function _fcPct(sorted, p) {
   const idx = (p / 100) * (sorted.length - 1);
   const lo  = Math.floor(idx), hi = Math.ceil(idx);
@@ -3392,6 +3447,7 @@ function _fcPct(sorted, p) {
 // Restituisce { slope, intercept, r2 } sul vettore y.
 // x opzionale: indici personalizzati (es. posizioni calendario reali).
 // Se omesso usa 0,1,2,… — slope sarà "per indice", non "per mese calendario".
+// Regressione lineare (minimi quadrati): ritorna pendenza/intercetta per il trend del risparmio.
 function _fcLinReg(y, x) {
   const n = y.length;
   if (n < 2) return { slope: 0, intercept: y[0] ?? 0, r2: 0 };
@@ -3409,6 +3465,7 @@ function _fcLinReg(y, x) {
 }
 
 // ── Helper UI ─────────────────────────────────────────────────────────────────
+// Helper di rendering per la Previsione Saldo: _fcCard = card riepilogativa, _fcRow = riga etichetta/valore.
 function _fcCard(label, value, color) {
   return `<div class="card" style="padding:14px 16px">
     <div style="font-size:11px;color:var(--txt2);margin-bottom:4px">${label}</div>

@@ -89,6 +89,8 @@ function positionTotalReturn(i) {
   return { totalReturn, pct, currentValue, unrealized, realized };
 }
 
+// Disegna la pagina Portafoglio: barra tab (Portafoglio/Analisi/Storico) + filtri (stato, tipo)
+// e la vista attiva. Carica posizioni e conti, calcola i totali e collega gli handler.
 async function renderPortfolio() {
   const pg = document.getElementById('pg-portfolio');
   const [items, accounts] = await Promise.all([api.getPortfolio(), api.getAccounts()]);
@@ -335,22 +337,26 @@ async function renderPortfolio() {
   }
 }
 
+// Cambia tab del portafoglio e ridisegna.
 function _setPortfolioTab(tab) {
   _portfolioTab = tab;
   renderPortfolio();
 }
 
+// Filtra lo storico per stato posizione (tutte/attive/chiuse) e ridisegna.
 function _setPortStoricoFilter(f) {
   _portStoricoFilter = f;
   renderPortfolioStorico(_portfolioItems);
 }
 
+// Espande/comprime i movimenti di una posizione nello Storico.
 function _togglePortStorico(id) {
   if (_portStoricoExp.has(id)) _portStoricoExp.delete(id);
   else _portStoricoExp.add(id);
   renderPortfolioStorico(_portfolioItems);
 }
 
+// Tab "Storico": per ogni posizione mostra l'elenco espandibile dei movimenti (buy/sell/cedole/spese).
 async function renderPortfolioStorico(items) {
   const container = document.getElementById('pgPortfolioStorico');
   if (!container) return;
@@ -491,6 +497,7 @@ async function renderPortfolioStorico(items) {
     </div>`;
 }
 
+// Tab "Analisi": instrada verso l'analisi azioni e/o obbligazioni in base alle posizioni presenti.
 function renderPortfolioAnalisi(items) {
   const container = document.getElementById('pgPortfolioAnalisi');
   if (!container) return;
@@ -520,6 +527,7 @@ function renderPortfolioAnalisi(items) {
 }
 
 // ── Equity analytics ────────────────────────────────────────────────────────
+// Analisi azioni: tabella/metriche per le posizioni equity (valore, P&L, total return).
 function renderEquityAnalisi(equities) {
   const container = document.getElementById('eqAnalisiSection');
   if (!container) return;
@@ -648,6 +656,7 @@ function renderEquityAnalisi(equities) {
 }
 
 // ── Bond analytics ──────────────────────────────────────────────────────────
+// Analisi obbligazioni: metriche specifiche bond (current yield, YTM, scadenze, cedole annue).
 function renderBondAnalisi(bonds, container, today, todayYear) {
   container.innerHTML = `<div style="font-size:13px;font-weight:700;color:var(--txt2);margin-bottom:10px;letter-spacing:.3px">📄 OBBLIGAZIONARIO</div><div id="bondCharts"></div>`;
   const inner = container.querySelector('#bondCharts');
@@ -953,6 +962,8 @@ function renderBondAnalisi(bonds, container, today, todayYear) {
   });
 }
 
+// Modale acquisto titolo: ticker, nome, tipo (equity/bond + campi cedola/scadenza), quantità,
+// prezzo, commissioni e conto sorgente. portfolioId valorizzato → acquisto su posizione esistente.
 async function showBuyModal(portfolioId, investAccounts, allAccounts) {
   if (!investAccounts || !allAccounts) {
     const accounts = await api.getAccounts();
@@ -1140,6 +1151,7 @@ async function showBuyModal(portfolioId, investAccounts, allAccounts) {
   }, 50);
 }
 
+// Modale vendita: quantità, prezzo, commissione e conto destinazione del ricavato.
 async function showSellModal(portfolioId) {
   const [items, accounts] = await Promise.all([api.getPortfolio(), api.getAccounts()]);
   const pos = items.find(i => i.id === portfolioId);
@@ -1252,6 +1264,7 @@ async function showSellModal(portfolioId) {
   }, 50);
 }
 
+// Modale registrazione cedola (bond): importo, data e conto di accredito.
 async function showCouponModal(portfolioId) {
   const [items, accounts] = await Promise.all([api.getPortfolio(), api.getAccounts()]);
   const pos = items.find(i => i.id === portfolioId);
@@ -1362,6 +1375,7 @@ async function showCouponModal(portfolioId) {
   }, 50);
 }
 
+// Modale registrazione dividendo (azioni): importo netto, data e conto di accredito.
 async function showDividendModal(portfolioId) {
   const [items, accounts] = await Promise.all([api.getPortfolio(), api.getAccounts()]);
   const pos = items.find(i => i.id === portfolioId);
@@ -1466,6 +1480,7 @@ async function showDividendModal(portfolioId) {
 }
 window.showDividendModal = showDividendModal;
 
+// Modale spesa legata al titolo (es. bollo/tasse): importo, etichetta, data, conto e categoria.
 async function showExpenseModal(portfolioId) {
   const [items, accounts, categories] = await Promise.all([api.getPortfolio(), api.getAccounts(), api.getCategories()]);
   const pos = items.find(i => i.id === portfolioId);
@@ -1543,6 +1558,7 @@ async function showExpenseModal(portfolioId) {
   });
 }
 
+// Modale storico movimenti di una posizione (buy/sell/cedole/dividendi/spese) con possibilità di eliminarli.
 async function showPortfolioHistory(portfolioId) {
   const [txs, items] = await Promise.all([
     api.getPortfolioTransactions(portfolioId),
@@ -1596,6 +1612,7 @@ async function showPortfolioHistory(portfolioId) {
   openModal('Storico operazioni', body, null);
 }
 
+// Modale modifica posizione: corregge i dati anagrafici/quantità/prezzo medio e i campi bond.
 async function showEditPositionModal(portfolioId) {
   const [items, accounts] = await Promise.all([api.getPortfolio(), api.getAccounts()]);
   const pos = items.find(i => i.id === portfolioId);
@@ -1710,6 +1727,7 @@ window.showEditPositionModal = showEditPositionModal;
 
 // ── Portfolio context menu ──────────────────────────────────────────────────
 
+// Calcola la prossima data cedola futura a ritroso dalla scadenza, secondo la frequenza.
 function nextCouponDate(maturityDateStr, frequency) {
   const mat = new Date(maturityDateStr + 'T00:00:00');
   const day = mat.getDate();
@@ -1732,12 +1750,15 @@ function nextCouponDate(maturityDateStr, frequency) {
   return _dateStr(candidates[0]);
 }
 
+// Chiude il menu contestuale del portafoglio.
 function closePortfolioContextMenu() {
   document.getElementById('portfolio-ctx-menu')?.remove();
   document.removeEventListener('click', closePortfolioContextMenu);
   document.removeEventListener('contextmenu', closePortfolioContextMenu);
 }
 
+// Menu contestuale (tasto destro) di una posizione: compra/vendi, cedola/dividendo, spesa,
+// aggiorna prezzo, storico, modifica, elimina; posizionato al cursore.
 window._showPortfolioCtx = (portfolioId, evt) => {
   evt.preventDefault();
   closePortfolioContextMenu();
@@ -1791,6 +1812,7 @@ window._showPortfolioCtx = (portfolioId, evt) => {
   }, 0);
 };
 
+// Crea una transazione pianificata ricorrente per le cedole di un bond (in base a frequenza/scadenza).
 async function showAddCouponToScheduled(portfolioId) {
   const [items, accounts, categories] = await Promise.all([
     api.getPortfolio(), api.getAccounts(), api.getCategories()
@@ -1902,20 +1924,24 @@ async function showAddCouponToScheduled(portfolioId) {
 window.showAddCouponToScheduled = showAddCouponToScheduled;
 
 window._setPortfolioTab = _setPortfolioTab;
+// Filtra le posizioni per stato (attive/chiuse/tutte) e salva la preferenza.
 window._setPortfolioFilter = async (val) => {
   _portfolioActiveOnly = val;
   await api.setSetting('portfolio.active_only', val);
   renderPortfolio();
 };
+// Filtra le posizioni per tipo (tutte/azioni/obbligazioni).
 window._setPortfolioTypeFilter = type => {
   _portfolioTypeFilter = type;
   renderPortfolio();
 };
+// Cambia colonna/direzione di ordinamento della tabella portafoglio.
 window._portfolioSortBy = col => {
   if (_portfolioSort.col === col) _portfolioSort.dir *= -1;
   else _portfolioSort = { col, dir: 1 };
   renderPortfolio();
 };
+// Annulla un movimento di portafoglio previa conferma (ripristina quantità/prezzo medio lato server).
 async function deletePortfolioTransactionConfirm(ptId, type, ticker) {
   const TYPE_IT = { buy: 'acquisto', sell: 'vendita', coupon: 'cedola', expense: 'commissione/spesa' };
   const label = TYPE_IT[type] || type;
@@ -1944,6 +1970,8 @@ window.showSellModal        = showSellModal;
 window.showCouponModal      = showCouponModal;
 window.showExpenseModal     = showExpenseModal;
 window.showPortfolioHistory = showPortfolioHistory;
+// Aggiorna i prezzi correnti di tutte le posizioni con ISIN/ticker via scraping online (Borsa Italiana),
+// segnando per ciascuna l'esito (ok/fail) nello stato dei prezzi.
 async function refreshPortfolioPrices() {
   const btn = document.getElementById('btnRefreshPrices');
   const items = (_portfolioItems || [])
@@ -1978,6 +2006,7 @@ async function refreshPortfolioPrices() {
   toast(msg, failed > 0 ? 'warning' : 'success');
 }
 
+// Aggiorna manualmente il prezzo corrente di una posizione (input inline).
 window.updateStockPrice = async (id, val) => {
   const normalized = String(val).trim().replace(',', '.');
   const price = parseFloat(normalized);
@@ -1988,6 +2017,7 @@ window.updateStockPrice = async (id, val) => {
   }
   catch(e) { toast(e.message,'error'); }
 };
+// Elimina un'intera posizione previa conferma (i movimenti cadono in cascata lato DB).
 window.deleteStock = async id => {
   const ok = await confirm('Elimina posizione', 'Eliminare questa posizione dal portafoglio? Le transazioni collegate resteranno.');
   if (!ok) return;

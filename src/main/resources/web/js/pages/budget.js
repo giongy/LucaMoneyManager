@@ -14,6 +14,8 @@ let _budgetAndamentoChart = null;
 let _budgetMeseSort  = 'rimasto';
 let _budgetMeseMonth = new Date().getMonth() + 1;
 
+// Disegna la pagina Budget: barra tab (Budget/Andamento/Scostamenti/Mese), navigazione anno,
+// azioni della griglia (comprimi, solo rossi, solo mese corrente, cancella anno, genera) e contenitori.
 async function renderBudgets() {
   if (_budgetAndamentoChart) { _budgetAndamentoChart.destroy(); _budgetAndamentoChart = null; }
   const pg = document.getElementById('pg-budgets');
@@ -89,6 +91,7 @@ async function renderBudgets() {
   await loadBudgetTable();
 }
 
+// Cambia la tab attiva del Budget, mostra il contenitore giusto e renderizza la vista corrispondente.
 window._setBudgetTab = tab => {
   _budgetTab = tab;
   document.querySelectorAll('#pg-budgets [data-btab]').forEach(b => {
@@ -114,6 +117,7 @@ let _budgetDetailNavIdx  = 0;
 let _budgetScostTab  = 'uscite';
 let _budgetScostSort = 'pct';
 
+// Carica i dati budget dell'anno (in _budgetData) e renderizza la vista della tab attiva.
 async function loadBudgetTable() {
   _budgetData = await api.getBudgetYear(budgetYear);
   renderBudgetTable();
@@ -137,6 +141,8 @@ function _budgetEffective(cfg, stored) {
 }
 
 /* ─── Budget: mappe condivise tra le 3 viste ─────────────────────────────── */
+// Prepara le strutture condivise da griglia/andamento/scostamenti: mappe budget/reale/config
+// per categoria, indice categorie, gerarchia parent→figli, foglie e helper getEffective.
 function _buildBudgetMaps() {
   const { budgets, actuals, categories, configs } = _budgetData;
   const budgetMap = {}, actualMap = {}, configMap = {}, catById = {};
@@ -161,6 +167,8 @@ function _buildBudgetMaps() {
   return { budgetMap, actualMap, configMap, catById, parentIds, childrenOf, leafCats, getEffective };
 }
 
+// Tab "Budget": disegna la griglia annuale (categorie × 12 mesi) con budget/reale/differenza
+// per cella, righe parent comprimibili, badge Gestione e righe sommario Reale/Budget/Differenza.
 function renderBudgetTable() {
   const { categories } = _budgetData;
 
@@ -377,6 +385,7 @@ function renderBudgetTable() {
 }
 
 /* ─── Budget Andamento ───────────────────────────────────────────────────── */
+// Tab "Andamento": grafico cumulativo budget vs reale nell'anno, con riordino categorie via drag.
 function renderBudgetAndamento() {
   const el = document.getElementById('budgAndamentoWrap');
   if (!el || !_budgetData) return;
@@ -544,6 +553,7 @@ function renderBudgetAndamento() {
 let _budgAndDragFrom = null;
 let _budgAndDragController = null;
 
+// Aggancia il drag&drop per riordinare le categorie nel grafico Andamento.
 function _wireBudgetAndDrag() {
   // Rimuove i vecchi listener prima di ri-agganciare (evita accumulo su re-drop)
   if (_budgAndDragController) _budgAndDragController.abort();
@@ -597,6 +607,8 @@ function _wireBudgetAndDrag() {
 }
 
 /* ─── Budget Scostamenti YTD ─────────────────────────────────────────────── */
+// Tab "Scostamenti": classifica le categorie per scostamento budget/reale da inizio anno,
+// separate Uscite/Entrate e ordinabili (per %, valore, ecc.).
 function renderBudgetScostamenti() {
   const el = document.getElementById('budgScostWrap');
   if (!el || !_budgetData) return;
@@ -733,6 +745,8 @@ function renderBudgetScostamenti() {
 }
 
 /* ─── Budget Mese: zone colore (% + importo assoluto) ───────────────────── */
+// Determina la "zona" colore di una categoria nel mese (verde→ambra→rosso per le uscite,
+// logica speculare per le entrate) in base alla % budget utilizzato.
 function _budgetMeseZone(pctUsed, budget, spent, isExpSide) {
   if (isExpSide) {
     if (pctUsed <= 70) return 'dkgreen';
@@ -768,6 +782,7 @@ const _MESE_ZONE_STYLE = {
 };
 
 /* ─── Budget Mese Treemap ─────────────────────────────────────────────────── */
+// Calcola e disegna un treemap (rettangoli proporzionali alla spesa) per le categorie del mese.
 function _drawBudgetMeseTreemap(rows, vw, vh, isExpSide) {
   if (!rows.length) return `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--txt3);font-size:13px">Nessun dato</div>`;
 
@@ -835,6 +850,7 @@ function _drawBudgetMeseTreemap(rows, vw, vh, isExpSide) {
   }).join('');
 }
 
+// Apre il treemap del mese in un overlay a tutta larghezza (tab Uscite/Entrate).
 function _showBudgetMeseTreemap() {
   if (!_budgetData) return;
   const { actualMap, catById, leafCats, getEffective } = _buildBudgetMaps();
@@ -878,12 +894,15 @@ function _showBudgetMeseTreemap() {
   mb.style.padding  = '12px 16px';
 }
 
+// Cambia tab (Uscite/Entrate) nell'overlay treemap.
 window._tmSwitchTab = id => {
   const wrap = document.getElementById('tmWrap');
   if (wrap) wrap.dataset.tmactive = id;
 };
 
 /* ─── Budget Mese Corrente ───────────────────────────────────────────────── */
+// Tab "Mese": analisi del singolo mese selezionato — categorie con budget/speso/rimasto,
+// zone colore e barre, navigazione mese e accesso al treemap.
 function renderBudgetMese() {
   const el = document.getElementById('budgMeseWrap');
   if (!el || !_budgetData) return;
@@ -1079,6 +1098,8 @@ window._budgetSetToActual = async (catId, month, actual) => {
   await loadBudgetTable();
 };
 
+// Edit inline di una cella budget: sostituisce la cella con un input; salva su blur/Enter
+// (vuoto = rimuove il pin, il mese torna calcolato), annulla su Escape.
 window._budgetCellEdit = (td, catId, month) => {
   const originalHtml = td.innerHTML;
   const valSpan = td.querySelector('.budget-cell-val');
@@ -1119,6 +1140,8 @@ window._budgetCellEdit = (td, catId, month) => {
   inp.focus(); inp.select();
 };
 
+// Modale "Gestione budget" di una categoria: imposta modalità (mensile/annuale) e importo master
+// distribuito automaticamente sui mesi liberi.
 window._budgetEditGestione = (catId, catName) => {
   const cfg = (_budgetData.configs || []).find(c => c.category_id === catId) || {};
   const currentMode = cfg.mode || 'mensile';
@@ -1163,12 +1186,14 @@ window._budgetEditGestione = (catId, catName) => {
   }, 0);
 };
 
+// Comprime/espande una macrocategoria nella griglia budget.
 window._budgetToggle = catId => {
   if (_budgetCollapsed.has(catId)) _budgetCollapsed.delete(catId);
   else _budgetCollapsed.add(catId);
   renderBudgetTable();
 };
 
+// Apre il modale dettaglio di una categoria, predisponendo la lista per la navigazione ‹ ›.
 window._budgetShowDetail = (catId, catName) => {
   if (!_budgetData) return;
   const { categories } = _budgetData;
@@ -1182,12 +1207,14 @@ window._budgetShowDetail = (catId, catName) => {
   _openBudgetDetail(catId, catName, true);
 };
 
+// Apre il dettaglio budget di una categoria dalla bolla in dashboard (carica i dati se assenti).
 window._dashBubbleDetail = async (catId) => {
   if (!_budgetData) _budgetData = await api.getBudgetYear(budgetYear);
   const cat = _budgetData.categories.find(c => c.id === catId);
   if (cat) _budgetShowDetail(catId, cat.name);
 };
 
+// Naviga al dettaglio della categoria precedente/successiva (frecce ‹ › nel modale).
 window._budgetNavDetail = dir => {
   const newIdx = _budgetDetailNavIdx + dir;
   if (newIdx < 0 || newIdx >= _budgetDetailNavList.length) return;
@@ -1196,6 +1223,8 @@ window._budgetNavDetail = dir => {
   _openBudgetDetail(cat.id, cat.name, false);
 };
 
+// Modale dettaglio categoria: tabella mese per mese (reale vs budget, cumulati) + grafico,
+// con navigazione tra categorie. isFirstOpen distingue prima apertura da navigazione interna.
 function _openBudgetDetail(catId, catName, isFirstOpen) {
   if (!_budgetData) return;
   const { budgets, actuals, categories, configs } = _budgetData;
@@ -1402,12 +1431,15 @@ function _openBudgetDetail(catId, catName, isFirstOpen) {
   }, 50);
 }
 
+// Azzera l'intera riga di una categoria: rimuove tutti i mesi e la configurazione master.
 window._budgetClearRow = async catId => {
   await api.setBudgetBulk({category_id:catId, year:budgetYear, amounts:Array(12).fill(0)});
   await api.setBudgetConfig({category_id:catId, year:budgetYear, mode:'mensile', master_amount:0});
   await loadBudgetTable();
 };
 
+// Modale "Genera budget": crea il budget dell'anno da storico anno precedente, copia da un altro
+// anno, oppure a zero (compilazione manuale).
 async function showGenerateBudgetModal() {
   const prevYear = budgetYear - 1;
   const allYears = (await api.getBudgetYears()).filter(y => y !== budgetYear);
@@ -1466,6 +1498,7 @@ async function showGenerateBudgetModal() {
 /* ═══════════════════════════════════════════════════════════════════════════
    BUDGET VS PIANIFICATE
 ═══════════════════════════════════════════════════════════════════════════ */
+// Data successiva/precedente a una data secondo la frequenza (usate per contare le occorrenze annue).
 function _nextSchedDate(dateStr, freq) {
   const d = new Date(dateStr + 'T00:00:00');
   switch(freq) {
@@ -1500,6 +1533,7 @@ function _prevSchedDate(dateStr, freq) {
   return d.toLocaleDateString('en-CA');
 }
 
+// Conta quante volte una pianificata ricorre in un dato anno (entro start/end, con mesi esclusi).
 // origStart: data della prima occorrenza storica (original_start_date dal DB).
 // Se presente viene usata come limite inferiore così le transazioni create
 // a metà anno non vengono proiettate prima della loro vera data di inizio.
@@ -1542,6 +1576,8 @@ function _countSchedYearOcc(freq, startDate, endDate, year, origStart, fromDate,
   return count;
 }
 
+// Tab "Verifica Budget" (dentro Pianificate): confronta, per categoria, il budget annuale con
+// il totale delle transazioni pianificate previste nell'anno, evidenziando categorie da integrare.
 async function renderBudgetVsPianificate() {
   const wrap = document.getElementById('schedContent') || document.getElementById('budgPianWrap');
   wrap.innerHTML = '<div style="padding:24px;color:var(--text2)">Analisi in corso…</div>';
@@ -1730,6 +1766,7 @@ async function renderBudgetVsPianificate() {
     </div>`;
 }
 
+// Modale "Integra": imposta il budget di una categoria a partire dal totale delle pianificate previste.
 window.showBudgetIntegraModal = async function(catId) {
   const { catLabel, catType, diff } = window._budgSyncData[catId] || {};
   const wrap = document.getElementById('schedContent') || document.getElementById('budgPianWrap');

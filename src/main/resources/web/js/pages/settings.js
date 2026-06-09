@@ -17,6 +17,8 @@ let _settingsTab = 'data';
 /* ═══════════════════════════════════════════════════════════════════════════
    IMPOSTAZIONI
 ═══════════════════════════════════════════════════════════════════════════ */
+// Disegna la pagina Impostazioni con le 5 tab (Dati DB, Preferenze, Manutenzione, Info, Prestazioni)
+// e collega tutti i controlli (tema, backup, autostart, HTTP, allegati, ecc.).
 async function renderSettings() {
   const s = await api.getSettings();
   const pg = document.getElementById('pg-settings');
@@ -479,6 +481,7 @@ async function renderSettings() {
   if (_settingsTab === 'maintenance') setTimeout(() => { maintLoadInfo(); maintLoadLogInfo(); }, 50);
 }
 
+// Cambia la tab attiva delle Impostazioni e carica i dati lazy della tab (manutenzione/perf).
 window._setSettingsTab = tab => {
   _settingsTab = tab;
   renderSettings();
@@ -486,12 +489,14 @@ window._setSettingsTab = tab => {
 
 // ─── Prestazioni ──────────────────────────────────────────────────────────────
 
+// Attiva/disattiva il logging delle prestazioni (tempi delle chiamate Bridge).
 window.perfSetEnabled = async (enabled) => {
   _perfEnabled = enabled;
   await api.setPerfEnabled(enabled);
   renderSettings();
 };
 
+// Ricarica e mostra il log prestazioni (statistiche per metodo: conteggio, medie, ecc.).
 window.perfRefresh = async () => {
   const wrap = document.getElementById('perfTableWrap');
   if (!wrap) return;
@@ -563,6 +568,7 @@ window.perfRefresh = async () => {
   }
 };
 
+// Svuota il buffer del log prestazioni.
 window.perfClear = async () => {
   _perfBuf.length = 0;
   await api.clearPerfLog();
@@ -572,6 +578,7 @@ window.perfClear = async () => {
 
 // ─── Manutenzione DB ──────────────────────────────────────────────────────────
 
+// Formatta un numero di byte in stringa leggibile (KB/MB/…).
 function fmtBytes(b) {
   if (b == null) return '—';
   b = Number(b);
@@ -580,6 +587,7 @@ function fmtBytes(b) {
   return (b/1024/1024).toFixed(2) + ' MB';
 }
 
+// Carica e mostra le info diagnostiche del DB (dimensione, pagine, spazio libero, versione schema).
 async function maintLoadInfo() {
   const panel = document.getElementById('dbInfoPanel');
   if (!panel) return;
@@ -607,6 +615,7 @@ async function maintLoadInfo() {
   }
 }
 
+// Esegue VACUUM (compatta il DB) e mostra i byte liberati.
 async function maintVacuum() {
   const btn = document.getElementById('btnVacuum');
   const res = document.getElementById('vacuumResult');
@@ -626,6 +635,7 @@ async function maintVacuum() {
   btn.disabled = false; btn.textContent = '🗜️ Compatta';
 }
 
+// Esegue il controllo di integrità del DB e mostra l'esito.
 async function maintIntegrity() {
   const btn = document.getElementById('btnIntegrity');
   const res = document.getElementById('integrityResult');
@@ -647,6 +657,7 @@ async function maintIntegrity() {
   btn.disabled = false; btn.textContent = '🔍 Verifica';
 }
 
+// Esegue ANALYZE (aggiorna le statistiche del query planner) e mostra il risultato.
 async function maintAnalyze() {
   const btn = document.getElementById('btnAnalyze');
   const res = document.getElementById('analyzeResult');
@@ -672,6 +683,7 @@ async function maintAnalyze() {
   btn.disabled = false; btn.textContent = '📊 Analizza';
 }
 
+// Esegue REINDEX + PRAGMA optimize (ricostruisce/ottimizza gli indici).
 async function maintReindex() {
   const btn = document.getElementById('btnReindex');
   const res = document.getElementById('reindexResult');
@@ -691,6 +703,7 @@ async function maintReindex() {
 
 // ─── Manutenzione log ────────────────────────────────────────────────────────
 
+// Carica le info sul log operazioni (intervallo date, numero righe, percorso/dimensione file).
 async function maintLoadLogInfo() {
   const el = document.getElementById('logInfoText');
   if (!el) return;
@@ -713,11 +726,13 @@ async function maintLoadLogInfo() {
   } catch(e) { el.textContent = 'Errore: ' + e; }
 }
 
+// Aggiorna l'anteprima della data di taglio per la pulizia del log.
 window.maintUpdateLogCutoff = () => {
   const v = document.getElementById('logCutoffSelect').value;
   document.getElementById('logCutoffDate').style.display = v === 'custom' ? '' : 'none';
 };
 
+// Elimina le righe di log di sistema (avvii, backup, ecc.) mantenendo le operazioni utente.
 window.maintPurgeSystemLog = async () => {
   const ok = await confirm('Elimina voci di sistema', 'Eliminare tutte le voci di sistema dal log (avvio, backup, manutenzione)?');
   if (!ok) return;
@@ -733,6 +748,7 @@ window.maintPurgeSystemLog = async () => {
   }
 };
 
+// Svuota il file app.log (errori Java), troncandolo.
 window._clearAppLog = async () => {
   const ok = await confirm('Pulisci log Java', 'Eliminare il contenuto di app.log?');
   if (!ok) return;
@@ -740,6 +756,7 @@ window._clearAppLog = async () => {
   toast('Log Java eliminato', 'success');
 };
 
+// Elimina dal log le righe più vecchie della data di taglio scelta.
 window.maintPurgeLog = async () => {
   const sel = document.getElementById('logCutoffSelect').value;
   let cutoff;
@@ -839,10 +856,12 @@ const _FONT_OPTIONS = [
   ["'Courier New', monospace",         'Courier New (mono)'],
 ];
 
+// Carica i temi personalizzati dell'utente dalle impostazioni (JSON in appearance.custom_themes).
 async function _loadCustomThemes() {
   const s = await api.getSettings();
   try { _customThemes = JSON.parse(s['appearance.custom_themes'] || '[]'); } catch { _customThemes = []; }
 }
+// Persiste l'array dei temi personalizzati nel DB.
 async function _saveCustomThemesToDB() {
   await api.setSetting('appearance.custom_themes', JSON.stringify(_customThemes));
 }
@@ -855,6 +874,7 @@ const _FONT_SIZE_VARS = [
   { key: '--fs-xl',    label: 'Titolo finestra',    hint: 'barra del titolo applicazione',              def: 16, min: 12, max: 22 },
 ];
 
+// Applica le variabili CSS di un tema personalizzato (colori, raggio, dimensioni font, font family).
 function _applyCustomVars(ct) {
   _ALL_THEME_VARS.forEach(v => {
     if (ct.vars[v]) document.documentElement.style.setProperty(v, ct.vars[v]);
@@ -867,6 +887,7 @@ function _applyCustomVars(ct) {
   );
   document.body.style.fontFamily = ct.fontFamily || '';
 }
+// Rimuove tutte le variabili CSS inline di un tema personalizzato (ripristina il tema base).
 function _clearCustomVars() {
   _ALL_THEME_VARS.forEach(v => document.documentElement.style.removeProperty(v));
   document.documentElement.style.removeProperty('--radius');
@@ -874,6 +895,7 @@ function _clearCustomVars() {
   document.body.style.fontFamily = '';
 }
 
+// Applica un tema: built-in (data-theme) o personalizzato ("c:id" → variabili inline). Non persiste.
 function applyTheme(theme) {
   if (theme === 'salvia') theme = 'cristallo'; // migrazione: il tema Salvia è stato sostituito da Cristallo
   _activeThemeKey = theme || 'dark';
@@ -889,6 +911,7 @@ function applyTheme(theme) {
   _updateThemeBtn();
 }
 
+// Applica e salva il tema scelto (persistente), poi aggiorna pulsante e pagina.
 async function settingsSetTheme(theme) {
   applyTheme(theme);
   await api.setSetting('appearance.theme', theme);
@@ -903,11 +926,13 @@ const _THEME_CYCLE = [
   { key: 'carta',     icon: '📜', label: 'Carta' },
 ];
 
+// Sequenza completa di temi per il toggle ciclico (built-in + personalizzati).
 function _fullThemeCycle() {
   const customs = _customThemes.map(ct => ({ key: 'c:' + ct.id, icon: '🎨', label: ct.name }));
   return [..._THEME_CYCLE, ...customs];
 }
 
+// Aggiorna icona/tooltip del pulsante tema in titlebar in base al tema attivo e al prossimo nel ciclo.
 function _updateThemeBtn() {
   const btn = document.getElementById('themeToggleBtn');
   if (!btn) return;
@@ -920,6 +945,7 @@ function _updateThemeBtn() {
   btn.title = `Tema ${curr.label} — clicca per passare a ${next.label} (Alt+T)`;
 }
 
+// Passa al tema successivo nel ciclo (pulsante titlebar / scorciatoia Alt+T).
 async function _toggleTheme() {
   const cycle = _fullThemeCycle();
   const activeKey = _activeThemeKey || '';
@@ -929,6 +955,7 @@ async function _toggleTheme() {
 }
 
 /* ─── Theme editor ───────────────────────────────────────────────────────── */
+// Crea un nuovo tema personalizzato duplicando un tema esistente (built-in o custom) e apre l'editor.
 function duplicateTheme(sourceKey) {
   let base;
   if (sourceKey.startsWith('c:')) {
@@ -948,6 +975,8 @@ function duplicateTheme(sourceKey) {
   showThemeEditor(base);
 }
 
+// Apre l'editor temi (pannello flottante): colori per gruppi, dimensioni font, raggio, font family,
+// con anteprima live applicata mentre si modifica. Lavora su una copia (_teWorkingTheme).
 function showThemeEditor(themeObj) {
   _teWorkingTheme = JSON.parse(JSON.stringify(themeObj));
   // Inizializza fontSizes con valori di default se mancanti
@@ -1056,6 +1085,7 @@ function showThemeEditor(themeObj) {
   _teWireEvents();
 }
 
+// Collega gli eventi dell'editor temi (input colore/font/raggio → anteprima live) e il drag del pannello.
 function _teWireEvents() {
   document.querySelectorAll('#tePanel input.te-swatch').forEach(el => {
     el.addEventListener('input', e => {
@@ -1132,6 +1162,8 @@ function _teWireEvents() {
   });
 }
 
+// Chiude l'editor temi: se save=true salva/aggiorna il tema personalizzato e lo applica,
+// altrimenti annulla ripristinando il tema precedente.
 async function closeThemeEditor(save) {
   const panel = document.getElementById('tePanel');
   if (!panel || !panel.classList.contains('open')) return;
@@ -1150,6 +1182,7 @@ async function closeThemeEditor(save) {
   _teWorkingTheme = null;
 }
 
+// Elimina un tema personalizzato; se era attivo torna al tema scuro.
 async function _deleteCustomTheme(id) {
   _customThemes = _customThemes.filter(t => t.id !== id);
   await _saveCustomThemesToDB();
@@ -1172,6 +1205,7 @@ const _NAV_SHORTCUTS = [
   { key:'9', page:'settings',     label:'Impostazioni' },
 ];
 
+// Mostra l'overlay con l'elenco delle scorciatoie da tastiera.
 function showShortcutsHelp() {
   const kbdStyle = "background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:0 5px;font-size:10px";
   const overlay = document.getElementById('shortcutsOverlay');
@@ -1223,10 +1257,13 @@ function showShortcutsHelp() {
   overlay.classList.add('open');
 }
 
+// Chiude l'overlay scorciatoie.
 function closeShortcutsHelp() {
   document.getElementById('shortcutsOverlay').classList.remove('open');
 }
 
+// ── Setter di preferenze: salvano una chiave e ridisegnano (alcuni aggiornano anche la sidebar) ──
+// Mostra solo i conti preferiti in sidebar/dashboard.
 async function settingsSetAccFilter(favOnly) {
   _accFavoritesOnly = favOnly;
   await api.setSetting('accounts.favorites_only', favOnly ? '1' : '0');
@@ -1234,21 +1271,25 @@ async function settingsSetAccFilter(favOnly) {
   updateSidebar();
 }
 
+// Abilita/disabilita l'avvio automatico con Windows (gestito lato Java via tray).
 async function settingsSetAutostart(value) {
   await api.setSetting('autostart.enabled', value);
   renderSettings();
 }
 
+// Imposta una preferenza di backup (abilitato, cartella, max copie…).
 async function settingsSetBackup(key, value) {
   await api.setSetting('backup.' + key, value);
   renderSettings();
 }
 
+// Imposta una preferenza del WebServer LAN (abilitato, porta).
 async function settingsSetHttp(key, value) {
   await api.setSetting('http.' + key, value);
   renderSettings();
 }
 
+// Apre il selettore cartella nativo e salva la cartella di backup scelta.
 async function settingsChooseBackupDir() {
   const res = await api.chooseBackupDir();
   if (res.cancelled) return;
@@ -1256,6 +1297,7 @@ async function settingsChooseBackupDir() {
   renderSettings();
 }
 
+// Apre il selettore cartella nativo e salva la cartella allegati scelta.
 async function settingsChooseAttachmentsDir() {
   const res = await api.chooseAttachmentsDir();
   if (res.cancelled) return;
@@ -1263,6 +1305,7 @@ async function settingsChooseAttachmentsDir() {
   renderSettings();
 }
 
+// Esegue un backup manuale del DB mostrando lo stato nell'hint.
 async function settingsDoBackup() {
   const hint = document.getElementById('backupHint');
   if (hint) hint.textContent = '⏳ Backup in corso...';
@@ -1274,6 +1317,7 @@ async function settingsDoBackup() {
   }
 }
 
+// Carica e mostra l'elenco dei backup disponibili (con data, dimensione e modifiche di sessione).
 async function settingsLoadBackupList() {
   const container = document.getElementById('backupRestoreList');
   if (!container) return;
@@ -1360,6 +1404,7 @@ async function settingsLoadBackupList() {
   }
 }
 
+// Chiede conferma e ripristina un backup (il DB corrente viene archiviato prima del ripristino).
 async function settingsConfirmRestore(path, displayTs) {
   const ok = await confirm('Ripristina backup', `Ripristinare il backup del <strong>${displayTs}</strong>?<br><br>Il database corrente verrà archiviato nella cartella backup prima di procedere.`);
   if (!ok) return;
@@ -1375,6 +1420,7 @@ async function settingsConfirmRestore(path, displayTs) {
   }
 }
 
+// Sceglie un file DB da aprire o crea un nuovo DB (mode 'open'/'save'), poi riconnette l'app.
 async function settingsChooseDb(mode) {
   const res = await api.chooseDbFile(mode);
   if (res.cancelled) return;

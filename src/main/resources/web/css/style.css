@@ -1,3 +1,17 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   LucaMoneyManager — style.css
+   Foglio di stile globale unico. Organizzato in sezioni marcate con header "─── ───"
+   (resize, variabili/temi, layout, sidebar, card, tabelle, form, e una sezione per
+   ogni pagina/widget: dashboard, budget, portfolio, analytics, scheduled, ecc.).
+
+   TEMI: il default è scuro (variabili in :root). I temi alternativi sovrascrivono le
+   variabili via [data-theme="carta|cristallo|glassy"] (impostato su <html> dal JS).
+
+   CONVENZIONE COLORI DI SFONDO (vedi CLAUDE.md): gerarchia bg3 < bg < bg2, cioè le card
+   (bg2) sono PIÙ CHIARE dello sfondo (bg) — mai bianco puro nei temi chiari. bg3 è il
+   livello più scuro (header tabella, righe alternate, hover tenui).
+═══════════════════════════════════════════════════════════════════════════ */
+
 .hidden { display:none !important; }
 
 /* ─── Resize handles ─────────────────────────────────────────────────────── */

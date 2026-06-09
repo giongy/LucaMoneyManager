@@ -7,6 +7,7 @@
 // _fillCreditMonthDash è chiamata dalla Dashboard (in app.js): function decl
 // globale → risolta lazy quando renderDashboard viene eseguita.
 
+// Disegna la pagina Conti (intestazione + griglia, popolata da loadAccountCards).
 async function renderAccounts() {
   const pg = document.getElementById('pg-accounts');
   pg.innerHTML = `
@@ -19,6 +20,8 @@ async function renderAccounts() {
   loadAccountCards();
 }
 
+// HTML di una card conto: icona, nome, badge (preferito/chiuso), saldo e azioni
+// (per le carte di credito aggiunge "Chiudi mese").
 function _accountCardHtml(a) {
   const badges = [a.is_favorite ? '⭐' : '', a.is_closed ? '🔒' : ''].filter(Boolean).join(' ');
   return `<div class="account-card${a.is_closed ? ' account-card-closed' : ''}" data-id="${a.id}" data-type="${a.type}" draggable="true" style="--acc-color:${a.color}">
@@ -36,6 +39,8 @@ function _accountCardHtml(a) {
   </div>`;
 }
 
+// Carica e disegna le card dei conti raggruppate per tipo, con drag&drop per riordinare
+// sia le card (dentro lo stesso tipo) sia le intere sezioni, e click → transazioni del conto.
 async function loadAccountCards() {
   const grid = document.getElementById('accountsGrid');
   if (!grid) return;
@@ -154,6 +159,7 @@ async function loadAccountCards() {
   });
 }
 
+// Totale delle spese (esclusi i trasferimenti) su una carta di credito in un dato mese.
 async function _creditCardMonthTotal(cardId, y, m) {
   const from = `${y}-${String(m).padStart(2,'0')}-01`;
   const to   = `${y}-${String(m).padStart(2,'0')}-${new Date(y, m, 0).getDate()}`;
@@ -161,6 +167,7 @@ async function _creditCardMonthTotal(cardId, y, m) {
   return txs.filter(t => t.type !== 'transfer').reduce((s,t) => s + t.amount, 0);
 }
 
+// Riempie nella dashboard il totale del mese corrente per ciascuna carta di credito.
 async function _fillCreditMonthDash(accounts) {
   const now = new Date();
   const y = now.getFullYear(), m = now.getMonth() + 1;
@@ -172,6 +179,8 @@ async function _fillCreditMonthDash(accounts) {
   }
 }
 
+// Modale "Chiudi mese" carta di credito: calcola il totale spese del mese e crea il
+// trasferimento di pagamento dal conto sorgente alla carta (importo e data precompilati).
 window.closeCreditMonth = async (cardId, cardName) => {
   const accounts = await api.getAccounts();
   const sources  = accounts.filter(a => a.type !== 'credit' && a.type !== 'investment' && !a.is_closed);
@@ -256,6 +265,7 @@ window.closeCreditMonth = async (cardId, cardName) => {
   }, 100);
 };
 
+// Etichetta leggibile per il tipo di conto.
 function accTypeLabel(t) {
   return {checking:'Conto Corrente',savings:'Risparmio',cash:'Contanti',credit:'Carta di Credito',investment:'Investimento'}[t]||t;
 }
@@ -263,6 +273,7 @@ function accTypeLabel(t) {
 const ACCOUNT_ICONS = ['🏦','💳','💵','🏧','💰','📈','🏠','🚀','💼','🪙','✈️','🎁'];
 const ACCOUNT_COLORS = ['#58a6ff','#3fb950','#f85149','#d29922','#a371f7','#f0883e','#00d4aa','#8b949e','#ec4899','#06b6d4','#84cc16','#6366f1'];
 
+// Modale crea/modifica conto: nome, tipo, saldo iniziale, icona, colore e flag preferito/chiuso.
 function showAccountModal(account) {
   const body = `
     <div class="form-group">
@@ -332,6 +343,7 @@ function showAccountModal(account) {
   });
 }
 
+// Selezione icona/colore nel modale conto (aggiornano l'input nascosto corrispondente).
 window.selectIcon = (btn, icon) => {
   document.querySelectorAll('.icon-pick').forEach(b => b.classList.remove('icon-selected'));
   btn.classList.add('icon-selected');
@@ -342,10 +354,12 @@ window.selectColor = (btn, color) => {
   btn.style.border='2px solid #fff';
   document.getElementById('a_color').value = color;
 };
+// Apre il modale di modifica per il conto con l'id dato.
 window.editAccount = async id => {
   const accounts = await api.getAccounts();
   showAccountModal(accounts.find(a=>a.id===id));
 };
+// Elimina un conto e tutte le sue transazioni previa conferma.
 window.deleteAccount = async id => {
   const ok = await confirm('Elimina conto','Vuoi eliminare questo conto e tutte le sue transazioni?');
   if (!ok) return;

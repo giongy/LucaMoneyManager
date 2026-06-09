@@ -7,6 +7,8 @@
 
 let _forecastDetailId = null;
 
+// Genera l'HTML della lista previsioni (attive + archiviate), con stato Pronta/In attesa,
+// scadenza, orizzonte e azioni. openCmd è la funzione di refresh da richiamare (pagina o tab).
 function _forecastsHTML(list, openCmd) {
   const tdS = 'padding:8px 12px;border-bottom:1px solid var(--border)';
   const thS = `${tdS};color:var(--txt2);font-weight:500;font-size:12px;text-transform:uppercase;letter-spacing:.4px`;
@@ -83,6 +85,7 @@ function _forecastsHTML(list, openCmd) {
     </div>` : ''}`;
 }
 
+// Pagina Previsioni standalone (mostra dettaglio se _forecastDetailId è impostato, altrimenti la lista).
 async function renderForecasts() {
   const pg = document.getElementById('pg-forecasts');
   let list; try { list = await api.getForecasts(); } catch(e) { pg.innerHTML=`<p class="text-muted">${e.message}</p>`; return; }
@@ -90,6 +93,7 @@ async function renderForecasts() {
   pg.innerHTML = _forecastsHTML(list, 'renderForecasts()');
 }
 
+// Stessa lista previsioni ma renderizzata dentro la tab "Previsioni" della pagina Pianificate.
 async function renderForecastsInTab() {
   const pg = document.getElementById('schedContent');
   let list; try { list = await api.getForecasts(); } catch(e) { pg.innerHTML=`<p class="text-muted">${e.message}</p>`; return; }
@@ -97,6 +101,7 @@ async function renderForecastsInTab() {
   pg.innerHTML = _forecastsHTML(list, 'renderForecastsInTab()');
 }
 
+// Dettaglio di una previsione: saldo previsto vs reale e tabella categorie con differenze.
 async function renderForecastDetail(pg, id, backCmd = 'renderForecasts()') {
   let d; try { d = await api.getForecastDetail({id}); } catch(e) { toast(e.message,'error'); return; }
   const cats = d.categories || [];
@@ -155,6 +160,7 @@ async function renderForecastDetail(pg, id, backCmd = 'renderForecasts()') {
     </div>`;
 }
 
+// Elimina una previsione previa conferma, poi richiama il refresh.
 async function _deleteForecast(id, refresh) {
   openModal('Elimina previsione', '<p>Eliminare questa previsione? L\'operazione non è reversibile.</p>', async () => {
     try { await api.deleteForecast({id}); toast('Previsione eliminata'); if (refresh) refresh(); else renderForecasts(); }
@@ -162,6 +168,7 @@ async function _deleteForecast(id, refresh) {
   }, 'Elimina', 'btn-danger');
 }
 
+// Archivia una previsione (la toglie dall'elenco attivo) e aggiorna l'eventuale notifica correlata.
 async function _archiveForecast(id, refresh) {
   try {
     await api.archiveForecast({id});
@@ -175,6 +182,7 @@ async function _archiveForecast(id, refresh) {
   } catch(e) { toast(e.message, 'error'); }
 }
 
+// Mostra in un modale l'anteprima del confronto previsto/reale di una previsione non ancora scaduta.
 async function _showForecastPreview(id) {
   let d; try { d = await api.getForecastDetail({id}); } catch(e) { toast(e.message,'error'); return; }
   const cats = d.categories || [];

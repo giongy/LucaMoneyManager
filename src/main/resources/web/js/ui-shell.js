@@ -7,6 +7,7 @@
 /* ─── Modal ───────────────────────────────────────────────────────────────── */
 let modalConfirmCallback = null;
 
+// Apre il modale generico con titolo, HTML del corpo e callback di conferma (onConfirm=null → solo info).
 function openModal(title, bodyHtml, onConfirm, confirmLabel='Salva', confirmClass='btn-primary', modalClass='') {
   document.getElementById('modalTitle').textContent   = title;
   document.getElementById('modalBody').innerHTML      = bodyHtml;
@@ -21,6 +22,7 @@ function openModal(title, bodyHtml, onConfirm, confirmLabel='Salva', confirmClas
   document.getElementById('modalOverlay').classList.add('open');
 }
 
+// Chiude il modale e ripulisce lo stato (larghezza, classi, eventuale grafico di dettaglio budget).
 function closeModal() {
   document.getElementById('modalOverlay').classList.remove('open');
   modalConfirmCallback = null;
@@ -34,6 +36,7 @@ document.getElementById('modalCancel').onclick = closeModal;
 document.getElementById('modalConfirm').onclick = async () => { if (modalConfirmCallback) { const result = await modalConfirmCallback(); if (result !== false) closeModal(); } };
 
 /* ─── Confirm dialog (usa openModal) ─────────────────────────────────────── */
+// Dialogo di conferma basato su openModal: risolve la Promise a true (Elimina) o false (Annulla).
 function confirm(title, msg) {
   return new Promise(resolve => {
     openModal(title, `<p style="color:var(--txt2);line-height:1.6">${msg}</p>`,

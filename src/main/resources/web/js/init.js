@@ -52,6 +52,7 @@ async function onTrayRestore() {
 
 // ─── Toggle DB remoto (solo modalità browser/WebServer) ──────────────────────
 
+// Aggiorna la barra "Database aperto/chiuso" (solo modalità browser via WebServer).
 async function _updateWebDbToggle() {
   const el = document.getElementById('webDbToggle');
   if (!el) return;
@@ -85,6 +86,8 @@ async function _webDbClose() {
   await _updateWebDbToggle();
 }
 
+// Mostra una notifica toast in alto a destra: stagger automatico, barra di progresso
+// 8s, auto-dismiss e click sull'header (escluso il bottone ✕) → onHeadClick.
 function _showNotice(className, html, onHeadClick) {
   const delay = _noticeDelay;
   _noticeDelay += 400;
@@ -106,6 +109,7 @@ function _showNotice(className, html, onHeadClick) {
   }, delay);
 }
 
+// Aggiorna il bottone notifiche nella titlebar (✓ se nessuna, 🔔+badge col totale).
 function updateNoticeBtn() {
   const btn = document.getElementById('noticeBtn');
   if (!btn) return;
@@ -121,6 +125,7 @@ function updateNoticeBtn() {
   }
 }
 
+// Ri-mostra tutte le notifiche della sessione (click sul bottone 🔔), senza ri-salvarle.
 function replayNotices() {
   if (!_noticeData.length) return;
   _noticeData.forEach(n => {
@@ -132,6 +137,8 @@ function replayNotices() {
   });
 }
 
+// ── Notifiche specifiche: ognuna mostra una toast e, al click, naviga al contesto
+//    pertinente (transazioni da telefono/da verificare, pianificate scadute/oggi, previsioni pronte) ──
 function showDaTelefonoNotice(list, save=true) {
   if (save) _noticeData.push({type:'telefono', list});
   _showNotice('notice-telefono', `
@@ -235,6 +242,8 @@ function showUnverifiedNotice(list, save=true) {
 Chart.defaults.font.family = "'Segoe UI', system-ui, sans-serif";
 Chart.defaults.font.size   = 13;
 
+// Tooltip globale per le bolle budget della dashboard: un solo elemento riusato,
+// popolato dai data-attribute (data-tt-*) dell'elemento sotto il mouse, con auto-posizionamento.
 function _initGlobalTooltip() {
   if (_initGlobalTooltip._done) return;
   _initGlobalTooltip._done = true;
@@ -285,6 +294,8 @@ function _initGlobalTooltip() {
   });
 }
 
+// Bootstrap dell'app: tooltip, icone, modalità browser/desktop, preferenze persistenti,
+// primo render (sidebar+dashboard), segnale uiReady a Java e controllo di tutte le notifiche.
 async function init() {
   _initGlobalTooltip();
   // Inizializza icone Lucide nella sidebar

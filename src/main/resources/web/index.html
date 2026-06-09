@@ -12,7 +12,17 @@
 </head>
 <body>
 
+<!--
+  Shell a pagina singola (SPA). Struttura: maniglie di resize della finestra, .app
+  (sidebar di navigazione + area principale con titlebar e contenitore pagine), e gli
+  overlay globali (modale, menu contestuale, toast). Tutte le pagine sono <div> vuoti
+  riempiti via JS dalle funzioni render<Pagina> (vedi router.js). Finestra senza decorazioni:
+  drag/resize/controlli sono gestiti da JS (ui-shell.js) ↔ Java (Bridge).
+-->
+
 <!-- ── RESIZE HANDLES ── -->
+<!-- Maniglie invisibili sui bordi/angoli per ridimensionare la finestra undecorated (ui-shell.js) -->
+
 <div class="rh rh-n"  data-dir="n"></div>
 <div class="rh rh-s"  data-dir="s"></div>
 <div class="rh rh-e"  data-dir="e"></div>
@@ -123,7 +133,8 @@
       </div>
     </div>
 
-    <!-- Pagine -->
+    <!-- Pagine: contenitori vuoti, solo quello con classe "active" è visibile.
+         Il contenuto è generato da renderPage()/render<Pagina>() in router.js e js/pages/*. -->
     <div class="page-container">
       <div id="pg-dashboard"    class="page active"></div>
       <div id="pg-transactions" class="page"></div>
@@ -167,6 +178,8 @@
 <div id="noticeStack"></div>
 <div id="shortcutsOverlay" onclick="if(event.target===this)closeShortcutsHelp()"></div>
 
+<!-- Ordine di caricamento importante: vendor → core (bridge/utils/ui-shell/router/sidebar)
+     → moduli pagina → init.js per ULTIMO (chiama init() quando tutte le dipendenze esistono). -->
 <script src="js/vendor/lucide.min.js"></script>
 <script src="js/vendor/chart.min.js"></script>
 <script src="js/vendor/hammer.min.js"></script>

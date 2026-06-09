@@ -18,6 +18,7 @@ let _notesState = { search: '', tagFilter: null };
 let _quill = null;            // istanza Quill attiva nel modale
 let _editingNote = null;      // nota in editing (null = nuova)
 
+// Disegna la pagina Note: barra ricerca + filtro tag + griglia di card "post-it"; collega gli handler.
 async function renderNotes() {
   const pg = document.getElementById('pg-notes');
   const [notes, tags] = await Promise.all([api.getNotes(), api.getTags()]);
@@ -107,6 +108,7 @@ async function renderNotes() {
   });
 }
 
+// Ridisegna solo la griglia (durante la digitazione nella ricerca) per non perdere il focus dell'input.
 function _renderGridOnly(notes, tags, tagMap) {
   const q = _notesState.search.trim().toLowerCase();
   const tf = _notesState.tagFilter;
@@ -149,6 +151,7 @@ function _renderGridOnly(notes, tags, tagMap) {
   });
 }
 
+// HTML di una singola card nota: titolo, snippet di testo, tag e data (pin/colore opzionali).
 function _renderNoteCard(n, tagMap) {
   const snippet = _stripHtml(n.content).slice(0, 220);
   const colorStyle = n.color ? `style="--note-color:${n.color}"` : '';
@@ -180,6 +183,7 @@ function _renderNoteCard(n, tagMap) {
     </div>`;
 }
 
+// Apre il modale editor nota (titolo, colore, pin, tag, corpo Quill); note=null → nuova nota.
 function showNoteEditor(note) {
   _editingNote = note;
   api.getTags().then(tags => {
@@ -234,6 +238,7 @@ function showNoteEditor(note) {
   });
 }
 
+// Inizializza l'editor Quill (caricato on-demand) e i toggle colore/tag dentro il modale nota.
 async function _initNoteEditor(note) {
   let el = document.getElementById('noteEditor');
   if (!el) return;
@@ -286,6 +291,7 @@ async function _initNoteEditor(note) {
   if (!note) document.getElementById('noteTitle').focus();
 }
 
+// Raccoglie i campi del modale (titolo, contenuto Quill, colore, pin, tag) e salva la nota.
 async function _saveNoteFromModal() {
   const title   = document.getElementById('noteTitle').value.trim();
   const content = _quill ? _quill.root.innerHTML : '';
@@ -317,6 +323,8 @@ async function _saveNoteFromModal() {
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
+// _esc: escape HTML per contenuto testuale; _escAttr: escape per valori di attributo;
+// _stripHtml: estrae il testo puro da HTML; _formatNoteDate: data compatta (ora se oggi).
 function _esc(s) {
   return (s == null ? '' : String(s))
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');

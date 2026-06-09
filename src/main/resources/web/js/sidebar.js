@@ -7,6 +7,7 @@
 /* ─── Sidebar accounts ───────────────────────────────────────────────────── */
 // Dipende da _accTypeOrder, _reportsGroupOpen, _currentReportId,
 // _loadReportConfig, _updateReportHeader (tutti definiti in app.js, lazy).
+// Ridisegna i conti nella sidebar (visibili, raggruppati per tipo e ordinati).
 async function updateSidebar() {
   const accounts = await api.getAccounts();
   const el = document.getElementById('sidebarAccounts');
@@ -99,6 +100,7 @@ function _onReportsOutside(e) {
 }
 function _onReportsEsc(e) { if (e.key === 'Escape') _closeReportsFlyout(); }
 
+// Popola la lista dei filtri salvati nel popover (con pulsanti modifica/elimina).
 async function renderSidebarReports() {
   const el = document.getElementById('sidebarReportsList');
   if (!el) return;
@@ -119,6 +121,7 @@ async function renderSidebarReports() {
     </div>`).join('');
 }
 
+// Apre un filtro salvato: naviga alla pagina Resoconti e ne carica configurazione + header.
 async function openSavedReport(id) {
   _closeReportsFlyout();
   _currentReportId = id;

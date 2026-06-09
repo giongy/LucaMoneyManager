@@ -28,6 +28,8 @@ function _perfRecord(method, roundMs) {
   _perfBuf.push({ method, roundMs, ts: Date.now() });
 }
 
+// Invoca un metodo Java: serializza {method,params}→JSON→base64, lo passa a cefQuery
+// (o all'HTTP bridge in modalità browser) e ritorna una Promise col risultato decodificato.
 function callJava(method, params = {}) {
   const payload = _toB64(JSON.stringify({ method, params }));
   const t0 = _perfEnabled ? performance.now() : 0;
@@ -58,6 +60,8 @@ function callJava(method, params = {}) {
     .then(b64 => finish(_checkError(JSON.parse(_fromB64(b64)))));
 }
 
+// Facciata tipata delle operazioni Bridge: ogni metodo corrisponde a un "case" in
+// Bridge.dispatch (Java). Conti/categorie/tag usano una cache di sessione invalidata a ogni modifica.
 const api = {
   // Finestra
   minimize:    ()          => callJava('minimize'),

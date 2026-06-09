@@ -5,6 +5,7 @@
 
 // rangeToFilter è definita in app.js (caricato dopo): risolta lazy a runtime.
 
+// Disegna la pagina Periodi personalizzati: guida agli offset + elenco preset con anteprima date.
 async function renderRangePresets() {
   const pg = document.getElementById('pg-ranges');
   const presets = await api.getRangePresets();
@@ -75,6 +76,8 @@ async function renderRangePresets() {
   document.getElementById('btnAddRangePreset').onclick = () => showRangePresetModal(null);
 }
 
+// Modale crea/modifica periodo: editor offset Da/A (giorni/settimane/mesi/anni) con
+// anteprima live del range risultante. Salva il range_key in formato "{n}{U}..{n}{U}".
 function showRangePresetModal(preset) {
   const isEdit = !!preset;
 
@@ -172,11 +175,13 @@ function showRangePresetModal(preset) {
   }, 50);
 }
 
+// Apre il modale di modifica per il preset con l'id dato.
 window.editRangePreset = async id => {
   const presets = await api.getRangePresets();
   showRangePresetModal(presets.find(p => p.id === id));
 };
 
+// Elimina un periodo personalizzato previa conferma.
 window.deleteRangePresetMgmt = async id => {
   const ok = await confirm('Elimina periodo', 'Eliminare questo periodo personalizzato?');
   if (!ok) return;

@@ -3,6 +3,7 @@
    Pagina Tag (estratta da app.js, stadio 5a del refactor)
 ═══════════════════════════════════════════════════════════════════════════ */
 
+// Disegna la pagina Tag: elenco con colore, lucchetto sui tag di sistema e azioni.
 async function renderTags() {
   const pg = document.getElementById('pg-tags');
   const tags = await api.getTags();
@@ -32,6 +33,7 @@ async function renderTags() {
   document.getElementById('btnAddTag').onclick = () => showTagModal(null);
 }
 
+// Modale crea/modifica tag (nome + colore) con anteprima live; tag=null → nuovo.
 function showTagModal(tag) {
   const isEdit = !!tag;
   const body = `
@@ -69,11 +71,13 @@ function showTagModal(tag) {
   }, 50);
 }
 
+// Apre il modale di modifica per il tag con l'id dato.
 window.editTagMgmt = async id => {
   const tags = await api.getTags();
   showTagModal(tags.find(t => t.id === id));
 };
 
+// Elimina un tag previa conferma (lo rimuove da tutte le transazioni).
 window.deleteTagMgmt = async id => {
   const ok = await confirm('Elimina tag', 'Eliminare questo tag? Verrà rimosso da tutte le transazioni.');
   if (!ok) return;

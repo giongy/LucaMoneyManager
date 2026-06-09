@@ -17,6 +17,8 @@ const FREQ_LABELS = {
 let schedTab = 'lista';
 let schedCharts = {};
 
+// Disegna la pagina Pianificate: barra tab (Lista, Proiezione, Cashflow, Previsioni,
+// Verifica Budget) + contenitore che ospita la tab attiva.
 async function renderScheduled() {
   const pg = document.getElementById('pg-scheduled');
   pg.innerHTML = `
@@ -34,6 +36,7 @@ async function renderScheduled() {
   renderSchedTab();
 }
 
+// Cambia la tab attiva della pagina Pianificate e la renderizza.
 window.setSchedTab = tab => {
   schedTab = tab;
   document.querySelectorAll('#schedTabBar .sched-tab').forEach(b => {
@@ -42,6 +45,7 @@ window.setSchedTab = tab => {
   renderSchedTab();
 };
 
+// Dispatcher: renderizza la tab Pianificate attiva nel contenitore #schedContent.
 async function renderSchedTab() {
   if      (schedTab === 'lista')      await renderSchedLista();
   else if (schedTab === 'projection') await renderSchedProjection();
@@ -81,6 +85,7 @@ function computeSchedNext(startDate, _freq, endDate) {
 let _schedSort   = { col: 'days', dir: 'asc' };
 let _schedFilter = { type: '', active: '1', category: '', tags: new Set() };
 
+// Costruisce le <option> del filtro categoria (parent con figli annidati; "p:id" = intero ramo parent).
 function _buildSchedCatOptions(categories) {
   const parents  = categories.filter(c => !c.parent_id).sort((a,b) => (a.name||'').localeCompare(b.name));
   const childMap = {};
@@ -102,6 +107,8 @@ function _buildSchedCatOptions(categories) {
   return html;
 }
 
+// Tab "Lista": carica pianificate/conti/categorie/tag, arricchisce ogni voce con prossima
+// data e giorni rimanenti, e disegna la tabella con filtri (tipo, stato, categoria, tag) e ordinamento.
 async function renderSchedLista() {
   const [scheds, accounts, categories, tags] = await Promise.all([
     api.getScheduled(), api.getAccounts(), api.getCategories(), api.getTags()
@@ -206,6 +213,7 @@ async function renderSchedLista() {
   _renderSchedRows(scheds);
 }
 
+// Cambia colonna/direzione di ordinamento della tabella pianificate e ridisegna le righe.
 window._schedSortBy = col => {
   _schedSort.dir = _schedSort.col === col ? (_schedSort.dir === 'asc' ? 'desc' : 'asc') : 'asc';
   _schedSort.col = col;
@@ -218,6 +226,8 @@ window._schedSortBy = col => {
   _renderSchedRows(Object.values(window._schedCache || {}));
 };
 
+// Applica filtri (stato/tipo/categoria/tag) e ordinamento correnti, poi disegna le righe
+// della tabella pianificate con badge giorni e azioni Inserisci/Salta.
 function _renderSchedRows(scheds) {
   const tbody = document.getElementById('schedBody');
   if (!tbody) return;
@@ -318,6 +328,8 @@ let _projRange = '6m';
 let _projMonths = 6;
 let _projMode = 'monthly'; // 'monthly' | 'daily'
 
+// Converte un range di proiezione (3m/6m/1y/2y/ytd/nxt_year/custom) in {from_date, to_date}.
+// useMonthBoundaries=true per la vista mensile (fine mese); altrimenti vista daily.
 function projRangeToFilter(range, customMonths, useMonthBoundaries = false) {
   const today = new Date();
   // Fix timezone bug: usa date locali invece di toISOString() che converte in UTC
@@ -362,6 +374,8 @@ function projRangeToFilter(range, customMonths, useMonthBoundaries = false) {
   }
 }
 
+// Tab "Proiezione Saldo": controlli (range, conti, mensile/giornaliero) + grafico del saldo
+// futuro proiettato dalle pianificate, partendo dal saldo reale attuale.
 async function renderSchedProjection() {
   const accounts = await api.getAccounts();
   const el = document.getElementById('schedContent');
@@ -468,6 +482,8 @@ async function renderSchedProjection() {
   });
 }
 
+// Carica e disegna il grafico Proiezione Saldo + la tabella (giornaliera o mensile) con
+// i delta rispetto al periodo precedente e al saldo di partenza.
 async function loadProjectionChart(accounts) {
   const range      = document.getElementById('projRange')?.value || '6m';
   const customMths = document.getElementById('projMonths')?.value;
@@ -589,6 +605,8 @@ let _cfRange = '1y';
 let _cfMonths = 6;
 let _cfAccSel = null;
 
+// Tab "Flusso di Cassa": controlli (range, conti selezionabili via pillole) + grafico a barre
+// entrate/uscite mensili proiettate dalle pianificate.
 async function renderSchedCashflow() {
   const accounts = await api.getAccounts();
   if (!_cfAccSel)
@@ -637,6 +655,7 @@ async function renderSchedCashflow() {
   await loadCashflowChart();
 }
 
+// Carica e disegna il grafico Flusso di Cassa (entrate vs uscite per mese) per i conti selezionati.
 async function loadCashflowChart() {
   const range      = document.getElementById('cfRange')?.value || '1y';
   const customMths = document.getElementById('cfMonths')?.value;
@@ -676,6 +695,7 @@ async function loadCashflowChart() {
   });
 }
 
+// Apre il modale di modifica per la pianificata con l'id dato.
 window.editSched = async id => {
   const [scheds, accounts, categories, tags] = await Promise.all([
     api.getScheduled(), api.getAccounts(), api.getCategories(), api.getTags()
@@ -684,6 +704,7 @@ window.editSched = async id => {
   if (s) showScheduledModal(s, accounts, categories, tags);
 };
 
+// Duplica una pianificata: apre il modale precompilato con i suoi dati ma senza id (nuova).
 window.duplicateSched = async id => {
   const [scheds, accounts, categories, tags] = await Promise.all([
     api.getScheduled(), api.getAccounts(), api.getCategories(), api.getTags()
@@ -694,6 +715,7 @@ window.duplicateSched = async id => {
   showScheduledModal(copy, accounts, categories, tags);
 };
 
+// Elimina una pianificata previa conferma.
 window.deleteSched = async id => {
   const ok = await confirm('Elimina transazione pianificata', 'Eliminare questa transazione pianificata?');
   if (!ok) return;
@@ -709,6 +731,8 @@ function closeSchedContextMenu() {
   document.removeEventListener('contextmenu', closeSchedContextMenu);
 }
 
+// Mostra il menu contestuale (tasto destro) di una pianificata: Inserisci/Salta (se attiva e
+// con prossima occorrenza), Modifica, Duplica, Elimina; posizionato al cursore e chiuso al click fuori.
 window._showSchedCtx = (id, evt) => {
   evt.preventDefault();
   closeSchedContextMenu();
@@ -759,6 +783,7 @@ window._showSchedCtx = (id, evt) => {
   }, 0);
 };
 
+// Rimuove una pianificata dalle notifiche scadute/di oggi dopo che è stata registrata o saltata.
 function _resolveOverdue(schedId) {
   for (const type of ['overdue', 'duetoday']) {
     const entry = _noticeData.find(n => n.type === type);
@@ -769,6 +794,7 @@ function _resolveOverdue(schedId) {
   updateNoticeBtn();
 }
 
+// Salta l'occorrenza corrente: avanza start_date alla prossima senza creare transazioni.
 window.skipSched = async id => {
   const s = window._schedCache?.[id];
   if (!s || !s._next) return;
@@ -778,6 +804,8 @@ window.skipSched = async id => {
   renderSchedLista();
 };
 
+// Registra l'occorrenza: apre il modale transazione precompilato (aggiunge il tag "Da Budget")
+// e, al salvataggio, avanza la pianificata alla prossima data.
 window.registerSched = async id => {
   const s = window._schedCache?.[id];
   if (!s || !s._next) return;
@@ -809,6 +837,8 @@ window.registerSched = async id => {
   });
 };
 
+// Modale crea/modifica pianificata: tipo, importo (espressioni), categoria (cat-picker),
+// frequenza, conti, date inizio/fine, colore riga, attivo, tag e stato di conciliazione.
 function showScheduledModal(sched, accounts, categories, tags = []) {
   const isEdit = !!(sched?.id);
   const today  = _todayStr();
@@ -913,6 +943,7 @@ function showScheduledModal(sched, accounts, categories, tags = []) {
       </div>
     </div>`;
 
+  // Aggiorna le voci del cat-picker in base al tipo selezionato (vuoto per i trasferimenti).
   function updateSchedCatSelect(keepSelected) {
     const type  = document.getElementById('sc_type')?.value;
     const input = document.getElementById('sc_cat_input');

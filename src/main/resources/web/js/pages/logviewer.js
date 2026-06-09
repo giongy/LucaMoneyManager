@@ -3,6 +3,7 @@
    Log Viewer (estratto da app.js, stadio 5d del refactor)
 ═══════════════════════════════════════════════════════════════════════════ */
 
+// Disegna la pagina Log: ricerca testo, filtro per tipo record e caricamento ultime 2000 righe.
 async function renderLogViewer() {
   const pg = document.getElementById('pg-logviewer');
   pg.innerHTML = `
@@ -44,6 +45,7 @@ async function renderLogViewer() {
 
 let _logLines = [];
 
+// Colore per ciascun tipo di azione di log (verde=crea, blu=modifica, rosso=elimina, ecc.)
 const LOG_ACTION_COLORS = {
   'TRANSAZIONE AGGIUNTA':   '#3fb950',
   'TRANSAZIONE MODIFICATA': '#58a6ff',
@@ -83,6 +85,7 @@ const LOG_ACTION_COLORS = {
   'AVVIO':                  '#8b949e',
 };
 
+// Raggruppamento dei tipi di azione per dominio (usato nel menu a tendina del filtro).
 const LOG_ACTION_GROUP = {
   'TRANSAZIONE AGGIUNTA':   'Transazioni',
   'TRANSAZIONE MODIFICATA': 'Transazioni',
@@ -122,6 +125,7 @@ const LOG_ACTION_GROUP = {
   'AVVIO':                  'Sistema',
 };
 
+// Costruisce il <select> del filtro tipo record, con optgroup per dominio.
 function _buildLogTypeSelect() {
   const groups = {};
   for (const [action, group] of Object.entries(LOG_ACTION_GROUP)) {
@@ -136,6 +140,7 @@ function _buildLogTypeSelect() {
   </select>`;
 }
 
+// Filtra (per testo e tipo) e ridisegna le righe di log parsate, scrollando in fondo.
 function renderLogLines() {
   const wrap = document.getElementById('logWrap');
   if (!wrap) return;

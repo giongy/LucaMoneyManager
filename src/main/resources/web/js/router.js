@@ -13,6 +13,7 @@ const PAGE_TITLES = {
 let currentPage = 'dashboard';
 let charts = {};
 
+// Cambia pagina visibile (SPA): aggiorna classi .active, titolo e renderizza la pagina.
 function navigate(page) {
   if (currentPage === page) return;
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
@@ -40,6 +41,7 @@ function navigateToBudgetMese() {
   else navigate('budgets');
 }
 
+// Dispatcher di rendering: chiama la render<Pagina> giusta, con cattura errori → toast.
 function renderPage(page) {
   const _run = fn => { try { const r = fn(); if (r && typeof r.catch === 'function') r.catch(e => toast('Errore: ' + e.message, 'error')); } catch(e) { toast('Errore: ' + e.message, 'error'); } };
   switch(page) {
@@ -63,6 +65,7 @@ function renderPage(page) {
 
 /* ─── Refresh after any transaction change ───────────────────────────────── */
 let _dashboardDirty = false;
+// Riallinea sidebar, lista transazioni e (se visibile) dashboard dopo una modifica alle transazioni.
 async function refreshAfterTxChange() {
   updateSidebar();
   renderTransactions();

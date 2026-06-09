@@ -18,6 +18,8 @@ let _txCreditMonth = null;
 // Le globali _reports* e _fc* sono state spostate in pages/analytics.js (stadio 7e).
 // Le funzioni _dateStr / _todayStr sono state spostate in utils.js (cleanup finale).
 
+// Converte una chiave di range in {date_from, date_to}. Supporta i preset fissi (7d, cur_month,
+// ytd, all, custom…), il formato avanzato "{n}{D|W|M|Y}..{n}{...}" e il vecchio formato Nd/Nm/Ny.
 function rangeToFilter(range, from, to) {
   const today = new Date();
   const fmt = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -105,18 +107,22 @@ let txCache      = [];
 let _selectedTxId = null;
 let _selectedTxIds = new Set();  // multi-select per bulk operations
 
+// Apre la pagina Transazioni filtrata su un conto specifico (da sidebar/dashboard).
 function navigateToAccountTx(accountId) {
   txFilters = { range: txFilters.range, account_id: String(accountId) };
   if (currentPage === 'transactions') renderTransactions();
   else navigate('transactions');
 }
 
+// Apre la pagina Transazioni isolando una singola transazione (da click su una riga altrove).
 function navigateToTx(id) {
   txFilters = { range: txFilters.range, id };
   if (currentPage === 'transactions') renderTransactions();
   else navigate('transactions');
 }
 
+// Disegna la pagina Transazioni: barra filtri (range, conto, categoria, tag, ricerca, allegati),
+// header con riepilogo e la tabella; collega tutti gli handler di filtro/ordinamento/selezione.
 async function renderTransactions() {
   _selectedTxId = null;
   const pg = document.getElementById('pg-transactions');
@@ -252,6 +258,7 @@ async function renderTransactions() {
   if (scrollWrap) requestAnimationFrame(() => { scrollWrap.scrollTop = scrollWrap.scrollHeight; });
 }
 
+// Salva i filtri correnti come Resoconto: mappa txFilters nel formato report e apre il modale precompilato.
 function saveTxFiltersAsReport() {
   // Mappa txFilters nel formato usato dai resoconti, poi apre il modal già compilato
   const f = {};
@@ -273,6 +280,7 @@ function saveTxFiltersAsReport() {
   showReportModal();
 }
 
+// Disegna la barra riepilogo: saldo conto (se filtrato) + entrate/uscite/netto delle righe filtrate.
 function _renderTxSummaryBar(rows, summary) {
   const el = document.getElementById('txSummaryBar');
   if (!el) return;
@@ -295,6 +303,7 @@ function _renderTxSummaryBar(rows, summary) {
     <span>Netto ${val(net)}</span>`;
 }
 
+// Carica le transazioni filtrate (+ saldo conto e totale mese carta), aggiorna la cache e la tabella.
 async function loadTxRows(categories, accounts) {
   const hasAccount = txFilters.account_id && String(txFilters.account_id).trim() !== '';
   const acc = hasAccount ? accounts.find(a => a.id === parseInt(txFilters.account_id)) : null;
@@ -319,12 +328,14 @@ async function loadTxRows(categories, accounts) {
   renderTxBodyAndHeaders();
 }
 
+// Apre l'allegato di una transazione tramite l'app di sistema.
 window.openTxAttachment = async el => {
   const path = decodeURIComponent(el.dataset.path);
   const res = await api.openAttachment(path);
   if (res.error) toast(res.error, 'error');
 };
 
+// Cambia colonna/direzione di ordinamento e ricarica dal backend (ordina includendo i join).
 window._txSortBy = async col => {
   txSort.dir = txSort.col === col ? (txSort.dir === 'asc' ? 'desc' : 'asc') : 'desc';
   txSort.col = col;
@@ -333,6 +344,7 @@ window._txSortBy = async col => {
   await loadTxRows(categories, accounts);
 };
 
+// Aggiorna la barra azioni multiple (conteggio selezionati, visibilità, stato del "Seleziona tutto").
 function _updateBulkBar() {
   const bar = document.getElementById('txBulkBar');
   const cnt = document.getElementById('txBulkCount');
@@ -350,6 +362,7 @@ function _updateBulkBar() {
   }
 }
 
+// Selezione multipla: singola riga / tutte le righe visibili / azzera selezione.
 window.toggleTxSelected = (id, checked) => {
   if (checked) _selectedTxIds.add(id);
   else         _selectedTxIds.delete(id);
@@ -367,6 +380,7 @@ window.clearTxSelection = () => {
   renderTxBodyAndHeaders();
 };
 
+// Azione multipla: concilia/de-concilia tutte le transazioni selezionate, poi aggiorna saldo e tabella.
 window.bulkReconcile = async newVal => {
   const ids = [..._selectedTxIds];
   if (!ids.length) return;
@@ -387,6 +401,7 @@ window.bulkReconcile = async newVal => {
   }
 };
 
+// Azione multipla: elimina tutte le transazioni selezionate previa conferma.
 window.bulkDelete = async () => {
   const ids = [..._selectedTxIds];
   if (!ids.length) return;
@@ -403,6 +418,8 @@ window.bulkDelete = async () => {
   refreshAfterTxChange();
 };
 
+// Disegna le righe della tabella transazioni (da txCache) e aggiorna gli indicatori di ordinamento
+// negli header. Gestisce colonna saldo, righe colorate, allegati, split filtrati e selezione multipla.
 function renderTxBodyAndHeaders() {
   document.querySelectorAll('#txTable th[data-col]').forEach(th => {
     const active = txSort.col === th.dataset.col;
@@ -462,6 +479,7 @@ function renderTxBodyAndHeaders() {
   _updateBulkBar();
 }
 
+// Concilia/de-concilia una singola transazione, aggiornando la riga e (se serve) il saldo conto.
 window.toggleReconciled = async (id, newVal) => {
   await api.updateTransactionReconciled(id, newVal === 1);
   // Aggiorna solo la riga in cache senza ricaricare tutto
@@ -476,8 +494,9 @@ window.toggleReconciled = async (id, newVal) => {
   }
 };
 
-// Restituisce solo <option> (no optgroup) per le categorie foglia del gruppo.
-// Macrocategorie senza figli = selezionabili; macrocategorie CON figli = escluse.
+// Inizializza un selettore di categoria ad autocomplete: input testuale + lista filtrabile
+// con navigazione da tastiera. Espone input._catPickerSetItems(items, keepId) per (ri)popolarlo.
+// Scrive l'id scelto nell'input nascosto hiddenId.
 function initCatPicker(inputId, hiddenId, listId) {
   const input  = document.getElementById(inputId);
   const hidden = document.getElementById(hiddenId);
@@ -577,6 +596,7 @@ function initCatPicker(inputId, hiddenId, listId) {
   input.addEventListener('blur', () => setTimeout(hide, 150));
 }
 
+// Genera le <option> delle sole categorie foglia (con percorso parent › figlio nell'etichetta).
 function buildCatOptions(cats, selectedId) {
   const leafs = _leafCats(cats);
   return leafs.map(c => {
@@ -585,6 +605,9 @@ function buildCatOptions(cats, selectedId) {
   }).join('');
 }
 
+// Modale crea/modifica transazione (il più complesso dell'app): tipo, importo con espressioni,
+// categoria (cat-picker) o split multi-categoria, conti, data, tag, colore, allegato e stato
+// di conciliazione. tx=null → nuova; onAfterSave callback opzionale dopo il salvataggio.
 function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [], onAfterSave = null) {
   const isEdit = tx != null && tx.id != null;
   const initType = tx?.type || defaultType;
@@ -703,6 +726,7 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
       </div>` : ''}`;
 
   // Popola il picker categoria in base al tipo selezionato
+  // Aggiorna le voci del cat-picker in base al tipo selezionato (vuoto per i trasferimenti).
   function updateCatSelect(keepSelected) {
     const type  = document.getElementById('f_type')?.value;
     const input = document.getElementById('f_cat_input');
@@ -848,6 +872,7 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
   // ── Wiring tag selector ──
   const selectedTagIds = new Set((tx?.tags || []).map(t => Number(t.id)));
 
+  // Ridisegna le chip dei tag nel modale evidenziando quelle selezionate.
   function refreshTagChips() {
     document.querySelectorAll('#tagSelector [data-tag-id]').forEach(chip => {
       const id = Number(chip.dataset.tagId);
@@ -934,6 +959,7 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
 
   // ── Split transaction logic ──────────────────────────────────────────────
 
+  // <option> categorie foglia per i menu delle righe split (filtrate per tipo).
   function _splitCatOptions(type, selId) {
     const cats = type === 'income' ? incCats : expCats;
     const leaves = _leafCats(cats);
@@ -1015,6 +1041,7 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
   }
 }
 
+// Apre il modale di modifica per la transazione con l'id dato.
 window.editTx = async id => {
   const [txs, cats, accs, tgs] = await Promise.all([
     api.getTransactions({id}), api.getCategories(), api.getAccounts(), api.getTags()
@@ -1023,6 +1050,8 @@ window.editTx = async id => {
   if (tx) showTxModal(tx, cats, accs, tx.type, tgs);
 };
 
+// Elimina una transazione con possibilità di annullare (toast "Annulla" che la ricrea
+// con split, tag e allegato — il file non viene cancellato dal disco).
 window.deleteTx = async id => {
   // Pre-carica i dati completi (incl. splits e tags) per supportare l'undo
   const [txs, splits] = await Promise.all([
@@ -1060,6 +1089,8 @@ window.deleteTx = async id => {
 /* ─── Contex menu transazioni ─────────────────────────────────────────────── */
 let _ctxTxId = null;
 
+// Mostra il menu contestuale di una transazione (duplica, crea pianificata, modifica,
+// concilia/de-concilia, elimina), posizionato al cursore e clampato nella finestra.
 function _showCtxMenu(txId, x, y) {
   _ctxTxId = txId;
   const tx = txCache.find(t => t.id === txId);
@@ -1083,11 +1114,13 @@ function _showCtxMenu(txId, x, y) {
   m.style.top  = (y + mh > window.innerHeight ? y - mh : y) + 'px';
 }
 
+// Nasconde il menu contestuale transazioni.
 function _hideCtxMenu() {
   document.getElementById('ctxMenu').style.display = 'none';
   _ctxTxId = null;
 }
 
+// Esegue l'azione scelta dal menu contestuale sulla transazione corrente.
 window._ctxDo = action => {
   const id = _ctxTxId; _hideCtxMenu();
   if (action === 'dup')         duplicateTx(id);
@@ -1098,6 +1131,7 @@ window._ctxDo = action => {
   if (action === 'unreconcile') toggleReconciled(id, 0);
 };
 
+// Duplica una transazione: apre il modale precompilato con i suoi dati, senza id e con data odierna.
 window.duplicateTx = async id => {
   const [txs, cats, accs, tgs] = await Promise.all([
     api.getTransactions({id}), api.getCategories(), api.getAccounts(), api.getTags()
@@ -1106,6 +1140,7 @@ window.duplicateTx = async id => {
   if (tx) showTxModal({...tx, id: undefined, date: _todayStr()}, cats, accs, tx.type, tgs);
 };
 
+// Crea una pianificata a partire da una transazione esistente (apre il modale pianificate precompilato).
 async function txToSched(id) {
   const [txs, cats, accs, tgs] = await Promise.all([
     api.getTransactions({id}), api.getCategories(), api.getAccounts(), api.getTags()

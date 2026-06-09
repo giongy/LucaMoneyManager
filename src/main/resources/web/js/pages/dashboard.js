@@ -17,6 +17,8 @@ const _DASH_ACC_TYPE_LABELS = {checking:'Conti Correnti',savings:'Risparmio',cas
 
 // computeHealthScore() è in utils.js — single source of truth condivisa con analytics.
 
+// Disegna il widget "bolle budget" del mese corrente: una bolla per categoria foglia
+// (anello di progresso speso/budget) divise in Uscite/Entrate, con riga totali in fondo.
 function _renderDashBudgetBubbles(budgetYear) {
   const el = document.getElementById('dashBudgetBubbles');
   if (!el) return;
@@ -155,6 +157,7 @@ function _renderDashBudgetBubbles(budgetYear) {
     </div>`;
 }
 
+// Abilita lo scroll orizzontale "a trascinamento" sulle file di bolle budget + il gradiente di fine.
 function _initBubbleDrag() {
   document.querySelectorAll('.dash-budget-bubbles').forEach(el => {
     const wrap = el.closest('.dash-bubbles-scroll-wrap');
@@ -182,6 +185,8 @@ function _initBubbleDrag() {
   _initGlobalTooltip();
 }
 
+// Disegna il widget "I miei conti": tabella raggruppata per tipo con saldo, pulsanti rapidi
+// (+/−/⇄) e righe totali (conti liquidi + investimenti, con nominale bond a scadenza).
 function _renderDashAccountsWidget(accounts) {
   const el = document.getElementById('dashAccounts');
   if (!el) return;
@@ -244,6 +249,7 @@ function _renderDashAccountsWidget(accounts) {
     </table>`;
 }
 
+// Pulsante rapido sul widget conti: apre il modale transazione precompilato sul conto/tipo dati.
 window._dashQuickTx = async (accountId, type) => {
   const [cats, accs, tags] = await Promise.all([api.getCategories(), api.getAccounts(), api.getTags()]);
   showTxModal({account_id: accountId, type}, cats, accs, type, tags, async () => {
@@ -254,6 +260,9 @@ window._dashQuickTx = async (accountId, type) => {
   });
 };
 
+// Disegna l'intera Dashboard: stat cards YTD (con sparkline e confronto YoY day-exact),
+// widget conti, bolle budget, salute finanziaria, prossime pianificate, ultime transazioni
+// e i grafici (entrate/uscite, budget vs reale, risparmio, top categorie).
 async function renderDashboard() {
   api.getDbPath().then(r => {
     const el = document.getElementById('pageTitleSub');
@@ -359,6 +368,8 @@ async function renderDashboard() {
   const curMonthIdx = _today.getMonth();  // 0..11
   // Cumulativo: mesi completi 1..(curMonthIdx-1) dai dati monthly, poi punto finale = totale YTD esatto.
   // Per il confronto YoY, il "punto finale" è day-exact (somma fino a oggi vs stesso giorno anno scorso).
+  // Costruisce la serie cumulativa: mesi completi dai dati mensili + ultimo punto = totale YTD
+  // esatto (day-exact), così l'ultimo segmento confronta "fino a oggi" vs stesso giorno anno scorso.
   const _buildCumDayExact = (monthlyData, getter, ytdTotal) => {
     const monthly12 = Array(12).fill(0);
     monthlyData.forEach(r => monthly12[r.month - 1] = getter(r) || 0);
@@ -689,6 +700,8 @@ async function renderDashboard() {
 }
 
 // ── Widget Salute Finanziaria (F1+F5) ─────────────────────────────────────
+// Widget Salute Finanziaria: calcola lo score (utils.computeHealthScore) e mostra punteggio,
+// etichetta, mesi di riserva di emergenza e tasso di risparmio degli ultimi 12 mesi.
 function _renderDashHealth(balRows12, accounts) {
   const body = document.getElementById('dashHealthBody');
   if (!body) return;
@@ -723,6 +736,8 @@ function _renderDashHealth(balRows12, accounts) {
 }
 
 // ── Esegui pianificata ora (F6) ───────────────────────────────────────────
+// "Esegui ora" una pianificata dalla dashboard: apre il modale transazione precompilato
+// (aggiunge il tag "Da Budget") e, al salvataggio, avanza la pianificata alla prossima data.
 window._dashExecSched = async id => {
   const u = (window._dashUpcomingCache || []).find(x => x.id === id);
   if (!u) { toast('Pianificata non trovata', 'error'); return; }

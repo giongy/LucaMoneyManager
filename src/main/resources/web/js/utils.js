@@ -74,6 +74,7 @@ function evalAmount(raw) {
 }
 
 /* ─── Utils ───────────────────────────────────────────────────────────────── */
+// Restituisce solo le categorie foglia (quelle senza figli) da una lista di categorie.
 function _leafCats(cats) {
   const pids = new Set(cats.filter(c => c.parent_id).map(c => c.parent_id));
   return cats.filter(c => !pids.has(c.id));
@@ -102,6 +103,7 @@ const fmt = {
 const _dateStr  = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const _todayStr = () => _dateStr(new Date());
 
+// Mostra un toast effimero (success/error/info) in basso, auto-rimosso dopo 3.5s.
 function toast(msg, type='success') {
   const c = document.getElementById('toastContainer');
   const t = document.createElement('div');
@@ -418,6 +420,8 @@ const EMOJI_LIST = [
   {e:'🔐',k:'sicurezza assicurazione'},
 ];
 
+// ── Icon picker: costruisce l'anteprima + pannello, gestisce apertura, ricerca e selezione ──
+// Monta il selettore di emoji nel container, con anteprima e pannello di ricerca.
 function _iconPickerBuild(containerId, currentEmoji) {
   const wrap = document.getElementById(containerId);
   if (!wrap) return;
@@ -434,6 +438,7 @@ function _iconPickerBuild(containerId, currentEmoji) {
   _iconPickerSearch(containerId, '');
 }
 
+// Apre/chiude il pannello e mette il focus sul campo ricerca.
 function _iconPickerToggle(cid) {
   const panel = document.getElementById(cid + '_panel');
   const open = panel.style.display === 'none';
@@ -441,6 +446,7 @@ function _iconPickerToggle(cid) {
   if (open) panel.querySelector('input').focus();
 }
 
+// Filtra le emoji per parola chiave e (ri)disegna la griglia (max 150 risultati).
 function _iconPickerSearch(cid, q) {
   const ql = q.toLowerCase().trim();
   const list = ql ? EMOJI_LIST.filter(e => e.k.includes(ql)) : EMOJI_LIST;
@@ -451,6 +457,7 @@ function _iconPickerSearch(cid, q) {
     ).join('');
 }
 
+// Applica l'emoji scelta (campo nascosto + anteprima) e chiude il pannello.
 function _iconPickerSelect(cid, emoji) {
   document.getElementById('c_icon').value = emoji;
   document.getElementById(cid + '_preview').textContent = emoji;

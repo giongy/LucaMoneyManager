@@ -5,6 +5,8 @@
 
 // _iconPickerBuild è definito in app.js (riga ~112): risolto lazy a runtime.
 
+// Disegna la pagina Categorie ad albero: parent con sottocategorie, separate per Uscite/Entrate
+// e la categoria speciale Trasferimento (non modificabile).
 async function renderCategories() {
   const pg = document.getElementById('pg-categories');
   const cats = await api.getCategories();
@@ -21,6 +23,7 @@ async function renderCategories() {
     return children.filter(c => c.parent_id === parentId);
   }
 
+  // Renderizza una lista di categorie parent con le rispettive sottocategorie annidate.
   function renderTree(list) {
     return list.map(p => {
       const kids = childrenOf(p.id);
@@ -97,20 +100,25 @@ async function renderCategories() {
     </div>`;
 }
 
+// Apre il modale per una nuova categoria principale del tipo dato (income/expense).
 function addMainCategory(type) {
   showCategoryModal(null, type, null);
 }
 
+// Apre il modale per una nuova sottocategoria sotto il parent dato (eredita il tipo).
 function addSubCategory(parentId, parentType) {
   showCategoryModal(null, parentType, parentId);
 }
 
+// Apre il modale di modifica per la categoria con l'id dato.
 async function editCategory(id) {
   const cats = await api.getCategories();
   const cat = cats.find(c => c.id === id);
   if (cat) showCategoryModal(cat, cat.type, cat.parent_id);
 }
 
+// Elimina una categoria: conferma semplice se inutilizzata, altrimenti chiede su quale
+// categoria spostare transazioni/budget/sottocategorie prima di eliminarla.
 async function deleteCategory(id) {
   const [usage, allCats] = await Promise.all([api.getCategoryUsage(id), api.getCategories()]);
   const cat = allCats.find(c => c.id === id);
@@ -169,6 +177,8 @@ async function deleteCategory(id) {
     }, 'Sposta ed elimina', 'btn-danger');
 }
 
+// Modale crea/modifica categoria: nome, parent, icona (picker), colore e — per le uscite —
+// natura spesa (essenziale/variabile/superflua, eredita dal parent se non impostata).
 async function showCategoryModal(cat, type, parentId) {
   const allCats  = await api.getCategories();
   const parents  = allCats.filter(c => !c.parent_id && c.type === type && c.type !== 'transfer');

@@ -972,6 +972,108 @@ public class Database {
                     "Trasferimento", "transfer", "🔁", "#8b949e");
     }
 
+    /** ID della prima categoria con il nome dato (o null se assente). Usato dal seed di esempio. */
+    private Integer catIdByName(String name) throws SQLException {
+        Map<String, Object> r = queryOne("SELECT id FROM categories WHERE name=? ORDER BY id LIMIT 1", name);
+        return r != null ? ((Number) r.get("id")).intValue() : null;
+    }
+
+    /** Crea una sottocategoria sotto parentId (eredita il tipo dal parent) e ne ritorna l'id. */
+    private int seedChild(int parentId, String type, String name, String icon, String color) throws SQLException {
+        return (int) execute("INSERT INTO categories(name,type,icon,color,parent_id) VALUES(?,?,?,?,?)",
+                name, type, icon, color, parentId);
+    }
+
+    /** Inserisce una pianificata di esempio (start_date=oggi, attiva). */
+    private void seedSched(String desc, String type, Integer catId, double amount, String freq,
+                           long accId, String today) throws SQLException {
+        execute("""
+            INSERT INTO scheduled_transactions
+                (description,amount,type,category_id,account_id,to_account_id,
+                 frequency,start_date,end_date,is_active,color,reconciled,portfolio_id,original_start_date)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """, desc, r2(amount), type, catId, (int) accId, null, freq, today, null, 1, null, 1, null, today);
+    }
+
+    /** Imposta un budget master mensile di esempio per una categoria (no-op se catId null). */
+    private void seedBudget(Integer catId, int year, double amount) throws SQLException {
+        if (catId == null) return;
+        execute("""
+            INSERT INTO budget_config(category_id, year, mode, master_amount) VALUES(?,?,?,?)
+            ON CONFLICT(category_id, year) DO UPDATE SET mode=excluded.mode, master_amount=excluded.master_amount
+        """, catId, year, "mensile", r2(amount));
+    }
+
+    /**
+     * Popola un DB nuovo con dati di esempio articolati (wizard di primo avvio, opzionale):
+     * 3 conti (corrente, carta di credito, contanti), alcune categorie di default arricchite con
+     * sottocategorie (gerarchia), 10 pianificate ricorrenti e un budget annuale su categorie foglia.
+     * Le categorie di default esistono già (seedDefaultData).
+     * No-op se ci sono già conti o pianificate, per non duplicare su un DB esistente.
+     */
+    public Map<String, Object> seedExampleData() throws SQLException {
+        Map<String, Object> accCnt = queryOne("SELECT COUNT(*) AS c FROM accounts");
+        Map<String, Object> schCnt = queryOne("SELECT COUNT(*) AS c FROM scheduled_transactions");
+        if ((accCnt != null && ((Number) accCnt.get("c")).intValue() > 0) ||
+            (schCnt != null && ((Number) schCnt.get("c")).intValue() > 0))
+            return Map.of("ok", false, "skipped", true);
+
+        return inTx(() -> {
+            String today = LocalDate.now().toString();
+            int year = LocalDate.now().getYear();
+
+            // 1) Conti: corrente (preferito), carta di credito, contanti
+            long accConto = execute("INSERT INTO accounts(name,type,currency,initial_balance,color,icon,is_favorite,is_closed,sort_order) VALUES(?,?,?,?,?,?,?,?,?)",
+                    "Conto Corrente", "checking", "EUR", 2500.0, "#58a6ff", "🏦", 1, 0, 1);
+            long accCarta = execute("INSERT INTO accounts(name,type,currency,initial_balance,color,icon,is_favorite,is_closed,sort_order) VALUES(?,?,?,?,?,?,?,?,?)",
+                    "Carta di Credito", "credit", "EUR", 0.0, "#f0883e", "💳", 0, 0, 2);
+            long accCash = execute("INSERT INTO accounts(name,type,currency,initial_balance,color,icon,is_favorite,is_closed,sort_order) VALUES(?,?,?,?,?,?,?,?,?)",
+                    "Contanti", "cash", "EUR", 150.0, "#3fb950", "💵", 0, 0, 3);
+
+            // 2) Sottocategorie sotto alcune categorie di default → mostra la gerarchia parent/figlio
+            Integer casa = catIdByName("Casa & Utenze"), trasp = catIdByName("Trasporti"), abb = catIdByName("Abbonamenti");
+            Integer affitto = null, bollette = null, carburante = null, mezzi = null, streaming = null, internet = null;
+            if (casa != null) {
+                affitto  = seedChild(casa, "expense", "Affitto/Mutuo", "🔑", "#58a6ff");
+                bollette = seedChild(casa, "expense", "Bollette",      "💡", "#d29922");
+                           seedChild(casa, "expense", "Manutenzione",  "🔧", "#8b949e");
+            }
+            if (trasp != null) {
+                carburante = seedChild(trasp, "expense", "Carburante",     "⛽", "#d29922");
+                mezzi      = seedChild(trasp, "expense", "Mezzi pubblici", "🚌", "#58a6ff");
+            }
+            if (abb != null) {
+                streaming = seedChild(abb, "expense", "Streaming",           "📺", "#a371f7");
+                internet  = seedChild(abb, "expense", "Internet & Telefono", "🌐", "#58a6ff");
+            }
+
+            // 3) 10 pianificate ricorrenti, distribuite sui tre conti e (dove utile) sulle sottocategorie
+            seedSched("Stipendio",            "income",  catIdByName("Stipendio"),                 1600, "monthly", accConto, today);
+            seedSched("Affitto/Mutuo",        "expense", affitto != null ? affitto : casa,          650, "monthly", accConto, today);
+            seedSched("Bollette luce/gas",    "expense", bollette,                                  110, "monthly", accConto, today);
+            seedSched("Internet e telefono",  "expense", internet,                                   32, "monthly", accConto, today);
+            seedSched("Netflix",              "expense", streaming,                                   13, "monthly", accCarta, today);
+            seedSched("Spesa settimanale",    "expense", catIdByName("Alimentari"),                  90, "weekly",  accCarta, today);
+            seedSched("Carburante",           "expense", carburante,                                  60, "monthly", accCarta, today);
+            seedSched("Palestra",             "expense", catIdByName("Svago & Sport"),               40, "monthly", accConto, today);
+            seedSched("Cena fuori",           "expense", catIdByName("Ristoranti"),                  45, "monthly", accCash,  today);
+            seedSched("Assicurazione auto",   "expense", catIdByName("Assicurazioni"),              480, "yearly",  accConto, today);
+
+            // 4) Budget annuale (master mensile) su categorie foglia
+            seedBudget(affitto, year, 650);    seedBudget(bollette, year, 120);
+            seedBudget(carburante, year, 90);  seedBudget(mezzi, year, 40);
+            seedBudget(streaming, year, 15);   seedBudget(internet, year, 32);
+            seedBudget(catIdByName("Alimentari"),    year, 350);
+            seedBudget(catIdByName("Ristoranti"),    year, 120);
+            seedBudget(catIdByName("Salute"),        year, 60);
+            seedBudget(catIdByName("Svago & Sport"), year, 80);
+
+            touchSyncMeta();
+            logger.log("DATI ESEMPIO CREATI", "conti:3", "pianificate:10", "sottocategorie + budget");
+            return Map.of("ok", true, "accounts", 3, "scheduled", 10);
+        });
+    }
+
     // ─── Conti ────────────────────────────────────────────────────────────────
 
     /** Tutti i conti con il saldo calcolato (per gli investment: valore di mercato del portafoglio). */

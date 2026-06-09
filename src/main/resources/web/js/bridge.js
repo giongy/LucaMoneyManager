@@ -175,6 +175,7 @@ const api = {
   setSetting:    (key, value) => callJava('setSetting', {key, value}),
   chooseDbFile:      (mode)   => callJava('chooseDbFile', {mode}),
   reloadDb: async path => { api._invalidateAccounts(); api._invalidateCategories(); api._invalidateTags(); return callJava('reloadDb', {path}); },
+  seedExampleData: async () => { api._invalidateAccounts(); api._invalidateCategories(); api._invalidateTags(); return callJava('seedExampleData'); },
   chooseBackupDir:       ()             => callJava('chooseBackupDir', {}),
   chooseAttachmentsDir:  ()             => callJava('chooseAttachmentsDir', {}),
   chooseAttachmentFile:  ()             => callJava('chooseAttachmentFile', {}),

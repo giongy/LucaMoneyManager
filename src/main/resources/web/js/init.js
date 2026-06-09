@@ -367,6 +367,104 @@ async function init() {
     if (unverified.length) showUnverifiedNotice(unverified);
   } catch(e) {}
   updateNoticeBtn();
+
+  // Primo avvio: mostra il wizard di benvenuto (solo desktop/JCEF, una volta per DB).
+  // Il flag onboarding.done vive in app_settings (per-database). Per non disturbare gli
+  // utenti esistenti (DB con dati ma senza flag), lo mostriamo solo se il DB è vuoto.
+  if (!_isBrowser && s['onboarding.done'] !== '1') {
+    try {
+      const accs = await api.getAccounts();
+      if (!accs.length) showOnboardingWizard(s['db.path'] || '');
+      else api.setSetting('onboarding.done', '1');  // utente esistente: marca fatto
+    } catch(e) {}
+  }
+}
+
+/* ─── Wizard di primo avvio (benvenuto + scelta DB + dati di esempio) ───────── */
+// Overlay non chiudibile mostrato al primo avvio: l'utente sceglie quale database usare
+// (locale / nuovo / esistente) e se popolarlo con dati di esempio. Al termine imposta il
+// flag onboarding.done e ricarica conti/pagina corrente.
+function showOnboardingWizard(localDbPath) {
+  if (document.getElementById('onboardingOverlay')) return;  // già aperto
+  const ov = document.createElement('div');
+  ov.id = 'onboardingOverlay';
+  ov.style.cssText = `position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.6);
+    display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)`;
+  ov.innerHTML = `
+    <div style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;
+                max-width:520px;width:92%;padding:24px 26px;box-shadow:0 12px 40px rgba(0,0,0,.5)">
+      <div style="font-size:20px;font-weight:700;margin-bottom:4px">👋 Benvenuto in LucaMoneyManager</div>
+      <div style="color:var(--txt2);font-size:13px;line-height:1.5;margin-bottom:18px">
+        Scegli quale database utilizzare. Puoi tenerlo in locale oppure crearlo/aprirlo in una
+        cartella sincronizzata (es. OneDrive) per condividerlo con l'app Android.
+      </div>
+      <label class="ob-opt" style="display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid var(--border);border-radius:8px;cursor:pointer;margin-bottom:8px">
+        <input type="radio" name="ob_mode" value="local" checked style="margin-top:3px">
+        <span><b>Usa il database locale</b> <span style="color:var(--txt3)">(consigliato per iniziare)</span>
+          <div style="font-size:11px;color:var(--txt3);word-break:break-all;margin-top:2px">${localDbPath}</div></span>
+      </label>
+      <label class="ob-opt" style="display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid var(--border);border-radius:8px;cursor:pointer;margin-bottom:8px">
+        <input type="radio" name="ob_mode" value="new" style="margin-top:3px">
+        <span><b>Crea un nuovo database…</b>
+          <div style="font-size:11px;color:var(--txt3);margin-top:2px">Scegli dove salvarlo (es. cartella OneDrive)</div></span>
+      </label>
+      <label class="ob-opt" style="display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border:1px solid var(--border);border-radius:8px;cursor:pointer;margin-bottom:14px">
+        <input type="radio" name="ob_mode" value="existing" style="margin-top:3px">
+        <span><b>Apri un database esistente…</b>
+          <div style="font-size:11px;color:var(--txt3);margin-top:2px">Se hai già un .db (es. dal telefono via OneDrive)</div></span>
+      </label>
+      <label id="ob_seedRow" style="display:flex;gap:10px;align-items:center;padding:10px 12px;background:var(--bg3);border-radius:8px;cursor:pointer;margin-bottom:18px">
+        <input type="checkbox" id="ob_seed" checked>
+        <span style="font-size:13px">Popola con <b>dati di esempio</b>
+          <span style="color:var(--txt3)">(un conto, 10 pianificate, un budget)</span></span>
+      </label>
+      <div style="display:flex;justify-content:flex-end">
+        <button id="ob_start" class="btn btn-primary">Inizia</button>
+      </div>
+    </div>`;
+  document.body.appendChild(ov);
+
+  // La spunta "dati di esempio" non ha senso quando si apre un DB già esistente: disattivala.
+  const seedRow = ov.querySelector('#ob_seedRow');
+  const seedCb  = ov.querySelector('#ob_seed');
+  ov.querySelectorAll('input[name="ob_mode"]').forEach(r => {
+    r.onchange = () => {
+      const dis = ov.querySelector('input[name="ob_mode"]:checked').value === 'existing';
+      seedCb.disabled = dis;
+      seedRow.style.opacity = dis ? '.45' : '';
+    };
+  });
+
+  ov.querySelector('#ob_start').onclick = () => _onboardingStart(ov);
+}
+
+async function _onboardingStart(ov) {
+  const mode = ov.querySelector('input[name="ob_mode"]:checked').value;
+  const seed = ov.querySelector('#ob_seed').checked && mode !== 'existing';
+  const btn  = ov.querySelector('#ob_start');
+  btn.disabled = true; btn.textContent = 'Attendere…';
+  try {
+    if (mode === 'new' || mode === 'existing') {
+      const res = await api.chooseDbFile(mode === 'new' ? 'save' : 'open');
+      if (!res || res.cancelled) { btn.disabled = false; btn.textContent = 'Inizia'; return; }
+      await api.reloadDb(res.path);  // reconnect: crea schema + categorie di default su DB nuovo
+    }
+    if (seed) {
+      try { await api.seedExampleData(); }
+      catch (e) { toast('Dati di esempio non creati: ' + e.message, 'error'); }
+    }
+    await api.setSetting('onboarding.done', '1');
+    ov.remove();
+    // Ricarica tutto con il DB scelto
+    api._invalidateAccounts(); api._invalidateCategories(); api._invalidateTags();
+    await updateSidebar();
+    renderSidebarDate();
+    await renderPage(currentPage);
+    toast('Tutto pronto! Buona gestione 💰');
+  } catch (e) {
+    toast('Errore: ' + e.message, 'error');
+    btn.disabled = false; btn.textContent = 'Inizia';
+  }
 }
 
 /* ─── Log Viewer ── spostato in js/pages/logviewer.js ─────────────────────── */

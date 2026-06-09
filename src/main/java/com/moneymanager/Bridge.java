@@ -633,6 +633,9 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                 yield Map.of("ok", true);
             }
 
+            // Popola il DB corrente con dati di esempio (wizard di primo avvio)
+            case "seedExampleData" -> db.seedExampleData();
+
             case "doBackup" -> {
                 String bDir = db.getAppSetting("backup.dir", "");
                 int bMax = Integer.parseInt(db.getAppSetting("backup.max", "10"));

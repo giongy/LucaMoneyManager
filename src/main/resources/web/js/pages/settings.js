@@ -46,6 +46,7 @@ async function renderSettings() {
                      type="text" readonly value="${s['db.path'] ?? ''}">
               <button class="btn btn-secondary" onclick="settingsChooseDb('open')">📂 Apri esistente</button>
               <button class="btn btn-ghost" onclick="settingsChooseDb('save')">➕ Crea nuovo</button>
+              <button class="btn btn-ghost" onclick="showOnboardingWizard(document.getElementById('dbPathInput').value)" title="Riapri la schermata di benvenuto (scelta DB + dati di esempio)">🧭 Procedura guidata</button>
             </div>
             <p class="settings-hint" id="dbHint"></p>
           </div>

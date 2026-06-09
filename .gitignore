@@ -17,6 +17,7 @@ debug.log
 .idea/
 *.iml
 .vscode/
+.VSCodeCounter/
 
 # Claude Code (configurazione locale, ma i comandi di progetto sono versionati)
 .claude/*

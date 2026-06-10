@@ -28,6 +28,16 @@ function _renderDashBudgetBubbles(budgetYear) {
   const curYear   = new Date().getFullYear();
   const monthName = new Date(curYear, curMonth - 1).toLocaleString('it-IT', { month: 'long' });
 
+  // Header della card (titolo mese + azioni): condiviso tra stato pieno e stato vuoto (placeholder).
+  const _budgetHeader = `
+    <div class="card-header">
+      <span class="card-title">Budget — ${monthName} ${curYear}</span>
+      <div style="display:flex;gap:6px">
+        <button class="btn btn-ghost" onclick="navigateToBudgetMese()">Analisi mese corrente →</button>
+        <button class="btn btn-ghost" onclick="navigate('budgets')">Gestisci Budget →</button>
+      </div>
+    </div>`;
+
   // Effective budget per mese (stessa logica pagina budget)
   const _bMap = {};
   budgets.forEach(b => { if (!_bMap[b.category_id]) _bMap[b.category_id] = {}; _bMap[b.category_id][b.month] = b.amount; });
@@ -51,7 +61,16 @@ function _renderDashBudgetBubbles(budgetYear) {
   }));
   const catData = allCatData.filter(c => c.actual > 0 || c.type === 'income');
 
-  if (!catData.length) { el.innerHTML = ''; el.style.display = 'none'; return; }
+  // Nessuna spesa né categoria entrata visibile questo mese: mostra comunque la card con
+  // header + placeholder (niente display:none, che lasciava un vuoto a fianco del widget conti).
+  if (!catData.length) {
+    el.style.display = '';
+    el.innerHTML = _budgetHeader + `
+      <div style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--txt3);font-size:13px;padding:24px 16px">
+        Nessuna transazione nel mese
+      </div>`;
+    return;
+  }
   el.style.display = '';
 
   const expCats = catData.filter(c => c.type === 'expense').sort((a, b) => b.budget - a.budget);
@@ -126,14 +145,7 @@ function _renderDashBudgetBubbles(budgetYear) {
 
   const netColor = netActual >= 0 ? 'var(--income)' : 'var(--expense)';
 
-  el.innerHTML = `
-    <div class="card-header">
-      <span class="card-title">Budget — ${monthName} ${curYear}</span>
-      <div style="display:flex;gap:6px">
-        <button class="btn btn-ghost" onclick="navigateToBudgetMese()">Analisi mese corrente →</button>
-        <button class="btn btn-ghost" onclick="navigate('budgets')">Gestisci Budget →</button>
-      </div>
-    </div>
+  el.innerHTML = _budgetHeader + `
     <div style="padding:0 16px 8px;flex:1;display:flex;flex-direction:column;min-height:0">
       <div class="dash-budget-cols">
         <div class="dash-budget-col-exp">
@@ -250,14 +262,11 @@ function _renderDashAccountsWidget(accounts) {
 }
 
 // Pulsante rapido sul widget conti: apre il modale transazione precompilato sul conto/tipo dati.
+// Al salvataggio ricarica l'intera dashboard (saldi, bolle budget, stat YTD, ultime tx, grafici),
+// non solo il widget conti — così la nuova transazione si riflette ovunque (come "Esegui ora").
 window._dashQuickTx = async (accountId, type) => {
   const [cats, accs, tags] = await Promise.all([api.getCategories(), api.getAccounts(), api.getTags()]);
-  showTxModal({account_id: accountId, type}, cats, accs, type, tags, async () => {
-    api._invalidateAccounts();
-    const _freshAccs = await api.getAccounts();
-    _renderDashAccountsWidget(_freshAccs);
-    _fillCreditMonthDash(_freshAccs);
-  });
+  showTxModal({account_id: accountId, type}, cats, accs, type, tags, () => renderDashboard());
 };
 
 // Disegna l'intera Dashboard: stat cards YTD (con sparkline e confronto YoY day-exact),
@@ -693,7 +702,7 @@ async function renderDashboard() {
               datasets: [{label:'Spesa', data: top5.map(c=>c.total),
                 backgroundColor: top5.map(c=>c.color||'rgba(88,166,255,.7)'), borderRadius:4}]},
       options: { indexAxis:'y', responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}},
-        scales:{ x:{ticks:{color:chartColors().tick,font:{size:10},stepSize:200},grid:{color:chartColors().grid}},
+        scales:{ x:{ticks:{color:chartColors().tick,font:{size:10}},grid:{color:chartColors().grid}},
                  y:{ticks:{color:chartColors().tick,font:{size:10}},grid:{color:chartColors().grid}}}}
     });
   }

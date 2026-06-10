@@ -562,96 +562,90 @@ function renderEquityAnalisi(equities) {
   const acctData   = acctLabels.map(k => byAcct[k]);
   const acctColors = acctLabels.map((_, i) => palette[i % palette.length]);
 
-  // Top winners / losers per % (escludo posizioni con cost=0 per evitare NaN)
-  const ranked = withVal.filter(x => x.cost > 0).map(x => ({
-    ...x, retPct: x.tr.pct, retEur: x.tr.totalReturn
-  }));
-  ranked.sort((a, b) => b.retPct - a.retPct);
-  const winners = ranked.slice(0, 5);
-  const losers  = ranked.slice(-5).reverse();
+  // Posizioni ordinate per rendimento % (cost=0 → % a 0 per evitare NaN)
+  const ranked = withVal.map(x => ({
+    ...x, retPct: x.cost > 0 ? x.tr.pct : 0, retEur: x.tr.totalReturn
+  })).sort((a, b) => b.retPct - a.retPct);
 
-  container.innerHTML = `
-    <div style="font-size:13px;font-weight:700;color:var(--txt2);margin-bottom:10px;letter-spacing:.3px">📈 AZIONARIO</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
-      <div class="card" style="padding:16px">
-        <div style="font-weight:600;margin-bottom:12px">Allocazione per titolo</div>
-        <canvas id="eqAllocChart" style="max-height:300px"></canvas>
-      </div>
-      <div class="card" style="padding:16px">
-        <div style="font-weight:600;margin-bottom:12px">Allocazione per conto</div>
-        <canvas id="eqAcctChart" style="max-height:300px"></canvas>
-      </div>
-    </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px">
+  // Layout adattivo: con poche posizioni/conti i donut sono cerchi pieni inutili e lo split
+  // Top/Peggiori mostrerebbe le stesse righe. Mostriamo quegli elementi solo quando hanno senso.
+  const nPos = withVal.length;
+  const showTitoloDonut = nPos >= 2;
+  const showAcctDonut   = acctLabels.length >= 2;
+  const splitPerf       = nPos >= 8;   // Top/Peggiori separati solo per portafogli ampi
+
+  // Riga e tabella posizioni (con colonna allocazione % sul totale azionario)
+  const posRow = x => `<tr style="border-bottom:1px solid var(--border)">
+    <td style="padding:5px 6px"><strong>${x.ticker}</strong><br><small style="color:var(--txt3)">${x.name}</small></td>
+    <td style="padding:5px 6px;text-align:right;color:${x.retEur>=0?'var(--income)':'var(--expense)'}">${fmt.currency(x.retEur)}</td>
+    <td style="padding:5px 6px;text-align:right;color:${x.retPct>=0?'var(--income)':'var(--expense)'};font-weight:600">${fmt.pct(x.retPct)}</td>
+    <td style="padding:5px 6px;text-align:right;color:var(--txt3)">${fmt.currency(x.val)}</td>
+    <td style="padding:5px 6px;text-align:right;color:var(--txt3)">${totalVal>0?(x.val/totalVal*100).toFixed(1):'0.0'}%</td>
+  </tr>`;
+  const perfTable = rows => `<table style="width:100%;font-size:12px;border-collapse:collapse">
+    <thead><tr style="color:var(--txt3);border-bottom:1px solid var(--border)">
+      <th style="text-align:left;padding:4px 6px">Ticker</th>
+      <th style="text-align:right;padding:4px 6px">Tot. Return</th>
+      <th style="text-align:right;padding:4px 6px">%</th>
+      <th style="text-align:right;padding:4px 6px">Valore</th>
+      <th style="text-align:right;padding:4px 6px">Alloc.</th>
+    </tr></thead><tbody>${rows.map(posRow).join('')}</tbody></table>`;
+
+  // Donut solo dove utili
+  const donutCards = [];
+  if (showTitoloDonut) donutCards.push(`<div class="card" style="padding:16px"><div style="font-weight:600;margin-bottom:12px">Allocazione per titolo</div><canvas id="eqAllocChart" style="max-height:260px"></canvas></div>`);
+  if (showAcctDonut)   donutCards.push(`<div class="card" style="padding:16px"><div style="font-weight:600;margin-bottom:12px">Allocazione per conto</div><canvas id="eqAcctChart" style="max-height:260px"></canvas></div>`);
+  const donutsHtml = donutCards.length
+    ? `<div style="display:grid;grid-template-columns:repeat(${donutCards.length},1fr);gap:16px">${donutCards.join('')}</div>`
+    : '';
+
+  // Performance: split Top/Peggiori per portafogli ampi, altrimenti una sola tabella "Posizioni"
+  const mt = donutsHtml ? 'margin-top:16px' : '';
+  let perfHtml;
+  if (splitPerf) {
+    perfHtml = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;${mt}">
       <div class="card" style="padding:16px">
         <div style="font-weight:600;margin-bottom:10px;color:var(--income)">▲ Top performer (Tot. Return %)</div>
-        ${winners.length ? `<table style="width:100%;font-size:12px;border-collapse:collapse">
-          <thead><tr style="color:var(--txt3);border-bottom:1px solid var(--border)">
-            <th style="text-align:left;padding:4px 6px">Ticker</th>
-            <th style="text-align:right;padding:4px 6px">Tot. Return</th>
-            <th style="text-align:right;padding:4px 6px">%</th>
-            <th style="text-align:right;padding:4px 6px">Valore</th>
-          </tr></thead><tbody>
-          ${winners.map(w => `<tr style="border-bottom:1px solid var(--border)">
-            <td style="padding:5px 6px"><strong>${w.ticker}</strong><br><small style="color:var(--txt3)">${w.name}</small></td>
-            <td style="padding:5px 6px;text-align:right;color:${w.retEur>=0?'var(--income)':'var(--expense)'}">${fmt.currency(w.retEur)}</td>
-            <td style="padding:5px 6px;text-align:right;color:${w.retPct>=0?'var(--income)':'var(--expense)'};font-weight:600">${fmt.pct(w.retPct)}</td>
-            <td style="padding:5px 6px;text-align:right;color:var(--txt3)">${fmt.currency(w.val)}</td>
-          </tr>`).join('')}
-        </tbody></table>` : '<div style="color:var(--txt3);font-size:12px">Nessuna posizione con costo &gt; 0</div>'}
+        ${perfTable(ranked.slice(0, 5))}
       </div>
       <div class="card" style="padding:16px">
         <div style="font-weight:600;margin-bottom:10px;color:var(--expense)">▼ Peggiori (Tot. Return %)</div>
-        ${losers.length ? `<table style="width:100%;font-size:12px;border-collapse:collapse">
-          <thead><tr style="color:var(--txt3);border-bottom:1px solid var(--border)">
-            <th style="text-align:left;padding:4px 6px">Ticker</th>
-            <th style="text-align:right;padding:4px 6px">Tot. Return</th>
-            <th style="text-align:right;padding:4px 6px">%</th>
-            <th style="text-align:right;padding:4px 6px">Valore</th>
-          </tr></thead><tbody>
-          ${losers.map(w => `<tr style="border-bottom:1px solid var(--border)">
-            <td style="padding:5px 6px"><strong>${w.ticker}</strong><br><small style="color:var(--txt3)">${w.name}</small></td>
-            <td style="padding:5px 6px;text-align:right;color:${w.retEur>=0?'var(--income)':'var(--expense)'}">${fmt.currency(w.retEur)}</td>
-            <td style="padding:5px 6px;text-align:right;color:${w.retPct>=0?'var(--income)':'var(--expense)'};font-weight:600">${fmt.pct(w.retPct)}</td>
-            <td style="padding:5px 6px;text-align:right;color:var(--txt3)">${fmt.currency(w.val)}</td>
-          </tr>`).join('')}
-        </tbody></table>` : '<div style="color:var(--txt3);font-size:12px">—</div>'}
+        ${perfTable(ranked.slice(-5).reverse())}
       </div>
     </div>`;
+  } else {
+    perfHtml = `<div class="card" style="padding:16px;${mt}">
+      <div style="font-weight:600;margin-bottom:10px">Posizioni azionarie</div>
+      ${ranked.length ? perfTable(ranked) : '<div style="color:var(--txt3);font-size:12px">Nessuna posizione</div>'}
+    </div>`;
+  }
+
+  container.innerHTML = `
+    <div style="font-size:13px;font-weight:700;color:var(--txt2);margin-bottom:10px;letter-spacing:.3px">📈 AZIONARIO</div>
+    ${donutsHtml}${perfHtml}`;
 
   const txtColor = getComputedStyle(document.documentElement).getPropertyValue('--txt1').trim() || '#ccc';
-
-  new Chart(document.getElementById('eqAllocChart'), {
-    type: 'doughnut',
-    data: { labels: allocLabels, datasets: [{ data: allocData, backgroundColor: allocColors, borderWidth: 1 }] },
-    options: {
-      responsive: true,
-      plugins: {
-        legend: { position: 'bottom', labels: { color: txtColor, font: { size: 11 }, padding: 8 } },
-        tooltip: {
-          callbacks: {
-            label: ctx => ` ${ctx.label}: ${fmt.currency(ctx.parsed)} (${(ctx.parsed/totalVal*100).toFixed(1)}%)`,
-            footer: () => [`Totale: ${fmt.currency(totalVal)}`]
-          }
-        }
-      }
+  const donutOpts = extra => ({
+    responsive: true,
+    plugins: {
+      legend: { position: 'bottom', labels: { color: txtColor, font: { size: 11 }, padding: 8 } },
+      tooltip: { callbacks: {
+        label: ctx => ` ${ctx.label}: ${fmt.currency(ctx.parsed)} (${(ctx.parsed/totalVal*100).toFixed(1)}%)`,
+        ...extra
+      } }
     }
   });
 
-  new Chart(document.getElementById('eqAcctChart'), {
+  if (showTitoloDonut) new Chart(document.getElementById('eqAllocChart'), {
+    type: 'doughnut',
+    data: { labels: allocLabels, datasets: [{ data: allocData, backgroundColor: allocColors, borderWidth: 1 }] },
+    options: donutOpts({ footer: () => [`Totale: ${fmt.currency(totalVal)}`] })
+  });
+
+  if (showAcctDonut) new Chart(document.getElementById('eqAcctChart'), {
     type: 'doughnut',
     data: { labels: acctLabels, datasets: [{ data: acctData, backgroundColor: acctColors, borderWidth: 1 }] },
-    options: {
-      responsive: true,
-      plugins: {
-        legend: { position: 'bottom', labels: { color: txtColor, font: { size: 11 }, padding: 8 } },
-        tooltip: {
-          callbacks: {
-            label: ctx => ` ${ctx.label}: ${fmt.currency(ctx.parsed)} (${(ctx.parsed/totalVal*100).toFixed(1)}%)`,
-          }
-        }
-      }
-    }
+    options: donutOpts()
   });
 }
 

@@ -185,10 +185,13 @@ window.closeCreditMonth = async (cardId, cardName) => {
   const accounts = await api.getAccounts();
   const sources  = accounts.filter(a => a.type !== 'credit' && a.type !== 'investment' && !a.is_closed);
 
-  // Default: mese precedente
+  // Default: mese precedente (l'ultimo mese concluso da saldare). La banca addebita il saldo
+  // intorno al ~10 del mese successivo: es. il 10 giugno si salda maggio. Date() gestisce
+  // automaticamente il cambio d'anno (a gennaio → dicembre dell'anno prima).
   const now = new Date();
-  const defYear  = now.getDate() >= 10 ? now.getFullYear() : (now.getMonth() === 0 ? now.getFullYear()-1 : now.getFullYear());
-  const defMonth = now.getDate() >= 10 ? now.getMonth() + 1 : (now.getMonth() === 0 ? 12 : now.getMonth());
+  const ref = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const defYear  = ref.getFullYear();
+  const defMonth = ref.getMonth() + 1;
   const defMonthStr = `${defYear}-${String(defMonth).padStart(2,'0')}`;
 
   // Data di pagamento default: 10 del mese successivo

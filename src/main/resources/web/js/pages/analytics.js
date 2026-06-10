@@ -1720,7 +1720,14 @@ async function _updateReportHeader(r) {
     chips.push(chip(`⊞ ${groupL[groupby] || groupby}`));
   }
 
-  const nameHtml  = r ? `<span class="r-report-name">📋 ${r.name}</span> <button class="btn btn-ghost btn-icon" onclick="showReportModal(${r.id})" title="Modifica">✏️</button>` : '';
+  // Resoconto salvato → nome + Modifica. Filtro temporaneo (non salvato) → etichetta + Modifica:
+  // riapre la modale precompilata coi filtri correnti, così puoi modificarlo senza salvarlo
+  // (lascia il nome vuoto) oppure salvarlo dandogli un nome.
+  const nameHtml = r
+    ? `<span class="r-report-name">📋 ${r.name}</span> <button class="btn btn-ghost btn-icon" onclick="showReportModal(${r.id})" title="Modifica">✏️</button>`
+    : (chips.length
+        ? `<span class="r-report-name" style="color:var(--txt3)">📋 Filtro temporaneo <span style="font-size:11px;font-weight:400">(non salvato)</span></span> <button class="btn btn-ghost btn-icon" onclick="showReportModal()" title="Modifica / salva con nome">✏️</button>`
+        : '');
   const chipsHtml = chips.length ? `<div class="r-chips">${chips.join('')}</div>` : '';
   headerEl.innerHTML = `${nameHtml}${chipsHtml}`;
 }
@@ -1819,7 +1826,7 @@ async function showReportModal(reportId = null) {
     <div class="form-group">
       <label class="form-label">Nome del resoconto <span style="color:var(--txt3);font-weight:400">(facoltativo — compila per salvare)</span></label>
       <input type="text" class="form-control" id="rmName" value="${initName.replace(/"/g,'&quot;')}" placeholder="es. Spese famiglia 2026" autocomplete="off">
-      ${r ? `<div style="font-size:11px;color:var(--txt3);margin-top:3px">Mantieni il nome per aggiornare, cambialo per salvarne una copia.</div>` : ''}
+      ${r ? `<div style="font-size:11px;color:var(--txt3);margin-top:3px">Le modifiche (nome compreso) aggiornano questo filtro.</div>` : ''}
     </div>
     <hr style="border:none;border-top:1px solid var(--border);margin:8px 0 12px">
     <div class="report-modal-grid">
@@ -1984,7 +1991,7 @@ async function showReportModal(reportId = null) {
           filters_json: JSON.stringify(_reportFilters),
           groupby, chart_type: chartType,
         };
-        if (r && name === r.name) data.id = r.id;
+        if (r) data.id = r.id;  // in modifica aggiorna sempre il filtro esistente (anche se rinominato)
         try {
           const saved = await api.saveReport(data);
           _currentReportId = saved.id;

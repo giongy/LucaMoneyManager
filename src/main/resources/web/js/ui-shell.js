@@ -33,7 +33,22 @@ function closeModal() {
 
 document.getElementById('modalClose').onclick  = closeModal;
 document.getElementById('modalCancel').onclick = closeModal;
-document.getElementById('modalConfirm').onclick = async () => { if (modalConfirmCallback) { const result = await modalConfirmCallback(); if (result !== false) closeModal(); } };
+// Conferma del modale: esegue il callback e chiude (a meno che ritorni false = validazione fallita).
+// try/catch obbligatorio: senza, un errore nel callback (es. salvataggio fallito) diventa una
+// promise rejection non gestita → il bottone "non fa niente". Così l'errore viene sempre mostrato.
+document.getElementById('modalConfirm').onclick = async () => {
+  if (!modalConfirmCallback) return;
+  const btn = document.getElementById('modalConfirm');
+  btn.disabled = true;
+  try {
+    const result = await modalConfirmCallback();
+    if (result !== false) closeModal();
+  } catch (e) {
+    toast('Errore: ' + (e && e.message ? e.message : e), 'error');
+  } finally {
+    btn.disabled = false;
+  }
+};
 
 /* ─── Confirm dialog (usa openModal) ─────────────────────────────────────── */
 // Dialogo di conferma basato su openModal: risolve la Promise a true (Elimina) o false (Annulla).

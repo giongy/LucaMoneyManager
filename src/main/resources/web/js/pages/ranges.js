@@ -10,6 +10,7 @@ async function renderRangePresets() {
   const pg = document.getElementById('pg-ranges');
   const presets = await api.getRangePresets();
   pg.innerHTML = `
+    <div style="max-width:700px">
     <div class="section-header">
       <h2 class="section-title">Periodi personalizzati</h2>
       <button class="btn btn-primary" id="btnAddRangePreset">+ Nuovo periodo</button>
@@ -71,6 +72,7 @@ async function renderRangePresets() {
         </div>` :
         `<p class="text-muted" style="text-align:center;padding:30px">Nessun periodo personalizzato. Creane uno cliccando "+ Nuovo periodo".</p>`
       }
+    </div>
     </div>`;
 
   document.getElementById('btnAddRangePreset').onclick = () => showRangePresetModal(null);

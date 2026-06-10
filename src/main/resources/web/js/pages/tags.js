@@ -8,6 +8,7 @@ async function renderTags() {
   const pg = document.getElementById('pg-tags');
   const tags = await api.getTags();
   pg.innerHTML = `
+    <div style="max-width:700px">
     <div class="section-header">
       <h2 class="section-title">Tag</h2>
       <button class="btn btn-primary" id="btnAddTag">+ Nuovo tag</button>
@@ -28,6 +29,7 @@ async function renderTags() {
         </div>` :
         `<p class="text-muted" style="text-align:center;padding:30px">Nessun tag. Creane uno cliccando "+ Nuovo tag".</p>`
       }
+    </div>
     </div>`;
 
   document.getElementById('btnAddTag').onclick = () => showTagModal(null);

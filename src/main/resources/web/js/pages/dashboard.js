@@ -86,8 +86,10 @@ function _renderDashBudgetBubbles(budgetYear) {
 
   // Anello SVG di progresso
   const _ring = (spent, budget, color, sz = 44, isIncome = false) => {
-    const pct  = budget > 0 ? Math.min(spent / budget, 1) : 0;
-    const over = budget > 0 && spent > budget;
+    // Uscita senza budget ma con spesa = sforamento: anello pieno e rosso (come spent>budget).
+    const expOverNoBudget = !isIncome && budget <= 0 && spent > 0;
+    const pct  = budget > 0 ? Math.min(spent / budget, 1) : (expOverNoBudget ? 1 : 0);
+    const over = (budget > 0 && spent > budget) || expOverNoBudget;
     const bad  = isIncome ? spent < budget && budget > 0 : over;
     const r    = (sz - 4) / 2;
     const c    = 2 * Math.PI * r;
@@ -104,8 +106,11 @@ function _renderDashBudgetBubbles(budgetYear) {
   // HTML singola bolla
   const _bubble = c => {
     const pct  = c.budget > 0 ? Math.round(c.actual / c.budget * 100) : 0;
+    // Budget 0 con uscita reale = sforamento: trattalo come budget valido (colore rosso, rimasto negativo).
+    // Per le entrate un budget 0 non è un "mancato target", quindi resta neutro.
+    const isExpOverNoBudget = c.type !== 'income' && c.budget <= 0 && c.actual > 0;
     const amtColor = c.budget <= 0
-      ? 'var(--txt3)'
+      ? (isExpOverNoBudget ? 'var(--expense)' : 'var(--txt3)')
       : c.type === 'income'
         ? (c.actual > c.budget ? 'var(--income)' : c.actual < c.budget ? 'var(--expense)' : 'var(--txt3)')
         : (c.actual < c.budget ? 'var(--income)' : c.actual > c.budget ? 'var(--expense)' : 'var(--txt3)');
@@ -114,11 +119,11 @@ function _renderDashBudgetBubbles(budgetYear) {
     const catLine   = c.parent_name ? `${c.parent_name} : ${c.name}` : c.name;
     const remaining = c.budget > 0
       ? (c.type === 'income' ? c.actual - c.budget : c.budget - c.actual)
-      : null;
+      : (isExpOverNoBudget ? c.budget - c.actual : null);
     const hesc = s => String(s).replace(/"/g, '&quot;');
     return `<div class="budget-bubble" onclick="_dashBubbleDetail(${c.id})"
         data-tt-cat="${hesc(catLine)}"
-        data-tt-budget="${hesc(c.budget > 0 ? fmt.currency(c.budget) : '—')}"
+        data-tt-budget="${hesc((c.budget > 0 || c.actual > 0) ? fmt.currency(c.budget) : '—')}"
         data-tt-actual="${hesc(fmt.currency(c.actual))}"
         data-tt-rem="${hesc(remaining !== null ? fmt.currency(remaining) : '—')}"
         data-tt-over="${remaining !== null && remaining < 0 ? '1' : '0'}"
@@ -130,7 +135,7 @@ function _renderDashBudgetBubbles(budgetYear) {
       <div class="budget-bubble-name">${c.name}</div>
       <div class="budget-bubble-amounts">
         <span style="color:${amtColor};font-weight:700;font-size:12px">${fmt.currency(c.actual)}</span><br>
-        <span style="color:var(--txt3);font-size:11px">${c.budget > 0 ? fmt.currency(c.budget) : '—'}</span>
+        <span style="color:var(--txt3);font-size:11px">${(c.budget > 0 || c.actual > 0) ? fmt.currency(c.budget) : '—'}</span>
       </div>
     </div>`;
   };

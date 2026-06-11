@@ -1337,10 +1337,10 @@ function _openBudgetDetail(catId, catName, isFirstOpen) {
     return `<tr>
       <td class="td-main">${mn}</td>
       <td style="text-align:right">${a ? fmt.currency(a) : '—'}</td>
-      <td style="text-align:right">${b ? fmt.currency(b) : '—'}</td>
+      <td style="text-align:right">${(b||a) ? fmt.currency(b) : '—'}</td>
       <td style="text-align:right;${(b||a) ? diffColor(d) : ''}">${(b||a) ? fmt.currency(d) : '—'}</td>
       <td style="text-align:right;color:var(--txt3);border-left:2px solid var(--border)">${cumA ? fmt.currency(cumA) : '—'}</td>
-      <td style="text-align:right;color:var(--txt3)">${cumB ? fmt.currency(cumB) : '—'}</td>
+      <td style="text-align:right;color:var(--txt3)">${(cumB||cumA) ? fmt.currency(cumB) : '—'}</td>
       <td style="text-align:right;${(cumB||cumA) ? diffColor(cumD) : ''}">${(cumB||cumA) ? fmt.currency(cumD) : '—'}</td>
     </tr>`;
   }).join('');
@@ -1381,10 +1381,10 @@ function _openBudgetDetail(catId, catName, isFirstOpen) {
           <tfoot><tr style="font-weight:700;border-top:2px solid var(--border)">
             <td class="td-main">Totale</td>
             <td style="text-align:right">${totA ? fmt.currency(totA) : '—'}</td>
-            <td style="text-align:right">${totB ? fmt.currency(totB) : '—'}</td>
+            <td style="text-align:right">${(totB||totA) ? fmt.currency(totB) : '—'}</td>
             <td style="text-align:right;${totDc}">${(totB||totA) ? fmt.currency(totD) : '—'}</td>
             <td style="text-align:right;color:var(--txt3);border-left:2px solid var(--border)">${totA ? fmt.currency(totA) : '—'}</td>
-            <td style="text-align:right;color:var(--txt3)">${totB ? fmt.currency(totB) : '—'}</td>
+            <td style="text-align:right;color:var(--txt3)">${(totB||totA) ? fmt.currency(totB) : '—'}</td>
             <td style="text-align:right;${totDc}">${(totB||totA) ? fmt.currency(totD) : '—'}</td>
           </tr></tfoot>
         </table>

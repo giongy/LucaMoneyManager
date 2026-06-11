@@ -666,6 +666,16 @@ function renderBudgetScostamenti() {
   const maxPct = Math.max(1, ...activeRows.map(r=>Math.abs(r.pct)));
   const fmtPct = p => (p>=0?'+':'')+p.toFixed(1)+'%';
 
+  // Riepilogo "bene vs male": separa l'aggregato in quanto risparmiato/guadagnato (categorie
+  // in verde) e quanto sforato/mancato (categorie in rosso). Il netto da solo può mascherare
+  // sbilanci tra le due parti (es. +500 risparmiato e -500 sforato → netto 0 ma due segnali).
+  const _scostGood = activeRows.filter(r => r.isGood && r.rYTD > 0);
+  const _scostBad  = activeRows.filter(r => !r.isGood && r.rYTD > 0);
+  const _scostGoodSum = _scostGood.reduce((s,r) => s + Math.abs(r.diff), 0);
+  const _scostBadSum  = _scostBad.reduce((s,r) => s + Math.abs(r.diff), 0);
+  const _scostGoodLabel = _budgetScostTab === 'uscite' ? 'Risparmiato' : 'Sopra target';
+  const _scostBadLabel  = _budgetScostTab === 'uscite' ? 'Sforato'     : 'Sotto target';
+
   const thS = 'padding:7px 10px;border-bottom:2px solid var(--border);color:var(--txt2);font-weight:600;white-space:nowrap';
   const tdS = 'padding:5px 10px;border-bottom:1px solid var(--border);white-space:nowrap';
 
@@ -676,6 +686,10 @@ function renderBudgetScostamenti() {
         <div style="font-size:13px;color:var(--txt2)">
           Budget YTD <b>${fmt.currency(totB)}</b> &nbsp;|&nbsp; Reale YTD <b>${fmt.currency(totR)}</b> &nbsp;|&nbsp;
           <span style="color:${totCol}"><b>Diff ${totD>=0?'+':''}${fmt.currency(totD)}</b></span>
+        </div>
+        <div style="display:flex;gap:16px;margin-top:5px;font-size:12px;flex-wrap:wrap">
+          <span style="color:var(--income)">▲ ${_scostGoodLabel} <b>${fmt.currency(_scostGoodSum)}</b> <span style="color:var(--txt3)">· ${_scostGood.length} cat.</span></span>
+          <span style="color:var(--expense)">▼ ${_scostBadLabel} <b>${fmt.currency(_scostBadSum)}</b> <span style="color:var(--txt3)">· ${_scostBad.length} cat.</span></span>
         </div>
       </div>
       <div style="display:flex;align-items:center;gap:10px">
@@ -1011,6 +1025,45 @@ function renderBudgetMese() {
       </select>
     </div>`;
 
+  // ── Pacing del mese corrente: % mese trascorso vs % budget uscite usato ──
+  // Mostrato solo se stiamo guardando il mese in corso (per i mesi chiusi non ha senso).
+  const isCurrentMonth = budgetYear === curYear && viewMonth === curMonth;
+  let pacingBanner = '';
+  if (isCurrentMonth && expBudget > 0) {
+    const dayOfMonth  = now.getDate();
+    const daysInMonth = new Date(curYear, viewMonth, 0).getDate();
+    const monthPct    = dayOfMonth / daysInMonth * 100;        // % di mese trascorso
+    const budgetPct   = expSpent / expBudget * 100;            // % di budget uscite usato
+    const projected   = expSpent / (dayOfMonth / daysInMonth); // proiezione lineare a fine mese
+    const projColor   = projected > expBudget ? 'var(--expense)' : 'var(--income)';
+    // Se la spesa corre più veloce del tempo (budget% > mese%) → barra rossa
+    const fillColor   = budgetPct > monthPct ? 'var(--expense)' : 'var(--income)';
+    const fillW       = Math.min(100, budgetPct).toFixed(1);
+    const markerLeft  = Math.min(100, monthPct).toFixed(1);
+    pacingBanner = `
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:10px 16px;margin-bottom:14px;display:flex;align-items:center;gap:20px;flex-wrap:wrap">
+        <div style="white-space:nowrap">
+          <div style="font-size:11px;color:var(--txt3);text-transform:uppercase;letter-spacing:.5px">Andamento mese</div>
+          <div style="font-size:13px;font-weight:600">Giorno ${dayOfMonth} di ${daysInMonth}</div>
+        </div>
+        <div style="flex:1;min-width:180px">
+          <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--txt2);margin-bottom:3px">
+            <span>Speso <b style="color:${fillColor}">${budgetPct.toFixed(0)}%</b> del budget</span>
+            <span>Mese trascorso <b>${monthPct.toFixed(0)}%</b></span>
+          </div>
+          <div style="position:relative;height:10px;background:var(--bg3);border-radius:4px;overflow:hidden" title="Riempimento = budget speso · marker = tempo trascorso">
+            <div style="position:absolute;left:0;top:0;height:100%;width:${fillW}%;background:${fillColor};border-radius:4px"></div>
+            <div style="position:absolute;left:${markerLeft}%;top:-2px;bottom:-2px;width:2px;background:var(--txt)"></div>
+          </div>
+        </div>
+        <div style="white-space:nowrap;text-align:right">
+          <div style="font-size:11px;color:var(--txt3);text-transform:uppercase;letter-spacing:.5px">Proiezione fine mese</div>
+          <div style="font-size:14px;font-weight:700;color:${projColor}">${fmt.currency(projected)}</div>
+          <div style="font-size:11px;color:var(--txt3)">budget ${fmt.currency(expBudget)}</div>
+        </div>
+      </div>`;
+  }
+
   el.innerHTML = `
     <div style="padding:14px 0 10px;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
       <div style="display:flex;align-items:center;gap:8px">
@@ -1024,6 +1077,8 @@ function renderBudgetMese() {
       </div>
       ${sortSelect}
     </div>
+
+    ${pacingBanner}
 
     <div class="budget-mese-cols">
 

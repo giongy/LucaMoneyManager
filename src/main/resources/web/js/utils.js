@@ -418,6 +418,20 @@ const EMOJI_LIST = [
   {e:'🕹️',k:'gaming videogiochi hobby'},{e:'🧩',k:'hobby passatempo'},
   {e:'🌐',k:'internet web abbonamento'},{e:'☁️',k:'cloud storage servizi'},
   {e:'🔐',k:'sicurezza assicurazione'},
+  // ── Persone (per categorie intestate a familiari: figli, coppia, ecc.) ──
+  {e:'🧑',k:'persona adulto generico'},{e:'👨',k:'uomo padre papa persona'},
+  {e:'👩',k:'donna madre mamma persona'},{e:'👦',k:'figlio bambino ragazzo persona'},
+  {e:'👧',k:'figlia bambina ragazza persona'},{e:'🧔',k:'uomo barba persona'},
+  {e:'👴',k:'nonno anziano persona'},{e:'👵',k:'nonna anziana persona'},
+  {e:'🧑‍🤝‍🧑',k:'coppia insieme persone'},
+  // ── Voci aggiuntive basate sulle categorie ──
+  {e:'🤝',k:'prestito anticipo accordo finanziamento'},{e:'📃',k:'contratto documento prestito'},
+  {e:'💶',k:'euro soldi denaro stipendio'},{e:'🛡️',k:'assicurazione polizza protezione bollo'},
+  {e:'🎟️',k:'buono pasto ticket voucher'},{e:'🗑️',k:'rifiuti spazzatura tari immondizia'},
+  {e:'🏘️',k:'condominio palazzo quartiere case spese condominiali'},{e:'🛣️',k:'autostrada pedaggio telepass strada'},
+  {e:'💇',k:'parrucchiere capelli taglio'},{e:'💈',k:'barbiere capelli'},
+  {e:'💉',k:'vaccino iniezione siringa salute'},{e:'🩹',k:'cerotto medicazione cura salute'},
+  {e:'🪁',k:'centro estivo attivita bambini gioco'},{e:'🤸',k:'ginnastica attivita extrascolastica sport bambini'},
 ];
 
 // ── Icon picker: costruisce l'anteprima + pannello, gestisce apertura, ricerca e selezione ──

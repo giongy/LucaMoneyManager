@@ -43,7 +43,7 @@ SQLite
 
 ---
 
-## Schema DB (v17, 22 tabelle)
+## Schema DB (v18, 22 tabelle)
 
 - **Core:** `accounts`, `categories` (gerarchiche, `expense_nature`), `transactions` (`reconciled`, `attachment_path`, `color`), `transaction_splits`, `transaction_tags`, `tags` (`is_system`, `system_key`)
 - **Budget:** `budgets`, `budget_config` (master_amount mensile/annuale)

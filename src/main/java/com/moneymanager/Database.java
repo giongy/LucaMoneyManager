@@ -525,7 +525,7 @@ public class Database {
         """);
     }
 
-    private static final int SCHEMA_VERSION = 17;
+    private static final int SCHEMA_VERSION = 18;
 
     /**
      * Migrazioni incrementali dello schema. Confronta la versione salvata in
@@ -872,6 +872,11 @@ public class Database {
             executePlain("PRAGMA optimize");
         }
 
+        // ── v18: tag di sistema RAGGRUPPATE (svecchiamento) ─────────────────────
+        if (currentVersion < 18) {
+            ensureSystemTags();
+        }
+
         // Segna il DB come aggiornato all'ultima versione
         executePlain("DELETE FROM schema_version");
         executePlain("INSERT INTO schema_version(version) VALUES(" + SCHEMA_VERSION + ")");
@@ -912,7 +917,8 @@ public class Database {
         String[][] sys = {
             {"phone",      "Da Telefono", "#58a6ff"},
             {"budget",     "Da Budget",   "#d29922"},
-            {"investment", "Investimenti","#3fb950"}
+            {"investment", "Investimenti","#3fb950"},
+            {"archived",   "RAGGRUPPATE", "#8b949e"}
         };
         for (String[] t : sys) {
             // Crea se non esiste ancora un tag con questa system_key
@@ -2309,6 +2315,179 @@ public class Database {
             WHERE tg.system_key = ?
             ORDER BY t.date DESC
         """, systemKey);
+    }
+
+    // ─── Svecchiamento (raggruppamento transazioni vecchie) ────────────────────
+
+    /**
+     * Anteprima dello svecchiamento: ritorna la lista piatta delle transazioni
+     * "semplici" candidate al raggruppamento nel range [from,to] per le categorie date.
+     * Sono escluse (e quindi NON ritornate): trasferimenti (to_account_id non nullo),
+     * transazioni con split, con allegato, legate al portfolio, e quelle già RAGGRUPPATE.
+     * Ogni riga include id, data, categoria, conto, tipo, importo, descrizione, tag (CSV)
+     * e una chiave di gruppo (mese|categoria|conto|tipo) per stimare le aggregate risultanti.
+     * Ritorna anche il conteggio delle transazioni escluse, per trasparenza in UI.
+     */
+    public Map<String, Object> archivePreview(String from, String to, List<Integer> categoryIds) throws SQLException {
+        if (categoryIds == null || categoryIds.isEmpty())
+            return Map.of("rows", List.of(), "excluded", 0);
+
+        String inClause = categoryIds.stream().map(String::valueOf)
+                .collect(java.util.stream.Collectors.joining(","));
+        Integer archivedTagId = getSystemTagIdByKey("archived");
+        int archId = archivedTagId != null ? archivedTagId : -1;
+
+        // Predicato "transazione semplice e non già raggruppata": riusato sia per le candidate
+        // sia (negato) per contare quelle escluse. Concatenazione esplicita con spazi (i text block
+        // strippano lo spazio finale prima di """, rompendo l'SQL).
+        String simple =
+            "t.to_account_id IS NULL "
+            + "AND (t.attachment_path IS NULL OR t.attachment_path = '') "
+            + "AND NOT EXISTS (SELECT 1 FROM transaction_splits s WHERE s.transaction_id = t.id) "
+            + "AND NOT EXISTS (SELECT 1 FROM portfolio_transactions pt WHERE pt.transaction_id = t.id) "
+            + "AND NOT EXISTS (SELECT 1 FROM transaction_tags ta WHERE ta.transaction_id = t.id AND ta.tag_id = " + archId + ") ";
+
+        List<Map<String, Object>> rows = queryList(
+            "SELECT t.id, t.date, t.amount, t.type, t.category_id, "
+            + "c.name AS category_name, t.account_id, a.name AS account_name, t.description, "
+            + "(SELECT GROUP_CONCAT(tg.name, ', ') FROM transaction_tags tt JOIN tags tg ON tg.id = tt.tag_id "
+            + " WHERE tt.transaction_id = t.id AND tg.is_system = 0) AS tags, "
+            + "substr(t.date,1,7) AS month "
+            + "FROM transactions t "
+            + "LEFT JOIN categories c ON c.id = t.category_id "
+            + "LEFT JOIN accounts a ON a.id = t.account_id "
+            + "WHERE t.date >= ? AND t.date <= ? "
+            + "AND t.category_id IN (" + inClause + ") "
+            + "AND " + simple
+            + "ORDER BY substr(t.date,1,7), c.name, a.name, t.type, t.date",
+            from, to);
+
+        // Chiave di gruppo per stimare quante transazioni aggregate verranno create
+        for (Map<String, Object> r : rows) {
+            r.put("group", r.get("month") + "|" + r.get("category_id") + "|" + r.get("account_id") + "|" + r.get("type"));
+        }
+
+        // Conteggio escluse: transazioni nel range/categorie che NON sono semplici o già raggruppate
+        Map<String, Object> exc = queryOne(
+            "SELECT COUNT(*) AS c FROM transactions t "
+            + "WHERE t.date >= ? AND t.date <= ? "
+            + "AND t.category_id IN (" + inClause + ") "
+            + "AND NOT (" + simple + ")",
+            from, to);
+        int excluded = exc != null ? ((Number) exc.get("c")).intValue() : 0;
+
+        return Map.of("rows", rows, "excluded", excluded);
+    }
+
+    /** Formatta un importo in stile italiano (1.234,50) per i commenti aggregati. */
+    private static String fmtEur(double v) {
+        return String.format(java.util.Locale.ITALY, "%,.2f", v);
+    }
+
+    /**
+     * Esegue il raggruppamento sugli ID transazione passati (quelli confermati in anteprima).
+     * Raggruppa per mese + categoria + conto + tipo: per ogni gruppo crea UNA transazione-somma
+     * con un commento strutturato che preserva descrizione, importo e tag di ogni voce originale,
+     * applica il tag di sistema RAGGRUPPATE alla nuova transazione ed elimina le originali.
+     * Tutto in un'unica transazione SQLite. Ritorna n° aggregate create e n° originali eliminate.
+     */
+    public Map<String, Object> archiveTransactions(List<Integer> ids) throws SQLException {
+        if (ids == null || ids.isEmpty())
+            return Map.of("created", 0, "deleted", 0);
+
+        String inClause = ids.stream().map(String::valueOf)
+                .collect(java.util.stream.Collectors.joining(","));
+
+        // Rilegge gli ID dal DB (non ci si fida dei valori passati dal client) applicando
+        // di nuovo il filtro "semplice": difende da split/allegati/portfolio/già-raggruppate
+        // eventualmente cambiate tra anteprima ed esecuzione.
+        Integer archivedTagId = getSystemTagIdByKey("archived");
+        if (archivedTagId == null) { ensureSystemTags(); archivedTagId = getSystemTagIdByKey("archived"); }
+        final int tagId = archivedTagId;
+
+        List<Map<String, Object>> rows = queryList(
+            "SELECT t.id, t.date, t.amount, t.type, t.category_id, t.account_id, t.description, "
+            + "substr(t.date,1,7) AS month, "
+            + "(SELECT GROUP_CONCAT(tg.name, ', ') FROM transaction_tags tt JOIN tags tg ON tg.id = tt.tag_id "
+            + " WHERE tt.transaction_id = t.id AND tg.is_system = 0) AS tags "
+            + "FROM transactions t "
+            + "WHERE t.id IN (" + inClause + ") "
+            + "AND t.to_account_id IS NULL "
+            + "AND (t.attachment_path IS NULL OR t.attachment_path = '') "
+            + "AND NOT EXISTS (SELECT 1 FROM transaction_splits s WHERE s.transaction_id = t.id) "
+            + "AND NOT EXISTS (SELECT 1 FROM portfolio_transactions pt WHERE pt.transaction_id = t.id) "
+            + "AND NOT EXISTS (SELECT 1 FROM transaction_tags ta WHERE ta.transaction_id = t.id AND ta.tag_id = ?) "
+            + "ORDER BY substr(t.date,1,7), t.category_id, t.account_id, t.type, t.date",
+            tagId);
+
+        if (rows.isEmpty()) return Map.of("created", 0, "deleted", 0);
+
+        // Raggruppa per mese|categoria|conto|tipo mantenendo l'ordine di inserimento
+        Map<String, List<Map<String, Object>>> groups = new LinkedHashMap<>();
+        for (Map<String, Object> r : rows) {
+            String key = r.get("month") + "|" + r.get("category_id") + "|" + r.get("account_id") + "|" + r.get("type");
+            groups.computeIfAbsent(key, k -> new ArrayList<>()).add(r);
+        }
+
+        return inTx(() -> {
+            int created = 0, deleted = 0;
+            for (var entry : groups.entrySet()) {
+                List<Map<String, Object>> g = entry.getValue();
+                if (g.size() < 2) continue; // un solo elemento: nessun vantaggio a raggruppare, lo lascio intatto
+
+                Map<String, Object> first = g.get(0);
+                String month       = (String) first.get("month");        // "yyyy-MM"
+                String newDate      = month + "-01";                      // primo giorno del mese
+                String type        = (String) first.get("type");
+                Object categoryId  = first.get("category_id");
+                Object accountId   = first.get("account_id");
+
+                // Le voci con descrizione vengono elencate singolarmente (per non perdere
+                // l'informazione); quelle senza commento sono accorpate in un'unica riga
+                // riassuntiva con conteggio e somma, per non gonfiare il commento.
+                double sum = 0;
+                int blankCount = 0;
+                double blankSum = 0;
+                StringBuilder sb = new StringBuilder();
+                for (Map<String, Object> r : g) {
+                    double amt = ((Number) r.get("amount")).doubleValue();
+                    sum += amt;
+                    String desc = (String) r.get("description");
+                    String tags = (String) r.get("tags");
+                    if (desc == null || desc.isBlank()) {
+                        blankCount++;
+                        blankSum += amt;
+                        continue;
+                    }
+                    sb.append("\n• ").append(desc.strip());
+                    if (tags != null && !tags.isBlank()) sb.append(" [").append(tags).append("]");
+                    sb.append(" — ").append(fmtEur(amt));
+                }
+                if (blankCount > 0) {
+                    sb.append("\n• ").append(blankCount)
+                      .append(blankCount == 1 ? " voce senza commento — " : " voci senza commento — ")
+                      .append(fmtEur(r2(blankSum)));
+                }
+                sum = r2(sum);
+                String header = "[RAGGRUPPATE " + g.size() + " voci · " + month + "]";
+                String description = header + sb;
+
+                long newId = execute(
+                    "INSERT INTO transactions(date, amount, type, category_id, account_id, to_account_id, description, reconciled) "
+                    + "VALUES(?,?,?,?,?,NULL,?,1)",
+                    newDate, sum, type, categoryId, accountId, description);
+                execute("INSERT OR IGNORE INTO transaction_tags(transaction_id, tag_id) VALUES(?,?)", newId, tagId);
+                created++;
+
+                for (Map<String, Object> r : g) {
+                    execute("DELETE FROM transactions WHERE id = ?", r.get("id"));
+                    deleted++;
+                }
+            }
+            touchSyncMeta();
+            logger.log("SVECCHIAMENTO", "aggregate:" + created + " eliminate:" + deleted);
+            return Map.of("created", created, "deleted", deleted);
+        });
     }
 
     /**

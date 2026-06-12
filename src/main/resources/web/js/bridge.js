@@ -138,6 +138,10 @@ const api = {
   updateTransactionReconciled: (id, reconciled) => callJava('updateTransactionReconciled', {id, reconciled}),
   getAccountSummary:           account_id => callJava('getAccountSummary',    {account_id}),
 
+  // Svecchiamento (raggruppamento transazioni vecchie)
+  archivePreview:      (from, to, categoryIds) => callJava('archivePreview', {from, to, categoryIds}),
+  archiveTransactions: async ids => { api._invalidateAccounts(); return callJava('archiveTransactions', {ids}); },
+
   // Budget
   getBudgets:  (month,year) => callJava('getBudgets', {month,year}),
   setBudget:   data         => callJava('setBudget',  data),

@@ -660,6 +660,29 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             case "dbReindex"        -> db.dbReindex();
             case "dbAnalyze"        -> db.dbAnalyze();
 
+            // ─── Svecchiamento (raggruppamento transazioni vecchie) ────────────────
+            case "archivePreview" -> {
+                java.util.List<Integer> catIds = new java.util.ArrayList<>();
+                for (var el : p.get("categoryIds").getAsJsonArray()) catIds.add(el.getAsInt());
+                yield db.archivePreview(p.get("from").getAsString(), p.get("to").getAsString(), catIds);
+            }
+            case "archiveTransactions" -> {
+                java.util.List<Integer> ids = new java.util.ArrayList<>();
+                for (var el : p.get("ids").getAsJsonArray()) ids.add(el.getAsInt());
+                // Backup automatico pre-operazione (rispetta cartella/numero max configurati)
+                String bDir = db.getAppSetting("backup.dir", "");
+                String backupPath = null;
+                try {
+                    int bMax = Integer.parseInt(db.getAppSetting("backup.max", "10"));
+                    backupPath = db.backup(bDir, bMax);
+                } catch (Exception backupErr) {
+                    // Se il backup fallisce non procediamo: l'operazione è irreversibile
+                    yield Map.of("error", "Backup pre-operazione fallito: " + backupErr.getMessage());
+                }
+                Map<String, Object> res = db.archiveTransactions(ids);
+                yield Map.of("created", res.get("created"), "deleted", res.get("deleted"), "backup", backupPath);
+            }
+
             // ─── Analytics ─────────────────────────────────────────────────────────
             case "getCategoryMonthTable" -> db.getCategoryMonthTable(
                 p.has("months") ? p.get("months").getAsInt() : 12);

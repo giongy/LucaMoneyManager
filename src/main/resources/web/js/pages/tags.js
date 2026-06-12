@@ -3,32 +3,47 @@
    Pagina Tag (estratta da app.js, stadio 5a del refactor)
 ═══════════════════════════════════════════════════════════════════════════ */
 
-// Disegna la pagina Tag: elenco con colore, lucchetto sui tag di sistema e azioni.
+// Markup di una singola riga tag (anteprima, colore, lucchetto se di sistema, azioni).
+function _tagMgmtRow(t) {
+  return `
+    <div class="tag-mgmt-row">
+      <span class="tag-inline" style="--tc:${t.color};font-size:13px;padding:4px 10px">${t.name}</span>
+      <span class="text-muted" style="font-size:11px;margin-left:8px">${t.color}</span>
+      ${t.is_system ? '<span class="text-muted" style="font-size:11px;margin-left:4px" title="Tag di sistema">🔒</span>' : ''}
+      <div style="margin-left:auto;display:flex;gap:4px">
+        <button class="btn btn-ghost btn-icon" onclick="editTagMgmt(${t.id})">✏️</button>
+        ${t.is_system ? '' : `<button class="btn btn-ghost btn-icon" onclick="deleteTagMgmt(${t.id})">🗑️</button>`}
+      </div>
+    </div>`;
+}
+
+// Disegna la pagina Tag: due tabelle separate (tag utente e tag di sistema),
+// con colore, lucchetto sui tag di sistema e azioni.
 async function renderTags() {
   const pg = document.getElementById('pg-tags');
   const tags = await api.getTags();
+  const userTags   = tags.filter(t => !t.is_system);
+  const systemTags = tags.filter(t => t.is_system);
+
   pg.innerHTML = `
     <div style="max-width:700px">
     <div class="section-header">
       <h2 class="section-title">Tag</h2>
       <button class="btn btn-primary" id="btnAddTag">+ Nuovo tag</button>
     </div>
+
+    <h3 class="section-subtitle">Tag personali</h3>
     <div class="card">
-      ${tags.length ? `
-        <div class="tags-mgmt-list">
-          ${tags.map(t => `
-            <div class="tag-mgmt-row">
-              <span class="tag-inline" style="--tc:${t.color};font-size:13px;padding:4px 10px">${t.name}</span>
-              <span class="text-muted" style="font-size:11px;margin-left:8px">${t.color}</span>
-              ${t.is_system ? '<span class="text-muted" style="font-size:11px;margin-left:4px" title="Tag di sistema">🔒</span>' : ''}
-              <div style="margin-left:auto;display:flex;gap:4px">
-                <button class="btn btn-ghost btn-icon" onclick="editTagMgmt(${t.id})">✏️</button>
-                ${t.is_system ? '' : `<button class="btn btn-ghost btn-icon" onclick="deleteTagMgmt(${t.id})">🗑️</button>`}
-              </div>
-            </div>`).join('')}
-        </div>` :
-        `<p class="text-muted" style="text-align:center;padding:30px">Nessun tag. Creane uno cliccando "+ Nuovo tag".</p>`
-      }
+      ${userTags.length
+        ? `<div class="tags-mgmt-list">${userTags.map(_tagMgmtRow).join('')}</div>`
+        : `<p class="text-muted" style="text-align:center;padding:30px">Nessun tag personale. Creane uno cliccando "+ Nuovo tag".</p>`}
+    </div>
+
+    <h3 class="section-subtitle" style="margin-top:18px">Tag di sistema 🔒</h3>
+    <div class="card">
+      ${systemTags.length
+        ? `<div class="tags-mgmt-list">${systemTags.map(_tagMgmtRow).join('')}</div>`
+        : `<p class="text-muted" style="text-align:center;padding:30px">Nessun tag di sistema.</p>`}
     </div>
     </div>`;
 

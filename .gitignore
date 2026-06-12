@@ -5,6 +5,7 @@ dist/
 
 # Database (dati personali, non in repo)
 *.db
+*.db.bak
 *.db-shm
 *.db-wal
 

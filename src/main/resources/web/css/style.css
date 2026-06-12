@@ -517,6 +517,12 @@ tr:last-child td { border-bottom:none; }
 tr:hover td { background:var(--bg3); }
 tr.tx-colored:hover td { filter:brightness(1.08); }
 .td-main { color:var(--txt); font-weight:500; }
+/* Descrizione transazioni: larghezza massima fissa col testo che va a capo, così i
+   commenti lunghi (es. transazioni RAGGRUPPATE) alzano solo la loro riga senza allargare
+   la colonna né influenzare le altre. break-word spezza anche parole/numeri molto lunghi. */
+#txTable td.td-main .td-main-clip {
+  display:block; max-width:340px; white-space:normal; overflow-wrap:anywhere;
+}
 .form-color-tx {
   width:40px; height:28px; padding:2px; border:1px solid var(--border);
   border-radius:4px; background:var(--bg2); cursor:pointer;
@@ -545,6 +551,11 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 .btn-ghost   { background:var(--bg4); color:var(--txt2); }
 .btn-ghost:hover { background:var(--border); color:var(--txt); }
 .btn-icon    { padding:4px 7px; border-radius:5px; font-size:var(--font-size,13px); }
+
+/* Colonna azioni transazioni: tiene i due pulsanti (modifica/elimina) sulla stessa riga,
+   altrimenti vanno a capo impilandosi e alzano l'altezza di TUTTE le righe. */
+#txTable td.td-actions { white-space:nowrap; }
+#txTable td.td-actions .btn-icon { vertical-align:middle; }
 
 /* ─── Form ───────────────────────────────────────────────────────────────── */
 .form-group { margin-bottom:12px; }
@@ -1055,6 +1066,9 @@ button.te-reset-btn:hover { opacity:1; color:var(--accent); }
   margin-bottom:12px;
 }
 .section-title { font-size:var(--fs-lg,14px); font-weight:700; }
+/* Sottotitolo di sezione (es. divisione tag personali / di sistema) */
+.section-subtitle { font-size:var(--fs-md,12px); font-weight:700; color:var(--txt2);
+  text-transform:uppercase; letter-spacing:.5px; margin:0 0 8px; }
 
 /* ─── Report header ──────────────────────────────────────────────────────── */
 .r-report-name { font-size:var(--fs-lg,13px); font-weight:700; color:var(--txt); }

@@ -466,10 +466,10 @@ function renderTxBodyAndHeaders() {
           ? `<span class="cat-chip" style="opacity:.8;font-size:11px" title="${t.splits_summary||''}">÷ ${t.splits_summary||`${t.split_count} voci`}</span>`
           : `${t.category_icon||''} ${t.parent_category_name ? t.parent_category_name + ' : ' + t.category_name : (t.category_name||'-')}`
       }</td>
-      <td class="td-main">${t.description||''}${isSplitFiltered ? ` <span style="font-size:10px;opacity:.5" title="Totale transazione: ${fmt.currency(t.amount)}">(tot. ${fmt.currency(t.amount)})</span>` : ''}</td>
+      <td class="td-main"><div class="td-main-clip">${t.description||''}${isSplitFiltered ? ` <span style="font-size:10px;opacity:.5" title="Totale transazione: ${fmt.currency(t.amount)}">(tot. ${fmt.currency(t.amount)})</span>` : ''}</div></td>
       <td class="text-right amount-${t.type}">${t.type==='expense'?'-':''}${fmt.currency(displayAmt)}</td>
       ${balCell}
-      <td>
+      <td class="td-actions">
         <button class="btn btn-ghost btn-icon" onclick="editTx(${t.id})">✏️</button>
         <button class="btn btn-ghost btn-icon" onclick="deleteTx(${t.id})">🗑️</button>
       </td>

@@ -27,6 +27,7 @@ async function renderSettings() {
     { id: 'data',        label: '🗄️ Dati'         },
     { id: 'prefs',       label: '🎨 Preferenze'    },
     { id: 'maintenance', label: '🔧 Manutenzione'  },
+    { id: 'archive',     label: '🗂️ Svecchiamento' },
     { id: 'info',        label: 'ℹ️ Informazioni'  },
     { id: 'perf',        label: '⏱️ Prestazioni'   },
   ];
@@ -368,6 +369,53 @@ async function renderSettings() {
         </div>
       </div>`,
 
+    archive: `
+      <div class="settings-section">
+        <div class="settings-section-title">🗂️ Svecchiamento transazioni</div>
+        <p class="settings-hint" style="margin:0 0 12px">
+          Raggruppa le vecchie transazioni di una stessa categoria/conto/mese in un'unica voce
+          riassuntiva, riducendo il numero di record e la dimensione del database.
+          Le descrizioni, gli importi e i tag delle voci originali vengono conservati nel commento
+          della transazione aggregata. <strong>Trasferimenti, transazioni con split, allegati o
+          legate al portafoglio vengono sempre escluse.</strong> Prima dell'operazione viene creato
+          un backup automatico del database.
+        </p>
+
+        <div class="settings-row">
+          <div class="settings-label">
+            <strong>Intervallo date</strong>
+            <span class="settings-hint">Solo le transazioni in questo intervallo verranno considerate</span>
+          </div>
+          <div class="settings-control" style="gap:8px">
+            <input type="date" class="form-control" id="archiveFrom">
+            <span class="settings-hint">→</span>
+            <input type="date" class="form-control" id="archiveTo">
+          </div>
+        </div>
+
+        <div class="settings-row" style="align-items:flex-start">
+          <div class="settings-label">
+            <strong>Categorie</strong>
+            <span class="settings-hint">Seleziona le categorie da raggruppare (nessuna preselezionata)</span>
+          </div>
+          <div class="settings-control" style="flex-direction:column;align-items:stretch;gap:6px">
+            <div id="archiveCatList" style="display:flex;flex-direction:column;gap:2px;max-height:240px;overflow:auto;border:1px solid var(--border);border-radius:var(--radius,8px);padding:8px">
+              <span class="settings-hint">Caricamento categorie...</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-row">
+          <div class="settings-label"></div>
+          <div class="settings-control maint-op-control">
+            <button class="btn btn-secondary" id="btnArchivePreview" onclick="archiveDoPreview()">🔍 Anteprima transazioni</button>
+            <span class="settings-hint maint-result" id="archivePreviewResult"></span>
+          </div>
+        </div>
+
+        <div id="archivePreviewWrap" style="margin-top:8px"></div>
+      </div>`,
+
     info: `
       <div class="settings-section">
         <div class="settings-section-title">ℹ️ Informazioni</div>
@@ -480,6 +528,7 @@ async function renderSettings() {
       ${tabContent[_settingsTab] || ''}
     </div>`;
   if (_settingsTab === 'maintenance') setTimeout(() => { maintLoadInfo(); maintLoadLogInfo(); }, 50);
+  if (_settingsTab === 'archive')     setTimeout(() => { archiveLoadCategories(); }, 50);
 }
 
 // Cambia la tab attiva delle Impostazioni e carica i dati lazy della tab (manutenzione/perf).
@@ -700,6 +749,164 @@ async function maintReindex() {
   }
   btn.disabled = false; btn.textContent = '⚡ Ricostruisci';
 }
+
+
+// ─── Svecchiamento (raggruppamento transazioni vecchie) ───────────────────────
+
+// Importi candidati all'anteprima, memorizzati tra preview ed esecuzione.
+let _archiveRows = [];
+
+// Carica le categorie nella lista a checkbox (raggruppate per parent, nessuna preselezionata).
+async function archiveLoadCategories() {
+  const box = document.getElementById('archiveCatList');
+  if (!box) return;
+  try {
+    const cats = await api.getCategories();
+    if (!cats.length) { box.innerHTML = '<span class="settings-hint">Nessuna categoria</span>'; return; }
+    // Etichetta gerarchica: "Parent:Figlia" se ha un parent
+    box.innerHTML = cats.map(c => {
+      const label = c.parent_name ? `${c.parent_name}:${c.name}` : c.name;
+      const color = c.color || c.parent_color || 'var(--txt3)';
+      return `<label style="display:flex;align-items:center;gap:8px;padding:3px 4px;cursor:pointer;font-size:var(--fs-md,12px)">
+        <input type="checkbox" class="archive-cat-cb" value="${c.id}">
+        <span style="width:10px;height:10px;border-radius:3px;background:${color};flex:none"></span>
+        <span style="color:var(--txt)">${label}</span>
+        <span class="settings-hint" style="margin-left:auto">${c.usage_count||0} tr.</span>
+      </label>`;
+    }).join('');
+  } catch(e) {
+    box.innerHTML = `<span class="settings-hint" style="color:var(--expense)">Errore: ${e}</span>`;
+  }
+}
+
+// Esegue l'anteprima: chiede al backend le transazioni candidate e mostra la lista
+// dettagliata con checkbox per riga (categoria, importo, descrizione, tag).
+window.archiveDoPreview = async () => {
+  const from = document.getElementById('archiveFrom').value;
+  const to   = document.getElementById('archiveTo').value;
+  const res  = document.getElementById('archivePreviewResult');
+  const wrap = document.getElementById('archivePreviewWrap');
+  const catIds = [...document.querySelectorAll('.archive-cat-cb:checked')].map(cb => Number(cb.value));
+
+  res.style.color = '';
+  if (!from || !to) { res.style.color = 'var(--expense)'; res.textContent = 'Seleziona l\'intervallo date'; return; }
+  if (from > to)    { res.style.color = 'var(--expense)'; res.textContent = 'La data iniziale è successiva a quella finale'; return; }
+  if (!catIds.length) { res.style.color = 'var(--expense)'; res.textContent = 'Seleziona almeno una categoria'; return; }
+
+  const btn = document.getElementById('btnArchivePreview');
+  btn.disabled = true; btn.textContent = '⏳ Caricamento...';
+  wrap.innerHTML = '';
+  try {
+    const r = await api.archivePreview(from, to, catIds);
+    _archiveRows = r.rows || [];
+    if (!_archiveRows.length) {
+      res.textContent = '';
+      wrap.innerHTML = `<span class="settings-hint" style="display:block;padding:6px 0">Nessuna transazione raggruppabile nell'intervallo scelto.${
+        r.excluded ? ` (${r.excluded} escluse perché split/trasferimenti/allegati/portafoglio o già raggruppate)` : ''}</span>`;
+      return;
+    }
+    res.style.color = 'var(--income)';
+    res.textContent = `${_archiveRows.length} transazioni candidate` + (r.excluded ? ` · ${r.excluded} escluse` : '');
+    wrap.innerHTML = archiveRenderList(_archiveRows);
+    archiveUpdateSummary();
+  } catch(e) {
+    res.style.color = 'var(--expense)';
+    res.textContent = 'Errore: ' + e;
+  }
+  btn.disabled = false; btn.textContent = '🔍 Anteprima transazioni';
+};
+
+// Costruisce la tabella dell'anteprima: una riga per transazione, checkbox spuntata di default.
+function archiveRenderList(rows) {
+  // Numero di gruppi distinti (mese|categoria|conto|tipo) → quante aggregate verranno create
+  const fmt = v => Number(v).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const body = rows.map(r => `
+    <tr style="border-bottom:1px solid var(--border-color)">
+      <td style="padding:4px 8px"><input type="checkbox" class="archive-row-cb" data-id="${r.id}" data-group="${r.group}" checked onchange="archiveUpdateSummary()"></td>
+      <td style="padding:4px 8px;white-space:nowrap;color:var(--txt2)">${r.date}</td>
+      <td style="padding:4px 8px;white-space:nowrap">${r.category_name||'—'}</td>
+      <td style="padding:4px 8px;text-align:right;white-space:nowrap;color:${r.type==='income'?'var(--income)':'var(--expense)'}">${fmt(r.amount)}</td>
+      <td style="padding:4px 8px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(r.description||'').replace(/"/g,'&quot;')}">${r.description||'<span style="color:var(--txt3)">(senza commento)</span>'}</td>
+      <td style="padding:4px 8px;color:var(--txt2);white-space:nowrap">${r.tags||''}</td>
+    </tr>`).join('');
+  return `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap">
+      <button class="btn btn-ghost" style="padding:2px 10px;font-size:11px" onclick="archiveToggleAll(true)">Seleziona tutte</button>
+      <button class="btn btn-ghost" style="padding:2px 10px;font-size:11px" onclick="archiveToggleAll(false)">Deseleziona tutte</button>
+      <span class="settings-hint" id="archiveSummary" style="margin-left:auto"></span>
+    </div>
+    <div style="overflow-x:auto;max-height:420px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius,8px)">
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead>
+          <tr style="border-bottom:1px solid var(--border-color);position:sticky;top:0;background:var(--bg2)">
+            <th style="padding:5px 8px"></th>
+            <th style="text-align:left;padding:5px 8px;color:var(--txt2);font-weight:500">Data</th>
+            <th style="text-align:left;padding:5px 8px;color:var(--txt2);font-weight:500">Categoria</th>
+            <th style="text-align:right;padding:5px 8px;color:var(--txt2);font-weight:500">Importo</th>
+            <th style="text-align:left;padding:5px 8px;color:var(--txt2);font-weight:500">Descrizione</th>
+            <th style="text-align:left;padding:5px 8px;color:var(--txt2);font-weight:500">Tag</th>
+          </tr>
+        </thead>
+        <tbody>${body}</tbody>
+      </table>
+    </div>
+    <div class="maint-op-control" style="margin-top:10px">
+      <button class="btn btn-danger" id="btnArchiveRun" onclick="archiveRun()">🗂️ Raggruppa le selezionate</button>
+      <span class="settings-hint maint-result" id="archiveRunResult"></span>
+    </div>`;
+}
+
+// Spunta/deseleziona tutte le righe dell'anteprima.
+window.archiveToggleAll = (on) => {
+  document.querySelectorAll('.archive-row-cb').forEach(cb => cb.checked = on);
+  archiveUpdateSummary();
+};
+
+// Aggiorna il riepilogo "N transazioni → M aggregate" in base alle righe spuntate.
+window.archiveUpdateSummary = () => {
+  const checked = [...document.querySelectorAll('.archive-row-cb:checked')];
+  const groups = new Set(checked.map(cb => cb.dataset.group));
+  // Gruppi con una sola transazione selezionata non vengono aggregati (resterebbero invariati)
+  const groupCounts = {};
+  checked.forEach(cb => { groupCounts[cb.dataset.group] = (groupCounts[cb.dataset.group]||0) + 1; });
+  const aggregable = Object.entries(groupCounts).filter(([,n]) => n >= 2);
+  const aggTx = aggregable.reduce((s,[,n]) => s+n, 0);
+  const el = document.getElementById('archiveSummary');
+  if (el) el.textContent = `${checked.length} selezionate · verranno create ${aggregable.length} voci aggregate da ${aggTx} transazioni` +
+    (checked.length - aggTx > 0 ? ` (${checked.length - aggTx} singole non raggruppabili, restano invariate)` : '');
+};
+
+// Esegue il raggruppamento sulle righe spuntate, previa conferma. Backup automatico lato Java.
+window.archiveRun = async () => {
+  const ids = [...document.querySelectorAll('.archive-row-cb:checked')].map(cb => Number(cb.dataset.id));
+  const result = document.getElementById('archiveRunResult');
+  if (!ids.length) { result.style.color = 'var(--expense)'; result.textContent = 'Nessuna transazione selezionata'; return; }
+
+  const ok = await confirm('Raggruppa transazioni',
+    `Stai per raggruppare ${ids.length} transazioni in voci riassuntive ed eliminare gli originali.\n\n` +
+    `Verrà creato automaticamente un backup del database prima di procedere. L'operazione non è annullabile dall'app (solo ripristinando il backup).\n\nProcedere?`);
+  if (!ok) return;
+
+  const btn = document.getElementById('btnArchiveRun');
+  btn.disabled = true; btn.textContent = '⏳ In corso...';
+  result.textContent = '';
+  try {
+    const r = await api.archiveTransactions(ids);
+    if (r.error) {
+      result.style.color = 'var(--expense)';
+      result.textContent = 'Errore: ' + r.error;
+    } else {
+      result.style.color = 'var(--income)';
+      result.textContent = `✓ Create ${r.created} voci aggregate, eliminate ${r.deleted} transazioni`;
+      // Ricarica l'anteprima per riflettere lo stato aggiornato del DB
+      setTimeout(() => archiveDoPreview(), 600);
+    }
+  } catch(e) {
+    result.style.color = 'var(--expense)';
+    result.textContent = 'Errore: ' + e;
+  }
+  btn.disabled = false; btn.textContent = '🗂️ Raggruppa le selezionate';
+};
 
 
 // ─── Manutenzione log ────────────────────────────────────────────────────────

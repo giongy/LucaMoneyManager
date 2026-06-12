@@ -1165,14 +1165,22 @@ tr.tx-selected td { background:rgba(88,166,255,.07); }
 .pill-nature.active { background:var(--nc,var(--accent))22; color:var(--nc,var(--accent)); border-color:var(--nc,var(--accent)); font-weight:600; }
 
 /* ─── Impostazioni ───────────────────────────────────────────────────────── */
-.settings-tabs { display:flex; gap:0; margin-bottom:20px; border-bottom:1px solid var(--border); }
+.settings-tabs { display:flex; gap:4px; margin-bottom:20px; }
 .settings-tab {
-  padding:8px 18px; border:none; border-radius:0; cursor:pointer;
-  font-size:var(--font-size,13px); font-weight:400; background:transparent; color:var(--txt2);
-  border-bottom:2px solid transparent; margin-bottom:-1px; transition:color .15s,border-color .15s;
+  position:relative; padding:7px 14px 9px; border:none; border-radius:8px; cursor:pointer;
+  font-size:var(--font-size,13px); font-weight:500; background:transparent; color:var(--txt2);
+  white-space:nowrap; transition:color .18s;
 }
-.settings-tab:hover { color:var(--txt1); background:none; }
-.settings-tab-active { color:var(--accent); border-bottom-color:var(--accent); font-weight:600; }
+.settings-tab:hover:not(.settings-tab-active) { color:var(--txt); }
+.settings-tab::after {
+  content:""; position:absolute; left:50%; bottom:2px; height:3px; width:0;
+  background:var(--accent); border-radius:3px;
+  transform:translateX(-50%);
+  transition:width .22s cubic-bezier(.4,0,.2,1);
+}
+.settings-tab:hover:not(.settings-tab-active)::after { width:30%; background:var(--txt3); }
+.settings-tab-active { color:var(--accent); font-weight:600; }
+.settings-tab-active::after { width:60%; }
 .settings-wrap { display:flex; flex-direction:column; gap:16px; max-width:760px; }
 .settings-section { background:var(--card); border:1px solid var(--border); border-radius:10px; overflow:hidden; }
 .settings-section-title { padding:10px 16px; font-size:var(--fs-sm,11px); font-weight:700;
@@ -1306,18 +1314,31 @@ tr.tx-selected td { background:rgba(88,166,255,.07); }
 .ctx-separator { height:1px; background:var(--border); margin:3px 0; }
 
 /* ─── Transazioni Pianificate ────────────────────────────────────────────── */
+/* ─── Tab (underline pill animata) ───────────────────────────────────────────
+   Barra di navigazione riusata in tutta l'app (Budget, Pianificate, Analytics,
+   Impostazioni, Portfolio). Tab a testo libero, senza contenitore: l'attiva ha
+   sotto una barretta corta e arrotondata in accent che si espande con una
+   transizione (effetto pill che cresce). Leggera e ariosa. */
 .scheduled-tabs {
-  display:flex; align-items:center; gap:0; margin-bottom:16px;
-  border-bottom:1px solid var(--border);
+  display:flex; align-items:center; gap:4px; margin-bottom:16px;
 }
 .sched-tab {
-  padding:8px 18px; border:none; border-radius:0; font-size:var(--font-size,13px);
-  font-weight:400; cursor:pointer; color:var(--txt2); background:transparent;
-  border-bottom:2px solid transparent; margin-bottom:-1px;
-  transition:color .15s, border-color .15s;
+  position:relative; padding:7px 14px 9px; border:none; border-radius:8px;
+  font-size:var(--font-size,13px); font-weight:500; cursor:pointer;
+  color:var(--txt2); background:transparent; white-space:nowrap;
+  transition:color .18s;
 }
-.sched-tab:hover { color:var(--txt1); }
-.sched-tab.active { color:var(--accent); border-bottom-color:var(--accent); font-weight:600; }
+.sched-tab:hover:not(.active) { color:var(--txt); }
+/* Barretta animata: parte da 0 di larghezza e si espande quando la tab è attiva */
+.sched-tab::after {
+  content:""; position:absolute; left:50%; bottom:2px; height:3px; width:0;
+  background:var(--accent); border-radius:3px;
+  transform:translateX(-50%);
+  transition:width .22s cubic-bezier(.4,0,.2,1);
+}
+.sched-tab:hover:not(.active)::after { width:30%; background:var(--txt3); }
+.sched-tab.active { color:var(--accent); font-weight:600; }
+.sched-tab.active::after { width:60%; }
 
 .sched-freq-badge {
   display:inline-flex; align-items:center;

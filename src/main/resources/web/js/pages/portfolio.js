@@ -119,19 +119,12 @@ async function renderPortfolio() {
   const totalReturnPct   = totalMaxInvested > 0 ? (totalReturnAll / totalMaxInvested) * 100 : 0;
 
   pg.innerHTML = `
-    <div style="display:flex;align-items:center;gap:0;border-bottom:1px solid var(--border);margin-bottom:16px">
-      <button class="btn" onclick="_setPortfolioTab('portfolio')"
-        style="border-radius:0;border:none;border-bottom:2px solid ${_portfolioTab==='portfolio'?'var(--accent)':'transparent'};
-               color:${_portfolioTab==='portfolio'?'var(--accent)':'var(--txt2)'};font-weight:${_portfolioTab==='portfolio'?'600':'400'};
-               padding:8px 18px;background:none">📋 Portafoglio</button>
-      <button class="btn" onclick="_setPortfolioTab('analisi')"
-        style="border-radius:0;border:none;border-bottom:2px solid ${_portfolioTab==='analisi'?'var(--accent)':'transparent'};
-               color:${_portfolioTab==='analisi'?'var(--accent)':'var(--txt2)'};font-weight:${_portfolioTab==='analisi'?'600':'400'};
-               padding:8px 18px;background:none">📊 Analisi</button>
-      <button class="btn" onclick="_setPortfolioTab('storico')"
-        style="border-radius:0;border:none;border-bottom:2px solid ${_portfolioTab==='storico'?'var(--accent)':'transparent'};
-               color:${_portfolioTab==='storico'?'var(--accent)':'var(--txt2)'};font-weight:${_portfolioTab==='storico'?'600':'400'};
-               padding:8px 18px;background:none">📋 Storico</button>
+    <div style="display:flex;align-items:center;gap:0;margin-bottom:16px">
+      <div class="scheduled-tabs" style="margin-bottom:0">
+        <button class="sched-tab ${_portfolioTab==='portfolio'?'active':''}" onclick="_setPortfolioTab('portfolio')">📋 Portafoglio</button>
+        <button class="sched-tab ${_portfolioTab==='analisi'?'active':''}"   onclick="_setPortfolioTab('analisi')">📊 Analisi</button>
+        <button class="sched-tab ${_portfolioTab==='storico'?'active':''}"   onclick="_setPortfolioTab('storico')">📋 Storico</button>
+      </div>
       ${investAccounts.length && _portfolioTab==='portfolio' ? `
         <div style="margin-left:auto;padding-bottom:2px;display:flex;align-items:center;gap:10px">
           <div style="display:flex;flex-direction:column;align-items:center;gap:5px;padding:6px 10px;background:var(--bg3);border-radius:10px;border-top:2px solid var(--accent);box-shadow:0 0 0 1px color-mix(in srgb,var(--accent) 22%,transparent) inset">

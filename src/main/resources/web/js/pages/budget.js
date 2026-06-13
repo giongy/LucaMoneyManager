@@ -46,7 +46,7 @@ async function renderBudgets() {
         </div>
       </div>
     </div>
-    <div id="budgetContent" style="flex:1;overflow:hidden;padding:0 16px 16px;display:flex;flex-direction:column">
+    <div id="budgetContent" style="flex:1;overflow:hidden;padding:0 8px 12px;display:flex;flex-direction:column">
       <div id="budgGridWrap" style="display:${_budgetTab==='grid'?'block':'none'};flex:1;overflow:auto;margin-top:14px">
         <table class="budget-table" id="budgetTable">
           <thead id="budgetThead"></thead>
@@ -261,18 +261,46 @@ function renderBudgetTable() {
           ${collapsed ? cellBottom(budget, actual, m) : ''}
         </td>`;
       }
-      const isCalc = hasCfg && (budgetMap[cat.id]?.[m] === undefined);
+      const isPinned = budgetMap[cat.id]?.[m] !== undefined;
+      const isCalc = hasCfg && !isPinned;
       // Pulsantino "= reale": solo su mesi passati/correnti con spesa reale diversa dal budget
       const showSetBtn = isPast(m) && actual > 0 && Math.round(budget*100) !== Math.round(actual*100);
       const setBtn = showSetBtn
         ? `<button class="budget-cell-setbtn" title="Imposta budget = reale (${fmt.currency(actual)})"
                    onclick="event.stopPropagation();_budgetSetToActual(${cat.id},${m},${actual})">=</button>`
         : '';
+      // Pulsantino "svuota": solo sui mesi fissati a mano (pin presente nel DB), su ogni
+      // categoria e anche per mesi futuri. Affiancato al "=" quando presenti entrambi.
+      const clearBtn = isPinned
+        ? `<button class="budget-cell-clearbtn${showSetBtn?' has-setbtn':''}"
+                   title="${hasCfg ? 'Svuota: il mese torna calcolato dal master' : 'Svuota: azzera il budget di questo mese'}"
+                   onclick="event.stopPropagation();_budgetClearMonth(${cat.id},${m})">🗑️</button>`
+        : '';
+      // Tooltip esplicativo: spiega cosa si può fare con la cella (impostare / svuotare)
+      // e come cambia il valore in base alla gestione (master_amount) della categoria.
+      const valTitle = (() => {
+        const lines = ['Clic per modificare il budget di questo mese.'];
+        if (hasCfg) {
+          // Categoria con importo master distribuito sui mesi liberi
+          if (isCalc) {
+            lines.push('Valore calcolato: (master − mesi fissati) ÷ mesi liberi.');
+            lines.push('Inserisci un importo per fissare questo mese: il restante del master verrà ridistribuito sugli altri mesi liberi.');
+            lines.push('Svuotando il campo il mese resta calcolato automaticamente.');
+          } else {
+            lines.push('Mese fissato manualmente.');
+            lines.push('Svuotando il campo torna calcolato: il restante del master verrà ridistribuito sui mesi liberi.');
+          }
+        } else {
+          lines.push('Svuotando il campo il budget di questo mese viene azzerato.');
+        }
+        return lines.join('\n');
+      })();
       return `<td class="budget-cell${isCalc?' budget-cell-calc':''}${curCls}"
                   data-cat="${cat.id}" data-month="${m}" data-over="${over?1:0}"
                   onclick="_budgetCellEdit(this,${cat.id},${m})">
         ${setBtn}
-        <span class="budget-cell-val">${budgetStr}</span>
+        ${clearBtn}
+        <span class="budget-cell-val" title="${valTitle.replace(/"/g,'&quot;')}">${budgetStr}</span>
         ${cellBottom(budget, actual, m)}
       </td>`;
     }).join('');
@@ -1150,6 +1178,13 @@ function renderBudgetMese() {
 // Imposta il budget di una cella uguale alla spesa reale di quel mese.
 window._budgetSetToActual = async (catId, month, actual) => {
   await api.setBudget({category_id: catId, amount: actual, month, year: budgetYear});
+  await loadBudgetTable();
+};
+
+// Svuota un singolo mese fissato a mano: rimuove il pin dal DB. Con master_amount
+// il mese torna calcolato, altrimenti viene azzerato.
+window._budgetClearMonth = async (catId, month) => {
+  await api.deleteBudgetMonth({category_id: catId, month, year: budgetYear});
   await loadBudgetTable();
 };
 

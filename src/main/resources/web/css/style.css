@@ -771,37 +771,51 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
   letter-spacing:.4px; color:var(--txt2); background:var(--bg2);
   border-bottom:2px solid var(--border); white-space:nowrap; text-align:center;
 }
-.budget-cat-th  { text-align:left; width:160px; min-width:140px; position:sticky; left:0; background:var(--bg2); z-index:2; }
+.budget-cat-th  { text-align:left; width:128px; min-width:118px; position:sticky; left:0; background:var(--bg2); z-index:2; }
 .budget-month-th { min-width:72px; }
 .budget-total-th { min-width:90px; background:var(--bg3) !important; }
 .budget-act-th   { min-width:80px; }
 
 .budget-cat-cell {
-  padding:7px 10px; font-size:var(--fs-md,12px); font-weight:600; color:var(--txt);
+  padding:7px 7px; font-size:var(--fs-md,12px); font-weight:600; color:var(--txt);
   white-space:nowrap; position:sticky; left:0; background:var(--bg2); z-index:1;
   border-bottom:1px solid var(--border);
 }
-.budget-child-indent { padding-left:22px; font-weight:400; color:var(--txt2); }
+.budget-child-indent { padding-left:18px; font-weight:400; color:var(--txt2); }
 .budget-row-parent td { background:var(--bg2); }
 .budget-row-child  td { background:var(--bg3); }
 .budget-row-parent:hover td, .budget-row-child:hover td { background:var(--bg4); }
 
 .budget-cell {
-  padding:5px 6px; text-align:right; cursor:pointer; position:relative;
+  padding:5px 5px; text-align:right; cursor:pointer; position:relative;
   border-bottom:1px solid var(--border); border-left:1px solid var(--border);
-  min-width:80px; vertical-align:top; transition:background .1s;
+  min-width:96px; vertical-align:top; transition:background .1s;
 }
 .budget-cell:hover { background:var(--bg4) !important; }
-/* Pulsantino "= reale": galleggia in alto a sinistra (zona libera), solo all'hover della cella */
+/* Pulsantino "= reale": galleggia in alto a sinistra (zona libera), solo all'hover della cella.
+   z-index alto + ombra per staccarsi nettamente dal valore sottostante */
 .budget-cell-setbtn {
-  position:absolute; top:3px; left:3px; width:15px; height:15px; padding:0;
+  position:absolute; top:3px; left:3px; width:15px; height:15px; padding:0; z-index:3;
   display:flex; align-items:center; justify-content:center;
   font-size:11px; line-height:1; font-weight:700; cursor:pointer;
   color:var(--txt3); background:var(--bg2); border:1px solid var(--border);
-  border-radius:4px; opacity:0; transition:opacity .1s, color .1s, background .1s;
+  border-radius:4px; opacity:0; box-shadow:0 1px 3px rgba(0,0,0,.25);
+  transition:opacity .1s, color .1s, background .1s;
 }
-.budget-cell:hover .budget-cell-setbtn { opacity:.55; }
-.budget-cell-setbtn:hover { opacity:1; color:var(--bg); background:var(--accent); border-color:var(--accent); }
+.budget-cell:hover .budget-cell-setbtn { opacity:1; }
+.budget-cell-setbtn:hover { color:var(--bg); background:var(--accent); border-color:var(--accent); }
+/* Pulsantino "svuota": stesso angolo del "=", appare all'hover. Se c'è anche il "=" si affianca a destra */
+.budget-cell-clearbtn {
+  position:absolute; top:3px; left:3px; width:15px; height:15px; padding:0; z-index:3;
+  display:flex; align-items:center; justify-content:center;
+  font-size:10px; line-height:1; cursor:pointer;
+  color:var(--txt3); background:var(--bg2); border:1px solid var(--border);
+  border-radius:4px; opacity:0; box-shadow:0 1px 3px rgba(0,0,0,.25);
+  transition:opacity .1s, color .1s, background .1s;
+}
+.budget-cell-clearbtn.has-setbtn { left:18px; }
+.budget-cell:hover .budget-cell-clearbtn { opacity:1; }
+.budget-cell-clearbtn:hover { color:var(--bg); background:var(--expense); border-color:var(--expense); }
 .budget-cur-month { box-shadow:inset 2px 0 0 rgba(255,255,255,.6), inset -2px 0 0 rgba(255,255,255,.6); }
 .budget-cell-parent { font-weight:600; }
 .budget-cell-readonly { cursor:default; pointer-events:none; opacity:0.85; }

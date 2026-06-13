@@ -149,6 +149,7 @@
 [data-theme="cristallo"] .ctx-menu,
 [data-theme="cristallo"] #portfolio-ctx-menu,
 [data-theme="cristallo"] #sched-ctx-menu,
+[data-theme="cristallo"] #shortcutsPanel,
 [data-theme="cristallo"] .nav-sub-flyout {
   background: rgba(244,247,251,.97) !important;
   border-color: rgba(120,145,180,.30);
@@ -258,6 +259,7 @@
 [data-theme="glassy"] .ctx-menu,
 [data-theme="glassy"] #portfolio-ctx-menu,
 [data-theme="glassy"] #sched-ctx-menu,
+[data-theme="glassy"] #shortcutsPanel,
 [data-theme="glassy"] .nav-sub-flyout {
   background: rgba(28,34,48,.96) !important;
   border-color: rgba(255,255,255,.14);
@@ -720,13 +722,15 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 
 /* ─── Dashboard conti ────────────────────────────────────────────────────── */
 .acc-list-table { width:100%; border-collapse:collapse; }
-.acc-group-row td {
-  padding:2px 14px; font-size:var(--fs-xs,10px); font-weight:600;
-  color:var(--txt2); background:var(--bg3);
-  border-top:1px solid var(--border);
-  border-bottom:1px solid var(--border);
+/* Separatore di tipo conto: etichetta in maiuscoletto colorata d'accento, con spazio
+   sopra — niente barra né linea. */
+.acc-group-row td { padding:3px 14px 4px; }
+.acc-group-row:first-child td { padding-top:2px; }
+.acc-group-row td span {
+  font-size:var(--fs-xs,10px); font-weight:700; letter-spacing:.08em;
+  text-transform:uppercase; white-space:nowrap;
+  color:color-mix(in srgb, var(--accent) 80%, var(--txt3));
 }
-.acc-group-row:first-child td { border-top:none; }
 .acc-list-row { cursor:pointer; transition:background .12s; }
 .acc-list-row:hover { background:var(--bg3); }
 .acc-list-row td { padding:6px 14px; vertical-align:middle; }

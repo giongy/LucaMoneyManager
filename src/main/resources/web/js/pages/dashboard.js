@@ -222,7 +222,7 @@ function _renderDashAccountsWidget(accounts) {
     <table class="acc-list-table">
       ${visOrderedTypes.map(t => `
         <tbody>
-          <tr class="acc-group-row"><td colspan="3">${_DASH_ACC_TYPE_LABELS[t] || t}</td></tr>
+          <tr class="acc-group-row"><td colspan="3"><span>${_DASH_ACC_TYPE_LABELS[t] || t}</span></td></tr>
           ${visGrouped[t].map(a => `
             <tr class="acc-list-row" onclick="navigateToAccountTx(${a.id})">
               <td>

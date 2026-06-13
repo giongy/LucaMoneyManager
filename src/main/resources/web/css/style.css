@@ -724,15 +724,15 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 .acc-list-table { width:100%; border-collapse:collapse; }
 /* Separatore di tipo conto: etichetta in maiuscoletto colorata d'accento, con spazio
    sopra — niente barra né linea. */
-.acc-group-row td { padding:3px 14px 4px; }
-.acc-group-row:first-child td { padding-top:2px; }
+.acc-group-row td { padding:1px 14px 4px; }
+.acc-group-row:first-child td { padding-top:0; }
 .acc-group-row td span {
   font-size:var(--fs-xs,10px); font-weight:700; letter-spacing:.08em;
   text-transform:uppercase; white-space:nowrap;
   color:color-mix(in srgb, var(--accent) 80%, var(--txt3));
 }
 .acc-list-row { cursor:pointer; transition:background .12s; }
-.acc-list-row:hover { background:var(--bg3); }
+.acc-list-row:hover { background:color-mix(in srgb, var(--bg3) 55%, transparent); }
 .acc-list-row td { padding:6px 14px; vertical-align:middle; }
 .acc-list-row td:first-child { padding-left:70px; }
 .acc-list-row td:nth-child(2) { text-align:right; white-space:nowrap; }
@@ -752,7 +752,7 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 .acc-quick-tra { background:rgba(88,166,255,.85); color:#fff; font-size:var(--fs-sm,11px); }
 .acc-dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; vertical-align:middle; }
 .acc-icon { font-size:var(--fs-lg,14px); margin-right:5px; vertical-align:middle; }
-.acc-name { font-size:var(--fs-lg,14px); font-weight:500; vertical-align:middle; }
+.acc-name { font-size:var(--fs-lg,14px); font-weight:500; color:color-mix(in srgb, var(--txt) 65%, var(--txt2)); vertical-align:middle; }
 .acc-bal { font-size:var(--fs-lg,14px); font-weight:700; }
 .acc-total-row td {
   padding:5px 14px; font-size:var(--fs-sm,11px); font-weight:500;

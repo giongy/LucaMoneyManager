@@ -484,7 +484,7 @@ input,select,textarea { font-family:inherit; }
 
 /* ─── Stat Cards ─────────────────────────────────────────────────────────── */
 .stats-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:var(--dash-gap); margin-bottom:var(--dash-gap); }
-.stat-card { background:var(--bg2); border:1px solid var(--border); border-radius:var(--radius); padding:4px 12px;
+.stat-card { background:var(--bg2); border:1px solid var(--border); border-radius:var(--radius); padding:2px 12px;
              display:flex; flex-direction:column; position:relative; overflow:hidden;
              transition:transform .15s ease, box-shadow .15s ease, border-color .15s ease; }
 .stat-card::before { content:''; position:absolute; top:0; left:0; bottom:0; width:2px;
@@ -496,9 +496,9 @@ input,select,textarea { font-family:inherit; }
 .stat-card:hover { transform:translateY(-2px); box-shadow:0 6px 18px rgba(0,0,0,.22);
                    border-color:color-mix(in srgb, var(--accent) 35%, var(--border)); }
 .stat-card:hover::before { opacity:1; width:3px; transition:opacity .15s ease, width .15s ease; }
-.stat-label { font-size:var(--fs-sm,11px); color:var(--txt2); margin-bottom:1px; text-transform:uppercase; letter-spacing:.5px; line-height:1.2; }
-.stat-value { font-size:18px; font-weight:700; margin-bottom:0; line-height:1.2; }
-.stat-sub   { font-size:var(--fs-sm,11px); color:var(--txt3); line-height:1.2; }
+.stat-label { font-size:var(--fs-sm,11px); color:var(--txt2); margin-bottom:0; text-transform:uppercase; letter-spacing:.5px; line-height:1.15; }
+.stat-value { font-size:18px; font-weight:700; margin-bottom:0; line-height:1.15; }
+.stat-sub   { font-size:var(--fs-sm,11px); color:var(--txt3); line-height:1.1; }
 .stat-income  .stat-value { color:var(--income); }
 .stat-expense .stat-value { color:var(--expense); }
 .stat-balance .stat-value { color:var(--accent); }
@@ -543,6 +543,10 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 .btn {
   padding:6px 13px; border-radius:6px; border:none; font-size:var(--fs-md,12px);
   font-weight:600; transition:all .15s; display:inline-flex; align-items:center; gap:5px;
+}
+/* Bottone disabilitato: smorzato e non interattivo (no hover). */
+.btn:disabled, .btn[disabled] {
+  opacity:.4; cursor:not-allowed; pointer-events:none;
 }
 .btn-primary { background:var(--accent); color:#000; }
 .btn-primary:hover { background:#79b8ff; }

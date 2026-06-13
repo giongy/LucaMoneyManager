@@ -174,11 +174,16 @@ function _renderAnalyticsControls() {
   wrap.style.display = _analyticsTab === 'forecast' ? 'none' : 'flex';
 
   // Bottoni "⚖ Confronta" + "📅 YTD" — visibili solo su tab Bilancio Mensile
+  // YTD ha senso solo in confronto: nella vista singola il mese corrente è già parziale
+  // (non esistono transazioni future), quindi troncarlo non cambia nulla. Disabilitato
+  // finché Confronta non è attivo.
+  const ytdDisabled = !_analyticsBalanceCompare;
   const cmpBtn = _analyticsTab === 'balance'
     ? `<button class="btn btn-xs ${_analyticsBalanceCompare?'btn-primary':'btn-ghost'}" id="aBalanceCompareBtn"
               onclick="_toggleBalanceCompare()" title="Confronta due periodi">⚖ Confronta</button>
-       <button class="btn btn-xs ${_analyticsBalanceYtd?'btn-primary':'btn-ghost'}" id="aBalanceYtdBtn"
-              onclick="_toggleBalanceYtd()" title="Tronca l'ultimo mese al giorno odierno (confronto onesto se il mese corrente è incompleto)">📅 YTD</button>
+       <button class="btn btn-xs ${_analyticsBalanceYtd&&!ytdDisabled?'btn-primary':'btn-ghost'}" id="aBalanceYtdBtn"
+              ${ytdDisabled?'disabled':''} onclick="_toggleBalanceYtd()"
+              title="${ytdDisabled?'Disponibile solo in modalità Confronta: allinea il mese corrente al giorno odierno per un paragone equo col periodo storico':'Tronca l\'ultimo mese al giorno odierno (confronto onesto se il mese corrente è incompleto)'}">📅 YTD</button>
        <div style="width:1px;height:16px;background:var(--border);margin:0 2px"></div>` : '';
 
   if (!inCompareMode) {
@@ -350,6 +355,10 @@ window._toggleBalanceCompare = () => {
       startYm: _shiftYmByYears(_analyticsStartYm, -1),
       endYm:   _shiftYmByYears(_analyticsEndYm,   -1),
     };
+  } else {
+    // YTD ha senso solo in confronto: spegnendo Confronta si disattiva anche YTD,
+    // così non resta "attivo ma disabilitato".
+    _analyticsBalanceYtd = false;
   }
   _renderAnalyticsControls();
   renderAnalyticsBalance();
@@ -471,15 +480,21 @@ function _renderAnalyticsCatTable() {
 
 let _analyticsBalanceChart = null;
 
-// Se YTD attivo: tronca i totali dell'ultimo mese al giorno odierno.
-// Modifica gli array in-place e ricalcola balances.
-// Se YTD attivo, tronca i totali dell'ultimo mese al giorno odierno (confronto onesto col mese in corso).
-async function _applyYtdTruncation(cols, incomes, expenses, balances) {
+// Se YTD attivo: tronca i totali dell'ultimo mese al giorno odierno (in-place + ricalcolo balances).
+//
+// `force` (usato nel confronto): se true tronca l'ultimo mese qualunque sia, perché il
+// chiamante ha già stabilito che il confronto coinvolge il mese in corso e i due periodi
+// vanno troncati allo stesso giorno (es. giu 2026 parziale vs giu 2025 → entrambi 1–13).
+// Se false (vista singola) tronca SOLO se l'ultimo mese è davvero quello corrente: troncare
+// un mese passato (range gen–mag a giugno) ai primi giorni falserebbe i dati.
+async function _applyYtdTruncation(cols, incomes, expenses, balances, force = false) {
   if (!_analyticsBalanceYtd || !cols.length) return;
   const today = new Date();
-  const day = String(today.getDate()).padStart(2,'0');
+  const curYm = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}`;
   const i = cols.length - 1;
   const ym = cols[i].ym;
+  if (!force && ym !== curYm) return;   // vista singola: ultimo mese non corrente → dati pieni
+  const day = String(today.getDate()).padStart(2,'0');
   const stats = await api.getStatsByDateRange(`${ym}-01`, `${ym}-${day}`);
   incomes[i]  = Number(stats.income)   || 0;
   expenses[i] = Number(stats.expenses) || 0;
@@ -539,10 +554,15 @@ async function renderAnalyticsBalance() {
   const expB = colsB.map(m => byYm[m.ym]?.expense || 0);
   const balB = colsB.map((_, i) => incB[i] - expB[i]);
 
-  // YTD: tronca ultimo mese di entrambi al giorno odierno (fetch parziale)
+  // YTD: tronca l'ultimo mese di ENTRAMBI i periodi allo stesso giorno odierno, ma solo
+  // se il periodo A (di norma quello corrente) termina nel mese in corso. Così il paragone
+  // è equo (primi N giorni vs primi N giorni); se A finisce in un mese passato non si tronca.
+  const _now = new Date();
+  const _curYm = `${_now.getFullYear()}-${String(_now.getMonth()+1).padStart(2,'0')}`;
+  const _truncCompare = colsA.length && colsA[colsA.length-1].ym === _curYm;
   await Promise.all([
-    _applyYtdTruncation(colsA, incA, expA, balA),
-    _applyYtdTruncation(colsB, incB, expB, balB),
+    _applyYtdTruncation(colsA, incA, expA, balA, _truncCompare),
+    _applyYtdTruncation(colsB, incB, expB, balB, _truncCompare),
   ]);
 
   let cuA = 0; const cumA = balA.map(b => (cuA += b));

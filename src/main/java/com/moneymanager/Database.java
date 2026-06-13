@@ -3439,8 +3439,9 @@ public class Database {
                 JOIN transaction_splits ts ON ts.transaction_id = t.id
                 WHERE strftime('%Y',t.date)=? AND t.type=?
             )
-            SELECT c.name, c.color, c.icon, SUM(ca.amount) AS total
+            SELECT c.name, p.name AS parent_name, c.color, c.icon, SUM(ca.amount) AS total
             FROM cat_amounts ca JOIN categories c ON ca.category_id = c.id
+            LEFT JOIN categories p ON c.parent_id = p.id
             GROUP BY ca.category_id ORDER BY total DESC
         """, String.valueOf(year), type, String.valueOf(year), type);
     }

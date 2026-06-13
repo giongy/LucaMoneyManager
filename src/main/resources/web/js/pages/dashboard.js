@@ -451,7 +451,7 @@ async function renderDashboard() {
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
         <div class="stat-value" style="min-width:0;flex:1">${fmt.currencyRich(stats.income)}</div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0">
-          ${cumulativeCompareSvg(cumIncCur, cumIncPrev, incColor)}
+          ${cumulativeCompareSvg(cumIncCur, cumIncPrev, incColor, 150, 32)}
           <div style="font-size:10px;line-height:1.3;text-align:right;white-space:nowrap">
             ${trendBadge(trendInc, true)}
             ${trendInc != null ? `<div style="color:var(--txt3);font-size:9px">${ytdLabel} vs ${dashYear-1}</div>` : ''}
@@ -464,7 +464,7 @@ async function renderDashboard() {
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
         <div class="stat-value" style="min-width:0;flex:1">${fmt.currencyRich(stats.expenses)}</div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0">
-          ${cumulativeCompareSvg(cumExpCur, cumExpPrev, expColor)}
+          ${cumulativeCompareSvg(cumExpCur, cumExpPrev, expColor, 150, 32)}
           <div style="font-size:10px;line-height:1.3;text-align:right;white-space:nowrap">
             ${trendBadge(trendExp, false)}
             ${trendExp != null ? `<div style="color:var(--txt3);font-size:9px">${ytdLabel} vs ${dashYear-1}</div>` : ''}
@@ -480,7 +480,7 @@ async function renderDashboard() {
           <div class="stat-sub" style="font-size:11px;color:var(--txt3)">${stats.transaction_count} tx</div>
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0">
-          ${cumulativeCompareSvg(cumNetCur, cumNetPrev, netColor)}
+          ${cumulativeCompareSvg(cumNetCur, cumNetPrev, netColor, 150, 32)}
           <div style="font-size:10px;line-height:1.3;text-align:right;white-space:nowrap">
             ${trendBadge(trendNet, true)}
             ${trendNet != null ? `<div style="color:var(--txt3);font-size:9px">${ytdLabel} vs ${dashYear-1}</div>` : ''}
@@ -681,14 +681,28 @@ async function renderDashboard() {
   // Savings chart (monthly net = income - expenses)
   const savArr = incArr.map((v,i) => v - expArr[i]);
   if (charts.savings) charts.savings.destroy();
+  // Gradiente verticale per-barra: verde (netto >=0) o rosso (netto <0), con la parte
+  // satura vicino allo zero che sfuma verso l'estremità della barra. Scriptable function:
+  // Chart.js la chiama per ogni barra, così ogni barra ha il suo gradiente nel verso giusto.
+  const _savGrad = ctx => {
+    const {chart, dataIndex} = ctx;
+    const area = chart.chartArea;
+    if (!area) return 'rgba(63,185,80,.75)';
+    const pos = savArr[dataIndex] >= 0;
+    const grad = ctx.chart.ctx.createLinearGradient(0, area.top, 0, area.bottom);
+    if (pos) { grad.addColorStop(0, 'rgba(63,185,80,.9)'); grad.addColorStop(1, 'rgba(63,185,80,.2)'); }
+    else     { grad.addColorStop(0, 'rgba(248,81,73,.2)'); grad.addColorStop(1, 'rgba(248,81,73,.9)'); }
+    return grad;
+  };
   charts.savings = new Chart(document.getElementById('savingsChart'), {
     type: 'bar',
-    plugins:[_dashGradPlugin],
     data: { labels: months, datasets: [
-      { label:'Risparmio+', data: savArr.map(v => v >= 0 ? v : null),
-        _gradColors:['rgba(63,185,80,.9)','rgba(63,185,80,.2)'], backgroundColor:'rgba(63,185,80,.75)', borderRadius:4 },
-      { label:'Risparmio-', data: savArr.map(v => v < 0 ? v : null),
-        _gradColors:['rgba(248,81,73,.2)','rgba(248,81,73,.9)'], backgroundColor:'rgba(248,81,73,.75)', borderRadius:4 }
+      // Un'unica serie: ogni mese ha una sola barra (netto), verde se >=0, rossa se <0.
+      // Due dataset separati facevano riservare a Chart.js due slot affiancati per mese,
+      // disallineando la barra dal centro come se ci fossero due serie.
+      { label:'Risparmio', data: savArr,
+        backgroundColor: _savGrad,
+        borderRadius:4 }
     ]},
     options: { responsive:true, maintainAspectRatio:false,
       plugins:{ legend:{display:false} },
@@ -706,7 +720,13 @@ async function renderDashboard() {
       data: { labels: top5.map(c => c.icon+' '+c.name),
               datasets: [{label:'Spesa', data: top5.map(c=>c.total),
                 backgroundColor: top5.map(c=>c.color||'rgba(88,166,255,.7)'), borderRadius:4}]},
-      options: { indexAxis:'y', responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}},
+      options: { indexAxis:'y', responsive:true, maintainAspectRatio:false,
+        plugins:{legend:{display:false},
+          tooltip:{callbacks:{
+            // Titolo del tooltip: "Genitore : Categoria" se la categoria ha un parent.
+            title: items => { const c = top5[items[0].dataIndex];
+              return c.parent_name ? `${c.parent_name} : ${c.name}` : c.name; }
+          }}},
         scales:{ x:{ticks:{color:chartColors().tick,font:{size:10}},grid:{color:chartColors().grid}},
                  y:{ticks:{color:chartColors().tick,font:{size:10}},grid:{color:chartColors().grid}}}}
     });

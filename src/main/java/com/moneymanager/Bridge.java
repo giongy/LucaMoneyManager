@@ -390,17 +390,11 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             case "deleteForecast"    -> { db.deleteForecast(p.get("id").getAsInt()); yield Map.of("ok", true); }
             case "archiveForecast"   -> { db.archiveForecast(p.get("id").getAsInt()); yield Map.of("ok", true); }
             case "getForecastDetail"    -> db.getForecastDetail(p.get("id").getAsInt());
-            case "getForecastExcluded"  -> db.getForecastExcluded();
-            case "addForecastExcluded"  -> {
-                db.addForecastExcluded(p.get("id").getAsInt());
-                yield Map.of("ok", true);
-            }
-            case "removeForecastExcluded" -> {
-                db.removeForecastExcluded(p.get("id").getAsInt());
-                yield Map.of("ok", true);
-            }
-            case "getForecastExpenseSplit" -> db.getForecastExpenseSplit(p.get("months").getAsInt());
-            case "getScheduledForecast"    -> db.getScheduledForecast(p.get("months").getAsInt());
+            case "getForecastExpenseSplit"   -> db.getForecastExpenseSplit(p.get("months").getAsInt());
+            case "getScheduledForecast"      -> db.getScheduledForecast(p.get("months").getAsInt());
+            case "getForecastEngine" -> db.getForecastEngine(
+                p.get("hist_months").getAsInt(), p.get("horizon_months").getAsInt(),
+                p.has("include_portfolio") && p.get("include_portfolio").getAsBoolean());
 
             // ─── Portafoglio ───────────────────────────────────────────────
             case "getPortfolio"             -> db.getPortfolio();

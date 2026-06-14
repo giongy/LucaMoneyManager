@@ -322,6 +322,7 @@ async function init() {
   if (s['proj.range'])   _projRange  = s['proj.range'];
   if (s['proj.months'])  _projMonths = parseInt(s['proj.months']) || 6;
   if (s['proj.mode'])    _projMode   = s['proj.mode'];
+  if (s['fc.networth'])  _fcShowNetWorth = s['fc.networth'] === '1';
   if (s['cf.range'])     _cfRange    = s['cf.range'];
   if (s['cf.months'])    _cfMonths   = parseInt(s['cf.months'])   || 6;
   if (s['tx.range'])              txFilters           = { range: s['tx.range'], ...rangeToFilter(s['tx.range']) };

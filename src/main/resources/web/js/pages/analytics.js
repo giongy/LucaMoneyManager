@@ -25,13 +25,8 @@ let _reportsTab       = 'resoconti';
 // Valori derivati a runtime via _fcDeriveMonths() — l'utente sceglie le date,
 // noi calcoliamo quanti mesi richiedere al backend.
 let _fcChart          = null;
-let _fcParams         = { histFromYm: null, horizonToYm: null, sensitivity: 'media' };
-let _fcManualExcl     = new Set();   // mesi forzatamente esclusi dall'utente
-let _fcManualIncl     = new Set();   // mesi forzatamente reintegrati dall'utente
-let _fcExcludedTxIds  = new Set();   // IDs transazioni escluse dal calcolo
-let _fcTxAdjustments  = {};          // { ym: { incAdj, expAdj } } — aggiustamenti tx
-let _fcMonthTxCache   = {};          // { ym: tx[] } — cache transazioni per mese
-let _fcExpandedMonths = new Set();   // mesi espansi nella tabella storica
+let _fcParams         = { histFromYm: null, horizonToYm: null };
+let _fcShowNetWorth   = false;       // toggle: previsione patrimonio netto (conti + portfolio + bond)
 
 /* ─── Analytics ──────────────────────────────────────────────────────────── */
 
@@ -814,8 +809,6 @@ async function renderAnalyticsForecast() {
   _fcInitDefaults(_analyticsOldestYm);
   el.innerHTML = _fcControlsHtml() + `<div id="fcOutput"></div>`;
   _fcBindControls();
-  // Carica dal DB le transazioni escluse persistite
-  await _fcLoadExcludedFromDb();
   await _runForecastSaldo();
 }
 
@@ -2475,14 +2468,12 @@ async function deleteReportConfirm(id, name) {
 
 /* ─── Previsione Saldo ───────────────────────────────────────────────────── */
 
-// Costanti del modello forecast (raccolte in un solo posto per chiarezza)
+// Costanti del modello forecast a decomposizione (raccolte in un solo posto)
 const _FC = {
-  Z90:            1.645,        // z-score IC 90%
-  TREND_HALFLIFE: 12,           // mesi: dopo questo periodo il trend dimezza
-  TREND_DECAY:    Math.log(2)/12, // ln(2)/halflife → 0.0578 per halflife=12
-  K_BY_SENS:      { bassa: 3.0, media: 1.5, alta: 1.0 },
-  HIST_MIN:       3,            // mesi minimi di storico richiesti
-  HORIZON_MAX:    36,           // mesi massimi di proiezione futura
+  Z90:        1.645,    // z-score IC 90%
+  MAD_SCALE:  1.4826,   // fattore per stimare σ dalla MAD (deviazione assoluta mediana)
+  HIST_MIN:   3,        // mesi minimi di storico richiesti
+  HORIZON_MAX: 36,      // mesi massimi di proiezione futura
 };
 
 // Helper: util mese/anno (riusa _MONTHS_IT, parseYm, fmtYm già usati altrove)
@@ -2525,22 +2516,6 @@ function _fcDeriveMonths() {
   return { histMonths, horizonMonths };
 }
 
-// Entry point della Previsione Saldo: monta controlli e lancia il calcolo della proiezione.
-async function renderForecastSaldo() {
-  const container = document.getElementById('rResults');
-  if (!container) return;
-  _fcInitDefaults(_analyticsOldestYm);
-  container.innerHTML = _fcControlsHtml() + `<div id="fcOutput"></div>`;
-  _fcBindControls();
-  await _runForecastSaldo();
-}
-
-// Marca la previsione come "da ricalcolare" (mostra il pulsante Aggiorna) dopo una modifica.
-function _fcSetDirty() {
-  const badge = document.getElementById('fcDirtyBadge');
-  if (badge) badge.style.display = '';
-}
-
 // ── HTML controlli (stesso pattern degli altri report Analytics) ────────────
 // Preset | Da: [Y][M] | A: [Y][M] | Sensibilità: [select]
 // HTML della barra controlli della Previsione Saldo (range storico, orizzonte, sensibilità).
@@ -2555,7 +2530,6 @@ function _fcControlsHtml() {
 
   const hf  = _fcParseYm(_fcParams.histFromYm);
   const ht  = _fcParseYm(_fcParams.horizonToYm);
-  const sensitivity = _fcParams.sensitivity;
 
   return `
     <div class="card" style="padding:10px 14px;margin-bottom:16px">
@@ -2582,13 +2556,8 @@ function _fcControlsHtml() {
         <button class="btn btn-xs btn-ghost" id="fcPresetHoriz6"  title="Previsione prossimi 6 mesi">6m</button>
         <button class="btn btn-xs btn-ghost" id="fcPresetHoriz12" title="Previsione prossimi 12 mesi">12m</button>
         <div style="width:1px;height:20px;background:var(--border);margin:0 10px"></div>
-        <label style="font-size:13px;color:var(--txt2)" title="Quanto un mese deve essere atipico per essere flaggato come outlier">Sensibilità:</label>
-        <select id="fcSens" class="form-control" style="font-size:12px;padding:3px 8px">
-          <option value="bassa" ${sensitivity==='bassa'?'selected':''}>Bassa  (k=3.0)</option>
-          <option value="media" ${sensitivity==='media'?'selected':''}>Media  (k=1.5)</option>
-          <option value="alta"  ${sensitivity==='alta' ?'selected':''}>Alta   (k=1.0)</option>
-        </select>
-        <span id="fcDirtyBadge" style="display:none;font-size:11px;color:var(--warn);margin-left:8px">● modifiche in attesa</span>
+        <button id="fcNetWorth" class="btn btn-xs ${_fcShowNetWorth?'btn-primary':'btn-ghost'}" style="padding:4px 10px"
+          title="Includi il valore del portfolio e gli eventi bond (cedole + rimborso a scadenza) nella previsione">💎 Patrimonio netto</button>
       </div>
     </div>`;
 }
@@ -2613,7 +2582,7 @@ function _fcBindControls() {
     // Ricostruisci i mesi disponibili per il nuovo anno
     const hf2 = _fcParseYm(_fcParams.histFromYm);
     document.getElementById('fcHistM').innerHTML = _buildMonthsForYear(hf2.y, oldestYm, prevYm, hf2.m);
-    _runForecastSaldo(true);
+    _runForecastSaldo();
   };
   const _onHoriz = () => {
     const y = parseInt(document.getElementById('fcHorizY').value);
@@ -2621,17 +2590,18 @@ function _fcBindControls() {
     _fcParams.horizonToYm = _clampYm(_fcFmtYm(y, m), curYm, maxHorizonYm);
     const ht2 = _fcParseYm(_fcParams.horizonToYm);
     document.getElementById('fcHorizM').innerHTML = _buildMonthsForYear(ht2.y, curYm, maxHorizonYm, ht2.m);
-    _runForecastSaldo(true);
-  };
-  const _onSens = function() {
-    _fcParams.sensitivity = this.value;
-    _runForecastSaldo(true);
+    _runForecastSaldo();
   };
   document.getElementById('fcHistY').onchange  = _onHist;
   document.getElementById('fcHistM').onchange  = _onHist;
   document.getElementById('fcHorizY').onchange = _onHoriz;
   document.getElementById('fcHorizM').onchange = _onHoriz;
-  document.getElementById('fcSens').onchange   = _onSens;
+  document.getElementById('fcNetWorth').onclick = () => {
+    _fcShowNetWorth = !_fcShowNetWorth;
+    api.setSetting('fc.networth', _fcShowNetWorth ? '1' : '0');
+    document.getElementById('fcNetWorth').className = 'btn btn-xs ' + (_fcShowNetWorth ? 'btn-primary' : 'btn-ghost');
+    _runForecastSaldo();
+  };
 
   // Preset Storico: ultimi N mesi prima del corrente
   const _applyHistPreset = (months) => {
@@ -2642,7 +2612,7 @@ function _fcBindControls() {
     const hf2 = _fcParseYm(newYm);
     document.getElementById('fcHistY').innerHTML = _buildYearOptions(oldestYm, prevYm, hf2.y);
     document.getElementById('fcHistM').innerHTML = _buildMonthsForYear(hf2.y, oldestYm, prevYm, hf2.m);
-    _runForecastSaldo(true);
+    _runForecastSaldo();
   };
   // Preset Previsione: prossimi N mesi dal corrente
   const _applyHorizPreset = (months) => {
@@ -2653,7 +2623,7 @@ function _fcBindControls() {
     const ht2 = _fcParseYm(newYm);
     document.getElementById('fcHorizY').innerHTML = _buildYearOptions(curYm, maxHorizonYm, ht2.y);
     document.getElementById('fcHorizM').innerHTML = _buildMonthsForYear(ht2.y, curYm, maxHorizonYm, ht2.m);
-    _runForecastSaldo(true);
+    _runForecastSaldo();
   };
   document.getElementById('fcPresetHist3').onclick   = () => _applyHistPreset(3);
   document.getElementById('fcPresetHist6').onclick   = () => _applyHistPreset(6);
@@ -2663,420 +2633,195 @@ function _fcBindControls() {
   document.getElementById('fcPresetHoriz12').onclick = () => _applyHorizPreset(12);
 }
 
-// Cuore della Previsione Saldo: prende lo storico mensile, applica esclusioni/aggiustamenti e
-// statistiche robuste (mediane, IQR, regressione) per proiettare il saldo futuro, poi disegna
-// grafico, tabella mesi (espandibili) e card riepilogative. keepExclusions: preserva le esclusioni manuali.
-async function _runForecastSaldo(keepExclusions = false) {
-  const { sensitivity } = _fcParams;
+// Cuore della Previsione Saldo (modello a decomposizione — "pianificate proiettate avanti"):
+//   Saldo futuro = Base oggi
+//                + Pianificate proiettate ai VALORI ATTUALI, mese per mese (stipendio, affitto,
+//                  abbonamenti, eventi annuali/una-tantum)  → visibili e aggiornate
+//                + Spesa variabile tipica dallo storico (SOLO categorie non pianificate, anti
+//                  doppio conteggio)  ± banda d'incertezza (∝ √tempo).
+// Tutta la parte pesante (espansione pianificate, mediane, esclusione categorie) è in
+// Database.getForecastEngine; qui si compone, si spiega ("Come ci arrivo") e si disegna.
+async function _runForecastSaldo() {
   const { histMonths, horizonMonths } = _fcDeriveMonths();
-  const k    = _FC.K_BY_SENS[sensitivity] || 1.5;
-  const out  = document.getElementById('fcOutput');
+  const out = document.getElementById('fcOutput');
   if (!out) return;
-  // Nascondi badge "modifiche in attesa"
-  const _dirtyBadge = document.getElementById('fcDirtyBadge');
-  if (_dirtyBadge) _dirtyBadge.style.display = 'none';
   out.innerHTML = '<div style="text-align:center;padding:40px;color:var(--txt2)">Calcolo in corso…</div>';
 
-  if (!keepExclusions) {
-    _fcManualExcl = new Set();
-    _fcManualIncl = new Set();
-    // tx exclusions persistite in DB — non si resettano con "Calcola previsione"
-  }
-
-  // ── Carica dati mensili + struttura spese + scheduled + tx mesi espansi ────
-  // schedForecast copre mese corrente + horizonMonths mesi futuri
-  const toFetch = [..._fcExpandedMonths].filter(ym => !_fcMonthTxCache[ym]);
-  const [monthlyData, dashStats, expSplit, schedForecast] = await Promise.all([
-    api.getMonthlyBalance(histMonths),
-    api.getDashboardStats(new Date().getFullYear()),
-    api.getForecastExpenseSplit(histMonths),
-    api.getScheduledForecast(horizonMonths + 1),
-    ...toFetch.map(async ym => {
-      const [y, mo] = ym.split('-');
-      const lastDay = new Date(+y, +mo, 0).getDate();
-      const txs = await api.getTransactions({ date_from: `${ym}-01`, date_to: `${ym}-${lastDay}`, limit: 5000 });
-      _fcMonthTxCache[ym] = (txs || [])
-        .filter(t => t.type !== 'transfer')
-        .sort((a, b) => Number(b.amount) - Number(a.amount));
-    }),
-  ]);
-
-  if (!monthlyData?.length) return;
-
-  // ── Escludi mese corrente (incompleto — stipendio arriva il 27) ─────────────
-  const now       = new Date();
-  const currentYm = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
-  const histData  = monthlyData.filter(r => String(r.ym) !== currentYm);
-
-  // Flusso parziale del mese corrente (usato per correggere il saldo storico)
-  const _curRow          = monthlyData.find(r => String(r.ym) === currentYm);
-  const netCurrentPartial = _curRow ? Number(_curRow.income) - Number(_curRow.expense) : 0;
-
-  if (histData.length < 3) {
-    out.innerHTML = '<div class="empty-state"><div class="empty-icon">📊</div><p>Dati insufficienti. Servono almeno 3 mesi di transazioni completati.</p></div>';
+  const wantNet = _fcShowNetWorth;
+  let engine, expSplit;
+  try {
+    [engine, expSplit] = await Promise.all([
+      api.getForecastEngine(histMonths, horizonMonths, wantNet),
+      api.getForecastExpenseSplit(histMonths),
+    ]);
+  } catch (e) {
+    out.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><p>${e.message}</p></div>`;
     return;
   }
 
-  // ── Dati storici ─────────────────────────────────────────────────────────
-  const months   = histData.map(r => String(r.ym));
-  const incomes  = histData.map(r => Number(r.income));
-  const expenses = histData.map(r => Number(r.expense));
+  const history = engine?.history || [];
+  if (history.length < _FC.HIST_MIN) {
+    out.innerHTML = `<div class="empty-state"><div class="empty-icon">📊</div><p>Dati insufficienti: servono almeno ${_FC.HIST_MIN} mesi completati.</p></div>`;
+    return;
+  }
+
+  // ── Storico (per grafico e tabella) ──
+  const months   = history.map(r => String(r.ym));
+  const incomes  = history.map(r => Number(r.income));
+  const expenses = history.map(r => Number(r.expense));
   const nets     = months.map((_, i) => incomes[i] - expenses[i]);
 
-  // ── Aggregati aggiustati (sottratte le tx escluse) ────────────────────────
-  const adjInc = incomes.map((v, i) => v - (_fcTxAdjustments[months[i]]?.incAdj || 0));
-  const adjExp = expenses.map((v, i) => v - (_fcTxAdjustments[months[i]]?.expAdj || 0));
-  const adjNet = months.map((_, i) => adjInc[i] - adjExp[i]);
+  // ── Componenti dal motore ──
+  const dispersion  = Number(engine.dispersion) || 0;
+  const variableNet = Number(engine.variable_net) || 0;
+  const variableInc = Number(engine.variable_income) || 0;
+  const variableExp = Number(engine.variable_expense) || 0;
+  const recurring   = engine.recurring || [];
+  const lumpyEvents = engine.lumpy_events || [];
+  const schedByYm = {};
+  for (const s of (engine.scheduled_future || []))
+    schedByYm[s.ym] = { rec: Number(s.recurring_net) || 0, lumpy: Number(s.lumpy_net) || 0 };
 
-  // ── IQR outlier sui valori aggiustati (entrate, uscite e netto) ─────────
-  // Aggiungere il netto cattura mesi con entrate+uscite singolarmente normali
-  // ma combinazione anomala (es. due spese grosse non outlier da sole).
-  const incOut       = _fcIqrOutliers(adjInc, k);
-  const expOut       = _fcIqrOutliers(adjExp, k);
-  const netOut       = _fcIqrOutliersSigned(adjNet, k);
-  const autoExcluded = new Set(months.filter((_, i) => incOut[i] || expOut[i] || netOut[i]));
+  // ── Base oggi ──
+  // accounts_liquid = somma dei soli conti NON-investment (la liquidità reale). Il valore del
+  // portfolio si aggiunge SOLO in modalità patrimonio, così non si conta due volte (i conti
+  // investment valgono già il portfolio a mercato).
+  const accountsBalance = Number(engine.accounts_liquid) || 0;
+  const portfolioToday  = wantNet && engine.portfolio ? Number(engine.portfolio.portfolio_today) : 0;
+  const baseToday       = accountsBalance + portfolioToday;
 
-  // ── Esclusioni finali: (auto ∪ manuali-esclusi) − manuali-inclusi ─────────
-  const finalExcl = new Set([...autoExcluded, ..._fcManualExcl].filter(m => !_fcManualIncl.has(m)));
-  const isOutlier = months.map(m => finalExcl.has(m));
+  // ── Eventi portfolio (patrimonio): delta patrimonio netto = amount − market_drop ──
+  const portByYm = {};
+  if (wantNet && engine.portfolio) for (const ev of (engine.portfolio.events || []))
+    portByYm[ev.ym] = (portByYm[ev.ym] || 0) + (Number(ev.amount) - Number(ev.market_drop || 0));
 
-  const cleanNets = adjNet.filter((_, i) => !isOutlier[i]);
-  const cleanInc  = adjInc.filter((_, i) => !isOutlier[i]);
-  const cleanExp  = adjExp.filter((_, i) => !isOutlier[i]);
-  const n         = cleanNets.length;
-
-  if (n < 2) {
-    out.innerHTML = '<div class="empty-state"><div class="empty-icon">⚠️</div><p>Troppi mesi esclusi. Riduci la sensibilità outlier o reintegra alcuni mesi.</p></div>';
-    return;
-  }
-
-  // ── Struttura spese: split fisso/saltuario per mese ──────────────────────
-  // monthlySplit: ym → { fixed, sporadic } — da DB, categorie freq≥0.75 = fisse
-  const monthlySplit = {};
-  for (const row of (expSplit?.monthly || [])) {
-    monthlySplit[String(row.ym)] = { fixed: Number(row.fixed_exp), sporadic: Number(row.sporadic_exp) };
-  }
-  const cleanMonthNames = months.filter((_, i) => !isOutlier[i]);
-
-  // ── Statistiche descrittive ───────────────────────────────────────────────
-  const _mean = arr => arr.reduce((a,b) => a+b, 0) / arr.length;
-  const meanInc  = _mean(cleanInc);
-  const meanExp  = _mean(cleanExp);
-  const meanNet  = _mean(cleanNets);
-  const variance = cleanNets.reduce((s,v) => s + (v - meanNet)**2, 0) / n;
-  const stdNet   = Math.sqrt(variance);
-
-  // ── stdBaseline: rimuove il rumore del "quando" arrivano le spese saltuarie ─
-  // Per ogni mese pulito: sostituisce la spesa saltuaria reale con la media attesa.
-  // mean(netNormalizzato) = meanNet (invariato), ma la varianza è minore.
-  const cleanSporadics = cleanMonthNames.map(m => monthlySplit[m]?.sporadic || 0);
-  const meanSporadic   = _mean(cleanSporadics.length ? cleanSporadics : [0]);
-  const meanFixed      = _mean(cleanMonthNames.map(m => monthlySplit[m]?.fixed || 0).filter((_, i) => i < n));
-  const netNormalized  = cleanNets.map((v, ci) => v - cleanSporadics[ci] + meanSporadic);
-  const varBaseline    = netNormalized.reduce((s,v) => s + (v - meanNet)**2, 0) / n;
-  const stdBaseline    = Math.sqrt(varBaseline);
-
-  // CV totale (variabilità reale vissuta) e baseline (struttura prevedibile)
-  const cv         = stdNet      / Math.max(meanInc, 1);
-  const cvBaseline = stdBaseline / Math.max(meanInc, 1);
-
-  // ── Regressione lineare (tendenza del flusso netto) ──────────────────────
-  // Usa gli indici di calendario reali (non 0..n-1) per evitare distorsione
-  // quando i mesi puliti non sono consecutivi (outlier in mezzo alla serie)
-  const cleanIndices = months.map((_, i) => i).filter((_, i) => !isOutlier[i]);
-  const reg = _fcLinReg(cleanNets, cleanIndices);
-
-  // ── Saldo corrente totale ─────────────────────────────────────────────────
-  const currentBalance = Number(dashStats.balance);
-
-  // ── Ricostruzione saldo storico a ritroso dal saldo attuale ─────────────
-  // Punto di partenza: saldo alla fine dell'ultimo mese completato
-  // (currentBalance include le tx parziali del mese corrente — le sottraiamo)
-  const balAtEndOfLastMonth = currentBalance - netCurrentPartial;
+  // ── Ricostruzione saldo storico a ritroso (per il grafico) ──
+  const netCurrentPartial = Number(engine.current_partial_net) || 0;
+  const balEndLastMonth = accountsBalance - netCurrentPartial + portfolioToday;
   const histBal = new Array(months.length);
-  histBal[months.length - 1] = balAtEndOfLastMonth;
-  for (let i = months.length - 2; i >= 0; i--) {
-    histBal[i] = histBal[i + 1] - nets[i + 1];
-  }
+  histBal[months.length - 1] = balEndLastMonth;
+  for (let i = months.length - 2; i >= 0; i--) histBal[i] = histBal[i+1] - nets[i+1];
 
-  // ── Pianificate future: delta per mese rispetto alla media scheduled ─────
-  // schedForecast = [{ ym, sched_income, sched_expense, sched_income_remaining,
-  //                   sched_expense_remaining }, …] indice 0 = mese corrente
-  const schedFc        = Array.isArray(schedForecast) ? schedForecast : [];
-  const schedNet       = schedFc.map(r => Number(r.sched_income)           - Number(r.sched_expense));
-  const schedRemNet    = schedFc.map(r => Number(r.sched_income_remaining) - Number(r.sched_expense_remaining));
-  // Media calcolata sui soli mesi pieni futuri (escluso il corrente parziale)
-  const _fullFutSched  = schedNet.slice(1);
-  const schedAvg       = _fullFutSched.length
-    ? _fullFutSched.reduce((a, b) => a + b, 0) / _fullFutSched.length : 0;
-  // Componente "residuale" = parte di meanNet attribuibile al non-scheduled.
-  // Assumiamo che le scheduled future siano rappresentative del flusso scheduled
-  // storico — se così è, sottraendo schedAvg dal meanNet otteniamo il flusso
-  // saltuario + variabile. Su questa base aggiungiamo poi i singoli mesi.
-  const residualMean   = meanNet - schedAvg;
-
-  // ── Proiezione futura con IC 90% (crescita errore √t) ───────────────────
-  // Modello per ogni mese futuro m (incluso il mese corrente al primo punto):
-  //   Δbal(m) = residualMean + schedNet(m) + slope * R² * exp(-λ·(τ-1))
-  // dove τ è il tempo trascorso dal momento "saldo attuale" misurato in mesi
-  // (mese corrente parziale = fractionRemaining, mese m completo = m).
-  // schedNet(m) sostituisce il "valor medio scheduled": i picchi (rate annuali,
-  // tredicesime) escono come spike/scalini nella curva, invece di essere mediati.
-  // Il trend decade esponenzialmente (dimezza ogni TREND_HALFLIFE mesi) per
-  // evitare estrapolazioni irrealistiche su orizzonti lunghi.
-  //
-  // Primo punto = fine del mese corrente:
-  //   parte già accaduta è in currentBalance (ricavata da dashStats),
-  //   aggiungiamo scheduled rimanenti del mese corrente + residuo prorata.
-  const daysInCurMonth   = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
-  const daysRemaining    = Math.max(0, daysInCurMonth - now.getDate() + 1);
+  // ── Proiezione fine-mese ──
+  const now = new Date();
+  const daysInCurMonth    = new Date(now.getFullYear(), now.getMonth()+1, 0).getDate();
+  const daysRemaining     = Math.max(0, daysInCurMonth - now.getDate() + 1);
   const fractionRemaining = daysRemaining / daysInCurMonth;
-  const schedRemCur      = schedRemNet[0] || 0;
-  // residuo + trend (anch'esso prorata per la frazione rimanente, decay=1 perché τ≈0)
-  const balEndCurMonth   = currentBalance
-                          + schedRemCur
-                          + (residualMean + reg.slope * reg.r2) * fractionRemaining;
-  const curYm            = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
 
   const projLabels = [], projBal = [], projHigh = [], projLow = [];
-  // Primo punto: mese corrente completato
-  projLabels.push(curYm);
-  projBal.push(balEndCurMonth);
-  const m0Margin = _FC.Z90 * stdBaseline * Math.sqrt(Math.max(fractionRemaining, 0.0001));
-  projHigh.push(balEndCurMonth + m0Margin);
-  projLow .push(balEndCurMonth - m0Margin);
-  let bal = balEndCurMonth;
-
-  // Mesi successivi: parte da i=1 (= mese corrente+1) fino a horizonMonths-1
-  for (let i = 1; i < horizonMonths; i++) {
+  let bal = baseToday, recTotal = 0, lumpyTotal = 0, varTotal = 0, portTotal = 0;
+  for (let i = 0; i < horizonMonths; i++) {
     const d  = new Date(now.getFullYear(), now.getMonth() + i, 1);
     const ym = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
-    const trendDecay = reg.r2 * Math.exp(-_FC.TREND_DECAY * (i - 1));
-    const monthSchedNet = schedNet[i] != null ? schedNet[i] : schedAvg;
-    bal += residualMean + monthSchedNet + reg.slope * trendDecay;
-    const margin = _FC.Z90 * stdBaseline * Math.sqrt(fractionRemaining + i);
-    projLabels.push(ym);
-    projBal.push(bal);
-    projHigh.push(bal + margin);
-    projLow .push(bal - margin);
+    const sf = schedByYm[ym] || { rec: 0, lumpy: 0 };
+    const varFlow = variableNet * (i === 0 ? fractionRemaining : 1);  // mese corrente prorata
+    const port = portByYm[ym] || 0;
+    bal += sf.rec + sf.lumpy + varFlow + port;
+    recTotal += sf.rec; lumpyTotal += sf.lumpy; varTotal += varFlow; portTotal += port;
+    const t = i === 0 ? Math.max(fractionRemaining, 0.0001) : fractionRemaining + i;
+    const margin = _FC.Z90 * dispersion * Math.sqrt(t);
+    projLabels.push(ym); projBal.push(bal);
+    projHigh.push(bal + margin); projLow.push(bal - margin);
   }
 
-  // ── Affidabilità composita ────────────────────────────────────────────────
-  // Compone tre fattori che pesano in modo complementare:
-  //   45% stabilità strutturale (cvBaseline — al netto del rumore saltuario)
-  //   25% bontà del fit lineare (R²)
-  //   30% quantità di dati storici usati
-  const cvScore     = Math.max(0, 1 - Math.min(cvBaseline, 2) / 2);
-  const r2Score     = Math.max(0, reg.r2);
-  const nScore      = Math.min(n / histMonths, 1);
-  const reliability = (cvScore * 0.45 + r2Score * 0.25 + nScore * 0.30) * 100;
-  // Precisione del flusso: stima della variabilità "vissuta" (cv totale).
-  // Va mostrata come info diagnostica, non come metrica primaria.
-  const precision   = Math.max(0, Math.min(100, (1 - cv) * 100));
-
-  const outlierCount  = isOutlier.filter(Boolean).length;
-  const autoNormCnt   = months.filter(m => autoExcluded.has(m) && !finalExcl.has(m)).length;
-  const manualReiCnt  = months.filter(m => _fcManualIncl.has(m)).length;
-  const manualExclCnt = months.filter(m => _fcManualExcl.has(m) && !autoExcluded.has(m)).length;
-  const txAdjCnt      = months.filter(m => (_fcTxAdjustments[m]?.incAdj||0)+(_fcTxAdjustments[m]?.expAdj||0) > 0).length;
-  const trendLabel    = reg.slope >  50 ? '↑ Crescente'
-                      : reg.slope < -50 ? '↓ Decrescente' : '→ Stabile';
-
-  // ── Colori ───────────────────────────────────────────────────────────────
-  const relColor   = reliability >= 70 ? 'var(--income)' : reliability >= 45 ? 'var(--warn)' : 'var(--expense)';
-  const netColor   = meanNet  >= 0 ? 'var(--income)' : 'var(--expense)';
-  const slopeColor = reg.slope >= 0 ? 'var(--income)' : 'var(--expense)';
   const finalBal   = projBal.at(-1);
-  const finalDelta = finalBal - currentBalance;
+  const finalDelta = finalBal - baseToday;
   const finalColor = finalDelta >= 0 ? 'var(--income)' : 'var(--expense)';
 
-  // ── Insight automatici ───────────────────────────────────────────────────
-  // Bullet-style messaggi che evidenziano la previsione in linguaggio umano.
-  const insights = [];
-  const _absDelta = Math.abs(finalDelta);
-  const _deltaSign = finalDelta >= 0 ? '+' : '−';
-  const _trendVerbo = finalDelta >=  500 ? 'crescerà'
-                    : finalDelta <= -500 ? 'calerà'
-                                         : 'resterà stabile';
-  insights.push({
-    icon: finalDelta >=  500 ? '📈'
-        : finalDelta <= -500 ? '📉' : '→',
-    color: finalColor,
-    text: `Saldo previsto a ${horizonMonths} mesi: <b>${fmt.currency(finalBal)}</b> ` +
-          `(${_trendVerbo} di <b>${_deltaSign}${fmt.currency(_absDelta)}</b> vs oggi).`
-  });
-  // Range IC al termine dell'orizzonte
-  insights.push({
-    icon: '🎯',
-    color: 'var(--txt2)',
-    text: `Range realistico (90% di confidenza): da <b>${fmt.currency(projLow.at(-1))}</b> ` +
-          `a <b>${fmt.currency(projHigh.at(-1))}</b>.`
-  });
-  // Rischio sotto zero entro l'orizzonte (stima sul limite inferiore IC)
-  const _firstBelowZero = projLow.findIndex(v => v < 0);
-  if (_firstBelowZero >= 0) {
-    insights.push({
-      icon: '⚠',
-      color: 'var(--expense)',
-      text: `Possibile rischio saldo negativo entro <b>${_firstBelowZero + 1} mesi</b> ` +
-            `(scenario sfavorevole IC 90%).`
-    });
-  } else if (projBal.at(-1) < currentBalance * 0.5 && currentBalance > 0) {
-    insights.push({
-      icon: '⚠',
-      color: 'var(--warn)',
-      text: `Saldo previsto < 50% di quello attuale: valutare se ridurre spese o aumentare entrate.`
-    });
+  // ── Metriche "mese tipico" (ricorrenti normalizzate + variabile) ──
+  let recIncMonthly = 0, recExpMonthly = 0;
+  for (const r of recurring) {
+    const v = Number(r.monthly_amount) || 0;
+    if (r.type === 'income') recIncMonthly += v; else recExpMonthly += -v;
   }
-  // Affidabilità bassa → invita ad allargare lo storico
-  if (reliability < 45) {
-    insights.push({
-      icon: '🔍',
-      color: 'var(--warn)',
-      text: `Affidabilità modello bassa (${reliability.toFixed(0)}%). ` +
-            `Allarga lo storico o normalizza i mesi anomali per stime più solide.`
-    });
-  }
-  // Picchi scheduled future (delta > 1.5x stdBaseline) — colonna a parte
-  const _schedPeaks = [];
-  for (let i = 1; i < schedNet.length && i <= horizonMonths; i++) {
-    const delta = schedNet[i] - schedAvg;
-    if (Math.abs(delta) > 1.5 * stdBaseline && Math.abs(delta) > 300) {
-      _schedPeaks.push({ ym: schedFc[i].ym, delta });
-    }
-  }
+  const typIncome  = recIncMonthly + variableInc;
+  const typExpense = recExpMonthly + variableExp;
+  const typicalNet = typIncome - typExpense;
+  const netColor   = typicalNet >= 0 ? 'var(--income)' : 'var(--expense)';
+  const savingsRate = typIncome > 0 ? (typicalNet / typIncome) * 100 : 0;
+  const runwayMonths = typicalNet < 0 && baseToday > 0 ? Math.floor(baseToday / -typicalNet) : null;
+  const modeLabel  = wantNet ? 'patrimonio netto' : 'saldo conti';
 
-  // ── Helper: etichetta stato cella mese ────────────────────────────────────
-  const _monthStato = m => {
-    const hasTxAdj = (_fcTxAdjustments[m]?.incAdj||0)+(_fcTxAdjustments[m]?.expAdj||0) > 0;
-    if (_fcManualExcl.has(m))                       return '<span style="color:var(--expense);font-size:11px">✕ escluso</span>';
-    if (_fcManualIncl.has(m))                       return '<span style="color:var(--income);font-size:11px">✓ reintegrato</span>';
-    if (autoExcluded.has(m) && finalExcl.has(m))   return '<span style="color:var(--warn);font-size:11px">⚠ anomalo</span>';
-    if (autoExcluded.has(m) && !finalExcl.has(m))  return '<span style="color:var(--income);font-size:11px">✓ normalizzato</span>';
-    if (hasTxAdj)                                   return '<span style="color:var(--txt2);font-size:11px">✂ tx escluse</span>';
-    return '';
-  };
+  const signCur = v => (v >= 0 ? '+' : '−') + fmt.currency(Math.abs(v));
 
-  // ── Helper: sub-tabella transazioni per mese espanso ─────────────────────
-  // sub-tabella tx: usa la funzione di modulo _fcBuildTxSubrow
-
-  // ── Render ────────────────────────────────────────────────────────────────
-  // Hero card: la previsione è la cosa principale, sta in alto e grande
+  // ── Render ──────────────────────────────────────────────────────────────────
   const heroBg = finalDelta >= 0
     ? 'linear-gradient(135deg, rgba(80,200,120,.10), rgba(80,200,120,.02))'
     : 'linear-gradient(135deg, rgba(240,80,80,.10), rgba(240,80,80,.02))';
   const heroBorder = finalDelta >= 0 ? 'rgba(80,200,120,.35)' : 'rgba(240,80,80,.35)';
+
+  const decRow = (label, value, color, strong) => `
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:16px;padding:7px 0;border-bottom:1px solid var(--border)">
+      <span style="${strong?'font-weight:700':'color:var(--txt2)'}">${label}</span>
+      <span style="font-variant-numeric:tabular-nums;font-weight:${strong?'700':'600'};${color?`color:${color}`:''};white-space:nowrap">${value}</span>
+    </div>`;
+
+  // Sottolista pianificate ricorrenti (stipendio, affitto, abbonamenti…)
+  const recListHtml = recurring.length ? `
+    <div style="margin:4px 0 10px;padding:8px 10px;background:var(--bg3);border-radius:8px;max-height:180px;overflow-y:auto">
+      ${recurring.map(r => `<div style="display:flex;justify-content:space-between;gap:12px;font-size:12px;padding:2px 0">
+        <span style="color:var(--txt2)">${r.description || (r.type==='income'?'Entrata':'Uscita')}</span>
+        <span style="font-variant-numeric:tabular-nums;color:${Number(r.monthly_amount)>=0?'var(--income)':'var(--expense)'};white-space:nowrap">${signCur(Number(r.monthly_amount))}/mese</span>
+      </div>`).join('')}
+    </div>` : `<div style="font-size:12px;color:var(--txt3);padding:2px 0 10px">Nessuna pianificata ricorrente attiva.</div>`;
+
+  // Sottolista eventi annuali/una-tantum (datati)
+  const lumpyListHtml = lumpyEvents.length ? `
+    <div style="margin:4px 0 10px;padding:8px 10px;background:var(--bg3);border-radius:8px;max-height:150px;overflow-y:auto">
+      ${lumpyEvents.map(e => `<div style="display:flex;justify-content:space-between;gap:12px;font-size:12px;padding:2px 0">
+        <span style="color:var(--txt2)"><b style="color:var(--txt);font-weight:600">${e.ym}</b> · ${e.description||'Evento'}</span>
+        <span style="font-variant-numeric:tabular-nums;color:${Number(e.amount)>=0?'var(--income)':'var(--expense)'};white-space:nowrap">${signCur(Number(e.amount))}</span>
+      </div>`).join('')}
+    </div>` : `<div style="font-size:12px;color:var(--txt3);padding:2px 0 10px">Nessun evento annuale/una-tantum nel periodo.</div>`;
 
   out.innerHTML = `
     <div class="card" style="padding:18px 20px;margin-bottom:16px;background:${heroBg};border-left:4px solid ${heroBorder}">
       <div style="display:flex;flex-wrap:wrap;gap:24px;align-items:center;justify-content:space-between">
         <div style="flex:1;min-width:240px">
           <div style="font-size:11px;color:var(--txt2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">
-            Saldo previsto fra ${horizonMonths} mesi
+            ${modeLabel} previsto fra ${horizonMonths} mesi
           </div>
-          <div style="font-size:26px;font-weight:700;color:var(--txt);line-height:1.1">
-            ${fmt.currency(finalBal)}
-          </div>
+          <div style="font-size:26px;font-weight:700;color:var(--txt);line-height:1.1">${fmt.currency(finalBal)}</div>
           <div style="font-size:13px;color:${finalColor};margin-top:4px;font-weight:600">
-            ${finalDelta>=0?'▲ +':'▼ '}${fmt.currency(finalDelta)} vs oggi (${fmt.currency(currentBalance)})
+            ${finalDelta>=0?'▲ +':'▼ '}${fmt.currency(finalDelta)} vs oggi (${fmt.currency(baseToday)})
           </div>
         </div>
         <div style="text-align:right;min-width:200px">
-          <div style="font-size:11px;color:var(--txt2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">
-            Range (IC 90%)
-          </div>
-          <div style="font-size:15px;font-weight:600;color:var(--txt)">
-            ${fmt.currency(projLow.at(-1))} ↔ ${fmt.currency(projHigh.at(-1))}
-          </div>
-          <div style="font-size:12px;color:var(--txt2);margin-top:4px">
-            Affidabilità: <b style="color:${relColor}">${reliability.toFixed(0)}%</b>
-            <span style="opacity:.7;font-size:11px">(prec. ${precision.toFixed(0)}%)</span>
-          </div>
+          <div style="font-size:11px;color:var(--txt2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">Range (IC 90%)</div>
+          <div style="font-size:15px;font-weight:600;color:var(--txt)">${fmt.currency(projLow.at(-1))} ↔ ${fmt.currency(projHigh.at(-1))}</div>
+          <div style="font-size:12px;color:var(--txt2);margin-top:4px">Variabilità mensile ± ${fmt.currency(dispersion)}</div>
         </div>
       </div>
     </div>
 
-    ${insights.length || _schedPeaks.length ? `
-    <div class="card" style="padding:12px 16px;margin-bottom:16px">
-      <div style="display:grid;grid-template-columns:${_schedPeaks.length ? '1fr 1fr' : '1fr'};gap:18px">
-        <div>
-          ${insights.map(ins => `
-            <div style="display:flex;gap:10px;align-items:flex-start;padding:4px 0;font-size:13px;color:var(--txt)">
-              <span style="color:${ins.color};flex-shrink:0;font-size:14px">${ins.icon}</span>
-              <span>${ins.text}</span>
-            </div>
-          `).join('')}
-        </div>
-        ${_schedPeaks.length ? `
-        <div style="border-left:1px solid var(--border);padding-left:16px">
-          <div style="font-size:11px;font-weight:700;color:var(--txt2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:4px">
-            Picchi pianificati (${_schedPeaks.length})
-          </div>
-          <div style="font-size:11px;color:var(--txt2);margin-bottom:8px;line-height:1.4"
-               title="Soglia per essere flaggato: |delta| &gt; max(1.5·σ_baseline, 300 €)">
-            Media scheduled: <b style="color:${schedAvg >= 0 ? 'var(--income)' : 'var(--expense)'}">${schedAvg >= 0 ? '+' : ''}${fmt.currency(schedAvg)}</b>/mese
-            <span style="opacity:.7">· soglia ±${fmt.currency(Math.max(1.5 * stdBaseline, 300))}</span>
-          </div>
-          <div style="display:grid;grid-template-columns:auto auto 1fr;gap:4px 10px;font-size:12px;align-items:center">
-            ${_schedPeaks.map(p => `
-              <span style="font-size:14px;line-height:1">${p.delta >= 0 ? '💰' : '💸'}</span>
-              <span style="color:var(--txt2);font-weight:600">${p.ym}</span>
-              <span style="color:${p.delta >= 0 ? 'var(--income)' : 'var(--expense)'};font-weight:600;text-align:right">
-                ${p.delta >= 0 ? '+' : ''}${fmt.currency(p.delta)}
-              </span>
-            `).join('')}
-          </div>
-        </div>` : ''}
+    <div class="card" style="padding:16px 18px;margin-bottom:16px">
+      <div style="font-size:13px;font-weight:600;margin-bottom:10px">🧩 Come ci arrivo</div>
+      ${decRow(`Base oggi (conti${wantNet?' + portfolio':''})`, fmt.currency(baseToday), '', false)}
+      ${decRow('Pianificate ricorrenti', signCur(recTotal), recTotal>=0?'var(--income)':'var(--expense)', false)}
+      ${recListHtml}
+      ${decRow('Eventi annuali / una-tantum', signCur(lumpyTotal), lumpyTotal>=0?'var(--income)':'var(--expense)', false)}
+      ${lumpyListHtml}
+      ${decRow('Spese variabili tipiche (storico)', signCur(varTotal), varTotal>=0?'var(--income)':'var(--expense)', false)}
+      ${wantNet ? decRow('Cedole / rimborsi bond', signCur(portTotal), portTotal>=0?'var(--income)':'var(--expense)', false) : ''}
+      ${decRow(`Saldo previsto fra ${horizonMonths} mesi`, fmt.currency(finalBal), 'var(--accent)', true)}
+      <div style="font-size:11px;color:var(--txt3);margin-top:8px">
+        Le pianificate sono proiettate ai valori attuali (un aumento di stipendio si riflette subito).
+        La "spesa variabile" è la mediana dello storico nelle sole categorie NON pianificate: così non
+        conta due volte ciò che è già pianificato.
       </div>
-    </div>` : ''}
-
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px;margin-bottom:16px">
-      ${_fcCard('Entrate medie/mese',  fmt.currency(meanInc),  'var(--income)')}
-      ${_fcCard('Uscite medie/mese',   fmt.currency(meanExp),  'var(--expense)')}
-      ${_fcCard('Flusso netto medio',  (meanNet>=0?'+':'')+fmt.currency(meanNet), netColor)}
-      ${_fcCard('Trend mensile',       (reg.slope>=0?'+':'')+fmt.currency(reg.slope)+'/m', slopeColor)}
     </div>
 
     <div class="card" style="padding:16px;margin-bottom:16px">
-      <div style="font-size:14px;font-weight:600;margin-bottom:14px">Andamento saldo — storico &amp; previsione</div>
+      <div style="font-size:14px;font-weight:600;margin-bottom:14px">Andamento ${modeLabel} — storico &amp; previsione</div>
       <canvas id="fcChartCanvas" style="max-height:340px"></canvas>
     </div>
 
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">
-      <div class="card" style="padding:16px">
-        <div style="font-size:13px;font-weight:600;margin-bottom:12px;color:var(--txt2)">Statistiche modello</div>
-        <table style="width:100%;font-size:12px;border-collapse:collapse">
-          ${_fcRow('Mesi analizzati',               months.length)}
-          ${_fcRow('Mesi usati nel calcolo',        n)}
-          ${_fcRow('Mesi esclusi totale',           outlierCount, outlierCount > 0 ? 'var(--warn)' : '')}
-          ${autoNormCnt   > 0 ? _fcRow('Normalizzati via tx escluse', autoNormCnt,   'var(--income)') : ''}
-          ${manualReiCnt  > 0 ? _fcRow('Reintegrati manualmente',     manualReiCnt,  'var(--income)') : ''}
-          ${manualExclCnt > 0 ? _fcRow('Esclusi manualmente',         manualExclCnt, 'var(--expense)') : ''}
-          ${txAdjCnt      > 0 ? _fcRow('Mesi con tx escluse',         txAdjCnt,      'var(--txt2)') : ''}
-          ${_fcRow('Std flusso totale',              fmt.currency(stdNet))}
-          ${_fcRow('Std strutturale (baseline)',    fmt.currency(stdBaseline))}
-          ${_fcRow('Variabilità totale/entrate',   (cv*100).toFixed(1)+'%')}
-          ${_fcRow('Variabilità strutturale',      (cvBaseline*100).toFixed(1)+'%')}
-          ${_fcRow('Spese fisse medie/mese',        fmt.currency(meanFixed))}
-          ${_fcRow('Spese saltuarie medie/mese',    fmt.currency(meanSporadic))}
-          ${_fcRow('R² regressione lineare',        reg.r2.toFixed(3))}
-          ${_fcRow('Tendenza rilevata',             trendLabel)}
-        </table>
-      </div>
-      <div class="card" style="padding:16px">
-        <div style="font-size:13px;font-weight:600;margin-bottom:12px;color:var(--txt2)">Margini d'errore IC 90%</div>
-        <table style="width:100%;font-size:12px;border-collapse:collapse">
-          ${_fcRow('Errore a  1 mese',  '± '+fmt.currency(_FC.Z90*stdBaseline*Math.sqrt(1)))}
-          ${_fcRow('Errore a  3 mesi',  '± '+fmt.currency(_FC.Z90*stdBaseline*Math.sqrt(3)))}
-          ${_fcRow('Errore a  6 mesi',  '± '+fmt.currency(_FC.Z90*stdBaseline*Math.sqrt(6)))}
-          ${_fcRow('Errore a 12 mesi',  '± '+fmt.currency(_FC.Z90*stdBaseline*Math.sqrt(12)))}
-          <tr><td colspan="2" style="padding:4px 0;border-top:1px solid var(--border)"></td></tr>
-          ${_fcRow('Scheduled medie/mese (futuro)', (schedAvg>=0?'+':'')+fmt.currency(schedAvg))}
-          ${_fcRow('Residuo non-scheduled',         (residualMean>=0?'+':'')+fmt.currency(residualMean))}
-          ${_fcRow('Limite inferiore IC', fmt.currency(projLow.at(-1)))}
-          ${_fcRow('Limite superiore IC', fmt.currency(projHigh.at(-1)))}
-        </table>
-      </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px">
+      ${_fcCard('Flusso tipico/mese', signCur(typicalNet), netColor)}
+      ${_fcCard('Entrate tipiche/mese', fmt.currency(typIncome), 'var(--income)')}
+      ${_fcCard('Uscite tipiche/mese', fmt.currency(typExpense), 'var(--expense)')}
+      ${_fcCard('Tasso di risparmio', savingsRate.toFixed(0)+'%', savingsRate>=0?'var(--income)':'var(--expense)')}
+      ${runwayMonths != null ? _fcCard('Autonomia (runway)', runwayMonths+' mesi', 'var(--warn)') : ''}
     </div>
 
     ${(() => {
@@ -3091,8 +2836,7 @@ async function _runForecastSaldo(keepExclusions = false) {
           `<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--border);font-size:11px">
             <span style="color:var(--txt)">${c.name}</span>
             <span style="color:${color};font-weight:600;white-space:nowrap;margin-left:8px">${fmt.currency(c.avg_monthly)}/m</span>
-          </div>`
-        ).join('');
+          </div>`).join('');
         const totAvg = list.reduce((s, c) => s + Number(c.avg_monthly), 0);
         return `<div>
           <div style="font-size:11px;font-weight:700;color:${color};margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">${title}</div>
@@ -3103,142 +2847,74 @@ async function _runForecastSaldo(keepExclusions = false) {
       return `<div class="card" style="padding:16px;margin-bottom:16px">
         <div style="font-size:13px;font-weight:600;margin-bottom:14px;color:var(--txt2)">Struttura spese per categoria</div>
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:20px">
-          ${col('Fisse (ogni mese)',     'var(--income)',  fisse)}
-          ${col('Periodiche (40-75%)',   'var(--warn)',    periodiche)}
-          ${col('Saltuarie (<40%)',      'var(--expense)', saltuarie)}
+          ${col('Fisse (ogni mese)',   'var(--income)',  fisse)}
+          ${col('Periodiche (40-75%)', 'var(--warn)',    periodiche)}
+          ${col('Saltuarie (<40%)',    'var(--expense)', saltuarie)}
         </div>
       </div>`;
     })()}
 
-    ${outlierCount > 0 || autoNormCnt > 0 ? `
-    <div class="card" style="padding:16px;margin-bottom:16px;border-left:3px solid var(--warn)">
-      <div style="font-size:13px;font-weight:600;margin-bottom:6px;color:var(--warn)">⚠ Mesi anomali — gestione esclusioni</div>
-      <div style="font-size:12px;color:var(--txt2);margin-bottom:10px">
-        Mesi con valori anomali (IQR k=${k}). Clicca ▶ per espandere e vedere le singole transazioni — escludine una per normalizzare il mese.
-      </div>
-      <div style="display:flex;flex-wrap:wrap;gap:6px">
-        ${months.map(m => {
-          const isAuto = autoExcluded.has(m);
-          const isExcl = finalExcl.has(m);
-          if (!isAuto && !_fcManualExcl.has(m)) return '';
-          if (isAuto && isExcl)  return `<span style="background:rgba(255,208,64,.12);border:1px solid var(--warn);border-radius:4px;padding:2px 10px;font-size:12px;font-weight:600;color:var(--warn)">${m} ⚠</span>`;
-          if (isAuto && !isExcl) return `<span style="background:rgba(80,200,120,.12);border:1px solid var(--income);border-radius:4px;padding:2px 10px;font-size:12px;font-weight:600;color:var(--income)">${m} ✓</span>`;
-          return `<span style="background:rgba(240,80,80,.1);border:1px solid var(--expense);border-radius:4px;padding:2px 10px;font-size:12px;font-weight:600;color:var(--expense)">${m} ✕</span>`;
-        }).join('')}
-      </div>
-    </div>` : ''}
-
     <div class="card" style="padding:16px">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
-        <div style="font-size:13px;font-weight:600;color:var(--txt2)">Dettaglio storico mensile</div>
-        <div style="font-size:11px;color:var(--txt2)">▶ per vedere le transazioni del mese</div>
-      </div>
+      <div style="font-size:13px;font-weight:600;color:var(--txt2);margin-bottom:12px">Dettaglio storico mensile</div>
       <div style="overflow-x:auto">
         <table style="width:100%;font-size:12px;border-collapse:collapse">
           <thead><tr style="color:var(--txt2);border-bottom:1px solid var(--border)">
-            <th style="padding:6px 4px;width:24px"></th>
             <th style="padding:6px 8px;text-align:left">Mese</th>
             <th style="padding:6px 8px;text-align:right">Entrate</th>
             <th style="padding:6px 8px;text-align:right">Uscite</th>
             <th style="padding:6px 8px;text-align:right">Flusso netto</th>
             <th style="padding:6px 8px;text-align:right">Saldo stimato</th>
-            <th style="padding:6px 8px;text-align:center">Stato</th>
-            <th style="padding:6px 8px;text-align:center" title="Escludi mese intero">Escludi</th>
+            <th style="padding:6px 8px;text-align:center">Note</th>
           </tr></thead>
           <tbody>
             ${months.map((m, i) => {
-              const isExcl   = finalExcl.has(m);
-              const expanded = _fcExpandedMonths.has(m);
-              const incDiff  = Math.abs(adjInc[i] - incomes[i]) > 0.005;
-              const expDiff  = Math.abs(adjExp[i] - expenses[i]) > 0.005;
-              const dispNet  = adjNet[i];
-              const monthRow = `<tr id="fcRow-${m}" style="${isExcl?'opacity:.45;':''}border-bottom:${expanded?'none':'1px solid var(--border)'}">
-                <td style="padding:5px 4px;text-align:center">
-                  <button id="fcExpBtn-${m}" onclick="_fcToggleExpand('${m}')"
-                    style="background:none;border:none;cursor:pointer;color:var(--accent);font-size:11px;padding:2px 4px;border-radius:3px"
-                    title="Mostra/nascondi transazioni">
-                    ${expanded?'▼':'▶'}
-                  </button>
-                </td>
+              const unusual = dispersion > 0 && Math.abs(nets[i] - (typicalNet)) > 2 * dispersion;
+              return `<tr style="border-bottom:1px solid var(--border)">
                 <td style="padding:5px 8px;font-weight:600">${m}</td>
-                <td style="padding:5px 8px;text-align:right;color:var(--income)">
-                  ${fmt.currency(adjInc[i])}
-                  ${incDiff ? `<br><span style="font-size:10px;opacity:.6">orig ${fmt.currency(incomes[i])}</span>` : ''}
-                </td>
-                <td style="padding:5px 8px;text-align:right;color:var(--expense)">
-                  ${fmt.currency(adjExp[i])}
-                  ${expDiff ? `<br><span style="font-size:10px;opacity:.6">orig ${fmt.currency(expenses[i])}</span>` : ''}
-                </td>
-                <td style="padding:5px 8px;text-align:right;font-weight:600;color:${dispNet>=0?'var(--income)':'var(--expense)'}">
-                  ${dispNet>=0?'+':''}${fmt.currency(dispNet)}
-                </td>
+                <td style="padding:5px 8px;text-align:right;color:var(--income)">${fmt.currency(incomes[i])}</td>
+                <td style="padding:5px 8px;text-align:right;color:var(--expense)">${fmt.currency(expenses[i])}</td>
+                <td style="padding:5px 8px;text-align:right;font-weight:600;color:${nets[i]>=0?'var(--income)':'var(--expense)'}">${signCur(nets[i])}</td>
                 <td style="padding:5px 8px;text-align:right">${fmt.currency(histBal[i])}</td>
-                <td style="padding:5px 8px;text-align:center">${_monthStato(m)}</td>
-                <td style="padding:5px 8px;text-align:center">
-                  <input type="checkbox" ${isExcl?'checked':''} onchange="_fcToggleMonth('${m}',this.checked)"
-                    title="${isExcl?'Reintegra mese nel calcolo':'Escludi mese intero dal calcolo'}"
-                    style="cursor:pointer;width:14px;height:14px">
-                </td>
+                <td style="padding:5px 8px;text-align:center">${unusual?'<span style="color:var(--warn);font-size:11px" title="Netto lontano dal mese tipico">⚠ insolito</span>':''}</td>
               </tr>`;
-              return monthRow + (expanded ? _fcBuildTxSubrow(m) : '');
             }).join('')}
           </tbody>
         </table>
       </div>
     </div>`;
 
-  // ── Chart.js ─────────────────────────────────────────────────────────────
-  // Salva posizione scroll prima che il re-render sposti la pagina
+  // ── Chart.js ──────────────────────────────────────────────────────────────
   const _savedScrollY = window.scrollY || document.documentElement.scrollTop;
   if (_fcChart) { _fcChart.destroy(); _fcChart = null; }
 
-  const allLabels   = [...months, ...projLabels];
-  const nHist       = months.length;
-  const connPad     = Array(nHist - 1).fill(null);   // null fino al penultimo storico
+  const allLabels = [...months, ...projLabels];
+  const nHist     = months.length;
+  const connPad   = Array(nHist - 1).fill(null);   // null fino al penultimo storico
 
-  // dataset 0: saldo storico (linea grigia, solo passato)
-  const dsHist      = [...histBal, ...Array(horizonMonths).fill(null)];
-  // dataset 1: banda superiore IC (fill verso dataset 2)
-  const dsHigh      = [...connPad, balAtEndOfLastMonth, ...projHigh];
-  // dataset 2: banda inferiore IC
-  const dsLow       = [...connPad, balAtEndOfLastMonth, ...projLow];
-  // dataset 3: saldo previsto (linea tratteggiata accent)
-  const dsProj      = [...connPad, balAtEndOfLastMonth, ...projBal];
-  // dataset 4: marcatori outlier (triangoli gialli sulla linea storica)
-  const dsOutlier   = [...histBal.map((v,i) => isOutlier[i] ? v : null), ...Array(horizonMonths).fill(null)];
+  const dsHist = [...histBal, ...Array(horizonMonths).fill(null)];
+  const dsHigh = [...connPad, balEndLastMonth, ...projHigh];
+  const dsLow  = [...connPad, balEndLastMonth, ...projLow];
+  const dsProj = [...connPad, balEndLastMonth, ...projBal];
 
-  // ── Auto-fit asse Y: include banda IC e punti storici, con padding ──────
-  const _allY = [...histBal, ...projBal, ...projHigh, ...projLow]
-    .filter(v => v != null && Number.isFinite(v));
-  const yMin = Math.min(..._allY);
-  const yMax = Math.max(..._allY);
+  const _allY = [...histBal, ...projBal, ...projHigh, ...projLow].filter(v => v != null && Number.isFinite(v));
+  const yMin = Math.min(..._allY), yMax = Math.max(..._allY);
   const yPad = Math.max(50, (yMax - yMin) * 0.07);
 
-  // Risolvi CSS vars al runtime (il canvas Chart.js non interpreta var(--…))
-  const _css      = getComputedStyle(document.documentElement);
+  const _css       = getComputedStyle(document.documentElement);
   const _accentCol = _css.getPropertyValue('--accent').trim() || '#4a9eff';
   const _txt2Col   = _css.getPropertyValue('--txt2').trim()   || '#888';
 
-  // Plugin inline: linea verticale "oggi" tra storico e proiezione
   const todayLinePlugin = {
     id: 'fcTodayLine',
     afterDatasetsDraw(chart) {
       const xS = chart.scales.x, yS = chart.scales.y;
       if (!xS || !yS) return;
-      // Posizione: a cavallo tra ultimo storico (idx nHist-1) e primo proj (idx nHist)
       const xPos = (xS.getPixelForValue(nHist - 1) + xS.getPixelForValue(nHist)) / 2;
       const c = chart.ctx;
       c.save();
-      c.beginPath();
-      c.setLineDash([4, 4]);
-      c.strokeStyle = _accentCol;
-      c.lineWidth = 1.2;
-      c.moveTo(xPos, yS.top);
-      c.lineTo(xPos, yS.bottom);
-      c.stroke();
-      c.setLineDash([]);
-      c.fillStyle = _accentCol;
-      c.font = '11px sans-serif';
+      c.beginPath(); c.setLineDash([4, 4]); c.strokeStyle = _accentCol; c.lineWidth = 1.2;
+      c.moveTo(xPos, yS.top); c.lineTo(xPos, yS.bottom); c.stroke();
+      c.setLineDash([]); c.fillStyle = _accentCol; c.font = '11px sans-serif';
       c.fillText('oggi', xPos + 4, yS.top + 12);
       c.restore();
     },
@@ -3251,258 +2927,43 @@ async function _runForecastSaldo(keepExclusions = false) {
     data: {
       labels: allLabels,
       datasets: [
-        { label: 'Saldo storico',
-          data: dsHist, borderColor: _txt2Col, borderWidth: 2,
-          backgroundColor: 'transparent', pointRadius: 3, tension: 0.3,
-          spanGaps: false, fill: false },
-        { label: '_ciHigh',
-          data: dsHigh, borderColor: 'transparent',
-          backgroundColor: 'rgba(120,180,255,0.28)',
-          pointRadius: 0, tension: 0.3, spanGaps: false, fill: 2 },
-        { label: '_ciLow',
-          data: dsLow, borderColor: 'transparent',
-          backgroundColor: 'transparent',
-          pointRadius: 0, tension: 0.3, spanGaps: false, fill: false },
-        { label: 'Saldo previsto',
-          data: dsProj, borderColor: _accentCol, borderWidth: 2.5,
-          borderDash: [6,4], backgroundColor: 'transparent',
-          pointRadius: 3, tension: 0.3, spanGaps: false, fill: false },
-        { label: 'Mesi anomali',
-          data: dsOutlier, borderColor: 'var(--warn)',
-          backgroundColor: 'var(--warn)', pointRadius: 7,
-          pointStyle: 'triangle', showLine: false, fill: false },
+        { label: 'Saldo storico', data: dsHist, borderColor: _txt2Col, borderWidth: 2,
+          backgroundColor: 'transparent', pointRadius: 3, tension: 0.3, spanGaps: false, fill: false },
+        { label: '_ciHigh', data: dsHigh, borderColor: 'transparent',
+          backgroundColor: 'rgba(120,180,255,0.28)', pointRadius: 0, tension: 0.3, spanGaps: false, fill: 2 },
+        { label: '_ciLow', data: dsLow, borderColor: 'transparent',
+          backgroundColor: 'transparent', pointRadius: 0, tension: 0.3, spanGaps: false, fill: false },
+        { label: 'Saldo previsto', data: dsProj, borderColor: _accentCol, borderWidth: 2.5,
+          borderDash: [6,4], backgroundColor: 'transparent', pointRadius: 3, tension: 0.3, spanGaps: false, fill: false },
       ],
     },
     options: {
       responsive: true,
       interaction: { mode: 'index', intersect: false },
       plugins: {
-        legend: {
-          labels: {
-            color: 'var(--txt)',
-            filter: item => !item.text.startsWith('_'),
-          },
-        },
-        tooltip: {
-          callbacks: {
-            label: ctx => {
-              if (ctx.dataset.label.startsWith('_')) return null;
-              const v = ctx.parsed.y;
-              if (v == null) return null;
-              return `${ctx.dataset.label}: ${fmt.currency(v)}`;
-            },
-          },
-        },
+        legend: { labels: { color: 'var(--txt)', filter: item => !item.text.startsWith('_') } },
+        tooltip: { callbacks: { label: ctx => {
+          if (ctx.dataset.label.startsWith('_')) return null;
+          const v = ctx.parsed.y;
+          return v == null ? null : `${ctx.dataset.label}: ${fmt.currency(v)}`;
+        } } },
       },
       scales: {
         x: { ticks: { color:'var(--txt2)', maxTicksLimit:14 }, grid:{ color:'var(--border)' } },
-        y: {
-          ticks: { color:'var(--txt2)', callback: v => fmt.currency(v) },
-          grid:  { color:'var(--border)' },
-          suggestedMin: yMin - yPad,
-          suggestedMax: yMax + yPad,
-        },
+        y: { ticks: { color:'var(--txt2)', callback: v => fmt.currency(v) }, grid:{ color:'var(--border)' },
+             suggestedMin: yMin - yPad, suggestedMax: yMax + yPad },
       },
     },
   });
-  // Ripristina scroll dopo il paint (evita il salto in cima al re-render)
   if (_savedScrollY > 0) requestAnimationFrame(() => window.scrollTo(0, _savedScrollY));
 }
 
-// ── Toggle esclusione mese intero ────────────────────────────────────────────
-// Include/esclude manualmente un intero mese dallo storico usato per la previsione.
-function _fcToggleMonth(ym, excluded) {
-  if (excluded) { _fcManualExcl.add(ym);    _fcManualIncl.delete(ym); }
-  else          { _fcManualIncl.add(ym);    _fcManualExcl.delete(ym); }
-  _fcSetDirty();
-}
-
-// ── Toggle espansione mese — DOM manipulation, nessun re-render ──────────────
-// Espande/comprime la riga di un mese mostrando le transazioni che lo compongono (sotto-tabella).
-async function _fcToggleExpand(ym) {
-  const btn     = document.getElementById('fcExpBtn-' + ym);
-  const mainRow = document.getElementById('fcRow-'   + ym);
-  if (!mainRow) return;
-
-  if (_fcExpandedMonths.has(ym)) {
-    // ── Collassa ─────────────────────────────────────────────────────────────
-    _fcExpandedMonths.delete(ym);
-    const subRow = document.getElementById('fcSub-' + ym);
-    if (subRow) subRow.remove();
-    mainRow.style.borderBottom = '1px solid var(--border)';
-    if (btn) btn.textContent = '▶';
-  } else {
-    // ── Espandi ──────────────────────────────────────────────────────────────
-    _fcExpandedMonths.add(ym);
-    if (btn) btn.textContent = '▼';
-    mainRow.style.borderBottom = 'none';
-    // Carica transazioni se non ancora in cache
-    if (!_fcMonthTxCache[ym]) {
-      if (btn) btn.textContent = '⏳';
-      const [y, mo] = ym.split('-');
-      const lastDay = new Date(+y, +mo, 0).getDate();
-      const txs = await api.getTransactions({ date_from: `${ym}-01`, date_to: `${ym}-${lastDay}`, limit: 5000 });
-      _fcMonthTxCache[ym] = (txs || [])
-        .filter(t => t.type !== 'transfer')
-        .sort((a, b) => Number(b.amount) - Number(a.amount));
-      if (btn) btn.textContent = '▼';
-    }
-    // Inserisci sub-riga dopo la riga principale
-    mainRow.insertAdjacentHTML('afterend', _fcBuildTxSubrow(ym));
-  }
-}
-
-// ── Carica dal DB le transazioni escluse e popola lo stato in memoria ─────────
-// Carica dal DB le transazioni escluse in modo persistente dalla Previsione Saldo.
-async function _fcLoadExcludedFromDb() {
-  const rows = await api.getForecastExcluded();
-  _fcExcludedTxIds = new Set((rows || []).map(r => Number(r.transaction_id)));
-  _fcTxAdjustments = {};
-  for (const r of (rows || [])) {
-    const ym = String(r.ym);
-    if (!_fcTxAdjustments[ym]) _fcTxAdjustments[ym] = { incAdj: 0, expAdj: 0 };
-    if (r.type === 'income')  _fcTxAdjustments[ym].incAdj += Number(r.amount);
-    if (r.type === 'expense') _fcTxAdjustments[ym].expAdj += Number(r.amount);
-  }
-}
-
-// ── Toggle esclusione singola transazione ─────────────────────────────────────
-// Include/esclude una singola transazione dal calcolo (persistito su DB) e ricalcola.
-async function _fcToggleTx(txId, ym, excluded) {
-  if (excluded) {
-    _fcExcludedTxIds.add(txId);
-    await api.addForecastExcluded(txId);
-  } else {
-    _fcExcludedTxIds.delete(txId);
-    await api.removeForecastExcluded(txId);
-  }
-  // Ricalcola aggiustamento per questo mese dal cache
-  const txs = _fcMonthTxCache[ym] || [];
-  let incAdj = 0, expAdj = 0;
-  for (const tx of txs) {
-    if (!_fcExcludedTxIds.has(tx.id)) continue;
-    if (tx.type === 'income')  incAdj += Number(tx.amount);
-    if (tx.type === 'expense') expAdj += Number(tx.amount);
-  }
-  _fcTxAdjustments[ym] = { incAdj, expAdj };
-  _fcSetDirty();
-}
-
-// ── Costruisce HTML sub-tabella transazioni per un mese espanso ──────────────
-// Restituisce un <tr id="fcSub-{ym}"> con la lista delle transazioni del mese
-// Costruisce la sotto-tabella delle transazioni di un mese (con checkbox includi/escludi).
-function _fcBuildTxSubrow(ym) {
-  const txs = _fcMonthTxCache[ym];
-  if (!txs || txs.length === 0) {
-    const msg = !txs ? 'Caricamento…' : 'Nessuna transazione in questo mese.';
-    return `<tr id="fcSub-${ym}"><td colspan="8" style="padding:8px 8px 8px 36px;font-size:11px;color:var(--txt2);background:var(--bg3)">${msg}</td></tr>`;
-  }
-  const txRows = txs.map(tx => {
-    const isExcl = _fcExcludedTxIds.has(tx.id);
-    const amtCol = tx.type === 'income' ? 'var(--income)' : 'var(--expense)';
-    const sign   = tx.type === 'income' ? '+' : '-';
-    return `<tr style="${isExcl?'opacity:.4;':''}border-bottom:1px solid var(--border)">
-      <td style="padding:3px 6px;color:var(--txt2);white-space:nowrap">${tx.date}</td>
-      <td style="padding:3px 6px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(tx.description||'').replace(/"/g,'&quot;')}">${tx.description||'—'}</td>
-      <td style="padding:3px 6px;color:var(--txt2)">${tx.category_name||'—'}</td>
-      <td style="padding:3px 6px;text-align:right;font-weight:600;color:${amtCol}">${sign}${fmt.currency(tx.amount)}</td>
-      <td style="padding:3px 6px;text-align:center">
-        <input type="checkbox" ${isExcl?'checked':''} onchange="_fcToggleTx(${tx.id},'${ym}',this.checked)"
-          title="${isExcl?'Reintegra nel calcolo':'Escludi dal calcolo'}"
-          style="cursor:pointer;width:13px;height:13px">
-      </td>
-    </tr>`;
-  }).join('');
-  return `<tr id="fcSub-${ym}"><td colspan="8" style="padding:0;background:var(--bg3);border-bottom:1px solid var(--border)">
-    <div style="padding:6px 8px 8px 36px">
-      <div style="font-size:11px;color:var(--txt2);margin-bottom:5px">
-        Transazioni di <strong>${ym}</strong> — spunta per escludere dal calcolo statistico
-      </div>
-      <div style="overflow-x:auto">
-        <table style="width:100%;font-size:11px;border-collapse:collapse">
-          <thead><tr style="color:var(--txt2);border-bottom:1px solid var(--border)">
-            <th style="padding:3px 6px;text-align:left">Data</th>
-            <th style="padding:3px 6px;text-align:left">Descrizione</th>
-            <th style="padding:3px 6px;text-align:left">Categoria</th>
-            <th style="padding:3px 6px;text-align:right">Importo</th>
-            <th style="padding:3px 6px;text-align:center">Escludi</th>
-          </tr></thead>
-          <tbody>${txRows}</tbody>
-        </table>
-      </div>
-    </div>
-  </td></tr>`;
-}
-
-// ── Rilevamento outlier IQR ───────────────────────────────────────────────────
-// Restituisce array di boolean: true = il valore è anomalo rispetto alla distribuzione
-// Versione "positiva": ignora zeri/negativi (per entrate/uscite, mai negative)
-// Rileva outlier con il metodo IQR (oltre k×IQR dai quartili); la variante "Signed" distingue alti/bassi.
-function _fcIqrOutliers(values, k) {
-  const pos = values.filter(v => v > 0);
-  if (pos.length < 4) return values.map(() => false);
-  const sorted = [...pos].sort((a,b) => a - b);
-  const q1  = _fcPct(sorted, 25);
-  const q3  = _fcPct(sorted, 75);
-  const iqr = q3 - q1;
-  const hi  = q3 + k * iqr;
-  const lo  = Math.max(0, q1 - k * iqr);
-  return values.map(v => v > 0 && (v > hi || v < lo));
-}
-
-// Versione "signed": funziona anche con valori negativi (es. flusso netto)
-function _fcIqrOutliersSigned(values, k) {
-  if (values.length < 4) return values.map(() => false);
-  const sorted = [...values].sort((a,b) => a - b);
-  const q1  = _fcPct(sorted, 25);
-  const q3  = _fcPct(sorted, 75);
-  const iqr = q3 - q1;
-  if (iqr === 0) return values.map(() => false);
-  const hi = q3 + k * iqr;
-  const lo = q1 - k * iqr;
-  return values.map(v => v > hi || v < lo);
-}
-
-// Percentile p (0-1) di un array già ordinato (interpolazione lineare).
-function _fcPct(sorted, p) {
-  const idx = (p / 100) * (sorted.length - 1);
-  const lo  = Math.floor(idx), hi = Math.ceil(idx);
-  return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo);
-}
-
-// ── Regressione lineare OLS ───────────────────────────────────────────────────
-// Restituisce { slope, intercept, r2 } sul vettore y.
-// x opzionale: indici personalizzati (es. posizioni calendario reali).
-// Se omesso usa 0,1,2,… — slope sarà "per indice", non "per mese calendario".
-// Regressione lineare (minimi quadrati): ritorna pendenza/intercetta per il trend del risparmio.
-function _fcLinReg(y, x) {
-  const n = y.length;
-  if (n < 2) return { slope: 0, intercept: y[0] ?? 0, r2: 0 };
-  if (!x) x = y.map((_, i) => i);
-  const xMean = x.reduce((a,b) => a+b, 0) / n;
-  const yMean = y.reduce((a,b) => a+b, 0) / n;
-  const ssXX  = x.reduce((s,v) => s + (v - xMean)**2, 0);
-  const ssXY  = x.reduce((s,v,i) => s + (v - xMean)*(y[i] - yMean), 0);
-  const slope     = ssXX > 0 ? ssXY / ssXX : 0;
-  const intercept = yMean - slope * xMean;
-  const ssTot = y.reduce((s,v)   => s + (v - yMean)**2, 0);
-  const ssRes = y.reduce((s,v,i) => s + (v - (intercept + slope*x[i]))**2, 0);
-  const r2    = ssTot > 0 ? Math.max(0, 1 - ssRes / ssTot) : 0;
-  return { slope, intercept, r2 };
-}
 
 // ── Helper UI ─────────────────────────────────────────────────────────────────
-// Helper di rendering per la Previsione Saldo: _fcCard = card riepilogativa, _fcRow = riga etichetta/valore.
+// Helper di rendering per la Previsione Saldo: _fcCard = card riepilogativa (metrica chiave).
 function _fcCard(label, value, color) {
   return `<div class="card" style="padding:14px 16px">
     <div style="font-size:11px;color:var(--txt2);margin-bottom:4px">${label}</div>
     <div style="font-size:16px;font-weight:700;color:${color}">${value}</div>
   </div>`;
-}
-
-function _fcRow(label, value, color) {
-  return `<tr style="border-bottom:1px solid var(--border)">
-    <td style="padding:5px 4px;color:var(--txt2)">${label}</td>
-    <td style="padding:5px 4px;text-align:right;font-weight:600${color?';color:'+color:''}">${value}</td>
-  </tr>`;
 }

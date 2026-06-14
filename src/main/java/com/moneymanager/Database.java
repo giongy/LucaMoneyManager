@@ -525,7 +525,7 @@ public class Database {
         """);
     }
 
-    private static final int SCHEMA_VERSION = 18;
+    private static final int SCHEMA_VERSION = 19;
 
     /**
      * Migrazioni incrementali dello schema. Confronta la versione salvata in
@@ -875,6 +875,13 @@ public class Database {
         // ── v18: tag di sistema RAGGRUPPATE (svecchiamento) ─────────────────────
         if (currentVersion < 18) {
             ensureSystemTags();
+        }
+
+        // ── v19: rimozione macchina esclusioni della Previsione Saldo ───────────
+        // Il motore Previsione Saldo è stato riscritto a decomposizione: usa la mediana
+        // (robusta agli outlier per natura), quindi le esclusioni manuali non servono più.
+        if (currentVersion < 19) {
+            executePlain("DROP TABLE IF EXISTS forecast_excluded");
         }
 
         // Segna il DB come aggiornato all'ultima versione
@@ -3850,30 +3857,6 @@ public class Database {
         return forecast;
     }
 
-    // ── Previsione Saldo — transazioni escluse ────────────────────────────────
-
-    /** Transazioni escluse manualmente dal calcolo della Previsione Saldo. */
-    public List<Map<String, Object>> getForecastExcluded() throws SQLException {
-        return queryList("""
-                SELECT fe.transaction_id,
-                       strftime('%Y-%m', t.date) AS ym,
-                       t.amount,
-                       t.type
-                FROM forecast_excluded fe
-                JOIN transactions t ON t.id = fe.transaction_id
-                ORDER BY ym, fe.transaction_id""");
-    }
-
-    /** Esclude una transazione dalla Previsione Saldo. */
-    public void addForecastExcluded(int txId) throws SQLException {
-        execute("INSERT OR IGNORE INTO forecast_excluded (transaction_id) VALUES (?)", txId);
-    }
-
-    /** Reinserisce una transazione precedentemente esclusa nella Previsione Saldo. */
-    public void removeForecastExcluded(int txId) throws SQLException {
-        execute("DELETE FROM forecast_excluded WHERE transaction_id = ?", txId);
-    }
-
     // ── Previsione Saldo — struttura spese per categoria ─────────────────────
     // Restituisce solo i mesi COMPLETATI (esclude il mese corrente, parziale).
     //   categories: nome, frequency (0-1), avg_monthly (media sui mesi completati)
@@ -3904,7 +3887,6 @@ public class Database {
                 LEFT JOIN categories c ON c.id = t.category_id
                 LEFT JOIN categories p ON p.id = c.parent_id
                 WHERE t.type = 'expense' AND t.date >= ? AND t.date < ?
-                  AND t.id NOT IN (SELECT transaction_id FROM forecast_excluded)
                 GROUP BY t.category_id
                 ORDER BY total DESC
                 LIMIT 50
@@ -3917,7 +3899,6 @@ public class Database {
                            COUNT(DISTINCT strftime('%Y-%m', date)) * 1.0 / ? AS freq
                     FROM transactions
                     WHERE type = 'expense' AND date >= ? AND date < ?
-                      AND id NOT IN (SELECT transaction_id FROM forecast_excluded)
                     GROUP BY category_id
                 )
                 SELECT strftime('%Y-%m', t.date) AS ym,
@@ -3926,7 +3907,6 @@ public class Database {
                 FROM transactions t
                 LEFT JOIN freq f ON f.category_id = t.category_id
                 WHERE t.type = 'expense' AND t.date >= ? AND t.date < ?
-                  AND t.id NOT IN (SELECT transaction_id FROM forecast_excluded)
                 GROUP BY ym
                 ORDER BY ym
                 """, completedMonths, dateFrom, dateTo, dateFrom, dateTo);
@@ -4010,6 +3990,276 @@ public class Database {
             result.add(row);
         }
         return result;
+    }
+
+    // ── Previsione Saldo (decomposizione) — motore completo ──────────────────
+    /** Estrae un double da un valore SQL (null → 0). */
+    private static double num(Object o) { return o == null ? 0.0 : ((Number) o).doubleValue(); }
+
+    /** Mediana robusta di una lista di valori (lista non modificata). */
+    private static double fcMedian(List<Double> values) {
+        if (values == null || values.isEmpty()) return 0.0;
+        List<Double> s = new ArrayList<>(values);
+        java.util.Collections.sort(s);
+        int n = s.size(), m = n / 2;
+        return (n % 2 == 1) ? s.get(m) : (s.get(m - 1) + s.get(m)) / 2.0;
+    }
+
+    /**
+     * Motore della Previsione Saldo (modello a decomposizione, scelta utente "pianificate avanti"):
+     *   Saldo futuro = Base oggi + pianificate proiettate ai valori ATTUALI (mese per mese)
+     *                  + spesa variabile tipica (storico, SOLO categorie non pianificate) ± banda
+     * Le pianificate (stipendio, affitto, abbonamenti, eventi annuali/una-tantum) sono espanse in
+     * avanti da oggi all'orizzonte → visibili e aggiornate ai valori correnti (catturano aumenti).
+     * La parte "variabile" è la mediana del netto mensile storico calcolato SOLO sulle categorie NON
+     * usate da pianificate attive, così non si conta due volte ciò che è già pianificato.
+     * Ritorna: history (netti reali per il grafico), current_partial_net, dispersion (MAD×1.4826),
+     * variable_net/income/expense (mediane), scheduled_future [{ym, recurring_net, lumpy_net}],
+     * recurring [{description,type,monthly_amount}] e lumpy_events [{ym,date,description,amount}]
+     * per il pannello "Come ci arrivo", e (se richiesto) portfolio (valore odierno + eventi bond).
+     */
+    public Map<String, Object> getForecastEngine(int histMonths, int horizonMonths, boolean includePortfolio) throws SQLException {
+        LocalDate today     = LocalDate.now();
+        LocalDate monStart  = today.withDayOfMonth(1);
+        LocalDate histStart = monStart.minusMonths(histMonths);     // primo giorno del primo mese storico
+        LocalDate horizon   = monStart.plusMonths(horizonMonths).minusDays(1);
+        String histFrom   = histStart.toString();
+        String histToExcl = monStart.toString();                    // mese corrente escluso (incompleto)
+
+        Set<String> recurringFreqs = Set.of("daily", "weekly", "biweekly", "monthly", "monthly_last");
+
+        var scheds = getScheduled().stream()
+                .filter(s -> Integer.valueOf(1).equals(s.get("is_active")))
+                .filter(s -> !"transfer".equals(s.get("type")))
+                .toList();
+
+        // Categorie coperte da pianificate → escluse dalla parte "variabile" (anti doppio conteggio).
+        // Usa TUTTE le pianificate (anche quelle legate al portfolio) così le categorie cedola non
+        // rientrano nella stima variabile dallo storico.
+        Set<Integer> schedCatIds = new HashSet<>();
+        for (var s : scheds)
+            if (s.get("category_id") != null) schedCatIds.add(((Number) s.get("category_id")).intValue());
+
+        // Pianificate da proiettare in avanti: in modalità patrimonio si ESCLUDONO quelle legate a un
+        // bond (portfolio_id), perché cedole e rimborso sono già calcolati da getForecastPortfolioEvents
+        // → altrimenti le cedole verrebbero contate due volte (eventi pianificati + voce "Cedole/bond").
+        var schedForward = includePortfolio
+            ? scheds.stream().filter(s -> s.get("portfolio_id") == null).toList()
+            : scheds;
+
+        // Liquidità: somma dei saldi dei conti NON-investment. getAccounts valuta già i conti
+        // investment al valore di mercato del portfolio: per la base usiamo solo la liquidità e
+        // aggiungiamo il portfolio a parte (in modalità patrimonio), evitando il doppio conteggio.
+        double liquid = 0.0;
+        for (var a : getAccounts())
+            if (!"investment".equals(a.get("type"))) liquid += num(a.get("balance"));
+
+        // ── Storico mensile reale (per grafico + dispersione) ──
+        List<Map<String, Object>> history = queryList("""
+            SELECT strftime('%Y-%m', date) AS ym,
+                   SUM(CASE WHEN type='income'  THEN ABS(amount) ELSE 0 END) AS income,
+                   SUM(CASE WHEN type='expense' THEN ABS(amount) ELSE 0 END) AS expense
+            FROM transactions
+            WHERE date >= ? AND date < ? AND type IN ('income','expense')
+            GROUP BY ym ORDER BY ym
+        """, histFrom, histToExcl);
+
+        // ── Netto parziale del mese corrente (per ancorare la ricostruzione del grafico) ──
+        Map<String, Object> partialRow = queryOne(
+            "SELECT SUM(CASE WHEN type='income' THEN ABS(amount) ELSE 0 END) " +
+            "     - SUM(CASE WHEN type='expense' THEN ABS(amount) ELSE 0 END) AS net " +
+            "FROM transactions WHERE date >= ? AND type IN ('income','expense')", histToExcl);
+        double currentPartialNet = partialRow != null && partialRow.get("net") != null
+                ? ((Number) partialRow.get("net")).doubleValue() : 0.0;
+
+        // ── Variabile: netto mensile storico nelle categorie NON pianificate ──
+        String notInCat = schedCatIds.isEmpty() ? ""
+            : " AND (category_id IS NULL OR category_id NOT IN ("
+              + schedCatIds.stream().map(String::valueOf).collect(Collectors.joining(",")) + "))";
+        List<Map<String, Object>> varRows = queryList(
+            "SELECT strftime('%Y-%m', date) AS ym, " +
+            "SUM(CASE WHEN type='income'  THEN ABS(amount) ELSE 0 END) AS inc, " +
+            "SUM(CASE WHEN type='expense' THEN ABS(amount) ELSE 0 END) AS exp " +
+            "FROM transactions WHERE date >= ? AND date < ? AND type IN ('income','expense')" + notInCat +
+            " GROUP BY ym ORDER BY ym", histFrom, histToExcl);
+
+        List<Double> varNets = new ArrayList<>(), varIncs = new ArrayList<>(), varExps = new ArrayList<>();
+        for (var r : varRows) {
+            double inc = num(r.get("inc")), exp = num(r.get("exp"));
+            varIncs.add(inc); varExps.add(exp); varNets.add(inc - exp);
+        }
+        double variableNet = fcMedian(varNets), variableInc = fcMedian(varIncs), variableExp = fcMedian(varExps);
+
+        // dispersione robusta (1.4826 × MAD) sul netto storico reale
+        List<Double> histNets = new ArrayList<>();
+        for (var r : history) histNets.add(num(r.get("income")) - num(r.get("expense")));
+        double medHist = fcMedian(histNets);
+        List<Double> absDev = new ArrayList<>();
+        for (double v : histNets) absDev.add(Math.abs(v - medHist));
+        double dispersion = 1.4826 * fcMedian(absDev);
+
+        // ── Pianificate proiettate in avanti (da oggi all'orizzonte, ai valori attuali) ──
+        Map<String, double[]> schedByYm = new TreeMap<>();          // ym -> [recurringNet, lumpyNet]
+        List<Map<String, Object>> recurringList = new ArrayList<>();
+        List<Map<String, Object>> lumpyEvents   = new ArrayList<>();
+        for (var s : schedForward) {
+            String freq        = (String) s.get("frequency");
+            boolean recurring  = recurringFreqs.contains(freq);
+            LocalDate start    = LocalDate.parse((String) s.get("start_date"));
+            String edStr       = (String) s.get("end_date");
+            LocalDate endDate  = edStr != null ? LocalDate.parse(edStr) : horizon;
+            if (endDate.isAfter(horizon)) endDate = horizon;
+            double amount = num(s.get("amount"));
+            String type   = (String) s.get("type");
+            double signed = "expense".equals(type) ? -amount : amount;
+            String desc   = s.get("description") != null ? (String) s.get("description") : "";
+
+            LocalDate cur = firstOccurrenceFrom(start, freq, today);
+            if (cur == null) continue;
+            boolean any = false;
+            while (!cur.isAfter(endDate)) {
+                any = true;
+                String ym = String.format("%04d-%02d", cur.getYear(), cur.getMonthValue());
+                double[] row = schedByYm.computeIfAbsent(ym, k -> new double[2]);
+                if (recurring) row[0] += signed;
+                else {
+                    row[1] += signed;
+                    Map<String, Object> ev = new LinkedHashMap<>();
+                    ev.put("ym", ym); ev.put("date", cur.toString());
+                    ev.put("description", desc); ev.put("amount", r2(signed));
+                    lumpyEvents.add(ev);
+                }
+                if ("once".equals(freq)) break;
+                LocalDate nxt = advanceDate(cur, freq);
+                if (nxt == null || !nxt.isAfter(cur)) break;
+                cur = nxt;
+            }
+            if (recurring && any) {
+                double factor = switch (freq) {
+                    case "daily" -> 30.4; case "weekly" -> 52.0 / 12; case "biweekly" -> 26.0 / 12;
+                    default -> 1.0;       // monthly, monthly_last
+                };
+                Map<String, Object> rec = new LinkedHashMap<>();
+                rec.put("description", desc); rec.put("type", type);
+                rec.put("monthly_amount", r2(signed * factor));
+                recurringList.add(rec);
+            }
+        }
+        List<Map<String, Object>> schedFuture = new ArrayList<>();
+        for (var e : schedByYm.entrySet()) {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("ym", e.getKey());
+            m.put("recurring_net", r2(e.getValue()[0]));
+            m.put("lumpy_net",     r2(e.getValue()[1]));
+            schedFuture.add(m);
+        }
+        lumpyEvents.sort(Comparator.comparing(e -> (String) e.get("date")));
+
+        Map<String, Object> res = new LinkedHashMap<>();
+        res.put("accounts_liquid", r2(liquid));
+        res.put("history", history);
+        res.put("current_partial_net", r2(currentPartialNet));
+        res.put("dispersion", r2(dispersion));
+        res.put("variable_net", r2(variableNet));
+        res.put("variable_income", r2(variableInc));
+        res.put("variable_expense", r2(variableExp));
+        res.put("scheduled_future", schedFuture);
+        res.put("recurring", recurringList);
+        res.put("lumpy_events", lumpyEvents);
+        if (includePortfolio) res.put("portfolio", getForecastPortfolioEvents(horizonMonths));
+        return res;
+    }
+
+    // ── Previsione Saldo (decomposizione) — eventi di portafoglio ────────────
+    /**
+     * Per la Previsione Saldo in modalità patrimonio netto: valore portfolio odierno + eventi
+     * bond datati (cedole nette, rimborso del capitale a scadenza) da oggi all'orizzonte.
+     * Convenzioni come in portfolio.js: bond valutato qty×prezzo/100, equity qty×prezzo;
+     * cedola netta qty×(rate/100)×(1−tax/100)/freq nei mesi di pagamento derivati dalla scadenza.
+     * Ogni evento espone sia "amount" (cassa che entra sul conto) sia "market_drop" (valore di
+     * mercato che esce dal portfolio): la variazione di patrimonio netto è amount − market_drop.
+     */
+    public Map<String, Object> getForecastPortfolioEvents(int horizonMonths) throws SQLException {
+        LocalDate today    = LocalDate.now();
+        LocalDate monStart = today.withDayOfMonth(1);
+        LocalDate horizon  = monStart.plusMonths(horizonMonths).minusDays(1);
+
+        List<Map<String, Object>> positions = queryList(
+            "SELECT ticker, name, quantity, avg_price, current_price, asset_type, "
+            + "face_value, maturity_date, coupon_rate, coupon_frequency, coupon_tax "
+            + "FROM portfolio WHERE quantity > 0");
+
+        double portfolioToday = 0.0;
+        List<Map<String, Object>> events = new ArrayList<>();
+
+        for (var pos : positions) {
+            double qty   = ((Number) pos.get("quantity")).doubleValue();
+            double avg   = pos.get("avg_price") != null ? ((Number) pos.get("avg_price")).doubleValue() : 0.0;
+            double curPr = pos.get("current_price") != null ? ((Number) pos.get("current_price")).doubleValue() : 0.0;
+            double price = curPr > 0 ? curPr : avg;
+            boolean isBond = "bond".equals(pos.get("asset_type"));
+            double marketValue = isBond ? qty * price / 100.0 : qty * price;
+            portfolioToday += marketValue;
+
+            if (!isBond) continue; // equity: valore fermo, nessun evento
+
+            String matStr = (String) pos.get("maturity_date");
+            LocalDate maturity = matStr != null && !matStr.isBlank() ? LocalDate.parse(matStr) : null;
+            double faceValue  = pos.get("face_value")  != null ? ((Number) pos.get("face_value")).doubleValue()  : 1.0;
+            double couponRate = pos.get("coupon_rate") != null ? ((Number) pos.get("coupon_rate")).doubleValue() : 0.0;
+            double couponTax  = pos.get("coupon_tax")  != null ? ((Number) pos.get("coupon_tax")).doubleValue()  : 12.5;
+            String couponFreq = (String) pos.get("coupon_frequency");
+            String name = pos.get("name") != null ? (String) pos.get("name") : (String) pos.get("ticker");
+
+            // ── Cedole nette nei mesi di pagamento (derivati a ritroso dalla scadenza) ──
+            if (maturity != null && couponRate > 0) {
+                int freq = switch (couponFreq != null ? couponFreq : "") {
+                    case "annual" -> 1; case "semiannual" -> 2;
+                    case "quarterly" -> 4; case "monthly" -> 12; default -> 2;
+                };
+                double netPerPay = qty * (couponRate / 100.0) * (1 - couponTax / 100.0) / freq;
+                int interval = 12 / freq;
+                Set<Integer> payMonths = new HashSet<>();
+                int matMonth = maturity.getMonthValue();
+                for (int i = 0; i < freq; i++) {
+                    int m = ((matMonth - 1 - Math.round(i * interval)) % 12 + 12) % 12 + 1;
+                    payMonths.add(m);
+                }
+                LocalDate couponEnd = maturity.isBefore(horizon) ? maturity : horizon;
+                LocalDate c = today;
+                while (!c.isAfter(couponEnd)) {
+                    if (payMonths.contains(c.getMonthValue())) {
+                        LocalDate payDay = c.withDayOfMonth(c.lengthOfMonth());
+                        if (payDay.isAfter(maturity)) payDay = maturity;
+                        if (!payDay.isBefore(today) && !payDay.isAfter(couponEnd)) {
+                            Map<String, Object> ev = new LinkedHashMap<>();
+                            ev.put("ym", String.format("%04d-%02d", payDay.getYear(), payDay.getMonthValue()));
+                            ev.put("date", payDay.toString());
+                            ev.put("description", "Cedola " + name);
+                            ev.put("type", "coupon");
+                            ev.put("amount", Math.round(netPerPay * 100.0) / 100.0);
+                            ev.put("market_drop", 0.0);
+                            events.add(ev);
+                        }
+                    }
+                    c = c.withDayOfMonth(c.lengthOfMonth()).plusDays(1);
+                }
+            }
+
+            // ── Rimborso a scadenza: capitale (qty×face_value) in cassa, valore mercato esce ──
+            if (maturity != null && !maturity.isBefore(today) && !maturity.isAfter(horizon)) {
+                Map<String, Object> ev = new LinkedHashMap<>();
+                ev.put("ym", String.format("%04d-%02d", maturity.getYear(), maturity.getMonthValue()));
+                ev.put("date", maturity.toString());
+                ev.put("description", "Rimborso " + name);
+                ev.put("type", "maturity");
+                ev.put("amount", Math.round(qty * faceValue * 100.0) / 100.0);   // cassa che entra
+                ev.put("market_drop", Math.round(marketValue * 100.0) / 100.0);  // valore che esce dal portfolio
+                events.add(ev);
+            }
+        }
+        events.sort(Comparator.comparing(e -> (String) e.get("date")));
+        return Map.of("portfolio_today", Math.round(portfolioToday * 100.0) / 100.0, "events", events);
     }
 
     /** Totale per categoria e per mese negli ultimi N mesi (tabella pivot di Analytics, split inclusi). */

@@ -218,11 +218,10 @@ const api = {
   getMonthlyBalance:          (months) => callJava('getMonthlyBalance',         { months }),
   getOldestTransactionMonth: ()       => callJava('getOldestTransactionMonth',  {}),
   getAccountBalanceHistory: (months) => callJava('getAccountBalanceHistory', { months }),
-  getForecastExcluded:   ()           => callJava('getForecastExcluded',   {}),
-  addForecastExcluded:   (id) => callJava('addForecastExcluded', {id}),
-  removeForecastExcluded:(id)         => callJava('removeForecastExcluded', {id}),
   getForecastExpenseSplit:(months)    => callJava('getForecastExpenseSplit', {months}),
   getScheduledForecast:  (months)    => callJava('getScheduledForecast',   {months}),
+  getForecastEngine:(histMonths, horizonMonths, includePortfolio) =>
+    callJava('getForecastEngine', { hist_months: histMonths, horizon_months: horizonMonths, include_portfolio: includePortfolio }),
 
   // Resoconti
   getExpenseNatureReport: p => callJava('getExpenseNatureReport', p || {}),

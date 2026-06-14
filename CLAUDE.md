@@ -11,7 +11,7 @@ Due piattaforme: **desktop (primaria)** e **Android (secondaria)**, database SQL
 - **Linguaggio:** Java 25, Maven 3.x
 - **UI:** JCEF v143 (Chromium embedded) + Swing per dialogs/titlebar/splash
 - **Frontend:** Vanilla JS puro (`src/main/resources/web/`, modulare in `js/pages/*.js`), no React/Vue
-- **Versione:** 1.15.1 — output `target/moneymanager-1.15.1.jar` (fat JAR, web/ esclusa)
+- **Versione:** 1.17.0 — output `target/moneymanager-1.17.0.jar` (fat JAR, web/ esclusa)
 - **Web assets:** serviti da filesystem (cartella `web/` accanto al `.exe` in produzione, `target/classes/web/` in IDE)
 - **DB path:** `%APPDATA%\Roaming\LucaMoneyManager\data.db`
 - **Build:** `mvn package` oppure `build.bat`
@@ -43,13 +43,13 @@ SQLite
 
 ---
 
-## Schema DB (v18, 22 tabelle)
+## Schema DB (v19, 21 tabelle)
 
 - **Core:** `accounts`, `categories` (gerarchiche, `expense_nature`), `transactions` (`reconciled`, `attachment_path`, `color`), `transaction_splits`, `transaction_tags`, `tags` (`is_system`, `system_key`)
 - **Budget:** `budgets`, `budget_config` (master_amount mensile/annuale)
 - **Pianificate:** `scheduled_transactions` (`portfolio_id`, `original_start_date`), `scheduled_transaction_tags`
 - **Portfolio:** `portfolio` (equity/bond: `asset_type`, `face_value`, `maturity_date`, `coupon_*`, `country`), `portfolio_transactions`
-- **Previsioni:** `forecasts` (archived), `forecast_categories`, `forecast_excluded`
+- **Previsioni:** `forecasts` (archived), `forecast_categories` — snapshot "Salva previsione" in Pianificate
 - **Note:** `notes` (`pinned`, `color`, editor Quill), `note_tags`
 - **Sistema:** `reports`, `range_presets`, `app_settings`, `sync_meta`, `schema_version`
 

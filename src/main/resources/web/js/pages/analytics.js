@@ -2759,19 +2759,23 @@ async function _runForecastSaldo() {
   // Sottolista pianificate ricorrenti (stipendio, affitto, abbonamenti…)
   const recListHtml = recurring.length ? `
     <div style="margin:4px 0 10px;padding:8px 10px;background:var(--bg3);border-radius:8px;max-height:180px;overflow-y:auto">
-      ${recurring.map(r => `<div style="display:flex;justify-content:space-between;gap:12px;font-size:12px;padding:2px 0">
-        <span style="color:var(--txt2)">${r.description || (r.type==='income'?'Entrata':'Uscita')}</span>
-        <span style="font-variant-numeric:tabular-nums;color:${Number(r.monthly_amount)>=0?'var(--income)':'var(--expense)'};white-space:nowrap">${signCur(Number(r.monthly_amount))}/mese</span>
-      </div>`).join('')}
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:0 28px">
+        ${recurring.map(r => `<div style="display:flex;justify-content:space-between;gap:10px;font-size:12px;padding:2px 0;min-width:0">
+          <span style="color:var(--txt2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.description || (r.type==='income'?'Entrata':'Uscita')}</span>
+          <span style="font-variant-numeric:tabular-nums;color:${Number(r.monthly_amount)>=0?'var(--income)':'var(--expense)'};white-space:nowrap">${signCur(Number(r.monthly_amount))}/mese</span>
+        </div>`).join('')}
+      </div>
     </div>` : `<div style="font-size:12px;color:var(--txt3);padding:2px 0 10px">Nessuna pianificata ricorrente attiva.</div>`;
 
   // Sottolista eventi annuali/una-tantum (datati)
   const lumpyListHtml = lumpyEvents.length ? `
-    <div style="margin:4px 0 10px;padding:8px 10px;background:var(--bg3);border-radius:8px;max-height:150px;overflow-y:auto">
-      ${lumpyEvents.map(e => `<div style="display:flex;justify-content:space-between;gap:12px;font-size:12px;padding:2px 0">
-        <span style="color:var(--txt2)"><b style="color:var(--txt);font-weight:600">${e.ym}</b> · ${e.description||'Evento'}</span>
-        <span style="font-variant-numeric:tabular-nums;color:${Number(e.amount)>=0?'var(--income)':'var(--expense)'};white-space:nowrap">${signCur(Number(e.amount))}</span>
-      </div>`).join('')}
+    <div style="margin:4px 0 10px;padding:8px 10px;background:var(--bg3);border-radius:8px;max-height:170px;overflow-y:auto">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:0 28px">
+        ${lumpyEvents.map(e => `<div style="display:flex;justify-content:space-between;gap:10px;font-size:12px;padding:2px 0;min-width:0">
+          <span style="color:var(--txt2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><b style="color:var(--txt);font-weight:600">${e.ym}</b> · ${e.description||'Evento'}</span>
+          <span style="font-variant-numeric:tabular-nums;color:${Number(e.amount)>=0?'var(--income)':'var(--expense)'};white-space:nowrap">${signCur(Number(e.amount))}</span>
+        </div>`).join('')}
+      </div>
     </div>` : `<div style="font-size:12px;color:var(--txt3);padding:2px 0 10px">Nessun evento annuale/una-tantum nel periodo.</div>`;
 
   out.innerHTML = `

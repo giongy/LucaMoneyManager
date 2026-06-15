@@ -182,4 +182,12 @@ public class MainWindow {
         frame.requestFocus();
         browser.executeJavaScript("if(typeof onTrayRestore==='function') onTrayRestore();", "", 0);
     }
+
+    /** Ricarica la UI web (e riapre il DB se era stato chiuso dal tray). Usato dal menu tray. */
+    public void reload() {
+        try { db.reopen(); } catch (Exception e) {
+            System.err.println("Errore riapertura DB dal tray (ricarica): " + e.getMessage());
+        }
+        browser.reload();
+    }
 }

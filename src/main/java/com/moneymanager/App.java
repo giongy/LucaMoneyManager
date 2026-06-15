@@ -168,6 +168,8 @@ public class App {
                 window.showWhenReady(ld);
                 // Registra l'azione "porta in primo piano" (include reopen DB + refresh JS)
                 TrayManager.bringToFrontAction = window::bringToFront;
+                // Registra l'azione "ricarica" del menu tray (reopen DB + reload browser)
+                TrayManager.reloadAction = window::reload;
                 // Attiva tray se l'autostart era già abilitato da una sessione precedente
                 if ("1".equals(settings.get(Settings.AUTOSTART_ENABLED))) {
                     TrayManager.enable(window.getFrame());

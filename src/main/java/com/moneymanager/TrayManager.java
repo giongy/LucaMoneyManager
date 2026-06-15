@@ -1,7 +1,13 @@
 package com.moneymanager;
 
 import javax.swing.*;
+import javax.swing.border.AbstractBorder;
+import javax.swing.border.EmptyBorder;
+import javax.swing.event.PopupMenuEvent;
+import javax.swing.event.PopupMenuListener;
 import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 
 /** Gestisce l'icona nella system tray e la registrazione all'avvio di Windows. */
 public class TrayManager {
@@ -13,9 +19,21 @@ public class TrayManager {
     // Impostata da App.java: include riapertura DB + show + refresh frontend.
     static Runnable bringToFrontAction;
 
+    // Azione "Ricarica" del menu tray: reopen DB + reload del browser. Impostata da App.java.
+    static Runnable reloadAction;
+
     // Percorsi calcolati all'avvio (usati per la registrazione autostart)
     static String javaExePath;
     static String jarPath;
+
+    // ── Palette menu tray (coerente con il tema dark JCEF: bg #0d1117, accento teal) ──
+    private static final Color MENU_BG     = new Color(0x1b, 0x22, 0x2c);
+    private static final Color MENU_BORDER = new Color(0x30, 0x36, 0x3d);
+    private static final Color MENU_FG     = new Color(0xc9, 0xd1, 0xd9);
+    private static final Color MENU_HOVER  = new Color(0x2f, 0x6b, 0x5e);
+    private static final Color MENU_SEP    = new Color(0xff, 0xff, 0xff, 26);
+    private static final Font  MENU_FONT   = new Font("Segoe UI", Font.PLAIN, 13);
+    private static final Font  MENU_EMOJI  = new Font("Segoe UI Emoji", Font.PLAIN, 14);
 
     /** Attiva il tray: aggiunge l'icona e abilita "chiudi = nascondi al tray".
      *  Ritorna false se SystemTray non è supportato. */
@@ -23,20 +41,13 @@ public class TrayManager {
         if (!SystemTray.isSupported()) return false;
         if (trayActive) return true;
 
-        PopupMenu menu = new PopupMenu();
-        MenuItem openItem = new MenuItem("Apri LucaMoneyManager");
-        MenuItem exitItem = new MenuItem("Esci");
+        // Menu moderno: JPopupMenu Swing stilizzato (l'AWT PopupMenu nativo non è personalizzabile).
+        JPopupMenu menu = buildModernMenu(frame);
 
-        openItem.addActionListener(e -> bringToFront());
-        exitItem.addActionListener(e -> doExit(frame));
-
-        menu.add(openItem);
-        menu.addSeparator();
-        menu.add(exitItem);
-
-        trayIcon = new TrayIcon(IconFactory.create(16), "LucaMoneyManager", menu);
+        trayIcon = new TrayIcon(IconFactory.create(16), "LucaMoneyManager");
         trayIcon.setImageAutoSize(true);
-        trayIcon.addActionListener(e -> bringToFront());
+        trayIcon.addActionListener(e -> bringToFront()); // doppio click sinistro = apri
+        attachPopup(trayIcon, menu);                      // click destro = menu moderno
 
         try {
             SystemTray.getSystemTray().add(trayIcon);
@@ -45,6 +56,131 @@ public class TrayManager {
         } catch (AWTException e) {
             System.err.println("TrayManager: impossibile aggiungere icona tray: " + e.getMessage());
             return false;
+        }
+    }
+
+    /** Costruisce il JPopupMenu stilizzato (voci: Apri, Ricarica, Esci). */
+    private static JPopupMenu buildModernMenu(JFrame frame) {
+        JPopupMenu menu = new JPopupMenu();
+        menu.setLightWeightPopupEnabled(false); // forza popup heavyweight: il tray è fuori da ogni finestra
+        menu.setOpaque(true);
+        menu.setBackground(MENU_BG);
+        menu.setBorder(new CompoundRoundBorder());
+
+        menu.add(menuItem("📂", "Apri LucaMoneyManager", menu, TrayManager::bringToFront));
+        menu.add(menuItem("🔄", "Ricarica",              menu, TrayManager::reload));
+        menu.add(separator());
+        menu.add(menuItem("⏻", "Esci", menu, () -> doExit(frame)));
+        return menu;
+    }
+
+    /** Riga di menu: pannello con emoji + testo, evidenziazione hover arrotondata (stile Fluent). */
+    private static JComponent menuItem(String emoji, String label, JPopupMenu owner, Runnable action) {
+        final boolean[] hover = {false};
+        JPanel row = new JPanel(new BorderLayout(10, 0)) {
+            @Override protected void paintComponent(Graphics g) {
+                Graphics2D g2 = (Graphics2D) g.create();
+                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                g2.setColor(MENU_BG);
+                g2.fillRect(0, 0, getWidth(), getHeight());
+                if (hover[0]) {
+                    g2.setColor(MENU_HOVER);
+                    g2.fillRoundRect(4, 2, getWidth() - 8, getHeight() - 4, 8, 8);
+                }
+                g2.dispose();
+            }
+        };
+        row.setOpaque(false);
+        row.setBorder(new EmptyBorder(8, 14, 8, 22));
+        row.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        row.setAlignmentX(0f);
+
+        JLabel ic = new JLabel(emoji);
+        ic.setFont(MENU_EMOJI);
+        ic.setForeground(MENU_FG);
+        JLabel tx = new JLabel(label);
+        tx.setFont(MENU_FONT);
+        tx.setForeground(MENU_FG);
+        row.add(ic, BorderLayout.WEST);
+        row.add(tx, BorderLayout.CENTER);
+        // Larghezza coerente di tutte le voci (BoxLayout del popup stira fino a questa)
+        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
+
+        row.addMouseListener(new MouseAdapter() {
+            @Override public void mouseEntered(MouseEvent e) {
+                hover[0] = true; tx.setForeground(Color.WHITE); ic.setForeground(Color.WHITE); row.repaint();
+            }
+            @Override public void mouseExited(MouseEvent e) {
+                hover[0] = false; tx.setForeground(MENU_FG); ic.setForeground(MENU_FG); row.repaint();
+            }
+            @Override public void mouseReleased(MouseEvent e) {
+                owner.setVisible(false);
+                if (action != null) action.run();
+            }
+        });
+        return row;
+    }
+
+    /** Separatore sottile con margine orizzontale. */
+    private static JComponent separator() {
+        JPanel sep = new JPanel() {
+            @Override protected void paintComponent(Graphics g) {
+                g.setColor(MENU_BG);
+                g.fillRect(0, 0, getWidth(), getHeight());
+                g.setColor(MENU_SEP);
+                g.fillRect(12, getHeight() / 2, getWidth() - 24, 1);
+            }
+        };
+        sep.setOpaque(false);
+        sep.setAlignmentX(0f);
+        sep.setPreferredSize(new Dimension(10, 9));
+        sep.setMaximumSize(new Dimension(Integer.MAX_VALUE, 9));
+        return sep;
+    }
+
+    /** Mostra il JPopupMenu al click destro sul tray, usando un dialog invisibile come
+     *  invoker focusabile (così il menu si chiude cliccando altrove). */
+    private static void attachPopup(TrayIcon icon, JPopupMenu menu) {
+        final JDialog anchor = new JDialog((Frame) null);
+        anchor.setUndecorated(true);
+        anchor.setAlwaysOnTop(true);
+        anchor.setSize(1, 1);
+        anchor.getContentPane().setBackground(MENU_BG);
+
+        menu.addPopupMenuListener(new PopupMenuListener() {
+            @Override public void popupMenuWillBecomeVisible(PopupMenuEvent e) {}
+            @Override public void popupMenuWillBecomeInvisible(PopupMenuEvent e) {
+                SwingUtilities.invokeLater(() -> anchor.setVisible(false));
+            }
+            @Override public void popupMenuCanceled(PopupMenuEvent e) { anchor.setVisible(false); }
+        });
+
+        icon.addMouseListener(new MouseAdapter() {
+            @Override public void mousePressed(MouseEvent e)  { maybeShow(e); }
+            @Override public void mouseReleased(MouseEvent e) { maybeShow(e); }
+            private void maybeShow(MouseEvent e) {
+                if (!e.isPopupTrigger()) return;
+                // Per i MouseEvent del tray, getX/getY sono coordinate schermo.
+                anchor.setLocation(e.getX(), e.getY());
+                anchor.setVisible(true);
+                anchor.toFront();
+                menu.show(anchor, 0, 0); // JPopupMenu ribalta sopra il cursore vicino al bordo schermo
+            }
+        });
+    }
+
+    /** Bordo arrotondato + padding interno del popup. */
+    private static final class CompoundRoundBorder extends AbstractBorder {
+        @Override public void paintBorder(Component c, Graphics g, int x, int y, int w, int h) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g2.setColor(MENU_BORDER);
+            g2.drawRoundRect(x, y, w - 1, h - 1, 10, 10);
+            g2.dispose();
+        }
+        @Override public Insets getBorderInsets(Component c) { return new Insets(7, 0, 7, 0); }
+        @Override public Insets getBorderInsets(Component c, Insets i) {
+            i.set(7, 0, 7, 0); return i;
         }
     }
 
@@ -64,6 +200,11 @@ public class TrayManager {
      *  L'azione include riapertura DB, show finestra e refresh del frontend. */
     public static void bringToFront() {
         if (bringToFrontAction != null) SwingUtilities.invokeLater(bringToFrontAction);
+    }
+
+    /** Ricarica la UI: delega a reloadAction (impostata da App.java: reopen DB + reload browser). */
+    public static void reload() {
+        if (reloadAction != null) SwingUtilities.invokeLater(reloadAction);
     }
 
     /** Registra l'app nell'avvio automatico di Windows (HKCU Run). */

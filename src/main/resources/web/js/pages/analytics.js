@@ -2413,6 +2413,26 @@ function renderReportResults(txs, groupby, chartType, catMap) {
       </tr></tbody></table>`;
   }
 
+  // ─── Gran totale del resoconto ──────────────────────────────────────────
+  // Riepilogo complessivo (entrate/uscite/netto) mostrato sempre nell'header,
+  // qualunque sia il raggruppamento, per rispondere a "quanto in totale".
+  const grandI = txs.filter(t=>t.type==='income')  .reduce((s,t)=>s+effectiveAmt(t),0);
+  const grandE = txs.filter(t=>t.type==='expense') .reduce((s,t)=>s+effectiveAmt(t),0);
+  const grandT = txs.filter(t=>t.type==='transfer').reduce((s,t)=>s+effectiveAmt(t),0);
+  const grandNet = grandI - grandE;
+  let grandHtml = '';
+  if (grandI && grandE) {
+    grandHtml = `Entrate <strong class="amount-income">${fmt.currency(grandI)}</strong>
+      · Uscite <strong class="amount-expense">${fmt.currency(grandE)}</strong>
+      · Netto <strong style="color:${grandNet>=0?'var(--income)':'var(--expense)'}">${fmt.currency(grandNet)}</strong>`;
+  } else if (grandE) {
+    grandHtml = `Totale uscite <strong class="amount-expense">${fmt.currency(grandE)}</strong>`;
+  } else if (grandI) {
+    grandHtml = `Totale entrate <strong class="amount-income">${fmt.currency(grandI)}</strong>`;
+  } else if (grandT) {
+    grandHtml = `Totale trasferimenti <strong style="color:var(--accent)">${fmt.currency(grandT)}</strong>`;
+  }
+
   el.innerHTML = `
     ${chartData ? `<div class="card" style="margin-bottom:12px;padding:14px">
       <div style="position:relative;height:340px">
@@ -2420,6 +2440,7 @@ function renderReportResults(txs, groupby, chartType, catMap) {
     <div class="card">
       <div class="card-header">
         <span class="card-title">${txs.length} transazion${txs.length===1?'e':'i'}</span>
+        ${grandHtml ? `<span style="font-size:var(--fs-sm,11px);color:var(--txt2)">${grandHtml}</span>` : ''}
       </div>
       <div class="table-wrap">${tableHtml}</div>
     </div>`;

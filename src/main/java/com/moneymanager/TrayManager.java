@@ -34,6 +34,7 @@ public class TrayManager {
     private static final Color MENU_SEP    = new Color(0xff, 0xff, 0xff, 26);
     private static final Font  MENU_FONT   = new Font("Segoe UI", Font.PLAIN, 13);
     private static final Font  MENU_EMOJI  = new Font("Segoe UI Emoji", Font.PLAIN, 14);
+    private static final int   MENU_RADIUS = 12; // raggio angoli (clip finestra + bordo)
 
     /** Attiva il tray: aggiunge l'icona e abilita "chiudi = nascondi al tray".
      *  Ritorna false se SystemTray non è supportato. */
@@ -161,12 +162,56 @@ public class TrayManager {
             private void maybeShow(MouseEvent e) {
                 if (!e.isPopupTrigger()) return;
                 // Per i MouseEvent del tray, getX/getY sono coordinate schermo.
-                anchor.setLocation(e.getX(), e.getY());
+                Point cursor = new Point(e.getX(), e.getY());
+                Dimension size = menu.getPreferredSize();
+                Rectangle scr = screenBoundsAt(cursor); // area di lavoro (esclude la taskbar)
+
+                // Apre il menu SOPRA-A-SINISTRA del cursore con un piccolo gap: così il
+                // mouse resta fuori dal menu e nessuna voce risulta pre-selezionata.
+                int gap = 2;
+                int bottom = Math.min(cursor.y, scr.y + scr.height) - gap;
+                int x = cursor.x - size.width;
+                int y = bottom - size.height;
+                // Clamp ai bordi dell'area di lavoro
+                if (x < scr.x) x = scr.x;
+                if (x + size.width > scr.x + scr.width) x = scr.x + scr.width - size.width;
+                if (y < scr.y) y = scr.y;
+
+                anchor.setLocation(x, y);   // l'anchor è già nell'angolo alto-sx del menu
                 anchor.setVisible(true);
                 anchor.toFront();
-                menu.show(anchor, 0, 0); // JPopupMenu ribalta sopra il cursore vicino al bordo schermo
+                menu.show(anchor, 0, 0);
+                // Ritaglia la finestra heavyweight del popup ad angoli arrotondati:
+                // senza questo i 4 angoli quadrati scuri restano visibili dietro il bordo.
+                SwingUtilities.invokeLater(() -> roundPopupWindow(menu));
             }
         });
+    }
+
+    /** Applica un clip ad angoli arrotondati alla finestra che ospita il popup. */
+    private static void roundPopupWindow(JPopupMenu menu) {
+        Window w = SwingUtilities.getWindowAncestor(menu);
+        if (w == null || w.getWidth() <= 0 || w.getHeight() <= 0) return;
+        try {
+            w.setShape(new java.awt.geom.RoundRectangle2D.Double(
+                    0, 0, w.getWidth(), w.getHeight(), MENU_RADIUS, MENU_RADIUS));
+        } catch (Exception ex) {
+            // shaping non supportato dalla piattaforma: il popup resta rettangolare
+        }
+    }
+
+    /** Area di lavoro (taskbar esclusa) dello schermo che contiene il punto p. */
+    private static Rectangle screenBoundsAt(Point p) {
+        for (GraphicsDevice gd : GraphicsEnvironment.getLocalGraphicsEnvironment().getScreenDevices()) {
+            GraphicsConfiguration gc = gd.getDefaultConfiguration();
+            if (gc.getBounds().contains(p)) {
+                Rectangle b = gc.getBounds();
+                Insets ins = Toolkit.getDefaultToolkit().getScreenInsets(gc);
+                return new Rectangle(b.x + ins.left, b.y + ins.top,
+                        b.width - ins.left - ins.right, b.height - ins.top - ins.bottom);
+            }
+        }
+        return GraphicsEnvironment.getLocalGraphicsEnvironment().getMaximumWindowBounds();
     }
 
     /** Bordo arrotondato + padding interno del popup. */
@@ -175,7 +220,7 @@ public class TrayManager {
             Graphics2D g2 = (Graphics2D) g.create();
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
             g2.setColor(MENU_BORDER);
-            g2.drawRoundRect(x, y, w - 1, h - 1, 10, 10);
+            g2.drawRoundRect(x, y, w - 1, h - 1, MENU_RADIUS, MENU_RADIUS);
             g2.dispose();
         }
         @Override public Insets getBorderInsets(Component c) { return new Insets(7, 0, 7, 0); }

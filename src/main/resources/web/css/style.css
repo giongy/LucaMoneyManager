@@ -385,11 +385,20 @@ input,select,textarea { font-family:inherit; }
   border-top:1px solid var(--border); margin-top:4px;
 }
 .nav-item {
+  position:relative;
   display:flex; align-items:center; gap:8px;
   padding:8px 14px; color:var(--txt2);
   border-left:3px solid transparent;
   transition:all .15s; font-size:13.5px; font-weight:600;
 }
+/* sottilissima linea separatrice in alto: sfumata ai lati, visibile al centro */
+.sidebar-nav .nav-item::before {
+  content:""; position:absolute; top:0; left:14%; right:14%; height:1px;
+  background:linear-gradient(to right, transparent, var(--border), transparent);
+  pointer-events:none;
+}
+/* niente linea sopra la prima voce del gruppo */
+.sidebar-nav > .nav-item:first-child::before { display:none; }
 .nav-item:hover  { background:var(--bg4); color:var(--txt); }
 .nav-item.active { background:var(--bg3); color:var(--accent); border-left-color:var(--accent); }
 .nav-icon { font-size:var(--fs-lg,14px); width:18px; text-align:center; }

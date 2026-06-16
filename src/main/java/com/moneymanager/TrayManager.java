@@ -68,58 +68,74 @@ public class TrayManager {
         menu.setBackground(MENU_BG);
         menu.setBorder(new CompoundRoundBorder());
 
-        menu.add(menuItem("📂", "Apri LucaMoneyManager", menu, TrayManager::bringToFront));
-        menu.add(menuItem("🔄", "Ricarica",              menu, TrayManager::reload));
+        menu.add(new MenuRow("📂", "Apri LucaMoneyManager", menu, TrayManager::bringToFront));
+        menu.add(new MenuRow("🔄", "Ricarica",              menu, TrayManager::reload));
         menu.add(separator());
-        menu.add(menuItem("⏻", "Esci", menu, () -> doExit(frame)));
+        menu.add(new MenuRow("⏻", "Esci", menu, () -> doExit(frame)));
         return menu;
     }
 
+    /** Azzera lo stato hover di tutte le voci del menu (chiamato ad ogni apertura: le righe
+     *  sono riusate tra un'apertura e l'altra e, dopo un click, l'hover resterebbe "acceso"). */
+    private static void resetHover(JPopupMenu menu) {
+        for (Component c : menu.getComponents())
+            if (c instanceof MenuRow row) row.setHover(false);
+    }
+
     /** Riga di menu: pannello con emoji + testo, evidenziazione hover arrotondata (stile Fluent). */
-    private static JComponent menuItem(String emoji, String label, JPopupMenu owner, Runnable action) {
-        final boolean[] hover = {false};
-        JPanel row = new JPanel(new BorderLayout(10, 0)) {
-            @Override protected void paintComponent(Graphics g) {
-                Graphics2D g2 = (Graphics2D) g.create();
-                g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                g2.setColor(MENU_BG);
-                g2.fillRect(0, 0, getWidth(), getHeight());
-                if (hover[0]) {
-                    g2.setColor(MENU_HOVER);
-                    g2.fillRoundRect(4, 2, getWidth() - 8, getHeight() - 4, 8, 8);
+    private static final class MenuRow extends JPanel {
+        private boolean hover = false;
+        private final JLabel ic;
+        private final JLabel tx;
+
+        MenuRow(String emoji, String label, JPopupMenu owner, Runnable action) {
+            super(new BorderLayout(10, 0));
+            setOpaque(false);
+            setBorder(new EmptyBorder(8, 14, 8, 22));
+            setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+            setAlignmentX(0f);
+
+            ic = new JLabel(emoji);
+            ic.setFont(MENU_EMOJI);
+            ic.setForeground(MENU_FG);
+            tx = new JLabel(label);
+            tx.setFont(MENU_FONT);
+            tx.setForeground(MENU_FG);
+            add(ic, BorderLayout.WEST);
+            add(tx, BorderLayout.CENTER);
+            // Larghezza coerente di tutte le voci (BoxLayout del popup stira fino a questa)
+            setMaximumSize(new Dimension(Integer.MAX_VALUE, getPreferredSize().height));
+
+            addMouseListener(new MouseAdapter() {
+                @Override public void mouseEntered(MouseEvent e) { setHover(true); }
+                @Override public void mouseExited(MouseEvent e)  { setHover(false); }
+                @Override public void mouseReleased(MouseEvent e) {
+                    owner.setVisible(false);
+                    if (action != null) action.run();
                 }
-                g2.dispose();
-            }
-        };
-        row.setOpaque(false);
-        row.setBorder(new EmptyBorder(8, 14, 8, 22));
-        row.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        row.setAlignmentX(0f);
+            });
+        }
 
-        JLabel ic = new JLabel(emoji);
-        ic.setFont(MENU_EMOJI);
-        ic.setForeground(MENU_FG);
-        JLabel tx = new JLabel(label);
-        tx.setFont(MENU_FONT);
-        tx.setForeground(MENU_FG);
-        row.add(ic, BorderLayout.WEST);
-        row.add(tx, BorderLayout.CENTER);
-        // Larghezza coerente di tutte le voci (BoxLayout del popup stira fino a questa)
-        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, row.getPreferredSize().height));
+        void setHover(boolean h) {
+            if (hover == h) return;
+            hover = h;
+            Color fg = h ? Color.WHITE : MENU_FG;
+            tx.setForeground(fg);
+            ic.setForeground(fg);
+            repaint();
+        }
 
-        row.addMouseListener(new MouseAdapter() {
-            @Override public void mouseEntered(MouseEvent e) {
-                hover[0] = true; tx.setForeground(Color.WHITE); ic.setForeground(Color.WHITE); row.repaint();
+        @Override protected void paintComponent(Graphics g) {
+            Graphics2D g2 = (Graphics2D) g.create();
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g2.setColor(MENU_BG);
+            g2.fillRect(0, 0, getWidth(), getHeight());
+            if (hover) {
+                g2.setColor(MENU_HOVER);
+                g2.fillRoundRect(4, 2, getWidth() - 8, getHeight() - 4, 8, 8);
             }
-            @Override public void mouseExited(MouseEvent e) {
-                hover[0] = false; tx.setForeground(MENU_FG); ic.setForeground(MENU_FG); row.repaint();
-            }
-            @Override public void mouseReleased(MouseEvent e) {
-                owner.setVisible(false);
-                if (action != null) action.run();
-            }
-        });
-        return row;
+            g2.dispose();
+        }
     }
 
     /** Separatore sottile con margine orizzontale. */
@@ -149,7 +165,7 @@ public class TrayManager {
         anchor.getContentPane().setBackground(MENU_BG);
 
         menu.addPopupMenuListener(new PopupMenuListener() {
-            @Override public void popupMenuWillBecomeVisible(PopupMenuEvent e) {}
+            @Override public void popupMenuWillBecomeVisible(PopupMenuEvent e) { resetHover(menu); }
             @Override public void popupMenuWillBecomeInvisible(PopupMenuEvent e) {
                 SwingUtilities.invokeLater(() -> anchor.setVisible(false));
             }

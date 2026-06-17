@@ -170,6 +170,18 @@ public class App {
                 TrayManager.bringToFrontAction = window::bringToFront;
                 // Registra l'azione "ricarica" del menu tray (reopen DB + reload browser)
                 TrayManager.reloadAction = window::reload;
+                // Stato/controllo connessione DB dal menu tray (indicatore + chiudi/riapri)
+                TrayManager.dbStatusSupplier = db::isOpen;
+                TrayManager.closeDbAction = () -> {
+                    try { db.close(); } catch (Exception ex) {
+                        System.err.println("Errore chiusura DB dal tray: " + ex.getMessage());
+                    }
+                };
+                TrayManager.openDbAction = () -> {
+                    try { db.reopen(); } catch (Exception ex) {
+                        System.err.println("Errore riapertura DB dal tray: " + ex.getMessage());
+                    }
+                };
                 // Attiva tray se l'autostart era già abilitato da una sessione precedente
                 if ("1".equals(settings.get(Settings.AUTOSTART_ENABLED))) {
                     TrayManager.enable(window.getFrame());

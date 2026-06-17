@@ -22,6 +22,18 @@ public class TrayManager {
     // Azione "Ricarica" del menu tray: reopen DB + reload del browser. Impostata da App.java.
     static Runnable reloadAction;
 
+    // Stato e controllo connessione DB (impostati da App.java). Servono a mostrare nel menu
+    // se il file SQLite è aperto/chiuso e a chiuderlo/riaprirlo: utile quando il desktop è
+    // nel tray ma il DB resta in uso (es. browser LAN su un altro PC) e si vuole rilasciare
+    // il lock per la sync OneDrive.
+    static java.util.function.BooleanSupplier dbStatusSupplier; // true se la connessione è aperta
+    static Runnable closeDbAction;  // chiude la connessione DB
+    static Runnable openDbAction;   // riapre la connessione DB
+
+    // Riferimenti alle voci dinamiche del menu (aggiornate ad ogni apertura)
+    private static StatusRow dbStatusRow;
+    private static MenuRow   dbToggleRow;
+
     // Percorsi calcolati all'avvio (usati per la registrazione autostart)
     static String javaExePath;
     static String jarPath;
@@ -32,6 +44,8 @@ public class TrayManager {
     private static final Color MENU_FG     = new Color(0xc9, 0xd1, 0xd9);
     private static final Color MENU_HOVER  = new Color(0x2f, 0x6b, 0x5e);
     private static final Color MENU_SEP    = new Color(0xff, 0xff, 0xff, 26);
+    private static final Color STATUS_OK   = new Color(0x3f, 0xb9, 0x50); // verde: DB connesso
+    private static final Color STATUS_OFF  = new Color(0x8b, 0x94, 0x9e); // grigio: DB chiuso
     private static final Font  MENU_FONT   = new Font("Segoe UI", Font.PLAIN, 13);
     private static final Font  MENU_EMOJI  = new Font("Segoe UI Emoji", Font.PLAIN, 14);
     private static final int   MENU_RADIUS = 12; // raggio angoli (clip finestra + bordo)
@@ -60,7 +74,7 @@ public class TrayManager {
         }
     }
 
-    /** Costruisce il JPopupMenu stilizzato (voci: Apri, Ricarica, Esci). */
+    /** Costruisce il JPopupMenu stilizzato: stato DB, azioni (Apri, Ricarica, Chiudi DB), Esci. */
     private static JPopupMenu buildModernMenu(JFrame frame) {
         JPopupMenu menu = new JPopupMenu();
         menu.setLightWeightPopupEnabled(false); // forza popup heavyweight: il tray è fuori da ogni finestra
@@ -68,8 +82,15 @@ public class TrayManager {
         menu.setBackground(MENU_BG);
         menu.setBorder(new CompoundRoundBorder());
 
+        dbStatusRow = new StatusRow();                  // riga informativa (stato connessione DB)
+        // Toggle DB: etichetta/icona aggiornate ad ogni apertura in base allo stato corrente
+        dbToggleRow = new MenuRow("🔌", "Chiudi connessione DB", menu, TrayManager::toggleDb);
+
+        menu.add(dbStatusRow);
+        menu.add(separator());
         menu.add(new MenuRow("📂", "Apri LucaMoneyManager", menu, TrayManager::bringToFront));
         menu.add(new MenuRow("🔄", "Ricarica",              menu, TrayManager::reload));
+        menu.add(dbToggleRow);
         menu.add(separator());
         menu.add(new MenuRow("⏻", "Esci", menu, () -> doExit(frame)));
         return menu;
@@ -125,6 +146,12 @@ public class TrayManager {
             repaint();
         }
 
+        /** Aggiorna icona ed etichetta (per le voci dinamiche, es. toggle DB). */
+        void setContent(String emoji, String label) {
+            ic.setText(emoji);
+            tx.setText(label);
+        }
+
         @Override protected void paintComponent(Graphics g) {
             Graphics2D g2 = (Graphics2D) g.create();
             g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
@@ -136,6 +163,75 @@ public class TrayManager {
             }
             g2.dispose();
         }
+    }
+
+    /** Riga informativa (non cliccabile) che mostra lo stato della connessione al DB:
+     *  pallino verde + "Database connesso" oppure pallino grigio + "Database chiuso". */
+    private static final class StatusRow extends JPanel {
+        private boolean open = false;
+        private final JLabel tx;
+
+        StatusRow() {
+            super(new BorderLayout(10, 0));
+            setOpaque(false);
+            setBorder(new EmptyBorder(7, 14, 7, 22));
+            setAlignmentX(0f);
+
+            // Pallino di stato come componente WEST (stessa larghezza dell'emoji nelle MenuRow,
+            // così il testo resta allineato a quello delle altre voci).
+            JComponent dot = new JComponent() {
+                @Override protected void paintComponent(Graphics g) {
+                    Graphics2D g2 = (Graphics2D) g.create();
+                    g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    int d = 9;
+                    g2.setColor(open ? STATUS_OK : STATUS_OFF);
+                    g2.fillOval((getWidth() - d) / 2, (getHeight() - d) / 2, d, d);
+                    g2.dispose();
+                }
+            };
+            dot.setPreferredSize(new Dimension(16, 16));
+
+            tx = new JLabel("Database");
+            tx.setFont(MENU_FONT.deriveFont(12f));
+            tx.setForeground(STATUS_OFF);
+            add(dot, BorderLayout.WEST);
+            add(tx, BorderLayout.CENTER);
+            setMaximumSize(new Dimension(Integer.MAX_VALUE, getPreferredSize().height));
+        }
+
+        void setOpen(boolean o) {
+            open = o;
+            tx.setText(o ? "Database connesso" : "Database chiuso");
+            tx.setForeground(o ? MENU_FG : STATUS_OFF);
+            repaint();
+        }
+    }
+
+    /** Aggiorna le voci dinamiche (stato DB + etichetta del toggle) in base allo stato corrente.
+     *  Chiamato ad ogni apertura del menu. */
+    private static void refreshDbState() {
+        if (dbStatusSupplier == null) {        // controllo DB non disponibile: nascondi le voci
+            if (dbStatusRow != null) dbStatusRow.setVisible(false);
+            if (dbToggleRow != null) dbToggleRow.setVisible(false);
+            return;
+        }
+        boolean open = dbStatusSupplier.getAsBoolean();
+        if (dbStatusRow != null) {
+            dbStatusRow.setVisible(true);
+            dbStatusRow.setOpen(open);
+        }
+        if (dbToggleRow != null) {
+            dbToggleRow.setVisible(true);
+            if (open) dbToggleRow.setContent("🔌", "Chiudi connessione DB");
+            else      dbToggleRow.setContent("🔗", "Riapri connessione DB");
+        }
+    }
+
+    /** Chiude o riapre la connessione DB a seconda dello stato corrente. */
+    public static void toggleDb() {
+        boolean open = dbStatusSupplier != null && dbStatusSupplier.getAsBoolean();
+        Runnable action = open ? closeDbAction : openDbAction;
+        if (action != null) SwingUtilities.invokeLater(action);
     }
 
     /** Separatore sottile con margine orizzontale. */
@@ -177,6 +273,9 @@ public class TrayManager {
             @Override public void mouseReleased(MouseEvent e) { maybeShow(e); }
             private void maybeShow(MouseEvent e) {
                 if (!e.isPopupTrigger()) return;
+                // Aggiorna stato DB ed etichette PRIMA di misurare il menu (la show() ricalcola
+                // dopo, ma la posizione qui sotto usa getPreferredSize()).
+                refreshDbState();
                 // Per i MouseEvent del tray, getX/getY sono coordinate schermo.
                 Point cursor = new Point(e.getX(), e.getY());
                 Dimension size = menu.getPreferredSize();

@@ -205,14 +205,14 @@ async function showCategoryModal(cat, type, parentId) {
       </div>
       <div class="form-group" style="grid-column:1/-1">
         <label class="form-label">Categoria principale (opzionale)</label>
-        <select id="c_parent" class="form-input">
+        <select id="c_parent" class="form-control">
           <option value="">— Nessuna (categoria principale) —</option>
           ${parentOpts}
         </select>
       </div>
       <div class="form-group">
         <label class="form-label">Nome *</label>
-        <input id="c_name" class="form-input" value="${cat?.name ?? ''}" placeholder="es. Supermercato">
+        <input id="c_name" class="form-control" value="${cat?.name ?? ''}" placeholder="es. Supermercato">
       </div>
       <div class="form-group" style="grid-column:1/-1">
         <label class="form-label">Icona</label>
@@ -221,7 +221,7 @@ async function showCategoryModal(cat, type, parentId) {
       </div>
       <div class="form-group">
         <label class="form-label">Colore</label>
-        <input id="c_color" type="color" class="form-input form-color" value="${cat?.color ?? '#58a6ff'}">
+        <input id="c_color" type="color" class="form-color-tx" value="${cat?.color ?? '#58a6ff'}">
       </div>
       ${type === 'expense' ? `
       <div class="form-group" style="grid-column:1/-1">

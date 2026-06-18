@@ -343,7 +343,7 @@ function renderBudgetTable() {
       ${gestioneCell}
       ${cells}
       <td class="budget-total-cell ${isGroupHeader?'budget-cell-parent':''}">
-        ${showParentData&&displayTotal>0?`<b>${overCap?`<span class="budget-total-warn" title="${overCapTitle.replace(/"/g,'&quot;')}">⚠️</span> `:''}${fmt.currency(displayTotal)}</b>`:''}
+        ${showParentData&&displayTotal>0?`<b>${overCap?`<span class="budget-total-warn" title="${overCapTitle.replace(/"/g,'&quot;')}">⚠️</span>`:''}${fmt.currency(displayTotal)}</b>`:''}
         ${showParentData&&displayTotal>0?`<span class="budget-cell-actual ${totalOver?'over':''}">${fmt.currency(annualActual)}</span>`:''}
       </td>
       ${actions}
@@ -373,7 +373,7 @@ function renderBudgetTable() {
   document.getElementById('budgetThead').innerHTML = `
     <tr class="budget-thead-months">
       <th style="${s};min-width:160px">Categoria</th>
-      <th style="${s};min-width:110px">Gestione</th>
+      <th style="${s};min-width:92px">Gestione</th>
       ${MONTHS_SHORT.map((m,i)=>`<th class="budget-month-col${isCurMonthCol(i+1)?' budget-cur-month':''}" style="${s};text-align:right">${m}</th>`).join('')}
       <th style="${s};text-align:right">Totale</th>
       <th style="${s}"></th>

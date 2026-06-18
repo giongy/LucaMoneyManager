@@ -855,10 +855,12 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 .budget-total-cell {
   padding:5px 8px; text-align:right; font-size:var(--fs-md,12px);
   background:var(--bg3); border-bottom:1px solid var(--border);
-  border-left:2px solid var(--border);
+  border-left:2px solid var(--border); position:relative;
 }
 .budget-total-cell b { display:block; color:var(--txt); }
-.budget-total-warn { cursor:help; font-size:.9em; }
+/* Icona warning: posizionata in assoluto nello spazio vuoto a sinistra del totale
+   (il valore è allineato a destra), così non aggiunge larghezza alla colonna né scrollbar. */
+.budget-total-warn { position:absolute; left:4px; top:4px; cursor:help; font-size:.8em; }
 .budget-actions-cell {
   padding:3px 4px; white-space:nowrap;
   border-bottom:1px solid var(--border); border-left:1px solid var(--border);
@@ -1092,6 +1094,7 @@ button.te-reset-btn:hover { opacity:1; color:var(--accent); }
 .toast-success { background:#1a3a1c; border:1px solid var(--income); color:var(--income); }
 .toast-error   { background:#3a1a1a; border:1px solid var(--expense); color:var(--expense); }
 .toast-info    { background:#1a2a3a; border:1px solid var(--accent);  color:var(--accent); }
+.toast-warning { background:#3a2e16; border:1px solid var(--warn);    color:var(--warn); }
 
 /* ─── Sezione ────────────────────────────────────────────────────────────── */
 .section-header {
@@ -1461,16 +1464,16 @@ tr.tx-selected td { background:rgba(88,166,255,.07); }
 }
 .budget-gestione-cell {
   text-align: center;
-  padding: 4px 6px;
+  padding: 4px 3px;
   cursor: pointer;
   white-space: nowrap;
 }
 .budget-gestione-cell:hover { background: var(--hover); }
 .budget-gestione-badge {
   display: inline-block;
-  padding: 2px 7px;
+  padding: 2px 6px;
   border-radius: 10px;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
   line-height: 1.5;
 }

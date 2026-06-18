@@ -107,7 +107,7 @@ const _todayStr = () => _dateStr(new Date());
 function toast(msg, type='success') {
   const c = document.getElementById('toastContainer');
   const t = document.createElement('div');
-  const icon = type==='success'?'✅':type==='error'?'❌':'ℹ️';
+  const icon = type==='success'?'✅':type==='error'?'❌':type==='warning'?'⚠️':'ℹ️';
   t.className = `toast toast-${type}`;
   t.innerHTML = `<span>${icon}</span><span>${msg}</span>`;
   c.appendChild(t);

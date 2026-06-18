@@ -4,6 +4,25 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>LucaMoneyManager</title>
+  <!-- Tema persistito: riapplicato SINCRONICAMENTE prima del primo paint, leggendolo da
+       localStorage (scritto da _cacheAppearance in settings.js). Evita il flash di tema
+       scuro in modalità browser quando l'app è in tray col DB chiuso: in quel caso
+       getSettings non restituisce ancora appearance.theme e init.js non chiamerebbe
+       applyTheme fino al refresh. -->
+  <script>
+  (function(){
+    try {
+      var c = JSON.parse(localStorage.getItem('lmm.appearance') || 'null');
+      if (!c) return;
+      var de = document.documentElement;
+      de.dataset.theme = c.dataTheme || '';
+      if (c.bg) de.style.background = c.bg;                                    // sfondo html (override #0d1117)
+      if (c.vars) for (var k in c.vars) de.style.setProperty(k, c.vars[k]);   // tema personalizzato
+      if (c.radius != null) de.style.setProperty('--radius', c.radius + 'px');
+      if (c.fontSizes) for (var fk in c.fontSizes) de.style.setProperty(fk, c.fontSizes[fk] + 'px');
+    } catch(e) {}
+  })();
+  </script>
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>

@@ -858,6 +858,7 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
   border-left:2px solid var(--border);
 }
 .budget-total-cell b { display:block; color:var(--txt); }
+.budget-total-warn { cursor:help; font-size:.9em; }
 .budget-actions-cell {
   padding:3px 4px; white-space:nowrap;
   border-bottom:1px solid var(--border); border-left:1px solid var(--border);

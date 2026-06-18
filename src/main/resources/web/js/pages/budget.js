@@ -312,6 +312,16 @@ function renderBudgetTable() {
     const displayTotal = (!isGroupHeader && cfg && cfg.mode === 'annuale' && cfg.master_amount > 0 && pinnedCount < 12)
       ? Math.max(cfg.master_amount, annualBudget) : annualBudget;
     const totalOver = isOver(displayTotal, annualActual);
+
+    // Warning sul totale: la somma dei mesi fissati a mano supera l'importo master
+    // impostato in Gestione (annuale = master_amount; mensile = master_amount × 12).
+    // Tolleranza 0,5€ per ignorare gli arrotondamenti al centesimo della distribuzione.
+    const lockedTotal = hasCfg ? (cfg.mode === 'annuale' ? cfg.master_amount : cfg.master_amount * 12) : 0;
+    const overCap = hasCfg && lockedTotal > 0 && annualBudget > lockedTotal + 0.5;
+    const overCapTitle = overCap
+      ? `Somma dei mesi (${fmt.currency(annualBudget)}) oltre l'importo ${cfg.mode === 'annuale' ? 'annuale' : 'mensile (×12)'} impostato (${fmt.currency(lockedTotal)}) — sforo +${fmt.currency(annualBudget - lockedTotal)}`
+      : '';
+
     const actions = isGroupHeader
       ? `<td class="budget-actions-cell"></td>`
       : `<td class="budget-actions-cell">
@@ -333,7 +343,7 @@ function renderBudgetTable() {
       ${gestioneCell}
       ${cells}
       <td class="budget-total-cell ${isGroupHeader?'budget-cell-parent':''}">
-        ${showParentData&&displayTotal>0?`<b>${fmt.currency(displayTotal)}</b>`:''}
+        ${showParentData&&displayTotal>0?`<b>${overCap?`<span class="budget-total-warn" title="${overCapTitle.replace(/"/g,'&quot;')}">⚠️</span> `:''}${fmt.currency(displayTotal)}</b>`:''}
         ${showParentData&&displayTotal>0?`<span class="budget-cell-actual ${totalOver?'over':''}">${fmt.currency(annualActual)}</span>`:''}
       </td>
       ${actions}

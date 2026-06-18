@@ -1117,6 +1117,32 @@ function applyTheme(theme) {
     document.documentElement.dataset.theme = valid.includes(theme) ? theme : '';
   }
   _updateThemeBtn();
+  _cacheAppearance(theme);
+}
+
+// Salva in localStorage uno snapshot dell'aspetto corrente (data-theme, sfondo risolto e,
+// per i temi personalizzati, le variabili CSS) così index.html può riapplicarlo
+// sincronicamente al caricamento, prima del primo paint. Vedi lo script inline in <head>.
+function _cacheAppearance(theme) {
+  try {
+    const de = document.documentElement;
+    const bg = getComputedStyle(de).getPropertyValue('--bg').trim();
+    const cache = { dataTheme: de.dataset.theme || '', bg: bg || '' };
+    if (theme && theme.startsWith('c:')) {
+      const ct = _customThemes.find(t => t.id === theme.slice(2));
+      if (ct) {
+        const vars = {};
+        _ALL_THEME_VARS.forEach(v => { if (ct.vars[v]) vars[v] = ct.vars[v]; });
+        cache.vars = vars;
+        cache.radius = ct.radius ?? 8;
+        const fs = ct.fontSizes || {}, out = {};
+        _FONT_SIZE_VARS.forEach(({ key, def }) =>
+          out[key] = (fs[key] ?? (key === '--font-size' ? ct.fontSize : null) ?? def));
+        cache.fontSizes = out;
+      }
+    }
+    localStorage.setItem('lmm.appearance', JSON.stringify(cache));
+  } catch (e) {}
 }
 
 // Applica e salva il tema scelto (persistente), poi aggiorna pulsante e pagina.

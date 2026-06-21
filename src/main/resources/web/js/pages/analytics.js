@@ -668,10 +668,10 @@ async function renderAnalyticsBalance() {
     { type:'bar', label:'Uscite B',  data:pad(expB), backgroundColor:'rgba(248,81,73,.30)',
       borderColor:'rgba(248,81,73,.7)', borderWidth:1, borderDash:[4,3], order:5 },
     { type:'line', label:'Saldo A', data:pad(balA),
-      borderColor:'#58a6ff', backgroundColor:'transparent',
+      borderColor:'#7c6cff', backgroundColor:'transparent',
       pointRadius:3, tension:.3, borderWidth:2.5, order:1 },
     { type:'line', label:'Saldo B', data:pad(balB),
-      borderColor:'#58a6ff', backgroundColor:'transparent',
+      borderColor:'#7c6cff', backgroundColor:'transparent',
       borderDash:[6,4], pointRadius:2, tension:.3, borderWidth:1.5, order:2 },
   ];
 
@@ -764,7 +764,7 @@ async function _renderAnalyticsBalanceSingle() {
         { type:'bar',  label:'Entrate', data:incomes,  backgroundColor:'rgba(63,185,80,.7)',  order:2 },
         { type:'bar',  label:'Uscite',  data:expenses, backgroundColor:'rgba(248,81,73,.7)',   order:2 },
         { type:'line', label:'Saldo',   data:balances,
-          borderColor:'#58a6ff', backgroundColor:'transparent',
+          borderColor:'#7c6cff', backgroundColor:'transparent',
           pointRadius:3, tension:.3, borderWidth:2, order:1 },
         { type:'line', label:'Cumulativo', data:cumuls,
           borderColor:'#bc8cff', borderWidth:1,
@@ -1484,7 +1484,7 @@ function _renderAnalyticsTrendChart() {
   const linePurple = isLight ? 'rgba(100,30,190,1)' : 'rgba(185,120,255,1)';
   const barColor = (cat.color && cat.color.startsWith('#') && cat.color.length === 7)
     ? cat.color + '66'
-    : 'rgba(88,166,255,.4)';
+    : 'rgba(124,124,255,.4)';
 
   // Plugin inline: etichette sui punti di media e trend
   const trendLabelPlugin = {
@@ -2333,7 +2333,7 @@ function renderReportResults(txs, groupby, chartType, catMap) {
   } else if (groupby === 'type') {
     const byT = {income:{label:'Entrate',color:'#3fb950',total:0,count:0},
                  expense:{label:'Uscite',color:'#f85149',total:0,count:0},
-                 transfer:{label:'Trasferimenti',color:'#58a6ff',total:0,count:0}};
+                 transfer:{label:'Trasferimenti',color:'#7c6cff',total:0,count:0}};
     txs.forEach(t => {
       const a = effectiveAmt(t);
       const k = t.type;

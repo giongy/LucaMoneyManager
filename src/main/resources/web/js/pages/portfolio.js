@@ -263,7 +263,7 @@ async function renderPortfolio() {
             const priceUnit    = isBond ? '%' : '€';
             const typeBadge    = isBond
               ? `<span class="badge" style="background:#d29922;color:#fff;font-size:10px;padding:1px 5px;border-radius:4px">OBB</span>`
-              : `<span class="badge" style="background:#58a6ff;color:#fff;font-size:10px;padding:1px 5px;border-radius:4px">AZI</span>`;
+              : `<span class="badge" style="background:#7c6cff;color:#fff;font-size:10px;padding:1px 5px;border-radius:4px">AZI</span>`;
             const cy  = isBond ? bondCurrentYield(i) : null;
             const ytm = isBond ? bondYTM(i) : null;
             const yieldInfo = isBond && (cy != null || ytm != null)
@@ -885,8 +885,8 @@ function renderBondAnalisi(bonds, container, today, todayYear) {
     plugins: [makeDataLabels()],
     data: {
       labels: allYears,
-      datasets: [{ label: 'Nominale cumulativo', data: ladderData, borderColor: '#58a6ff',
-        backgroundColor: 'rgba(88,166,255,0.15)', fill: true, tension: 0.3, pointRadius: 5 }]
+      datasets: [{ label: 'Nominale cumulativo', data: ladderData, borderColor: '#7c6cff',
+        backgroundColor: 'rgba(124,124,255,0.15)', fill: true, tension: 0.3, pointRadius: 5 }]
     },
     options: {
       responsive: true,
@@ -1610,7 +1610,7 @@ async function showEditPositionModal(portfolioId) {
   const body = `
     <div style="background:var(--bg3);border-radius:6px;padding:8px 14px;margin-bottom:14px;font-size:13px">
       Ticker: <strong>${pos.ticker}</strong> &nbsp;·&nbsp;
-      <span class="badge" style="background:${isBond?'#d29922':'#58a6ff'};color:#fff;font-size:10px;padding:1px 5px;border-radius:4px">${isBond?'OBB':'AZI'}</span>
+      <span class="badge" style="background:${isBond?'#d29922':'#7c6cff'};color:#fff;font-size:10px;padding:1px 5px;border-radius:4px">${isBond?'OBB':'AZI'}</span>
     </div>
     <div class="form-row">
       <div class="form-group">

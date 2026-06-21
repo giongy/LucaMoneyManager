@@ -451,7 +451,7 @@ async function renderDashboard() {
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
         <div class="stat-value" style="min-width:0;flex:1">${fmt.currencyRich(stats.income)}</div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0">
-          ${cumulativeCompareSvg(cumIncCur, cumIncPrev, incColor, 150, 32)}
+          ${cumulativeCompareSvg(cumIncCur, cumIncPrev, incColor, 118, 32)}
           <div style="font-size:10px;line-height:1.3;text-align:right;white-space:nowrap">
             ${trendBadge(trendInc, true)}
             ${trendInc != null ? `<div style="color:var(--txt3);font-size:9px">${ytdLabel} vs ${dashYear-1}</div>` : ''}
@@ -464,7 +464,7 @@ async function renderDashboard() {
       <div style="display:flex;align-items:center;justify-content:space-between;gap:10px">
         <div class="stat-value" style="min-width:0;flex:1">${fmt.currencyRich(stats.expenses)}</div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0">
-          ${cumulativeCompareSvg(cumExpCur, cumExpPrev, expColor, 150, 32)}
+          ${cumulativeCompareSvg(cumExpCur, cumExpPrev, expColor, 118, 32)}
           <div style="font-size:10px;line-height:1.3;text-align:right;white-space:nowrap">
             ${trendBadge(trendExp, false)}
             ${trendExp != null ? `<div style="color:var(--txt3);font-size:9px">${ytdLabel} vs ${dashYear-1}</div>` : ''}
@@ -480,7 +480,7 @@ async function renderDashboard() {
           <div class="stat-sub" style="font-size:11px;color:var(--txt3)">${stats.transaction_count} tx</div>
         </div>
         <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0">
-          ${cumulativeCompareSvg(cumNetCur, cumNetPrev, netColor, 150, 32)}
+          ${cumulativeCompareSvg(cumNetCur, cumNetPrev, netColor, 118, 32)}
           <div style="font-size:10px;line-height:1.3;text-align:right;white-space:nowrap">
             ${trendBadge(trendNet, true)}
             ${trendNet != null ? `<div style="color:var(--txt3);font-size:9px">${ytdLabel} vs ${dashYear-1}</div>` : ''}
@@ -719,7 +719,7 @@ async function renderDashboard() {
       plugins:[_dashGradPlugin],
       data: { labels: top5.map(c => c.icon+' '+c.name),
               datasets: [{label:'Spesa', data: top5.map(c=>c.total),
-                backgroundColor: top5.map(c=>c.color||'rgba(88,166,255,.7)'), borderRadius:4}]},
+                backgroundColor: top5.map(c=>c.color||'rgba(124,124,255,.7)'), borderRadius:4}]},
       options: { indexAxis:'y', responsive:true, maintainAspectRatio:false,
         plugins:{legend:{display:false},
           tooltip:{callbacks:{

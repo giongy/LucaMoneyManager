@@ -512,8 +512,8 @@ function renderBudgetAndamento() {
           type: 'bar',
           label: 'Budget mese',
           data: budgetMese,
-          backgroundColor: 'rgba(88,166,255,.35)',
-          borderColor: 'rgba(88,166,255,.7)',
+          backgroundColor: 'rgba(124,124,255,.35)',
+          borderColor: 'rgba(124,124,255,.7)',
           borderWidth: 1,
           borderRadius: 3,
           order: 2
@@ -534,7 +534,7 @@ function renderBudgetAndamento() {
           type: 'line',
           label: 'Budget prog.',
           data: budgetProg,
-          borderColor: '#58a6ff',
+          borderColor: '#7c6cff',
           backgroundColor: 'transparent',
           tension: 0.3, pointRadius: 3, pointHoverRadius: 5,
           order: 1
@@ -1468,8 +1468,8 @@ function _openBudgetDetail(catId, catName, isFirstOpen) {
           {
             label: 'Budget (cumulativo)',
             data: chartLabels.map((_,i) => { let s=0; for(let m=1;m<=i+1;m++) s+=bm[m]||0; return s; }),
-            borderColor: '#58a6ff',
-            backgroundColor: 'rgba(88,166,255,0.08)',
+            borderColor: '#7c6cff',
+            backgroundColor: 'rgba(124,124,255,0.08)',
             borderWidth: 2,
             pointRadius: 2,
             tension: 0.3,

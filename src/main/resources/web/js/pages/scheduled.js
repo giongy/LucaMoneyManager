@@ -512,8 +512,8 @@ async function loadProjectionChart(accounts) {
     data: { labels: dates, datasets: [{
       label: 'Saldo totale',
       data: totals,
-      borderColor: '#58a6ff',
-      backgroundColor: '#58a6ff22',
+      borderColor: '#7c6cff',
+      backgroundColor: '#7c6cff22',
       fill: true, tension: 0.3,
       pointRadius: isDaily ? 2 : 2,
       pointHoverRadius: 4,

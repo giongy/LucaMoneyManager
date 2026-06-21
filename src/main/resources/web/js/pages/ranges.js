@@ -61,7 +61,7 @@ async function renderRangePresets() {
             return `
             <div class="tag-mgmt-row">
               <span style="font-weight:500">${p.label}</span>
-              <span class="tag-inline" style="--tc:#58a6ff;font-size:11px;padding:2px 8px;margin-left:8px">${p.range_key}</span>
+              <span class="tag-inline" style="--tc:#7c6cff;font-size:11px;padding:2px 8px;margin-left:8px">${p.range_key}</span>
               ${preview ? `<span class="text-muted" style="font-size:11px;margin-left:8px">${preview}</span>` : ''}
               <div style="margin-left:auto;display:flex;gap:4px">
                 <button class="btn btn-ghost btn-icon" onclick="editRangePreset(${p.id})">✏️</button>

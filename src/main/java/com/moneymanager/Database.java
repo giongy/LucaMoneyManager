@@ -4015,7 +4015,7 @@ public class Database {
      * usate da pianificate attive, così non si conta due volte ciò che è già pianificato.
      * Ritorna: history (netti reali per il grafico), current_partial_net, dispersion (MAD×1.4826),
      * variable_net/income/expense (mediane), scheduled_future [{ym, recurring_net, lumpy_net}],
-     * recurring [{description,type,monthly_amount}] e lumpy_events [{ym,date,description,amount}]
+     * recurring [{category,description,type,monthly_amount}] e lumpy_events [{ym,date,category,description,amount}]
      * per il pannello "Come ci arrivo", e (se richiesto) portfolio (valore odierno + eventi bond).
      */
     public Map<String, Object> getForecastEngine(int histMonths, int horizonMonths, boolean includePortfolio) throws SQLException {
@@ -4113,6 +4113,13 @@ public class Database {
             String type   = (String) s.get("type");
             double signed = "expense".equals(type) ? -amount : amount;
             String desc   = s.get("description") != null ? (String) s.get("description") : "";
+            // Categoria gerarchica parent:child per le sottoliste del report ("Come ci arrivo")
+            String catName    = s.get("category_name") != null ? (String) s.get("category_name") : "";
+            String parentName = s.get("parent_category_name") != null ? (String) s.get("parent_category_name") : "";
+            String category;
+            if (!parentName.isEmpty() && !catName.isEmpty()) category = parentName + ":" + catName;
+            else if (!catName.isEmpty())                    category = catName;
+            else                                            category = "Senza categoria";
 
             LocalDate cur = firstOccurrenceFrom(start, freq, today);
             if (cur == null) continue;
@@ -4126,6 +4133,7 @@ public class Database {
                     row[1] += signed;
                     Map<String, Object> ev = new LinkedHashMap<>();
                     ev.put("ym", ym); ev.put("date", cur.toString());
+                    ev.put("category", category);
                     ev.put("description", desc); ev.put("amount", r2(signed));
                     lumpyEvents.add(ev);
                 }
@@ -4140,6 +4148,7 @@ public class Database {
                     default -> 1.0;       // monthly, monthly_last
                 };
                 Map<String, Object> rec = new LinkedHashMap<>();
+                rec.put("category", category);
                 rec.put("description", desc); rec.put("type", type);
                 rec.put("monthly_amount", r2(signed * factor));
                 recurringList.add(rec);

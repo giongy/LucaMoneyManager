@@ -2777,27 +2777,45 @@ async function _runForecastSaldo() {
       <span style="font-variant-numeric:tabular-nums;font-weight:${strong?'700':'600'};${color?`color:${color}`:''};white-space:nowrap">${value}</span>
     </div>`;
 
-  // Sottolista pianificate ricorrenti (stipendio, affitto, abbonamenti…)
-  const recListHtml = recurring.length ? `
-    <div style="margin:4px 0 10px;padding:8px 10px;background:var(--bg3);border-radius:8px;max-height:180px;overflow-y:auto">
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:0 28px">
-        ${recurring.map(r => `<div style="display:flex;justify-content:space-between;gap:10px;font-size:12px;padding:2px 0;min-width:0">
-          <span style="color:var(--txt2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.description || (r.type==='income'?'Entrata':'Uscita')}</span>
-          <span style="font-variant-numeric:tabular-nums;color:${Number(r.monthly_amount)>=0?'var(--income)':'var(--expense)'};white-space:nowrap">${signCur(Number(r.monthly_amount))}/mese</span>
-        </div>`).join('')}
-      </div>
-    </div>` : `<div style="font-size:12px;color:var(--txt3);padding:2px 0 10px">Nessuna pianificata ricorrente attiva.</div>`;
+  // Riga di una voce: «cat_parent:cat_child» · descrizione → importo. La categoria
+  // gerarchica è enfatizzata, la descrizione è secondaria; importo allineato a destra.
+  const fcLine = (category, descPrefix, descr, amount, amtSuffix) => `
+    <div style="display:flex;justify-content:space-between;gap:10px;font-size:12px;padding:3px 0;min-width:0;border-bottom:1px solid var(--border)">
+      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0">
+        ${descPrefix ? `<b style="color:var(--txt);font-weight:600">${descPrefix}</b> ` : ''}<b style="color:var(--txt);font-weight:600">${category || 'Senza categoria'}</b><span style="color:var(--txt3)"> · ${descr || '—'}</span>
+      </span>
+      <span style="font-variant-numeric:tabular-nums;color:${amount>=0?'var(--income)':'var(--expense)'};white-space:nowrap">${signCur(amount)}${amtSuffix || ''}</span>
+    </div>`;
 
-  // Sottolista eventi annuali/una-tantum (datati)
-  const lumpyListHtml = lumpyEvents.length ? `
-    <div style="margin:4px 0 10px;padding:8px 10px;background:var(--bg3);border-radius:8px;max-height:170px;overflow-y:auto">
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:0 28px">
-        ${lumpyEvents.map(e => `<div style="display:flex;justify-content:space-between;gap:10px;font-size:12px;padding:2px 0;min-width:0">
-          <span style="color:var(--txt2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><b style="color:var(--txt);font-weight:600">${e.ym}</b> · ${e.description||'Evento'}</span>
-          <span style="font-variant-numeric:tabular-nums;color:${Number(e.amount)>=0?'var(--income)':'var(--expense)'};white-space:nowrap">${signCur(Number(e.amount))}</span>
-        </div>`).join('')}
+  // Colonna "Pianificate ricorrenti": categoria parent:child · descrizione · importo/mese
+  const recColHtml = recurring.length
+    ? recurring.map(r => fcLine(r.category, '', r.description, Number(r.monthly_amount), '/mese')).join('')
+    : `<div style="font-size:12px;color:var(--txt3);padding:2px 0">Nessuna pianificata ricorrente attiva.</div>`;
+
+  // Colonna "Eventi annuali / una-tantum": datati, prefisso con il mese (ym)
+  const lumpyColHtml = lumpyEvents.length
+    ? lumpyEvents.map(e => fcLine(e.category, e.ym, e.description, Number(e.amount), '')).join('')
+    : `<div style="font-size:12px;color:var(--txt3);padding:2px 0">Nessun evento annuale/una-tantum nel periodo.</div>`;
+
+  // Header di colonna con totale a destra
+  const fcColHeader = (title, total) => `
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:6px">
+      <span style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--txt2)">${title}</span>
+      <span style="font-variant-numeric:tabular-nums;font-weight:700;color:${total>=0?'var(--income)':'var(--expense)'}">${signCur(total)}</span>
+    </div>`;
+
+  // Blocco a 2 colonne con scroll indipendente (pianificate | annuali/una-tantum)
+  const twoColHtml = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:10px 0">
+      <div style="min-width:0">
+        ${fcColHeader('Pianificate ricorrenti', recTotal)}
+        <div style="padding:6px 10px;background:var(--bg3);border-radius:8px;max-height:320px;overflow-y:auto">${recColHtml}</div>
       </div>
-    </div>` : `<div style="font-size:12px;color:var(--txt3);padding:2px 0 10px">Nessun evento annuale/una-tantum nel periodo.</div>`;
+      <div style="min-width:0">
+        ${fcColHeader('Eventi annuali / una-tantum', lumpyTotal)}
+        <div style="padding:6px 10px;background:var(--bg3);border-radius:8px;max-height:320px;overflow-y:auto">${lumpyColHtml}</div>
+      </div>
+    </div>`;
 
   out.innerHTML = `
     <div class="card" style="padding:18px 20px;margin-bottom:16px;background:${heroBg};border-left:4px solid ${heroBorder}">
@@ -2822,10 +2840,7 @@ async function _runForecastSaldo() {
     <div class="card" style="padding:16px 18px;margin-bottom:16px">
       <div style="font-size:13px;font-weight:600;margin-bottom:10px">🧩 Come ci arrivo</div>
       ${decRow(`Base oggi (conti${wantNet?' + portfolio':''})`, fmt.currency(baseToday), '', false)}
-      ${decRow('Pianificate ricorrenti', signCur(recTotal), recTotal>=0?'var(--income)':'var(--expense)', false)}
-      ${recListHtml}
-      ${decRow('Eventi annuali / una-tantum', signCur(lumpyTotal), lumpyTotal>=0?'var(--income)':'var(--expense)', false)}
-      ${lumpyListHtml}
+      ${twoColHtml}
       ${decRow('Spese variabili tipiche (storico)', signCur(varTotal), varTotal>=0?'var(--income)':'var(--expense)', false)}
       ${wantNet ? decRow('Cedole / rimborsi bond', signCur(portTotal), portTotal>=0?'var(--income)':'var(--expense)', false) : ''}
       ${decRow(`Saldo previsto fra ${horizonMonths} mesi`, fmt.currency(finalBal), 'var(--accent)', true)}

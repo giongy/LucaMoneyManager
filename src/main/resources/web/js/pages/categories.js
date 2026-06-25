@@ -36,6 +36,7 @@ async function renderCategories() {
             <span class="cat-name">${p.name}</span>
             <span class="badge ${typeCls(p.type)}">${typeLabel(p.type)}</span>
             ${p.expense_nature ? `<span class="nature-badge nature-${p.expense_nature}">${{essenziale:'🟢 Essenziale',variabile:'🟡 Variabile',superflua:'🔴 Superflua'}[p.expense_nature]||''}</span>` : ''}
+            ${p.excluded_from_budget ? `<span class="badge" style="background:var(--txt3);color:#fff;font-size:10px" title="Esclusa da budget, report, dashboard e previsioni">🚫 Esclusa</span>` : ''}
             <span class="cat-sub-count">${kids.length} sottocategorie</span>
             <div class="cat-actions">
               ${!isTransfer ? `
@@ -54,6 +55,7 @@ async function renderCategories() {
                   <span class="cat-color-dot" style="background:${k.color}" title="${k.color}"></span>
                   <span class="cat-name">${k.name}</span>
                   ${(() => { const n = k.expense_nature || k.parent_expense_nature; const inh = !k.expense_nature && n; return n ? `<span class="nature-badge nature-${n}" title="${inh?'ereditata dal parent':''}">${{essenziale:'🟢',variabile:'🟡',superflua:'🔴'}[n]||''}${inh?' ↑':''}</span>` : ''; })()}
+                  ${k.excluded_from_budget ? `<span class="badge" style="background:var(--txt3);color:#fff;font-size:10px" title="Esclusa da budget, report, dashboard e previsioni">🚫</span>` : ''}
                   <span class="cat-inherited">eredita ${typeLabel(k.type)}</span>
                   <div class="cat-actions">
                     <button class="btn btn-ghost btn-icon" onclick="editCategory(${k.id})" title="Modifica">✏️</button>
@@ -223,6 +225,15 @@ async function showCategoryModal(cat, type, parentId) {
         <label class="form-label">Colore</label>
         <input id="c_color" type="color" class="form-color-tx" value="${cat?.color ?? '#58a6ff'}">
       </div>
+      <div class="form-group" style="grid-column:1/-1">
+        <label class="form-label" style="display:flex;align-items:center;gap:8px;cursor:pointer">
+          <input id="c_excluded" type="checkbox" ${cat?.excluded_from_budget ? 'checked' : ''} style="width:auto;margin:0">
+          🚫 Escludi da budget e report
+        </label>
+        <div style="font-size:11px;color:var(--txt3);margin-top:4px">
+          Le transazioni di questa categoria restano visibili e muovono il saldo del conto, ma non vengono conteggiate in budget, report, dashboard e previsioni. Utile ad es. per l'addebito del capital gain.
+        </div>
+      </div>
       ${type === 'expense' ? `
       <div class="form-group" style="grid-column:1/-1">
         <label class="form-label">Natura spesa</label>
@@ -247,6 +258,7 @@ async function showCategoryModal(cat, type, parentId) {
       parent_id:      document.getElementById('c_parent').value
                         ? parseInt(document.getElementById('c_parent').value) : null,
       expense_nature: document.getElementById('c_nature')?.value || null,
+      excluded_from_budget: document.getElementById('c_excluded')?.checked ? 1 : 0,
     };
     if (!data.name) { toast('Inserisci un nome', 'error'); return false; }
     try {

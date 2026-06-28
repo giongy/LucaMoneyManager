@@ -1220,7 +1220,10 @@ public class Database {
         boolean hasCategory = categoryId != null;
 
         StringBuilder where = new StringBuilder(
-            "description IS NOT NULL AND TRIM(description) <> ''");
+            // Esclude sempre le transazioni-somma generate dal raggruppamento di manutenzione,
+            // la cui descrizione inizia con "[RAGGRUPPATE …" (vedi groupTransactions).
+            "description IS NOT NULL AND TRIM(description) <> ''"
+            + "\n  AND TRIM(description) NOT LIKE '[RAGGRUPPATE %'");
         List<Object> params = new ArrayList<>();
         if (hasCategory) {
             where.append("\n  AND category_id = ?");

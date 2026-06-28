@@ -1317,6 +1317,22 @@ tr.tx-selected td { background:rgba(124,124,255,.07); }
 .tag-chip.selected::before { content:'✓ '; font-size:var(--fs-xs,10px); }
 .tag-chip-new { color:var(--txt3); background:var(--bg4); border-color:var(--border); }
 .tag-chip-new:hover { color:var(--txt); background:var(--border); }
+
+/* Suggerimenti descrizione: chip cliccabili con le 10 descrizioni più usate (ultimi 6 mesi) */
+.desc-suggestions { display:flex; flex-wrap:wrap; gap:5px; margin-top:6px; }
+.desc-chip {
+  display:inline-flex; align-items:center; max-width:220px;
+  padding:3px 9px; border-radius:14px; font-size:var(--fs-sm,11px);
+  cursor:pointer; transition:all .15s; user-select:none;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  background:color-mix(in srgb, var(--accent) 10%, transparent);
+  color:var(--txt2);
+  border:1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.desc-chip:hover {
+  background:color-mix(in srgb, var(--accent) 20%, transparent);
+  border-color:var(--accent); color:var(--txt);
+}
 .tag-new-row { display:flex; align-items:center; gap:6px; margin-top:6px; }
 .color-input-sm {
   width:36px; height:30px; padding:2px; border:1px solid var(--border);

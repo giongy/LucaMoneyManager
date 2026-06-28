@@ -325,6 +325,7 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             case "updateTransaction"    -> db.updateTransaction(p.get("id").getAsInt(), p);
             case "deleteTransaction"    -> db.deleteTransaction(p.get("id").getAsInt());
             case "getTransactionSplits" -> db.getTransactionSplits(p.get("id").getAsInt());
+            case "getTopDescriptions"   -> db.getTopDescriptions(p);
             case "updateTransactionReconciled" -> db.updateTransactionReconciled(
                     p.get("id").getAsInt(), p.get("reconciled").getAsBoolean());
             case "getAccountSummary"  -> db.getAccountSummary(p.get("account_id").getAsInt());

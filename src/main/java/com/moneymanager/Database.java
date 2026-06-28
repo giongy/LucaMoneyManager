@@ -1203,6 +1203,42 @@ public class Database {
         """);
     }
 
+    /**
+     * Descrizioni più usate (non vuote) per riuso rapido nel modale di inserimento,
+     * ordinate per frequenza decrescente.
+     * <p>Senza testo di ricerca: le 10 più usate degli ultimi 6 mesi.
+     * Con testo di ricerca ({@code query}): fino a 10 descrizioni che lo contengono
+     * (case-insensitive), cercando in tutto lo storico così da trovare anche voci più vecchie.
+     */
+    public List<Map<String, Object>> getTopDescriptions(JsonObject p) throws SQLException {
+        String query = p != null ? str(p, "query") : null;
+        if (query != null && !query.trim().isEmpty()) {
+            // Filtro per sottostringa: '%' + testo + '%'. Le wildcard nel testo vengono
+            // neutralizzate via ESCAPE per non far matchare di più del previsto.
+            String like = "%" + query.trim().replace("\\", "\\\\")
+                                       .replace("%", "\\%")
+                                       .replace("_", "\\_") + "%";
+            return queryList("""
+                SELECT TRIM(description) AS description, COUNT(*) AS usage_count
+                FROM transactions
+                WHERE description IS NOT NULL AND TRIM(description) <> ''
+                  AND TRIM(description) LIKE ? ESCAPE '\\'
+                GROUP BY TRIM(description)
+                ORDER BY usage_count DESC, description ASC
+                LIMIT 10
+            """, like);
+        }
+        return queryList("""
+            SELECT TRIM(description) AS description, COUNT(*) AS usage_count
+            FROM transactions
+            WHERE description IS NOT NULL AND TRIM(description) <> ''
+              AND date >= date('now', '-6 months')
+            GROUP BY TRIM(description)
+            ORDER BY usage_count DESC, description ASC
+            LIMIT 10
+        """);
+    }
+
     /** Crea una categoria; le sottocategorie ereditano il tipo dal parent. */
     public Map<String, Object> addCategory(JsonObject p) throws SQLException {
         Integer parentId = intVal(p, "parent_id");

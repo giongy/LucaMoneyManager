@@ -674,6 +674,7 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
     <div class="form-group">
       <label class="form-label">Descrizione</label>
       <textarea class="form-control" id="f_desc" rows="2" placeholder="Opzionale">${tx?.description||''}</textarea>
+      <div class="desc-suggestions" id="descSuggestions" style="display:none"></div>
     </div>
     <div class="form-row">
       <div class="form-group">
@@ -956,6 +957,50 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
   initCatPicker('f_cat_input', 'f_cat', 'catPickerList');
   updateCatSelect(tx?.category_id);
   window.toggleCats(); // aggiorna stato bottone Suddividi in base al tipo iniziale
+
+  // ── Suggerimenti descrizione: chip cliccabili. Campo vuoto → le 10 più usate (ultimi
+  //    6 mesi); mentre digiti → fino a 10 descrizioni passate che contengono il testo. ──
+  (() => {
+    const wrap = document.getElementById('descSuggestions');
+    const desc = document.getElementById('f_desc');
+    if (!wrap || !desc) return;
+
+    // Disegna le chip da una lista di righe {description, usage_count}.
+    const render = rows => {
+      wrap.replaceChildren();
+      if (!rows || !rows.length) { wrap.style.display = 'none'; return; }
+      // Costruisce le chip via DOM (textContent) per non interpretare HTML nelle descrizioni
+      rows.forEach(r => {
+        const chip = document.createElement('span');
+        chip.className = 'desc-chip';
+        chip.title = `Usata ${r.usage_count} volte`;
+        chip.textContent = r.description;
+        chip.onclick = () => { desc.value = r.description; desc.focus(); refresh(); };
+        wrap.appendChild(chip);
+      });
+      wrap.style.display = 'flex';
+    };
+
+    // Carica i suggerimenti (vuoto = top recenti, altrimenti filtrati per sottostringa).
+    // _reqId evita che una risposta lenta sovrascriva una ricerca più recente.
+    let _reqId = 0;
+    const load = async q => {
+      const id = ++_reqId;
+      let rows;
+      try { rows = await api.getTopDescriptions(q); }
+      catch { return; }
+      if (id === _reqId) render(rows);
+    };
+
+    let _timer;
+    const refresh = () => {
+      clearTimeout(_timer);
+      _timer = setTimeout(() => load(desc.value.trim()), 200);
+    };
+
+    desc.addEventListener('input', refresh);
+    load('');  // stato iniziale: top recenti
+  })();
 
   // ── Split transaction logic ──────────────────────────────────────────────
 

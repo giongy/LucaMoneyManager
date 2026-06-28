@@ -958,8 +958,9 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
   updateCatSelect(tx?.category_id);
   window.toggleCats(); // aggiorna stato bottone Suddividi in base al tipo iniziale
 
-  // ── Suggerimenti descrizione: chip cliccabili. Campo vuoto → le 10 più usate (ultimi
-  //    6 mesi); mentre digiti → fino a 10 descrizioni passate che contengono il testo. ──
+  // ── Suggerimenti descrizione: chip cliccabili. Senza categoria né testo → le 10 più
+  //    usate (ultimi 6 mesi); con categoria scelta → le 10 di quella categoria; mentre
+  //    digiti → filtra per sottostringa (combinato con la categoria, se presente). ──
   (() => {
     const wrap = document.getElementById('descSuggestions');
     const desc = document.getElementById('f_desc');
@@ -981,13 +982,18 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
       wrap.style.display = 'flex';
     };
 
-    // Carica i suggerimenti (vuoto = top recenti, altrimenti filtrati per sottostringa).
-    // _reqId evita che una risposta lenta sovrascriva una ricerca più recente.
+    // Carica i suggerimenti filtrati per testo digitato e categoria selezionata.
+    // _reqId evita che una risposta lenta sovrascriva una richiesta più recente.
     let _reqId = 0;
-    const load = async q => {
+    const load = async () => {
       const id = ++_reqId;
+      const opts = {};
+      const q = desc.value.trim();
+      if (q) opts.query = q;
+      const catId = parseInt(document.getElementById('f_cat')?.value);
+      if (catId) opts.category_id = catId;
       let rows;
-      try { rows = await api.getTopDescriptions(q); }
+      try { rows = await api.getTopDescriptions(opts); }
       catch { return; }
       if (id === _reqId) render(rows);
     };
@@ -995,11 +1001,20 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
     let _timer;
     const refresh = () => {
       clearTimeout(_timer);
-      _timer = setTimeout(() => load(desc.value.trim()), 200);
+      _timer = setTimeout(load, 200);
     };
 
     desc.addEventListener('input', refresh);
-    load('');  // stato iniziale: top recenti
+    // Il cat-picker scrive su #f_cat senza emettere eventi: rileggiamo la categoria
+    // quando l'input categoria cambia o perde il focus (es. dopo una selezione).
+    const catInput = document.getElementById('f_cat_input');
+    if (catInput) {
+      catInput.addEventListener('blur', refresh);
+      catInput.addEventListener('input', refresh);
+    }
+    // Cambio tipo (uscita/entrata/trasferimento) azzera la categoria: aggiorna le chip.
+    document.getElementById('f_type')?.addEventListener('change', refresh);
+    load();  // stato iniziale
   })();
 
   // ── Split transaction logic ──────────────────────────────────────────────

@@ -132,7 +132,7 @@ const api = {
   // Transazioni
   getTransactions:             f    => callJava('getTransactions',             f || {}),
   getTransactionSplits:        id   => callJava('getTransactionSplits',        {id}),
-  getTopDescriptions:          q    => callJava('getTopDescriptions', q ? {query: q} : {}),
+  getTopDescriptions:          opts => callJava('getTopDescriptions', opts || {}),
   addTransaction:              async data  => { api._invalidateAccounts(); return callJava('addTransaction',    data); },
   updateTransaction:           async data  => { api._invalidateAccounts(); return callJava('updateTransaction', data); },
   deleteTransaction:           async id    => { api._invalidateAccounts(); return callJava('deleteTransaction', {id}); },

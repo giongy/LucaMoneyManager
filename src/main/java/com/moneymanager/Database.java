@@ -1204,39 +1204,50 @@ public class Database {
     }
 
     /**
-     * Descrizioni più usate (non vuote) per riuso rapido nel modale di inserimento,
-     * ordinate per frequenza decrescente.
-     * <p>Senza testo di ricerca: le 10 più usate degli ultimi 6 mesi.
-     * Con testo di ricerca ({@code query}): fino a 10 descrizioni che lo contengono
-     * (case-insensitive), cercando in tutto lo storico così da trovare anche voci più vecchie.
+     * Le 10 descrizioni più usate (non vuote), per riuso rapido nel modale di inserimento,
+     * ordinate per frequenza decrescente. I filtri opzionali si combinano:
+     * <ul>
+     *   <li>{@code category_id}: solo descrizioni di transazioni con quella categoria;</li>
+     *   <li>{@code query}: solo descrizioni che contengono il testo (case-insensitive).</li>
+     * </ul>
+     * Senza alcun filtro restringe agli ultimi 6 mesi; con un filtro attivo cerca su tutto
+     * lo storico, così da trovare anche voci ricorrenti più vecchie.
      */
     public List<Map<String, Object>> getTopDescriptions(JsonObject p) throws SQLException {
-        String query = p != null ? str(p, "query") : null;
-        if (query != null && !query.trim().isEmpty()) {
+        String  query      = p != null ? str(p, "query") : null;
+        Integer categoryId = p != null ? intVal(p, "category_id") : null;
+        boolean hasQuery    = query != null && !query.trim().isEmpty();
+        boolean hasCategory = categoryId != null;
+
+        StringBuilder where = new StringBuilder(
+            "description IS NOT NULL AND TRIM(description) <> ''");
+        List<Object> params = new ArrayList<>();
+        if (hasCategory) {
+            where.append("\n  AND category_id = ?");
+            params.add(categoryId);
+        }
+        if (hasQuery) {
             // Filtro per sottostringa: '%' + testo + '%'. Le wildcard nel testo vengono
             // neutralizzate via ESCAPE per non far matchare di più del previsto.
             String like = "%" + query.trim().replace("\\", "\\\\")
                                        .replace("%", "\\%")
                                        .replace("_", "\\_") + "%";
-            return queryList("""
-                SELECT TRIM(description) AS description, COUNT(*) AS usage_count
-                FROM transactions
-                WHERE description IS NOT NULL AND TRIM(description) <> ''
-                  AND TRIM(description) LIKE ? ESCAPE '\\'
-                GROUP BY TRIM(description)
-                ORDER BY usage_count DESC, description ASC
-                LIMIT 10
-            """, like);
+            where.append("\n  AND TRIM(description) LIKE ? ESCAPE '\\'");
+            params.add(like);
         }
-        return queryList("""
+        // Senza filtri: limita agli ultimi 6 mesi (le più recenti e rilevanti)
+        if (!hasQuery && !hasCategory)
+            where.append("\n  AND date >= date('now', '-6 months')");
+
+        String sql = """
             SELECT TRIM(description) AS description, COUNT(*) AS usage_count
             FROM transactions
-            WHERE description IS NOT NULL AND TRIM(description) <> ''
-              AND date >= date('now', '-6 months')
+            WHERE %s
             GROUP BY TRIM(description)
             ORDER BY usage_count DESC, description ASC
             LIMIT 10
-        """);
+        """.formatted(where);
+        return queryList(sql, params.toArray());
     }
 
     /** Crea una categoria; le sottocategorie ereditano il tipo dal parent. */

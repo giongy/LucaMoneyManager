@@ -17,8 +17,8 @@ const _DASH_ACC_TYPE_LABELS = {checking:'Conti Correnti',savings:'Risparmio',cas
 
 // computeHealthScore() è in utils.js — single source of truth condivisa con analytics.
 
-// Disegna il widget "bolle budget" del mese corrente: una bolla per categoria foglia
-// (anello di progresso speso/budget) divise in Uscite/Entrate, con riga totali in fondo.
+// Disegna il widget budget del mese corrente: una riga-barra per categoria foglia
+// (barra di progresso speso/budget) divise in Uscite/Entrate, con riga totali in fondo.
 function _renderDashBudgetBubbles(budgetYear) {
   const el = document.getElementById('dashBudgetBubbles');
   if (!el) return;
@@ -84,58 +84,62 @@ function _renderDashBudgetBubbles(budgetYear) {
   const netActual    = totIncActual - totExpActual;
   const netBudget    = totIncBudget - totExpBudget;
 
-  // Anello SVG di progresso
-  const _ring = (spent, budget, color, sz = 44, isIncome = false) => {
-    // Uscita senza budget ma con spesa = sforamento: anello pieno e rosso (come spent>budget).
-    const expOverNoBudget = !isIncome && budget <= 0 && spent > 0;
-    const pct  = budget > 0 ? Math.min(spent / budget, 1) : (expOverNoBudget ? 1 : 0);
-    const over = (budget > 0 && spent > budget) || expOverNoBudget;
-    const bad  = isIncome ? spent < budget && budget > 0 : over;
-    const r    = (sz - 4) / 2;
-    const c    = 2 * Math.PI * r;
-    const fill = pct * c;
-    const sc   = bad ? 'var(--expense)' : spent > 0 ? (color || 'var(--accent)') : 'transparent';
-    return `<svg width="${sz}" height="${sz}" viewBox="0 0 ${sz} ${sz}"
-        style="position:absolute;top:0;left:0;transform:rotate(-90deg);pointer-events:none">
-      <circle cx="${sz/2}" cy="${sz/2}" r="${r}" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="3"/>
-      <circle cx="${sz/2}" cy="${sz/2}" r="${r}" fill="none" stroke="${sc}" stroke-width="3"
-        stroke-dasharray="${c.toFixed(1)}" stroke-dashoffset="${(c - fill).toFixed(1)}" stroke-linecap="round"/>
-    </svg>`;
-  };
-
-  // HTML singola bolla
-  const _bubble = c => {
-    const pct  = c.budget > 0 ? Math.round(c.actual / c.budget * 100) : 0;
+  // HTML singola riga-barra (sostituisce la vecchia "bolla" con anello).
+  // Layout: [icona] [nome + %] su una riga, barra di progresso sotto, importi reale/budget a destra.
+  const _barRow = c => {
     // Budget 0 con uscita reale = sforamento: trattalo come budget valido (colore rosso, rimasto negativo).
     // Per le entrate un budget 0 non è un "mancato target", quindi resta neutro.
     const isExpOverNoBudget = c.type !== 'income' && c.budget <= 0 && c.actual > 0;
+    const isIncome = c.type === 'income';
+
+    // pct di riempimento barra (clamp a 100), e pct "reale" per l'etichetta (può superare 100).
+    const rawPct  = c.budget > 0 ? (c.actual / c.budget * 100) : (isExpOverNoBudget ? 100 : 0);
+    const fillPct = Math.min(rawPct, 100);
+    const pctLbl  = c.budget > 0 ? Math.round(rawPct) : (isExpOverNoBudget ? null : null);
+
+    // "bad" = situazione negativa: uscita sopra budget, oppure entrata sotto target.
+    const bad = isIncome ? (c.budget > 0 && c.actual < c.budget)
+                         : ((c.budget > 0 && c.actual > c.budget) || isExpOverNoBudget);
+
     const amtColor = c.budget <= 0
       ? (isExpOverNoBudget ? 'var(--expense)' : 'var(--txt3)')
-      : c.type === 'income'
+      : isIncome
         ? (c.actual > c.budget ? 'var(--income)' : c.actual < c.budget ? 'var(--expense)' : 'var(--txt3)')
         : (c.actual < c.budget ? 'var(--income)' : c.actual > c.budget ? 'var(--expense)' : 'var(--txt3)');
-    const hexColor  = c.color?.startsWith('#') ? c.color : null;
-    const bg        = hexColor ? hexColor + '28' : 'rgba(255,255,255,0.07)';
+
+    const hexColor = c.color?.startsWith('#') ? c.color : null;
+    // Colore di riempimento barra: rosso se "bad", altrimenti colore categoria (o accent), trasparente se 0.
+    const barColor = bad ? 'var(--expense)' : c.actual > 0 ? (hexColor || 'var(--accent)') : 'transparent';
+
     const catLine   = c.parent_name ? `${c.parent_name} : ${c.name}` : c.name;
     const remaining = c.budget > 0
-      ? (c.type === 'income' ? c.actual - c.budget : c.budget - c.actual)
+      ? (isIncome ? c.actual - c.budget : c.budget - c.actual)
       : (isExpOverNoBudget ? c.budget - c.actual : null);
     const hesc = s => String(s).replace(/"/g, '&quot;');
-    return `<div class="budget-bubble" onclick="_dashBubbleDetail(${c.id})"
+
+    // Badge % a destra del nome: mostrato solo se c'è un budget; rosso se sforato/sotto target.
+    const pctBadge = pctLbl !== null
+      ? `<span class="bbar-pct" style="color:${bad ? 'var(--expense)' : 'var(--txt3)'}">${pctLbl}%</span>`
+      : '';
+
+    return `<div class="bbar" onclick="_dashBubbleDetail(${c.id})"
         data-tt-cat="${hesc(catLine)}"
         data-tt-budget="${hesc((c.budget > 0 || c.actual > 0) ? fmt.currency(c.budget) : '—')}"
         data-tt-actual="${hesc(fmt.currency(c.actual))}"
         data-tt-rem="${hesc(remaining !== null ? fmt.currency(remaining) : '—')}"
         data-tt-over="${remaining !== null && remaining < 0 ? '1' : '0'}"
         data-tt-l2="Reale">
-      <div class="budget-bubble-icon" style="background:${bg}">
-        <span style="position:relative;z-index:1;font-size:18px;line-height:1">${c.icon || '📁'}</span>
-        ${_ring(c.actual, c.budget, hexColor, 44, c.type === 'income')}
+      <div class="bbar-head">
+        <span class="bbar-icon">${c.icon || '📁'}</span>
+        <span class="bbar-name">${c.name}</span>
+        ${pctBadge}
       </div>
-      <div class="budget-bubble-name">${c.name}</div>
-      <div class="budget-bubble-amounts">
-        <span style="color:${amtColor};font-weight:700;font-size:12px">${fmt.currency(c.actual)}</span><br>
-        <span style="color:var(--txt3);font-size:11px">${(c.budget > 0 || c.actual > 0) ? fmt.currency(c.budget) : '—'}</span>
+      <div class="bbar-track">
+        <div class="bbar-fill" data-fill="${fillPct.toFixed(1)}" style="width:0;background:${barColor}"></div>
+      </div>
+      <div class="bbar-amounts">
+        <span style="color:${amtColor};font-weight:700">${fmt.currency(c.actual)}</span>
+        <span class="bbar-budget">/ ${(c.budget > 0 || c.actual > 0) ? fmt.currency(c.budget) : '—'}</span>
       </div>
     </div>`;
   };
@@ -156,13 +160,13 @@ function _renderDashBudgetBubbles(budgetYear) {
         <div class="dash-budget-col-exp">
           <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--txt3);margin-bottom:8px">Uscite</div>
           ${expCats.length
-            ? `<div class="dash-budget-bubbles-wrap">${expCats.map(_bubble).join('')}</div>`
+            ? `<div class="bbar-grid">${expCats.map(_barRow).join('')}</div>`
             : `<div style="color:var(--txt3);font-size:12px;padding:8px 0">—</div>`}
         </div>
         <div class="dash-budget-col-inc">
           <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--txt3);margin-bottom:8px">Entrate</div>
           ${incCats.length
-            ? `<div class="dash-budget-bubbles-grid">${incCats.map(_bubble).join('')}</div>`
+            ? `<div class="bbar-grid bbar-grid-inc">${incCats.map(_barRow).join('')}</div>`
             : `<div style="color:var(--txt3);font-size:12px;padding:8px 0">—</div>`}
         </div>
       </div>
@@ -172,33 +176,18 @@ function _renderDashBudgetBubbles(budgetYear) {
       ${incCats.length ? _tot('Entrate', totIncActual, totIncBudget, 'var(--income)')  : ''}
       ${expCats.length && incCats.length ? _tot('Netto', netActual, netBudget, netColor) : ''}
     </div>`;
+
+  // Animazione "crescita" delle barre all'avvio: le fill partono da width:0 e, al frame
+  // successivo, vengono portate al valore reale — la transition CSS su .bbar-fill anima il riempimento.
+  // Doppio rAF per garantire che il browser registri prima lo stato width:0 (evita il salto istantaneo).
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    el.querySelectorAll('.bbar-fill').forEach(f => { f.style.width = (f.dataset.fill || '0') + '%'; });
+  }));
 }
 
-// Abilita lo scroll orizzontale "a trascinamento" sulle file di bolle budget + il gradiente di fine.
+// Inizializza i tooltip (data-tt-*) sulle barre di progresso budget.
+// (Le barre sono in griglia a flusso, niente più scroll orizzontale a trascinamento.)
 function _initBubbleDrag() {
-  document.querySelectorAll('.dash-budget-bubbles').forEach(el => {
-    const wrap = el.closest('.dash-bubbles-scroll-wrap');
-    let isDown = false, startX = 0, scrollLeft = 0;
-
-    const updateGradient = () => {
-      if (!wrap) return;
-      wrap.classList.toggle('at-end', el.scrollLeft + el.clientWidth >= el.scrollWidth - 2);
-    };
-    el.addEventListener('scroll', updateGradient);
-    updateGradient();
-
-    el.addEventListener('mousedown', e => {
-      isDown = true; el.classList.add('is-dragging');
-      startX = e.pageX - el.offsetLeft; scrollLeft = el.scrollLeft;
-    });
-    el.addEventListener('mouseleave', () => { isDown = false; el.classList.remove('is-dragging'); });
-    el.addEventListener('mouseup',    () => { isDown = false; el.classList.remove('is-dragging'); });
-    el.addEventListener('mousemove',  e => {
-      if (!isDown) return;
-      e.preventDefault();
-      el.scrollLeft = scrollLeft - (e.pageX - el.offsetLeft - startX) * 1.5;
-    });
-  });
   _initGlobalTooltip();
 }
 

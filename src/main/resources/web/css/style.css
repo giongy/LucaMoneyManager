@@ -666,38 +666,39 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 .dash-bottom-charts { display:flex; gap:var(--dash-gap); margin-top:var(--dash-gap); height:var(--dash-row-h); }
 .dash-chart-sm { flex:1; min-width:0; display:flex; flex-direction:column; }
 
-/* ─── Dashboard Budget Bubbles ───────────────────────────────────────────── */
-.dash-bubbles-scroll-wrap { position:relative; }
-.dash-bubbles-scroll-wrap::after {
-  content:''; position:absolute; top:0; right:0; bottom:8px; width:64px;
-  background:linear-gradient(to right, transparent, var(--bg2));
-  pointer-events:none; transition:opacity .25s;
+/* ─── Dashboard Budget — barre di progresso (sostituiscono le vecchie "bolle" ad anello) ─── */
+/* Griglia auto-fill: tante colonne quante ne stanno, ognuna min 150px. Le uscite (molte)
+   riempiono più colonne; le entrate (poche) ne usano meno grazie a min-width inferiore. */
+.bbar-grid {
+  display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr));
+  gap:6px 14px; padding:2px 2px 6px; align-content:start;
 }
-.dash-bubbles-scroll-wrap.at-end::after { opacity:0; }
-.dash-budget-bubbles {
-  display:flex; flex-wrap:nowrap; overflow-x:auto; gap:8px 10px; padding:2px 2px 6px;
-  scrollbar-width:none; cursor:grab; user-select:none;
+.bbar-grid-inc { grid-template-columns:repeat(auto-fill, minmax(130px, 1fr)); }
+
+/* Singola riga-barra: header (icona+nome+%), track, importi. */
+.bbar {
+  display:flex; flex-direction:column; gap:2px;
+  cursor:pointer; padding:3px 5px; border-radius:7px;
+  transition:background .12s;
 }
-.dash-budget-bubbles::-webkit-scrollbar { display:none; }
-.dash-budget-bubbles.is-dragging { cursor:grabbing; }
-.budget-bubble {
-  display:flex; flex-direction:column; align-items:center; gap:4px;
-  width:56px; cursor:pointer; flex-shrink:0; transition:transform .15s;
-  text-decoration:none;
+.bbar:hover { background:var(--bg3); }
+.bbar-head { display:flex; align-items:center; gap:6px; min-width:0; }
+.bbar-icon { font-size:14px; line-height:1; flex-shrink:0; }
+.bbar-name {
+  font-size:12px; color:var(--txt2); font-weight:500;
+  min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1;
 }
-.budget-bubble:hover { transform:translateY(-2px); }
-.budget-bubble-icon {
-  width:44px; height:44px; border-radius:50%;
-  display:flex; align-items:center; justify-content:center;
-  position:relative; flex-shrink:0;
+.bbar-pct { font-size:10px; font-weight:700; flex-shrink:0; }
+.bbar-track {
+  height:5px; border-radius:3px; background:var(--bg3); overflow:hidden;
+  box-shadow:inset 0 0 0 1px var(--border);
 }
-.budget-bubble-name {
-  font-size:11px; color:var(--txt2); text-align:center;
-  width:60px; line-height:1.2; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+.bbar-fill { height:100%; border-radius:3px; transition:width .85s cubic-bezier(.22,.61,.36,1); }
+.bbar-amounts {
+  display:flex; align-items:baseline; gap:4px; font-size:11px; line-height:1.2;
 }
-.budget-bubble-amounts { text-align:center; line-height:1.3; }
-.dash-budget-bubbles-wrap { display:flex; flex-wrap:wrap; gap:8px 10px; padding:2px 2px 6px; }
-.dash-budget-bubbles-grid { display:flex; flex-wrap:wrap; gap:8px 10px; padding:2px 2px 6px; justify-content:flex-start; }
+.bbar-budget { color:var(--txt3); font-size:10px; }
+
 .dash-budget-cols { display:flex; gap:0; flex:1; min-height:0; }
 .dash-budget-col-exp { flex:3; min-width:0; padding-right:12px; }
 .dash-budget-col-inc { flex:1; min-width:0; border-left:1px solid var(--border); padding-left:12px; }

@@ -244,7 +244,7 @@ async function _initNoteEditor(note) {
   if (!el) return;
   // Quill è caricato on-demand: pesa ~210 KB e serve solo qui (editor Note)
   if (typeof Quill === 'undefined') {
-    el.innerHTML = '<div style="padding:12px;color:var(--muted)">Caricamento editor…</div>';
+    el.innerHTML = '<div style="padding:12px;color:var(--txt3)">Caricamento editor…</div>';
     try {
       await loadVendorScript('js/vendor/quill.min.js');
     } catch (e) {

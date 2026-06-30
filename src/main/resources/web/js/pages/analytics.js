@@ -380,7 +380,7 @@ let _analyticsCatCache = null;
 async function renderAnalyticsCatMonth() {
   const el = document.getElementById('analyticsContent');
   if (!el) return;
-  el.innerHTML = '<p style="padding:20px;color:var(--text2)">Caricamento…</p>';
+  el.innerHTML = '<p style="padding:20px;color:var(--txt2)">Caricamento…</p>';
 
   const { fetchMonths, monthCols } = _analyticsMonthRange();
   const rows = await api.getCategoryMonthTable(fetchMonths);
@@ -442,7 +442,7 @@ function _renderAnalyticsCatTable() {
       const avg = total / monthCols.length;
       html += `<tr>
         <td class="analytics-cat-name">${c.parent_name ? `<span style="color:var(--txt3);font-size:11px">${c.parent_name} ›</span> ` : ''}<span style="color:${c.color}">${c.icon}</span> ${c.name}</td>
-        ${monthCols.map(m => `<td class="text-right">${c.m[m.ym] ? fmt.currency(c.m[m.ym]) : '<span style="color:var(--text3)">—</span>'}</td>`).join('')}
+        ${monthCols.map(m => `<td class="text-right">${c.m[m.ym] ? fmt.currency(c.m[m.ym]) : '<span style="color:var(--txt3)">—</span>'}</td>`).join('')}
         <td class="text-right analytics-total">${fmt.currency(total)}</td>
         <td class="text-right analytics-avg">${fmt.currency(avg)}</td>
       </tr>`;
@@ -516,7 +516,7 @@ function _buildMonthCols(startYm, endYm) {
 async function renderAnalyticsBalance() {
   const el = document.getElementById('analyticsContent');
   if (!el) return;
-  el.innerHTML = '<p style="padding:20px;color:var(--text2)">Caricamento…</p>';
+  el.innerHTML = '<p style="padding:20px;color:var(--txt2)">Caricamento…</p>';
 
   const compare = _analyticsBalanceCompare;
   const cc = chartColors();

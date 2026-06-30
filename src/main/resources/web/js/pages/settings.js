@@ -448,10 +448,10 @@ async function renderSettings() {
         <div class="settings-section-title">📦 Dipendenze</div>
         <table style="width:100%;border-collapse:collapse;font-size:13px">
           <thead>
-            <tr style="border-bottom:1px solid var(--border-color)">
-              <th style="text-align:left;padding:6px 8px;color:var(--text-secondary);font-weight:500">Componente</th>
-              <th style="text-align:left;padding:6px 8px;color:var(--text-secondary);font-weight:500">Versione</th>
-              <th style="text-align:left;padding:6px 8px;color:var(--text-secondary);font-weight:500">Maven Central</th>
+            <tr style="border-bottom:1px solid var(--border)">
+              <th style="text-align:left;padding:6px 8px;color:var(--txt2);font-weight:500">Componente</th>
+              <th style="text-align:left;padding:6px 8px;color:var(--txt2);font-weight:500">Versione</th>
+              <th style="text-align:left;padding:6px 8px;color:var(--txt2);font-weight:500">Maven Central</th>
             </tr>
           </thead>
           <tbody>
@@ -464,17 +464,17 @@ async function renderSettings() {
               ];
               var url = function(d) { return 'https://central.sonatype.com/artifact/' + d.g + '/' + d.a; };
               var rows = deps.map(function(d) {
-                return '<tr style="border-bottom:1px solid var(--border-color)">'
+                return '<tr style="border-bottom:1px solid var(--border)">'
                   + '<td style="padding:7px 8px">' + d.name + '</td>'
                   + '<td style="padding:7px 8px;font-family:monospace">' + (d.ver || '—') + '</td>'
                   + '<td style="padding:7px 8px"><a href="#" onclick="api.openUrl(\'' + url(d) + '\');return false;"'
-                  + ' style="color:var(--accent-color);text-decoration:none">' + d.g + ':' + d.a + ' ↗</a></td>'
+                  + ' style="color:var(--accent);text-decoration:none">' + d.g + ':' + d.a + ' ↗</a></td>'
                   + '</tr>';
               });
               rows.push('<tr>'
                 + '<td style="padding:7px 8px">SQLite (native)</td>'
                 + '<td style="padding:7px 8px;font-family:monospace">' + (s['_sqlite_version'] || '—') + '</td>'
-                + '<td style="padding:7px 8px;color:var(--text-secondary)">embedded in sqlite-jdbc</td>'
+                + '<td style="padding:7px 8px;color:var(--txt2)">embedded in sqlite-jdbc</td>'
                 + '</tr>');
               return rows.join('');
             })()}
@@ -583,7 +583,7 @@ window.perfRefresh = async () => {
     }
 
     const badge = (ms, label) => {
-      if (ms == null) return '<span style="color:var(--text-secondary)">—</span>';
+      if (ms == null) return '<span style="color:var(--txt2)">—</span>';
       const color = ms < 50 ? 'var(--income)' : ms < 200 ? '#f0a030' : 'var(--expense)';
       return `<span style="color:${color};font-weight:600">${label !== undefined ? label : ms + ' ms'}</span>`;
     };
@@ -591,24 +591,24 @@ window.perfRefresh = async () => {
     wrap.innerHTML = `
       <table style="width:100%;border-collapse:collapse;font-size:12px;font-family:monospace">
         <thead>
-          <tr style="border-bottom:1px solid var(--border-color)">
-            <th style="text-align:left;padding:5px 8px;color:var(--text-secondary);font-weight:500;white-space:nowrap">Metodo</th>
-            <th style="text-align:right;padding:5px 8px;color:var(--text-secondary);font-weight:500">Round-trip</th>
-            <th style="text-align:right;padding:5px 8px;color:var(--text-secondary);font-weight:500">Java</th>
-            <th style="text-align:right;padding:5px 8px;color:var(--text-secondary);font-weight:500">JCEF</th>
-            <th style="text-align:right;padding:5px 8px;color:var(--text-secondary);font-weight:500">Ora</th>
+          <tr style="border-bottom:1px solid var(--border)">
+            <th style="text-align:left;padding:5px 8px;color:var(--txt2);font-weight:500;white-space:nowrap">Metodo</th>
+            <th style="text-align:right;padding:5px 8px;color:var(--txt2);font-weight:500">Round-trip</th>
+            <th style="text-align:right;padding:5px 8px;color:var(--txt2);font-weight:500">Java</th>
+            <th style="text-align:right;padding:5px 8px;color:var(--txt2);font-weight:500">JCEF</th>
+            <th style="text-align:right;padding:5px 8px;color:var(--txt2);font-weight:500">Ora</th>
           </tr>
         </thead>
         <tbody>
           ${rows.map(r => {
             const t = new Date(r.ts);
             const hms = `${String(t.getHours()).padStart(2,'0')}:${String(t.getMinutes()).padStart(2,'0')}:${String(t.getSeconds()).padStart(2,'0')}`;
-            return `<tr style="border-bottom:1px solid var(--border-color)">
+            return `<tr style="border-bottom:1px solid var(--border)">
               <td style="padding:5px 8px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.method}">${r.method}</td>
               <td style="text-align:right;padding:5px 8px">${badge(r.roundMs, r.roundMs + ' ms')}</td>
               <td style="text-align:right;padding:5px 8px">${badge(r.javaMs,  r.javaMs  != null ? r.javaMs  + ' ms' : null)}</td>
               <td style="text-align:right;padding:5px 8px">${badge(r.jcefMs,  r.jcefMs  != null ? r.jcefMs  + ' ms' : null)}</td>
-              <td style="text-align:right;padding:5px 8px;color:var(--text-secondary)">${hms}</td>
+              <td style="text-align:right;padding:5px 8px;color:var(--txt2)">${hms}</td>
             </tr>`;
           }).join('')}
         </tbody>
@@ -821,7 +821,7 @@ function archiveRenderList(rows) {
   // Numero di gruppi distinti (mese|categoria|conto|tipo) → quante aggregate verranno create
   const fmt = v => Number(v).toLocaleString('it-IT', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const body = rows.map(r => `
-    <tr style="border-bottom:1px solid var(--border-color)">
+    <tr style="border-bottom:1px solid var(--border)">
       <td style="padding:4px 8px"><input type="checkbox" class="archive-row-cb" data-id="${r.id}" data-group="${r.group}" checked onchange="archiveUpdateSummary()"></td>
       <td style="padding:4px 8px;white-space:nowrap;color:var(--txt2)">${r.date}</td>
       <td style="padding:4px 8px;white-space:nowrap">${r.category_name||'—'}</td>
@@ -838,7 +838,7 @@ function archiveRenderList(rows) {
     <div style="overflow-x:auto;max-height:420px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--radius,8px)">
       <table style="width:100%;border-collapse:collapse;font-size:12px">
         <thead>
-          <tr style="border-bottom:1px solid var(--border-color);position:sticky;top:0;background:var(--bg2)">
+          <tr style="border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--bg2)">
             <th style="padding:5px 8px"></th>
             <th style="text-align:left;padding:5px 8px;color:var(--txt2);font-weight:500">Data</th>
             <th style="text-align:left;padding:5px 8px;color:var(--txt2);font-weight:500">Categoria</th>

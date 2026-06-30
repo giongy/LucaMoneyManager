@@ -1680,7 +1680,7 @@ function _countSchedYearOcc(freq, startDate, endDate, year, origStart, fromDate,
 // il totale delle transazioni pianificate previste nell'anno, evidenziando categorie da integrare.
 async function renderBudgetVsPianificate() {
   const wrap = document.getElementById('schedContent') || document.getElementById('budgPianWrap');
-  wrap.innerHTML = '<div style="padding:24px;color:var(--text2)">Analisi in corso…</div>';
+  wrap.innerHTML = '<div style="padding:24px;color:var(--txt2)">Analisi in corso…</div>';
 
   const [budgetData, scheds, accs] = await Promise.all([
     api.getBudgetYear(budgetYear),
@@ -1802,18 +1802,18 @@ async function renderBudgetVsPianificate() {
     const isDeficit = r.diff > 0;
     const diffCls = ok ? '' : (isDeficit ? 'amount-expense' : 'amount-income');
     const diffTxt = ok
-      ? `<span style="color:var(--green)">✓</span>`
+      ? `<span style="color:var(--income)">✓</span>`
       : `${isDeficit?'-':'+'}${fmt.currency(Math.abs(r.diff))}`;
     const action = ok
       ? ''
       : isDeficit
         ? `<button class="btn btn-sm btn-primary" onclick="showBudgetIntegraModal(${r.catId})">Integra</button>`
-        : `<span style="color:var(--text2);font-size:.8rem">Eccesso</span>`;
+        : `<span style="color:var(--txt2);font-size:.8rem">Eccesso</span>`;
     return `<tr class="${ok ? 'sync-row-ok' : ''}">
       <td><a style="cursor:pointer;color:inherit;text-decoration:none" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color=''" onclick="schedTab='lista';_schedFilter.category='${r.catId}';renderScheduled()">${r.cat.icon||''} ${catLabel}</a></td>
       <td class="num">${fmt.currency(r.budgAnnual)}</td>
       <td class="num">${fmt.currency(r.scheduled)}</td>
-      <td class="num" style="color:var(--text2)">${r.actualYtd > 0 ? fmt.currency(r.actualYtd) : '—'}</td>
+      <td class="num" style="color:var(--txt2)">${r.actualYtd > 0 ? fmt.currency(r.actualYtd) : '—'}</td>
       <td class="num ${diffCls}">${diffTxt}</td>
       <td style="text-align:right">${action}</td>
     </tr>`;
@@ -1845,7 +1845,7 @@ async function renderBudgetVsPianificate() {
     <div class="card" style="margin-top:16px">
       <div class="section-header" style="margin-bottom:12px">
         <span>Budget ${budgetYear} vs Pianificate</span>
-        <span style="font-size:.85rem;color:var(--text2)">${discCount} incongruenz${discCount===1?'a':'e'} su ${rows.length} categorie</span>
+        <span style="font-size:.85rem;color:var(--txt2)">${discCount} incongruenz${discCount===1?'a':'e'} su ${rows.length} categorie</span>
       </div>
       <div class="table-wrap">
       <table class="budget-sync-table">
@@ -1930,7 +1930,7 @@ window.showBudgetIntegraModal = async function(catId) {
       <label>Descrizione</label>
       <input type="text" class="form-control" id="bi_desc" value="Integrazione budget ${catLabel}">
     </div>
-    <p style="font-size:.8rem;color:var(--text2);margin-top:8px">
+    <p style="font-size:.8rem;color:var(--txt2);margin-top:8px">
       Tag <span style="background:#8b5cf6;color:#fff;padding:2px 8px;border-radius:10px;font-size:.8rem">Da Budget</span> applicato automaticamente.
     </p>`;
 

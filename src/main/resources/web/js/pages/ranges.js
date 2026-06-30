@@ -26,9 +26,9 @@ async function renderRangePresets() {
       <table style="width:100%;border-collapse:collapse;font-size:12px">
         <thead>
           <tr style="border-bottom:1px solid var(--border)">
-            <th style="text-align:left;padding:4px 12px;color:var(--text-muted);font-weight:600">Da</th>
-            <th style="text-align:left;padding:4px 12px;color:var(--text-muted);font-weight:600">A</th>
-            <th style="text-align:left;padding:4px 12px;color:var(--text-muted);font-weight:600">Risultato</th>
+            <th style="text-align:left;padding:4px 12px;color:var(--txt3);font-weight:600">Da</th>
+            <th style="text-align:left;padding:4px 12px;color:var(--txt3);font-weight:600">A</th>
+            <th style="text-align:left;padding:4px 12px;color:var(--txt3);font-weight:600">Risultato</th>
           </tr>
         </thead>
         <tbody>
@@ -44,11 +44,11 @@ async function renderRangePresets() {
             <tr style="${i%2===0?'':'background:color-mix(in srgb,var(--accent) 10%,var(--bg))'}">
               <td style="padding:5px 12px"><code style="background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--accent);padding:1px 6px;border-radius:4px;font-size:11.5px">${da}</code></td>
               <td style="padding:5px 12px"><code style="background:color-mix(in srgb,var(--accent) 12%,transparent);color:var(--accent);padding:1px 6px;border-radius:4px;font-size:11.5px">${a}</code></td>
-              <td style="padding:5px 12px;color:var(--text-muted);font-size:12px">${res}</td>
+              <td style="padding:5px 12px;color:var(--txt3);font-size:12px">${res}</td>
             </tr>`).join('')}
         </tbody>
       </table>
-      <p style="font-size:11px;color:var(--text-muted);padding:8px 12px 10px;margin:0;border-top:1px solid var(--border)">
+      <p style="font-size:11px;color:var(--txt3);padding:8px 12px 10px;margin:0;border-top:1px solid var(--border)">
         Per <strong>Mese/Anno</strong> la data "Da" prende sempre l'inizio del periodo (1° del mese, 1 gennaio),
         la data "A" prende la fine (ultimo giorno del mese, 31 dicembre).
       </p>

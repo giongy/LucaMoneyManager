@@ -617,7 +617,7 @@ function renderEquityAnalisi(equities) {
     <div style="font-size:13px;font-weight:700;color:var(--txt2);margin-bottom:10px;letter-spacing:.3px">📈 AZIONARIO</div>
     ${donutsHtml}${perfHtml}`;
 
-  const txtColor = getComputedStyle(document.documentElement).getPropertyValue('--txt1').trim() || '#ccc';
+  const txtColor = getComputedStyle(document.documentElement).getPropertyValue('--txt').trim() || '#ccc';
   const donutOpts = extra => ({
     responsive: true,
     plugins: {
@@ -761,7 +761,7 @@ function renderBondAnalisi(bonds, container, today, todayYear) {
       </div>
     </div>`;
 
-  const txtColor    = getComputedStyle(document.documentElement).getPropertyValue('--txt1').trim() || '#ccc';
+  const txtColor    = getComputedStyle(document.documentElement).getPropertyValue('--txt').trim() || '#ccc';
   const txt2Color   = getComputedStyle(document.documentElement).getPropertyValue('--txt2').trim() || '#aaa';
   const borderColor = getComputedStyle(document.documentElement).getPropertyValue('--border').trim() || '#333';
   const SEP         = '─'.repeat(22);

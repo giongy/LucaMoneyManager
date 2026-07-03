@@ -82,67 +82,116 @@
   --txt3:     #8a7860;
   --shadow:   0 8px 32px rgba(0,0,0,.10);
 }
+/* Grana di carta: texture di fibra fatta con gradienti CSS ripetuti (niente SVG:
+   JCEF non renderizza feTurbulence). Micro-trama incrociata a bassissima opacità
+   che simula la fibra. Più una vignettatura calda per dare profondità al fondo. */
+[data-theme="carta"] body,
+[data-theme="carta"] .main {
+  background-color: var(--bg);
+  background-image:
+    radial-gradient(1400px 1000px at 50% 30%, rgba(255,250,238,.45), transparent 70%),
+    radial-gradient(1200px 900px at 50% 120%, rgba(120,95,55,.10), transparent 65%),
+    repeating-linear-gradient( 45deg, rgba(120,95,55,.035) 0 1px, transparent 1px 3px),
+    repeating-linear-gradient(-45deg, rgba(120,95,55,.035) 0 1px, transparent 1px 3px),
+    repeating-linear-gradient(  0deg, rgba(255,250,238,.05) 0 1px, transparent 1px 4px);
+}
+[data-theme="carta"] .main { background-color: transparent; }
+/* Card come fogli appoggiati: ombra morbida calda + bordo appena più scuro,
+   con la stessa micro-trama sopra per continuità tattile. */
+[data-theme="carta"] .card,
+[data-theme="carta"] .stat-card {
+  border-color: #cdc2ae;
+  box-shadow:
+    0 1px 2px rgba(90,70,40,.08),
+    0 6px 20px rgba(90,70,40,.10);
+  background-image:
+    repeating-linear-gradient( 45deg, rgba(120,95,55,.025) 0 1px, transparent 1px 3px),
+    repeating-linear-gradient(-45deg, rgba(120,95,55,.025) 0 1px, transparent 1px 3px);
+}
 
 
-/* ─── Cristallo theme (vetro chiaro: effetto glass su sfondo luminoso) ─────── */
+/* ─── Cristallo theme (aurora: sfondo protagonista, aloni che sfumano) ─────── */
+/* Il fondo è un'aurora soffusa (rosa + azzurro + menta + viola) che sfuma tra i
+   colori. Le superfici sono bianche LEGGERMENTE translucide così l'aurora traspare
+   appena e non viene "spenta": ecco cosa toglie la piattezza. Niente blur pesante
+   sulle card (performance) — solo il chrome lo usa. */
 [data-theme="cristallo"] {
-  --bg:       #e7edf5;
-  --bg2:      rgba(255,255,255,.58);
-  --bg3:      rgba(255,255,255,.40);
-  --bg4:      rgba(255,255,255,.78);
-  --border:   rgba(120,145,180,.30);
+  --bg:       #eaecf6;
+  --bg2:      rgba(255,255,255,.72);
+  --bg3:      rgba(255,255,255,.50);
+  --bg4:      rgba(255,255,255,.85);
+  --border:   rgba(120,130,180,.22);
   --accent:   #6a4fe6;
-  --accent2:  #0e9e8e;
-  --income:   #15803d;
-  --expense:  #dc2626;
-  --warn:     #b45309;
+  --accent2:  #0ea5a0;
+  --income:   #14804a;
+  --expense:  #d6455a;
+  --warn:     #b06d12;
   --purple:   #7c3aed;
-  --orange:   #c2410c;
-  --txt:      #16202e;
-  --txt2:     #45556b;
-  --txt3:     #6c7b91;
-  --shadow:   0 8px 32px rgba(60,80,120,.14);
+  --orange:   #c05a1a;
+  --txt:      #1b2333;
+  --txt2:     #545f7a;
+  --txt3:     #838fa6;
+  --shadow:   0 12px 34px rgba(60,50,120,.14);
 }
-/* Sfondo chiaro con due aloni freddi (blu + menta) per dare profondità sotto il blur.
-   Niente background-attachment:fixed (ricalcolerebbe il blur ad ogni scroll). */
-[data-theme="cristallo"] body {
+/* Aurora: quattro aloni ampi e saturi che sfumano tra loro. Messa su body E sul
+   .page-container (l'area contenuti la copre quasi tutta, quindi il body da solo
+   si vedrebbe solo ai margini). nessun background-attachment:fixed. */
+[data-theme="cristallo"] body,
+[data-theme="cristallo"] .main {
   background:
-    radial-gradient(1100px 750px at 18% -5%, rgba(110,160,255,.30), transparent 65%),
-    radial-gradient(900px 650px at 92% 105%, rgba(40,200,180,.22), transparent 65%),
-    linear-gradient(135deg, #e9eef8 0%, #eef2f9 50%, #e6f1ef 100%);
+    radial-gradient(1300px 900px at  8% -12%, rgba(118,80,240,.62), transparent 60%),
+    radial-gradient(1200px 850px at 98%   0%, rgba(45,135,255,.58), transparent 60%),
+    radial-gradient(1150px 820px at 90% 118%, rgba(10,205,180,.52), transparent 60%),
+    radial-gradient(1050px 780px at 10% 112%, rgba(245,95,205,.50), transparent 60%),
+    radial-gradient(1500px 1050px at 50% 45%, rgba(140,120,240,.28), transparent 62%),
+    linear-gradient(150deg, #e9ebfa 0%, #e6e9f5 50%, #e2f0f0 100%);
 }
-/* Blur solo su chrome (sidebar, modale, titlebar): bg2 translucido + blur = vetro smerigliato.
-   Le card NON usano backdrop-filter (troppe → una passata GPU ciascuna): restano white
-   translucide e mostrano il gradiente sotto. */
+[data-theme="cristallo"] .main { background-color: transparent; }
+/* Chrome (sidebar, titlebar, modale): translucido + blur → l'aurora filtra sotto */
 [data-theme="cristallo"] .sidebar,
 [data-theme="cristallo"] .titlebar,
 [data-theme="cristallo"] .modal {
-  backdrop-filter: blur(12px) saturate(150%);
-  -webkit-backdrop-filter: blur(12px) saturate(150%);
+  backdrop-filter: blur(14px) saturate(160%);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
 }
+/* Sidebar e titlebar translucide: l'aurora deve continuare anche a sinistra e in alto,
+   non essere tagliata da un blocco bianco opaco. */
+[data-theme="cristallo"] .sidebar,
+[data-theme="cristallo"] .titlebar { background: rgba(255,255,255,.42); }
+/* Card: bianco translucido (mostra l'aurora ai bordi) + ombra morbida colorata.
+   Riflesso chiaro in alto per un accenno di superficie vetrosa. */
 [data-theme="cristallo"] .card,
 [data-theme="cristallo"] .stat-card {
-  background: rgba(255,255,255,.55);
-  border-color: rgba(255,255,255,.65);
-  box-shadow: 0 4px 24px rgba(70,90,130,.12), inset 0 1px 0 rgba(255,255,255,.55);
+  background: rgba(255,255,255,.42);
+  border-color: rgba(255,255,255,.6);
+  box-shadow:
+    0 1px 2px rgba(60,50,120,.06),
+    0 10px 30px rgba(70,60,130,.12),
+    inset 0 1px 0 rgba(255,255,255,.7);
 }
 [data-theme="cristallo"] .modal {
-  background: rgba(255,255,255,.62);
-  border-color: rgba(255,255,255,.7);
-  box-shadow: 0 20px 60px rgba(60,80,120,.28), inset 0 1px 0 rgba(255,255,255,.6);
+  background: rgba(255,255,255,.78);
+  border-color: rgba(255,255,255,.8);
+  box-shadow: 0 24px 64px rgba(50,40,100,.28), inset 0 1px 0 rgba(255,255,255,.75);
 }
-[data-theme="cristallo"] .modal-overlay { background: rgba(40,55,80,.22); }
+[data-theme="cristallo"] .modal-overlay { background: rgba(40,35,75,.30); }
 [data-theme="cristallo"] .modal-header,
-[data-theme="cristallo"] .modal-footer { border-color: rgba(120,145,180,.25); }
-/* Form controls: sfondo quasi opaco per emergere dal vetro e restare leggibili */
+[data-theme="cristallo"] .modal-footer { border-color: rgba(120,130,180,.20); }
+[data-theme="cristallo"] .sidebar { border-right-color: rgba(120,130,180,.20); }
+[data-theme="cristallo"] .titlebar { border-bottom-color: rgba(120,130,180,.20); }
+/* Bottone primario: accento viola → testo bianco (il nero del dark è illeggibile qui) */
+[data-theme="cristallo"] .btn-primary { color: #fff; }
+[data-theme="cristallo"] .btn-primary:hover { background: #5a3fd6; }
+/* Form controls: fondo quasi opaco per emergere dall'aurora e restare leggibili */
 [data-theme="cristallo"] .form-control {
   background: rgba(255,255,255,.85);
-  border-color: rgba(120,145,180,.35);
+  border-color: rgba(120,130,180,.28);
 }
-[data-theme="cristallo"] .form-control:hover { border-color: rgba(120,145,180,.55); }
+[data-theme="cristallo"] .form-control:hover  { border-color: rgba(120,130,180,.5); }
+[data-theme="cristallo"] .form-control:focus  { background: #fff; }
 [data-theme="cristallo"] select { background-color: rgba(255,255,255,.92); }
-[data-theme="cristallo"] select option { background-color: #eef2f8; color: var(--txt); }
-/* Popover flottanti: sfondo opaco chiaro — non hanno nulla dietro su cui sfocare */
+[data-theme="cristallo"] select option { background-color: #f4f2fb; color: var(--txt); }
+/* Popover flottanti: opachi chiari con blur — non hanno l'aurora dietro su cui contare */
 [data-theme="cristallo"] .cat-picker-list,
 [data-theme="cristallo"] .sched-tag-dropdown,
 [data-theme="cristallo"] #dash-tooltip,
@@ -151,38 +200,38 @@
 [data-theme="cristallo"] #sched-ctx-menu,
 [data-theme="cristallo"] #shortcutsPanel,
 [data-theme="cristallo"] .nav-sub-flyout {
-  background: rgba(244,247,251,.97) !important;
-  border-color: rgba(120,145,180,.30);
-  backdrop-filter: blur(12px) saturate(150%);
-  -webkit-backdrop-filter: blur(12px) saturate(150%);
-  box-shadow: 0 12px 32px rgba(60,80,120,.20);
+  background: rgba(248,247,253,.97) !important;
+  border-color: rgba(120,130,180,.25);
+  backdrop-filter: blur(14px) saturate(160%);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  box-shadow: 0 14px 36px rgba(50,40,100,.18);
 }
 [data-theme="cristallo"] .cat-picker-item:hover,
 [data-theme="cristallo"] .cat-picker-item.active,
-[data-theme="cristallo"] .sched-tag-opt:hover { background: rgba(47,109,240,.10); }
-/* Tabelle: header e celle sticky con sfondo solido chiaro (il contenuto scorre dietro) */
-[data-theme="cristallo"] th { background: #e3e9f2; }
-[data-theme="cristallo"] td { border-bottom-color: rgba(120,145,180,.22); }
-[data-theme="cristallo"] .budget-row-child td  { background: rgba(255,255,255,.30); }
-[data-theme="cristallo"] .budget-row-parent td { background: rgba(255,255,255,.48); }
+[data-theme="cristallo"] .sched-tag-opt:hover { background: rgba(106,79,230,.10); }
+/* Tabelle: header e celle sticky con sfondo opaco chiaro (il contenuto scorre dietro) */
+[data-theme="cristallo"] th { background: #eceaf6; color: var(--txt2); }
+[data-theme="cristallo"] td { border-bottom-color: rgba(120,130,180,.18); }
+[data-theme="cristallo"] .budget-row-child td  { background: rgba(255,255,255,.35); }
+[data-theme="cristallo"] .budget-row-parent td { background: rgba(255,255,255,.55); }
 [data-theme="cristallo"] .budget-table thead th,
 [data-theme="cristallo"] .budget-table thead td,
 [data-theme="cristallo"] .budget-cat-th,
-[data-theme="cristallo"] .budget-cat-cell { background: #e3e9f2 !important; }
-[data-theme="cristallo"] .budget-total-th { background: #dbe3ee !important; }
-[data-theme="cristallo"] .budget-row-parent .budget-cat-cell { background: #e3e9f2 !important; }
-[data-theme="cristallo"] .budget-row-child  .budget-cat-cell { background: #eaf0f7 !important; }
+[data-theme="cristallo"] .budget-cat-cell { background: #eceaf6 !important; }
+[data-theme="cristallo"] .budget-total-th { background: #e3e0f2 !important; }
+[data-theme="cristallo"] .budget-row-parent .budget-cat-cell { background: #eceaf6 !important; }
+[data-theme="cristallo"] .budget-row-child  .budget-cat-cell { background: #f3f2fa !important; }
 [data-theme="cristallo"] .analytics-table thead th,
-[data-theme="cristallo"] #txTable thead th { background: #e3e9f2 !important; }
-/* Badge budget: in chiaro servono colori solidi (le trasparenze dark non funzionano) */
-[data-theme="cristallo"] .budget-gestione-badge.monthly { background: #d6e6fb; color: #1a3f72; border-color: #1a3f7244; }
-[data-theme="cristallo"] .budget-gestione-badge.annual  { background: #cfeede; color: #15532f; border-color: #15532f44; }
-/* Notifiche flottanti: vetro chiaro come card/modali */
+[data-theme="cristallo"] #txTable thead th { background: #eceaf6 !important; }
+/* Badge budget: colori solidi tenui su fondo chiaro */
+[data-theme="cristallo"] .budget-gestione-badge.monthly { background: #e3e6fc; color: #33409c; border-color: #c6cef5; }
+[data-theme="cristallo"] .budget-gestione-badge.annual  { background: #d6f0e9; color: #0f745f; border-color: #b3e0d5; }
+/* Notifiche flottanti: vetro translucido con blur come card/modali */
 [data-theme="cristallo"] .overdue-notice {
-  background: rgba(255,255,255,.58);
-  backdrop-filter: blur(12px) saturate(150%);
-  -webkit-backdrop-filter: blur(12px) saturate(150%);
-  box-shadow: 0 12px 32px rgba(60,80,120,.20), inset 0 1px 0 rgba(255,255,255,.6);
+  background: rgba(255,255,255,.72);
+  backdrop-filter: blur(14px) saturate(160%);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+  box-shadow: 0 14px 36px rgba(50,40,100,.18), inset 0 1px 0 rgba(255,255,255,.7);
 }
 
 /* ─── Glassy theme (scuro morbido con effetto vetro) ─────────────────────── */
@@ -1982,11 +2031,11 @@ tr.tx-selected td { background:rgba(124,124,255,.07); }
 }
 [data-theme="glassy"] .note-editor-quill { background:rgba(0,0,0,.18); }
 
-/* Cristallo: popup Quill opachi chiari (non hanno blur dietro) */
+/* Cristallo: popup Quill opachi chiari con blur (non hanno l'aurora dietro) */
 [data-theme="cristallo"] .ql-snow .ql-picker-options,
 [data-theme="cristallo"] .ql-snow .ql-tooltip {
-  background:rgba(244,247,251,.97) !important;
-  backdrop-filter:blur(12px) saturate(150%);
-  -webkit-backdrop-filter:blur(12px) saturate(150%);
+  background:rgba(248,247,253,.97) !important;
+  backdrop-filter:blur(14px) saturate(160%);
+  -webkit-backdrop-filter:blur(14px) saturate(160%);
 }
-[data-theme="cristallo"] .note-editor-quill { background:rgba(255,255,255,.40); }
+[data-theme="cristallo"] .note-editor-quill { background:rgba(255,255,255,.55); }

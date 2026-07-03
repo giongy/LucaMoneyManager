@@ -1014,10 +1014,10 @@ const _BUILTIN_VARS = {
     '--txt':'#241a08','--txt2':'#5c4a2c','--txt3':'#8a7860',
   },
   cristallo: {
-    '--bg':'#e7edf5','--bg2':'#f4f7fb','--bg3':'#dde6f0','--bg4':'#eef2f8',
-    '--border':'#c2cfdf','--accent':'#6a4fe6','--accent2':'#0e9e8e',
-    '--income':'#15803d','--expense':'#dc2626','--warn':'#b45309',
-    '--txt':'#16202e','--txt2':'#45556b','--txt3':'#6c7b91',
+    '--bg':'#eaecf6','--bg2':'#f7f6fc','--bg3':'#eceaf6','--bg4':'#fbfaff',
+    '--border':'#d7d9e8','--accent':'#6a4fe6','--accent2':'#0ea5a0',
+    '--income':'#14804a','--expense':'#d6455a','--warn':'#b06d12',
+    '--txt':'#1b2333','--txt2':'#545f7a','--txt3':'#838fa6',
   },
   sintesi: {
     '--bg':'#0d0618','--bg2':'#140a28','--bg3':'#1c1038','--bg4':'#261548',

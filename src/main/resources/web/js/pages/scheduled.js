@@ -158,7 +158,7 @@ async function renderSchedLista() {
             ${tags.length ? tags.map(t => `
               <label class="sched-tag-opt">
                 <input type="checkbox" value="${t.id}" ${_schedFilter.tags.has(t.id)?'checked':''}>
-                <span class="tag-chip" style="background:${t.color}22;color:${t.color};border-color:${t.color}55">${t.name}</span>
+                <span class="tag-chip" style="--tc:${t.color}">${t.name}</span>
               </label>`).join('') : '<span style="padding:8px;color:var(--txt3);font-size:12px">Nessun tag</span>'}
           </div>
         </div>

@@ -1301,21 +1301,26 @@ tr.tx-selected td { background:rgba(124,124,255,.07); }
 .icon-btn:hover { background:var(--bg4); }
 
 .tag-chip {
-  display:inline-flex; align-items:center; gap:4px;
+  display:inline-flex; align-items:center; gap:5px;
   padding:3px 10px; border-radius:20px; font-size:var(--fs-sm,11px); font-weight:600;
   cursor:pointer; transition:all .15s; user-select:none;
   background:color-mix(in srgb, var(--tc,#7c6cff) 12%, transparent);
-  color:var(--tc,#7c6cff);
-  border:1px solid color-mix(in srgb, var(--tc,#7c6cff) 30%, transparent);
-  opacity:.7;
+  /* Testo sempre col colore del tema (leggibile su ogni sfondo); il colore del tag
+     resta come accento su bordo e pallino. */
+  color:var(--txt);
+  border:1px solid color-mix(in srgb, var(--tc,#7c6cff) 45%, transparent);
+}
+/* Pallino accento col colore del tag, davanti al nome */
+.tag-chip::before {
+  content:''; flex:0 0 auto; width:7px; height:7px; border-radius:50%;
+  background:var(--tc,#7c6cff);
 }
 .tag-chip.selected {
   background:var(--tc,#7c6cff);
   border-color:var(--tc,#7c6cff);
   color:#fff;
-  opacity:1;
 }
-.tag-chip.selected::before { content:'✓ '; font-size:var(--fs-xs,10px); }
+.tag-chip.selected::before { background:#fff; }
 .tag-chip-new { color:var(--txt3); background:var(--bg4); border-color:var(--border); }
 .tag-chip-new:hover { color:var(--txt); background:var(--border); }
 
@@ -1343,11 +1348,16 @@ tr.tx-selected td { background:rgba(124,124,255,.07); }
 .td-tags  { white-space:nowrap; }
 
 .tag-inline {
-  display:inline-flex; align-items:center;
+  display:inline-flex; align-items:center; gap:5px;
   padding:2px 8px; border-radius:20px; font-size:var(--fs-sm,11px); font-weight:600;
   background:color-mix(in srgb, var(--tc,#7c6cff) 18%, transparent);
-  color:var(--tc,#7c6cff);
-  border:1px solid color-mix(in srgb, var(--tc,#7c6cff) 30%, transparent);
+  /* Testo col colore del tema: leggibile su ogni sfondo. Colore tag = bordo + pallino */
+  color:var(--txt);
+  border:1px solid color-mix(in srgb, var(--tc,#7c6cff) 45%, transparent);
+}
+.tag-inline::before {
+  content:''; flex:0 0 auto; width:6px; height:6px; border-radius:50%;
+  background:var(--tc,#7c6cff);
 }
 .tags-mgmt-list { display:flex; flex-direction:column; }
 .tag-mgmt-row {
@@ -1678,16 +1688,18 @@ tr.tx-selected td { background:rgba(124,124,255,.07); }
 
 /* Tag chips (filter selector) */
 .tag-chip {
-  display:inline-flex; align-items:center; gap:4px;
+  display:inline-flex; align-items:center; gap:5px;
   padding:2px 8px; border-radius:12px;
   font-size:var(--fs-md,12px); cursor:pointer;
-  border:1.5px solid var(--tc, var(--border));
-  color:var(--tc, var(--txt2));
+  border:1.5px solid color-mix(in srgb, var(--tc,var(--border)) 55%, var(--border));
+  /* Testo col colore del tema per garantire leggibilità su tutti i temi */
+  color:var(--txt);
   transition:background .15s, color .15s;
   user-select:none;
 }
 .tag-chip:hover { background:color-mix(in srgb, var(--tc, #888) 15%, transparent); }
 .tag-chip.selected { background:var(--tc, var(--accent)); color:#fff; border-color:var(--tc, var(--accent)); }
+.tag-chip.selected::before { background:#fff; }
 
 /* ─── Log Viewer ──────────────────────────────────────────────────────────── */
 .log-wrap {

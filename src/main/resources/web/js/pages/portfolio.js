@@ -211,6 +211,7 @@ async function renderPortfolio() {
             ['avg',      'Prezzo Medio',  ''],
             ['cur',      'Prezzo Att.',   ''],
             ['valore',   'Valore',        'text-right'],
+            ['nettocg',  'Netto CG',      'text-right'],
             ['comm',     'Comm.',         'text-right'],
             ['pnl',      'P&L mkt',       'text-right'],
             ['totret',   'Tot. Return',   'text-right'],
@@ -227,8 +228,12 @@ async function renderPortfolio() {
             const val  = portfolioItemValue(i, false);
             const cost = portfolioItemValue(i, true);
             const tr   = positionTotalReturn(i);
-            return { ...i, _val: val, _cost: cost, _pnl: val - cost, _comm: i.total_commissions || 0,
-                     _totret: tr.totalReturn, _totretPct: tr.pct };
+            const pnl  = val - cost;
+            // Netto capital gain: solo azioni in guadagno, 26% sulla plusvalenza da prezzo.
+            const isEq = (i.asset_type || 'equity') === 'equity';
+            const nettoCg = (isEq && pnl > 0) ? val - 0.26 * pnl : null;
+            return { ...i, _val: val, _cost: cost, _pnl: pnl, _comm: i.total_commissions || 0,
+                     _totret: tr.totalReturn, _totretPct: tr.pct, _nettoCg: nettoCg };
           });
           const col = _portfolioSort.col, dir = _portfolioSort.dir;
           rows.sort((a, b) => {
@@ -245,6 +250,7 @@ async function renderPortfolio() {
               case 'avg':      va = a.avg_price||0;     vb = b.avg_price||0;     break;
               case 'cur':      va = a.current_price||0; vb = b.current_price||0; break;
               case 'valore':   va = a._val;             vb = b._val;             break;
+              case 'nettocg':  va = a._nettoCg ?? -Infinity; vb = b._nettoCg ?? -Infinity; break;
               case 'comm':     va = a._comm;            vb = b._comm;            break;
               case 'pnl':      va = a._pnl;             vb = b._pnl;             break;
               case 'totret':   va = a._totret;          vb = b._totret;          break;
@@ -253,7 +259,7 @@ async function renderPortfolio() {
             if (typeof va === 'string') return dir * va.localeCompare(vb);
             return dir * (va - vb);
           });
-          if (!rows.length) return '<tr><td colspan="14" style="text-align:center;padding:40px;color:var(--txt3)">Nessun titolo in portafoglio. Clicca "+ Acquista" per iniziare.<br><small style="color:var(--txt3)">Tasto destro su una riga per le azioni</small></td></tr>';
+          if (!rows.length) return '<tr><td colspan="15" style="text-align:center;padding:40px;color:var(--txt3)">Nessun titolo in portafoglio. Clicca "+ Acquista" per iniziare.<br><small style="color:var(--txt3)">Tasto destro su una riga per le azioni</small></td></tr>';
           return rows.map(i => {
             const isBond = i.asset_type === 'bond';
             const val = i._val, cost = i._cost, pnl = i._pnl, comm = i._comm;
@@ -308,6 +314,7 @@ async function renderPortfolio() {
                 </div>
               </td>
               <td class="text-right">${fmt.currency(val)}</td>
+              <td class="text-right" style="color:var(--txt2);font-size:12px" title="Valore al netto del capital gain (26% sulla plusvalenza da prezzo). Solo azioni in guadagno.">${i._nettoCg != null ? fmt.currency(i._nettoCg) : '<span style="color:var(--txt3)">—</span>'}</td>
               <td class="text-right" style="color:var(--txt3);font-size:12px">${comm > 0 ? fmt.currency(comm) : '—'}</td>
               <td class="text-right ${pnl>=0?'pnl-positive':'pnl-negative'}" title="P&L solo da variazione di prezzo (escluso cedole, dividendi, commissioni)">${fmt.currency(pnl)}<br><small>${fmt.pct(pnlP)}</small></td>
               <td class="text-right ${totret>=0?'pnl-positive':'pnl-negative'}" title="Rendimento complessivo: valore attuale + vendite + cedole/dividendi − acquisti − commissioni − spese">${fmt.currency(totret)}<br><small>${fmt.pct(totretPct)}</small></td>

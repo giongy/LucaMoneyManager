@@ -160,7 +160,10 @@ public class MainWindow {
             // Riporta on-screen e massimizza: la pagina è già renderizzata.
             frame.setLocation(bounds.x, bounds.y);
             frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
-            loading.fadeOut(1000, frame::toFront);
+            // Fade splash: 350ms (era 1000). La dashboard sotto è già dipinta, quindi
+            // un secondo intero di dissolvenza era tempo percepito sprecato; 350ms
+            // resta una transizione morbida ma toglie ~650ms all'avvio percepito.
+            loading.fadeOut(350, frame::toFront);
         });
 
         bridge.setUiReadyCallback(showAndFade);

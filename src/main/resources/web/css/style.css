@@ -345,7 +345,7 @@
 *,*::before,*::after { box-sizing:border-box; margin:0; padding:0; }
 html,body { height:100%; overflow:hidden; }
 html { scroll-behavior: smooth; }
-body { font-family:'Inter','Segoe UI',system-ui,sans-serif; background:var(--bg); color:var(--txt); font-size:var(--font-size,13px);
+body { font-family:'Segoe UI',system-ui,sans-serif; background:var(--bg); color:var(--txt); font-size:var(--font-size,13px);
        -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility; }
 
 /* Tabular nums per allineamento perfetto delle cifre in colonna */

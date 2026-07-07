@@ -152,6 +152,11 @@ public class MainWindow {
         Runnable showAndFade = () -> SwingUtilities.invokeLater(() -> {
             if (shown[0]) return;
             shown[0] = true;
+            if (App.startupT0 != 0) {
+                System.out.println(String.format(
+                    "[STARTUP] totale main()->uiReady (primo paint visibile): %d ms",
+                    (System.nanoTime() - App.startupT0) / 1_000_000));
+            }
             // Riporta on-screen e massimizza: la pagina è già renderizzata.
             frame.setLocation(bounds.x, bounds.y);
             frame.setExtendedState(JFrame.MAXIMIZED_BOTH);

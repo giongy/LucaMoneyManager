@@ -22,6 +22,9 @@ import me.friwi.jcefmaven.MavenCefAppHandlerAdapter;
  */
 public class App {
 
+    /** Istante di ingresso in main() (nanoTime) — usato per il log [STARTUP]. */
+    static long startupT0 = 0;
+
     /** Path del JAR (produzione) o di target/classes (IDE). */
     private static Path codeSourcePath() throws Exception {
         return Path.of(App.class.getProtectionDomain().getCodeSource().getLocation().toURI());
@@ -62,6 +65,11 @@ public class App {
      * sull'Event Dispatch Thread tramite SwingUtilities.
      */
     public static void main(String[] args) throws Exception {
+        // ── Profiling avvio: 4 timestamp per capire dove vanno i 3-5s a freddo.
+        // Stampati in app.log come "[STARTUP]". Togliere/lasciare a piacere.
+        long t0 = System.nanoTime();
+        startupT0 = t0;
+
         // Cartella dati utente
         Path dataDir = Path.of(System.getProperty("user.home"),
                 "AppData", "Roaming", "LucaMoneyManager");
@@ -157,7 +165,13 @@ public class App {
             loading.update(msg, percent);
         });
 
+        long tBeforeBuild = System.nanoTime();
         CefApp cefApp = builder.build();
+        long tAfterBuild = System.nanoTime();
+
+        System.out.println(String.format(
+            "[STARTUP] pre-JCEF (JVM+init): %d ms | builder.build() (JCEF init): %d ms",
+            (tBeforeBuild - t0) / 1_000_000, (tAfterBuild - tBeforeBuild) / 1_000_000));
 
         loading.update("Caricamento interfaccia...", 0);
 

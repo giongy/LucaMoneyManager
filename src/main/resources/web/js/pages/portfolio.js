@@ -211,7 +211,7 @@ async function renderPortfolio() {
             ['avg',      'Prezzo Medio',  ''],
             ['cur',      'Prezzo Att.',   ''],
             ['valore',   'Valore',        'text-right'],
-            ['nettocg',  'Netto CG',      'text-right'],
+            ['nettocg',  'P&L netto CG',  'text-right'],
             ['comm',     'Comm.',         'text-right'],
             ['pnl',      'P&L mkt',       'text-right'],
             ['totret',   'Tot. Return',   'text-right'],
@@ -229,9 +229,9 @@ async function renderPortfolio() {
             const cost = portfolioItemValue(i, true);
             const tr   = positionTotalReturn(i);
             const pnl  = val - cost;
-            // Netto capital gain: solo azioni in guadagno, 26% sulla plusvalenza da prezzo.
+            // P&L mkt al netto del capital gain: solo azioni in guadagno, 26% sulla plusvalenza da prezzo.
             const isEq = (i.asset_type || 'equity') === 'equity';
-            const nettoCg = (isEq && pnl > 0) ? val - 0.26 * pnl : null;
+            const nettoCg = (isEq && pnl > 0) ? pnl * 0.74 : null;
             return { ...i, _val: val, _cost: cost, _pnl: pnl, _comm: i.total_commissions || 0,
                      _totret: tr.totalReturn, _totretPct: tr.pct, _nettoCg: nettoCg };
           });
@@ -314,7 +314,7 @@ async function renderPortfolio() {
                 </div>
               </td>
               <td class="text-right">${fmt.currency(val)}</td>
-              <td class="text-right" style="color:var(--txt2);font-size:12px" title="Valore al netto del capital gain (26% sulla plusvalenza da prezzo). Solo azioni in guadagno.">${i._nettoCg != null ? fmt.currency(i._nettoCg) : '<span style="color:var(--txt3)">—</span>'}</td>
+              <td class="text-right ${i._nettoCg != null ? 'pnl-positive' : ''}" style="font-size:12px" title="P&L mkt al netto del capital gain (26% sulla plusvalenza da prezzo). Solo azioni in guadagno.">${i._nettoCg != null ? fmt.currency(i._nettoCg) : '<span style="color:var(--txt3)">—</span>'}</td>
               <td class="text-right" style="color:var(--txt3);font-size:12px">${comm > 0 ? fmt.currency(comm) : '—'}</td>
               <td class="text-right ${pnl>=0?'pnl-positive':'pnl-negative'}" title="P&L solo da variazione di prezzo (escluso cedole, dividendi, commissioni)">${fmt.currency(pnl)}<br><small>${fmt.pct(pnlP)}</small></td>
               <td class="text-right ${totret>=0?'pnl-positive':'pnl-negative'}" title="Rendimento complessivo: valore attuale + vendite + cedole/dividendi − acquisti − commissioni − spese">${fmt.currency(totret)}<br><small>${fmt.pct(totretPct)}</small></td>

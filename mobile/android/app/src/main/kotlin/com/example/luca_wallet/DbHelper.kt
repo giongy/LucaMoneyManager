@@ -202,9 +202,36 @@ object DbHelper {
         // Chiudi prima di scrivere su OneDrive → nessun lock residuo
         closeDb()
         writeLocalBackToUri(context)
+        // Sveglia il provider OneDrive per far partire l'upload SUBITO, senza attendere uno
+        // swipe manuale. La sola scrittura (writeLocalBackToUri) non basta: OneDrive avvia
+        // l'upload solo quando un'operazione successiva "tocca" l'URI — è ciò che di fatto fa
+        // lo swipe rileggendo il file. Qui lo replichiamo con una lettura + notifyChange.
+        nudgeProviderSync(context)
         openedAt = now
         // Riapri subito così il prossimo accesso è già pronto
         ensureOpen()
+    }
+
+    /**
+     * Forza il DocumentsProvider di OneDrive a materializzare la scrittura appena fatta e
+     * ad avviare l'upload, replicando l'effetto dello swipe (che rilegge l'URI). Apre e
+     * chiude un input stream sull'URI e notifica il ContentResolver del cambiamento.
+     * Best-effort: eventuali eccezioni sono ignorate (non deve mai far fallire il salvataggio).
+     */
+    private fun nudgeProviderSync(context: Context) {
+        val uri = contentUri ?: return
+        // Rilettura completa dell'URI: è esattamente ciò che fa lo swipe (copyUriToLocal legge
+        // tutto il file). Molti provider committano/avviano l'upload solo dopo una lettura
+        // integrale, non con un singolo byte → leggiamo tutto e scartiamo i dati.
+        try {
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                val buf = ByteArray(64 * 1024)
+                while (input.read(buf) != -1) { /* scarta: serve solo a "toccare" il provider */ }
+            }
+        } catch (_: Exception) {}
+        try {
+            context.contentResolver.notifyChange(uri, null)
+        } catch (_: Exception) {}
     }
 
     // ── Queries ───────────────────────────────────────────────────────────────

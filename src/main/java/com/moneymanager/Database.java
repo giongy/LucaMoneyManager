@@ -93,7 +93,14 @@ public class Database {
         try { return conn != null && !conn.isClosed(); } catch (SQLException e) { return false; }
     }
 
-    /** Chiude la connessione (es. al tray) così OneDrive può sincronizzare il file. */
+    // true quando il DB è stato chiuso ESPLICITAMENTE dall'utente (bottone "Chiudi" nel
+    // web / tray), che deve restare chiuso finché non riapre a mano. Diverso dalla chiusura
+    // idle/iconify (auto-release), che è temporanea: la prossima query riapre da sola.
+    // Serve al frontend web per non mostrare il bottone "Apri" quando è solo idle.
+    private volatile boolean manuallyClosed = false;
+
+    /** Chiude la connessione (es. al tray/iconify) così OneDrive può sincronizzare il file.
+     *  Chiusura "temporanea": la prossima query riapre automaticamente (ensureOpen). */
     public void close() throws SQLException {
         if (conn != null && !conn.isClosed()) {
             conn.close();
@@ -101,8 +108,19 @@ public class Database {
         }
     }
 
+    /** Chiusura ESPLICITA dell'utente (bottone "Chiudi" web / tray): il DB resta chiuso e
+     *  l'auto-release resta ininfluente finché non si riapre a mano ({@link #reopen}). */
+    public void closeManual() throws SQLException {
+        manuallyClosed = true;
+        close();
+    }
+
+    /** True se il DB è chiuso perché l'utente l'ha chiuso a mano (non per idle/iconify). */
+    public boolean isManuallyClosed() { return manuallyClosed && !isOpen(); }
+
     /** Riapre il DB dopo una chiusura esplicita (es. nascosto al tray per OneDrive). */
     public void reopen() throws SQLException {
+        manuallyClosed = false;
         if (!isOpen()) conn = openConnection(currentDbPath);
     }
 
@@ -131,6 +149,7 @@ public class Database {
     private void ensureOpen() throws SQLException {
         if (!isOpen()) {
             conn = openConnection(currentDbPath);
+            manuallyClosed = false;  // riaperto (da una query): non più "chiuso a mano"
             if (lastClosedMtime > 0 && fileMtime() != lastClosedMtime) {
                 logger.log("DB MODIFICATO ESTERNAMENTE", "sync OneDrive rilevata alla riapertura");
                 lastClosedMtime = -1;  // consuma l'evento: evita callback ripetuti

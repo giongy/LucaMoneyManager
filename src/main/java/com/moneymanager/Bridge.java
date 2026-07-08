@@ -46,6 +46,11 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
     private volatile Runnable uiReadyCallback;
     public void setUiReadyCallback(Runnable r) { this.uiReadyCallback = r; }
 
+    // Callback invocato dal polling dbStatus con lo stato corrente del DB: MainWindow lo usa
+    // per aggiornare l'icona di taskbar/tray (verde=aperto, grigia=chiuso).
+    private volatile java.util.function.Consumer<Boolean> dbStatusIconCallback;
+    public void setDbStatusIconCallback(java.util.function.Consumer<Boolean> cb) { this.dbStatusIconCallback = cb; }
+
     public Bridge(Database db, Settings settings, JFrame window, java.nio.file.Path dataDir) {
         this.db = db;
         this.settings = settings;
@@ -715,9 +720,17 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             }
 
             // ─── DB remoto (WebServer) ─────────────────────────────────────
-            case "dbStatus" -> java.util.Map.of("open", db.isOpen());
+            case "dbStatus" -> {
+                boolean open = db.isOpen();
+                // Aggiorna l'icona taskbar/tray in base allo stato (no-op se lo stato non è cambiato).
+                var cb = dbStatusIconCallback;
+                if (cb != null) cb.accept(open);
+                // manuallyClosed distingue la chiusura esplicita dell'utente (richiede "Apri")
+                // dalla chiusura idle temporanea (si riapre da sola alla prossima query).
+                yield java.util.Map.of("open", open, "manuallyClosed", db.isManuallyClosed());
+            }
             case "dbOpen"   -> { db.reopen(); yield java.util.Map.of("ok", true); }
-            case "dbClose"  -> { db.close();  yield java.util.Map.of("ok", true); }
+            case "dbClose"  -> { db.closeManual(); yield java.util.Map.of("ok", true); }
 
             default -> throw new Exception("Metodo sconosciuto: " + method);
         };

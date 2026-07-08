@@ -53,22 +53,40 @@ async function onTrayRestore() {
 // ─── Toggle DB remoto (solo modalità browser/WebServer) ──────────────────────
 
 // Aggiorna la barra "Database aperto/chiuso" (solo modalità browser via WebServer).
+// Il DB può chiudersi da solo (auto-release idle per la sync OneDrive): un polling
+// (_startWebDbPolling) tiene la barra allineata allo stato reale.
+let _lastWebDbState = null;  // ultimo stato mostrato: evita di ridisegnare l'HTML se invariato
 async function _updateWebDbToggle() {
   const el = document.getElementById('webDbToggle');
   if (!el) return;
-  let open = false;
-  try { const r = await callJava('dbStatus', {}); open = !!r.open; } catch(e) {}
-  el.innerHTML = open
-    ? `<div class="web-db-bar web-db-open">
+  let open = false, manuallyClosed = false;
+  try {
+    const r = await callJava('dbStatus', {});
+    open = !!r.open; manuallyClosed = !!r.manuallyClosed;
+  } catch(e) {}
+  // Tre stati: aperto · idle (chiuso ma temporaneo, si riapre da solo) · chiuso a mano.
+  const state = open ? 'open' : (manuallyClosed ? 'closed' : 'idle');
+  if (state === _lastWebDbState) return;  // stato invariato: niente re-render (evita sfarfallii)
+  _lastWebDbState = state;
+  if (state === 'open') {
+    el.innerHTML = `<div class="web-db-bar web-db-open">
          <span class="web-db-dot"></span>
          <span>Database aperto</span>
          <button class="btn btn-xs btn-ghost" onclick="_webDbClose()" style="margin-left:auto">Chiudi</button>
-       </div>`
-    : `<div class="web-db-bar web-db-closed">
+       </div>`;
+  } else if (state === 'idle') {
+    // Chiuso solo per inattività: nessun bottone "Apri", la prossima azione lo riapre da sola.
+    el.innerHTML = `<div class="web-db-bar web-db-idle">
+         <span class="web-db-dot"></span>
+         <span>Database inattivo (si riapre all'uso)</span>
+       </div>`;
+  } else {
+    el.innerHTML = `<div class="web-db-bar web-db-closed">
          <span class="web-db-dot"></span>
          <span>Database chiuso</span>
          <button class="btn btn-xs btn-primary" onclick="_webDbOpen()" style="margin-left:auto">Apri</button>
        </div>`;
+  }
 }
 
 async function _webDbOpen() {
@@ -84,6 +102,15 @@ async function _webDbOpen() {
 async function _webDbClose() {
   await callJava('dbClose', {});
   await _updateWebDbToggle();
+}
+
+// Polling dello stato DB in modalità browser: il DB può chiudersi da solo (auto-release
+// idle per la sync OneDrive), quindi teniamo la barra allineata alla realtà ogni 2s.
+// _updateWebDbToggle ridisegna solo al cambio di stato (guardia _lastWebDbState).
+let _webDbPollTimer = null;
+function _startWebDbPolling() {
+  if (_webDbPollTimer) return;
+  _webDbPollTimer = setInterval(_updateWebDbToggle, 2000);
 }
 
 // Mostra una notifica toast in alto a destra: stagger automatico, barra di progresso
@@ -327,9 +354,11 @@ async function init() {
   if (s['cf.months'])    _cfMonths   = parseInt(s['cf.months'])   || 6;
   if (s['tx.range'])              txFilters           = { range: s['tx.range'], ...rangeToFilter(s['tx.range']) };
   if (s['portfolio.active_only']) _portfolioActiveOnly = ['active','closed','all'].includes(s['portfolio.active_only']) ? s['portfolio.active_only'] : (s['portfolio.active_only'] !== '0' ? 'active' : 'all');
-  // Modalità browser: aggiorna il toggle e blocca il caricamento dati se DB chiuso
+  // Modalità browser: aggiorna il toggle, avvia il polling di stato e blocca il
+  // caricamento dati se DB chiuso
   if (_isBrowser) {
     await _updateWebDbToggle();
+    _startWebDbPolling();
     const { open } = await callJava('dbStatus', {}).catch(() => ({ open: false }));
     if (!open) return;
   }

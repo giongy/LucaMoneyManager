@@ -74,6 +74,12 @@ public class TrayManager {
         }
     }
 
+    /** Aggiorna l'icona del tray in base allo stato del DB: verde quando aperto, grigia
+     *  quando chiuso (lock rilasciato per la sync OneDrive). No-op se il tray non è attivo. */
+    public static void updateIcon(boolean dbOpen) {
+        if (trayIcon != null) trayIcon.setImage(IconFactory.create(16, dbOpen));
+    }
+
     /** Costruisce il JPopupMenu stilizzato: stato DB, azioni (Apri, Ricarica, Chiudi DB), Esci. */
     private static JPopupMenu buildModernMenu(JFrame frame) {
         JPopupMenu menu = new JPopupMenu();

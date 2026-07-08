@@ -190,7 +190,7 @@ public class App {
                 // Stato/controllo connessione DB dal menu tray (indicatore + chiudi/riapri)
                 TrayManager.dbStatusSupplier = db::isOpen;
                 TrayManager.closeDbAction = () -> {
-                    try { db.close(); } catch (Exception ex) {
+                    try { db.closeManual(); } catch (Exception ex) {
                         System.err.println("Errore chiusura DB dal tray: " + ex.getMessage());
                     }
                 };

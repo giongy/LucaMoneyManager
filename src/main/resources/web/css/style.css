@@ -431,6 +431,8 @@ input,select,textarea { font-family:inherit; }
 }
 .web-db-open  { background:color-mix(in srgb, var(--income) 12%, transparent); color:var(--income); }
 .web-db-closed{ background:color-mix(in srgb, var(--expense) 12%, transparent); color:var(--expense); }
+/* Idle: chiuso solo per inattività (si riapre da solo) → neutro, non allarmante come il rosso. */
+.web-db-idle  { background:color-mix(in srgb, var(--txt3) 12%, transparent); color:var(--txt3); }
 .web-db-dot {
   width:7px; height:7px; border-radius:50%; flex-shrink:0;
   background:currentColor;

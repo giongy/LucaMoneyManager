@@ -14,18 +14,8 @@ import java.util.List;
  */
 public class IconFactory {
 
-    /** Disegna l'icona dell'app (attiva, verde). */
+    /** Disegna l'icona dell'app (€ verde) a una data dimensione. */
     public static BufferedImage create(int size) {
-        return create(size, true);
-    }
-
-    /**
-     * Disegna l'icona a una data dimensione.
-     * @param active true = pallino di stato verde chiaro (DB aperto/in uso), false = pallino
-     *               grigio (DB idle, lock rilasciato per la sync OneDrive). Lo sfondo € resta
-     *               sempre verde: cambia solo il pallino in basso a destra.
-     */
-    public static BufferedImage create(int size, boolean active) {
         BufferedImage img = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
         Graphics2D g = img.createGraphics();
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING,      RenderingHints.VALUE_ANTIALIAS_ON);
@@ -64,35 +54,15 @@ public class IconFactory {
         g.setColor(Color.WHITE);
         g.drawString(text, tx, ty);
 
-        // Pallino di stato in basso a sinistra: verde chiaro = DB aperto, grigio = idle.
-        // Anello scuro attorno per staccarlo dallo sfondo verde. Su icone molto piccole
-        // (≤20px) sarebbe illeggibile, quindi lo disegniamo solo da 24px in su.
-        if (size >= 24) {
-            float dotD = size * 0.26f;                 // diametro pallino
-            float dotX = pad + size * 0.04f;
-            float dotY = size - pad - dotD - size * 0.04f;
-            float ring = size * 0.04f;                 // spessore anello scuro attorno al pallino
-            g.setColor(new Color(0x0a3a20));
-            g.fill(new java.awt.geom.Ellipse2D.Float(dotX - ring, dotY - ring, dotD + 2*ring, dotD + 2*ring));
-            g.setColor(active ? new Color(0x6ef08a) : new Color(0x9aa2ad));
-            g.fill(new java.awt.geom.Ellipse2D.Float(dotX, dotY, dotD, dotD));
-        }
-
         g.dispose();
         return img;
     }
 
-    /** Lista di immagini a più dimensioni per JFrame.setIconImages() (icona attiva). */
+    /** Lista di immagini a più dimensioni per JFrame.setIconImages(). */
     public static List<Image> getAppIcons() {
-        return getAppIcons(true);
-    }
-
-    /** Lista di immagini a più dimensioni per JFrame.setIconImages().
-     *  @param active true = verde (DB aperto), false = grigio (DB chiuso). */
-    public static List<Image> getAppIcons(boolean active) {
         List<Image> icons = new ArrayList<>();
         for (int s : new int[]{16, 32, 48, 64, 128, 256}) {
-            icons.add(create(s, active));
+            icons.add(create(s));
         }
         return icons;
     }

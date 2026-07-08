@@ -49,9 +49,6 @@ public class MainWindow {
         var router = org.cef.browser.CefMessageRouter.create(routerConfig);
 
         bridge = new Bridge(db, settings, frame, dataDir);
-        // L'icona di taskbar/tray riflette lo stato del DB (verde=aperto, grigia=chiuso):
-        // il polling dbStatus dal frontend invoca questo callback.
-        bridge.setDbStatusIconCallback(this::updateDbStatusIcon);
         router.addHandler(bridge, true);
         client.addMessageRouter(router);
 
@@ -232,20 +229,5 @@ public class MainWindow {
             System.err.println("Errore riapertura DB dal tray (ricarica): " + e.getMessage());
         }
         browser.reload();
-    }
-
-    // Ultimo stato DB riflesso nell'icona: evita di rigenerare le icone a ogni polling.
-    private boolean lastIconActive = true;
-
-    /** Aggiorna l'icona della taskbar (e del tray) in base allo stato del DB: verde quando
-     *  aperto/in uso, grigia quando chiuso (lock rilasciato per la sync OneDrive). Chiamato
-     *  dal polling di stato; rigenera le icone solo quando lo stato cambia davvero. */
-    public void updateDbStatusIcon(boolean dbOpen) {
-        if (dbOpen == lastIconActive) return;
-        lastIconActive = dbOpen;
-        SwingUtilities.invokeLater(() -> {
-            frame.setIconImages(IconFactory.getAppIcons(dbOpen));
-            TrayManager.updateIcon(dbOpen);
-        });
     }
 }

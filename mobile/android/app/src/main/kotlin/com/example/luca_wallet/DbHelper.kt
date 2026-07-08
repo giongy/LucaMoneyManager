@@ -116,6 +116,24 @@ object DbHelper {
         }
     }
 
+    /**
+     * Sveglia OneDrive a far partire l'upload rileggendo integralmente il documento dall'URI —
+     * lo stesso "kick" che di fatto fa lo swipe, ma isolato: NON tocca la copia locale (localPath)
+     * né la connessione (db), quindi è sicuro chiamarlo a DB già aperto e stabile.
+     * Va invocato con un piccolo ritardo dopo il salvataggio, così la scrittura precedente è
+     * gia' propagata e non si rischia di leggere una versione in transito.
+     * Best-effort: ogni eccezione è ignorata.
+     */
+    fun kickOneDriveUpload(context: Context) {
+        val uri = contentUri ?: return
+        try {
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                val buf = ByteArray(64 * 1024)
+                while (input.read(buf) != -1) { /* scarta: la lettura serve solo a svegliare OneDrive */ }
+            }
+        } catch (_: Exception) {}
+    }
+
     private fun resolveDisplayName(context: Context, uri: Uri): String? = try {
         context.contentResolver.query(uri, null, null, null, null)?.use { c ->
             val col = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)

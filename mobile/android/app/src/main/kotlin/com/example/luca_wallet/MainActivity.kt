@@ -23,6 +23,7 @@ import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -42,7 +43,14 @@ class MainActivity : AppCompatActivity() {
         // clearLocalCache + copyUriToLocal, rischiando di rileggere dall'URI una versione OneDrive
         // non ancora aggiornata (transazione che "sparisce") o un file in transito ("unable to
         // open db"). Ricarichiamo solo la UI dal DB locale; OneDrive sincronizza in background.
-        if (result.resultCode == RESULT_OK) lifecycleScope.launch { loadAccounts() }
+        if (result.resultCode == RESULT_OK) lifecycleScope.launch {
+            loadAccounts()
+            // Kick ritardato: la scrittura su OneDrive non sempre fa partire l'upload da sola.
+            // Dopo un breve ritardo (scrittura ormai propagata, DB stabile) rileggiamo l'URI in
+            // background — come lo swipe — per svegliare OneDrive. Isolato: non tocca il DB locale.
+            delay(2500)
+            withContext(Dispatchers.IO) { DbHelper.kickOneDriveUpload(this@MainActivity) }
+        }
     }
 
     private val notifPermissionLauncher = registerForActivityResult(

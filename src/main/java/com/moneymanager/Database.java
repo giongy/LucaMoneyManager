@@ -29,6 +29,19 @@ public class Database {
     private String currentDbPath;
     private final DbLogger logger;
 
+    // ── Auto-release del lock per la sync OneDrive ────────────────────────────
+    // Il file SQLite è condiviso via OneDrive con Android. Finché il desktop tiene
+    // aperta la Connection, il file è lockato su Windows e OneDrive non può scaricare
+    // la versione modificata dal telefono → crea un file di conflitto (luca-NOMEPC.db)
+    // e i due dispositivi divergono. Per evitarlo chiudiamo la connessione dopo un
+    // periodo di inattività (idle) e la riapriamo in modo trasparente alla prossima
+    // query (vedi ensureOpen()). Così la finestra in cui il lock è attivo si riduce
+    // ai pochi secondi attorno a ogni operazione, invece di durare tutta la sessione.
+    private static final long IDLE_RELEASE_MS = 20_000;  // 20s senza query → chiudi il lock
+    private final java.util.Timer idleTimer = new java.util.Timer("db-idle-release", true);
+    private java.util.TimerTask pendingRelease;
+    private volatile boolean autoReleaseEnabled = true;
+
     /** Apre il DB e prepara lo schema: crea tabelle, applica migrazioni e dati di default. */
     public Database(String dbPath) throws SQLException {
         currentDbPath = dbPath;
@@ -82,10 +95,61 @@ public class Database {
         if (!isOpen()) conn = openConnection(currentDbPath);
     }
 
+    /**
+     * Garantisce che la connessione sia aperta prima di ogni accesso JDBC e
+     * riarma il timer di rilascio idle. Chiamato all'inizio di ogni helper
+     * ({@link #queryList}, {@link #execute}, {@link #executePlain}): rende
+     * trasparente la riapertura dopo che il DB è stato chiuso per la sync OneDrive,
+     * così l'auto-release non provoca mai una SQLException nel frontend.
+     */
+    private void ensureOpen() throws SQLException {
+        if (!isOpen()) conn = openConnection(currentDbPath);
+        scheduleIdleRelease();
+    }
+
+    /**
+     * (Ri)programma la chiusura automatica della connessione dopo IDLE_RELEASE_MS
+     * di inattività. Ogni nuova query annulla il task pendente e ne pianifica uno
+     * nuovo, così il lock viene rilasciato solo quando il desktop è davvero fermo.
+     * La chiusura gira sul thread del Timer, non su quello UI: è sicura perché la
+     * prossima query riaprirà comunque la connessione via {@link #ensureOpen()}.
+     */
+    private synchronized void scheduleIdleRelease() {
+        if (!autoReleaseEnabled) return;
+        if (pendingRelease != null) pendingRelease.cancel();
+        pendingRelease = new java.util.TimerTask() {
+            @Override public void run() {
+                synchronized (Database.this) {
+                    try {
+                        if (autoReleaseEnabled && isOpen()) {
+                            conn.close();
+                            logger.log("DB IDLE-RELEASE", "lock rilasciato per sync OneDrive");
+                        }
+                    } catch (SQLException ex) {
+                        System.err.println("Errore auto-release DB: " + ex.getMessage());
+                    }
+                }
+            }
+        };
+        idleTimer.schedule(pendingRelease, IDLE_RELEASE_MS);
+    }
+
+    /**
+     * Abilita/disabilita l'auto-release idle del lock. Va disabilitato durante
+     * operazioni che devono tenere il file stabile e aperto per più passaggi
+     * (backup, ripristino, cambio DB): in quei casi la chiusura a metà romperebbe
+     * l'operazione. Disabilitando si annulla anche l'eventuale task già pianificato.
+     */
+    public synchronized void setAutoRelease(boolean enabled) {
+        autoReleaseEnabled = enabled;
+        if (!enabled && pendingRelease != null) { pendingRelease.cancel(); pendingRelease = null; }
+    }
+
     public String getDbPath() { return currentDbPath; }
 
     /** Versione della libreria SQLite in uso (mostrata in Impostazioni). */
     public String getSQLiteVersion() throws SQLException {
+        ensureOpen();
         try (var st = conn.createStatement();
              var rs = st.executeQuery("SELECT sqlite_version()")) {
             return rs.next() ? rs.getString(1) : "?";
@@ -275,6 +339,7 @@ public class Database {
 
     /** Esegue una SELECT e restituisce le righe come lista di mappe colonna→valore. */
     private List<Map<String, Object>> queryList(String sql, Object... params) throws SQLException {
+        ensureOpen();
         long t0 = System.nanoTime();
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             bind(ps, params);
@@ -294,6 +359,7 @@ public class Database {
 
     /** Esegue INSERT/UPDATE/DELETE e ritorna la chiave generata (o -1). */
     private long execute(String sql, Object... params) throws SQLException {
+        ensureOpen();
         long t0 = System.nanoTime();
         try (PreparedStatement ps = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
             bind(ps, params);
@@ -309,6 +375,7 @@ public class Database {
 
     /** Esegue uno script SQL multi-istruzione (usato da initSchema/migrate). */
     private void executePlain(String sql) throws SQLException {
+        ensureOpen();
         // JDBC esegue solo la prima istruzione: splittiamo per ";"
         for (String stmt : sql.split(";")) {
             String s = stmt.strip();
@@ -369,6 +436,11 @@ public class Database {
      *  (anche su RuntimeException — senza rollback il finally setAutoCommit(true) committerebbe
      *  silenziosamente la transazione parziale). */
     private <T> T inTx(SqlSupplier<T> fn) throws SQLException {
+        // Sospendi l'auto-release: il lock non deve essere rilasciato a metà transazione,
+        // altrimenti conn verrebbe chiusa tra un'operazione e l'altra invalidandola.
+        boolean prevAutoRelease = autoReleaseEnabled;
+        setAutoRelease(false);
+        ensureOpen();  // garantisce conn valida prima di setAutoCommit (potrebbe essere stata rilasciata)
         conn.setAutoCommit(false);
         try {
             T result = fn.get();
@@ -379,6 +451,7 @@ public class Database {
             throw e;
         } finally {
             conn.setAutoCommit(true);
+            setAutoRelease(prevAutoRelease);  // riarma il timer solo alla fine della transazione
         }
     }
 
@@ -3539,11 +3612,19 @@ public class Database {
     private interface DbOp { void run(Connection c) throws SQLException; }
 
     private void withExclusiveAccess(DbOp op) throws SQLException {
-        conn.close();
-        try (Connection plain = DriverManager.getConnection("jdbc:sqlite:" + currentDbPath)) {
-            op.run(plain);
+        // Sospendi l'auto-release: il file va tenuto sotto il nostro controllo per tutta
+        // l'operazione esclusiva, senza che il timer chiuda/riapra conn a metà.
+        boolean prevAutoRelease = autoReleaseEnabled;
+        setAutoRelease(false);
+        try {
+            close();
+            try (Connection plain = DriverManager.getConnection("jdbc:sqlite:" + currentDbPath)) {
+                op.run(plain);
+            } finally {
+                conn = openConnection(currentDbPath);
+            }
         } finally {
-            conn = openConnection(currentDbPath);
+            setAutoRelease(prevAutoRelease);
         }
     }
 
@@ -3608,6 +3689,7 @@ public class Database {
 
     /** Aggiorna le statistiche del query planner (ANALYZE) e le restituisce. */
     public Map<String, Object> dbAnalyze() throws SQLException {
+        ensureOpen();
         try (Statement st = conn.createStatement()) { st.execute("ANALYZE"); }
         List<Map<String, Object>> stats = queryList(
             "SELECT tbl AS name, stat FROM sqlite_stat1 ORDER BY tbl");
@@ -3620,6 +3702,7 @@ public class Database {
 
     /** Entrate/uscite mensili degli ultimi N mesi (per i grafici Analytics). */
     public List<Map<String, Object>> getMonthlyBalance(int months) throws SQLException {
+        ensureOpen();
         java.time.LocalDate start = java.time.LocalDate.now()
                 .withDayOfMonth(1).minusMonths(months - 1);
         String sql = """
@@ -3643,6 +3726,7 @@ public class Database {
      * il saldo cumulato di ogni conto a fine di ciascun mese (serie per il grafico patrimonio).
      */
     public Map<String, Object> getAccountBalanceHistory(int months) throws SQLException {
+        ensureOpen();
         LocalDate today = LocalDate.now();
         LocalDate startDate = today.withDayOfMonth(1).minusMonths(months - 1);
         String startStr = startDate.toString();
@@ -3789,6 +3873,7 @@ public class Database {
 
     /** Mese (YYYY-MM) della transazione più vecchia, per limitare i range dei grafici. */
     public String getOldestTransactionMonth() throws SQLException {
+        ensureOpen();
         String sql = "SELECT strftime('%Y-%m', MIN(date)) AS ym FROM transactions WHERE type IN ('income','expense')";
         try (Statement s = conn.createStatement(); ResultSet rs = s.executeQuery(sql)) {
             return rs.next() ? rs.getString("ym") : null;

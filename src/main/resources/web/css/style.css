@@ -1489,7 +1489,7 @@ tr.tx-selected td { background:rgba(124,124,255,.07); }
 .btn-success { background:rgba(63,185,80,.15); color:var(--income); border-color:rgba(63,185,80,.3); }
 .btn-success:hover { background:rgba(63,185,80,.25); }
 
-.sched-toolbar { display:flex; align-items:center; gap:10px; margin-bottom:12px; position:sticky; top:0; background:var(--bg); z-index:5; padding-top:12px; margin-top:-12px; }
+.sched-toolbar { display:flex; align-items:center; gap:10px; margin-bottom:12px; position:sticky; top:0; background:var(--bg); z-index:5; padding-top:12px;padding-bottom:6px; margin-top:-12px; }
 .sched-th-sort { cursor:pointer; user-select:none; white-space:nowrap; }
 .sched-tag-filter { position:relative; }
 .sched-tag-btn { text-align:left; cursor:pointer; white-space:nowrap; min-width:110px; }

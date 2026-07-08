@@ -121,6 +121,17 @@ public class MainWindow {
                 frame.dispose();
                 System.exit(0);
             }
+
+            @Override
+            public void windowIconified(WindowEvent e) {
+                // Finestra minimizzata = l'utente non sta usando l'app: rilascia subito il
+                // lock sul file DB così OneDrive può sincronizzare le modifiche del telefono
+                // senza generare un file di conflitto. La prossima query riaprirà la
+                // connessione in modo trasparente (Database.ensureOpen()).
+                try { db.close(); } catch (Exception ex) {
+                    System.err.println("Errore chiusura DB su iconify: " + ex.getMessage());
+                }
+            }
         });
     }
 

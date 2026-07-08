@@ -74,6 +74,7 @@ const api = {
   getWindowBounds:()          => callJava('getWindowBounds'),
   setWindowBounds:(x,y,w,h)   => callJava('setWindowBounds', {x,y,w,h}),
   isMaximized:    ()          => callJava('isMaximized'),
+  dbStatus:       ()          => callJava('dbStatus'),
 
   // Conti (cache in-session: invalidata ad ogni modifica)
   _accountsCache: null,

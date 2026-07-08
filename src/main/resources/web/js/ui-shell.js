@@ -138,3 +138,22 @@ titlebar.addEventListener('dblclick', e => {
 });
 document.getElementById('themeToggleBtn').onclick = () => _toggleTheme();
 document.getElementById('shortcutsBtn').onclick   = () => showShortcutsHelp();
+
+/* ─── Indicatore stato connessione DB ────────────────────────────────────── */
+// Il DB viene chiuso automaticamente quando la finestra è inattiva/minimizzata,
+// per liberare il lock e lasciare sincronizzare OneDrive col telefono (vedi
+// Database.ensureOpen/auto-release). Il pallino verde/grigio in titlebar riflette
+// se la connessione è aperta (in uso) o chiusa (lock rilasciato).
+// Nota: dbStatus NON riapre il DB — leggere lo stato non tiene vivo il lock.
+const _dbStatusEl = document.getElementById('dbStatusIndicator');
+async function _refreshDbStatus() {
+  try {
+    const { open } = await api.dbStatus();
+    _dbStatusEl.classList.toggle('db-open', !!open);
+    _dbStatusEl.title = open
+      ? 'Database aperto (in uso)'
+      : 'Database chiuso — OneDrive può sincronizzare';
+  } catch { /* connessione bridge non pronta: riprova al prossimo tick */ }
+}
+_refreshDbStatus();
+setInterval(_refreshDbStatus, 2000);

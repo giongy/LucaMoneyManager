@@ -1011,6 +1011,23 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 }
 #themeToggleBtn:hover, #shortcutsBtn:hover { color:var(--txt); }
 
+/* ─── Indicatore stato connessione DB ────────────────────────────────────── */
+/* Pallino nella titlebar: verde acceso = DB aperto (lock attivo, in uso),
+   grigio spento = DB chiuso (lock rilasciato, OneDrive può sincronizzare). */
+.db-status {
+  width:28px; height:var(--titlebar); display:flex; align-items:center;
+  justify-content:center; flex-shrink:0; user-select:none; cursor:default;
+}
+.db-status-dot {
+  width:9px; height:9px; border-radius:50%;
+  background:var(--txt3); opacity:.4;
+  transition:background .2s, box-shadow .2s, opacity .2s;
+}
+.db-status.db-open .db-status-dot {
+  background:var(--income); opacity:1;
+  box-shadow:0 0 5px color-mix(in srgb, var(--income) 70%, transparent);
+}
+
 /* ─── Theme editor panel (floating, draggable) ───────────────────────────── */
 #tePanel {
   position:fixed; top:60px; right:16px; width:360px;

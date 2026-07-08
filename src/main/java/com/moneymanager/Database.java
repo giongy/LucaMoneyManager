@@ -42,6 +42,14 @@ public class Database {
     private java.util.TimerTask pendingRelease;
     private volatile boolean autoReleaseEnabled = true;
 
+    // Rilevamento modifiche esterne: quando la connessione viene chiusa (idle/tray/iconify)
+    // salviamo l'mtime del file. Alla riapertura via ensureOpen() lo confrontiamo: se OneDrive
+    // ha sostituito il file (modifica dal telefono/altro PC) l'mtime cambia → invochiamo
+    // externalChangeCallback che fa ricaricare i dati nel frontend. Copre il caso "app in primo
+    // piano ferma mentre il telefono scrive", che non genera alcun evento di finestra.
+    private long lastClosedMtime = -1;
+    private Runnable externalChangeCallback;
+
     /** Apre il DB e prepara lo schema: crea tabelle, applica migrazioni e dati di default. */
     public Database(String dbPath) throws SQLException {
         currentDbPath = dbPath;
@@ -87,12 +95,26 @@ public class Database {
 
     /** Chiude la connessione (es. al tray) così OneDrive può sincronizzare il file. */
     public void close() throws SQLException {
-        if (conn != null && !conn.isClosed()) conn.close();
+        if (conn != null && !conn.isClosed()) {
+            conn.close();
+            lastClosedMtime = fileMtime();  // baseline per rilevare modifiche esterne alla riapertura
+        }
     }
 
     /** Riapre il DB dopo una chiusura esplicita (es. nascosto al tray per OneDrive). */
     public void reopen() throws SQLException {
         if (!isOpen()) conn = openConnection(currentDbPath);
+    }
+
+    /** Registra il callback invocato quando alla riapertura si rileva che il file DB
+     *  è stato modificato esternamente (sync OneDrive). Impostato da App.java per far
+     *  ricaricare i dati nel frontend. */
+    public void setExternalChangeCallback(Runnable cb) { this.externalChangeCallback = cb; }
+
+    /** mtime del file DB in millisecondi, o -1 se non leggibile. */
+    private long fileMtime() {
+        try { return Files.getLastModifiedTime(Path.of(currentDbPath)).toMillis(); }
+        catch (IOException e) { return -1; }
     }
 
     /**
@@ -101,9 +123,21 @@ public class Database {
      * ({@link #queryList}, {@link #execute}, {@link #executePlain}): rende
      * trasparente la riapertura dopo che il DB è stato chiuso per la sync OneDrive,
      * così l'auto-release non provoca mai una SQLException nel frontend.
+     *
+     * Alla riapertura confronta l'mtime del file con quello salvato alla chiusura:
+     * se differisce, OneDrive ha sostituito il file (modifica da telefono/altro PC) e
+     * invoca externalChangeCallback per far ricaricare i dati stale nel frontend.
      */
     private void ensureOpen() throws SQLException {
-        if (!isOpen()) conn = openConnection(currentDbPath);
+        if (!isOpen()) {
+            conn = openConnection(currentDbPath);
+            if (lastClosedMtime > 0 && fileMtime() != lastClosedMtime) {
+                logger.log("DB MODIFICATO ESTERNAMENTE", "sync OneDrive rilevata alla riapertura");
+                lastClosedMtime = -1;  // consuma l'evento: evita callback ripetuti
+                Runnable cb = externalChangeCallback;
+                if (cb != null) cb.run();
+            }
+        }
         scheduleIdleRelease();
     }
 

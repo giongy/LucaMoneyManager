@@ -132,6 +132,18 @@ public class MainWindow {
                     System.err.println("Errore chiusura DB su iconify: " + ex.getMessage());
                 }
             }
+
+            @Override
+            public void windowDeiconified(WindowEvent e) {
+                // Ripristino dalla taskbar (speculare a windowIconified): mentre l'app era
+                // minimizzata il DB su OneDrive può essere stato aggiornato dal telefono, ma
+                // i cache JS in-session (conti, categorie, tag) sono ancora quelli vecchi →
+                // la dashboard mostrerebbe importi stale. onTrayRestore() invalida i cache,
+                // ridisegna la pagina corrente e ricontrolla le notifiche. Stessa logica di
+                // bringToFront() dal tray, qui per il ripristino via taskbar.
+                browser.executeJavaScript(
+                    "if(typeof onTrayRestore==='function') onTrayRestore();", "", 0);
+            }
         });
     }
 
@@ -200,6 +212,15 @@ public class MainWindow {
         frame.toFront();
         frame.requestFocus();
         browser.executeJavaScript("if(typeof onTrayRestore==='function') onTrayRestore();", "", 0);
+    }
+
+    /** Innesca nel frontend l'invalidazione cache + refresh (onTrayRestore), quando il DB
+     *  è stato modificato esternamente da OneDrive mentre l'app era in idle. Chiamato da
+     *  Database.ensureOpen() via callback: disaccoppiato con invokeLater per non eseguire
+     *  JS in modo rientrante durante il dispatch della query che ha riaperto la connessione. */
+    public void notifyExternalDbChange() {
+        SwingUtilities.invokeLater(() ->
+            browser.executeJavaScript("if(typeof onTrayRestore==='function') onTrayRestore();", "", 0));
     }
 
     /** Ricarica la UI web (e riapre il DB se era stato chiuso dal tray). Usato dal menu tray. */

@@ -184,6 +184,9 @@ public class App {
                 TrayManager.bringToFrontAction = window::bringToFront;
                 // Registra l'azione "ricarica" del menu tray (reopen DB + reload browser)
                 TrayManager.reloadAction = window::reload;
+                // Modifica esterna del file DB rilevata alla riapertura (sync OneDrive da
+                // telefono/altro PC mentre l'app era idle): ricarica i dati stale nel frontend.
+                db.setExternalChangeCallback(window::notifyExternalDbChange);
                 // Stato/controllo connessione DB dal menu tray (indicatore + chiudi/riapri)
                 TrayManager.dbStatusSupplier = db::isOpen;
                 TrayManager.closeDbAction = () -> {

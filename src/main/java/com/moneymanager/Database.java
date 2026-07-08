@@ -131,14 +131,33 @@ public class Database {
     private void ensureOpen() throws SQLException {
         if (!isOpen()) {
             conn = openConnection(currentDbPath);
-            if (lastClosedMtime > 0 && fileMtime() != lastClosedMtime) {
-                logger.log("DB MODIFICATO ESTERNAMENTE", "sync OneDrive rilevata alla riapertura");
-                lastClosedMtime = -1;  // consuma l'evento: evita callback ripetuti
-                Runnable cb = externalChangeCallback;
-                if (cb != null) cb.run();
-            }
+            fireIfExternallyChanged();
         }
         scheduleIdleRelease();
+    }
+
+    /**
+     * Se il file DB è cambiato rispetto all'mtime salvato alla chiusura (sync OneDrive da
+     * telefono/altro PC), consuma l'evento e invoca externalChangeCallback per ricaricare
+     * i dati stale nel frontend. Idempotente: azzera la baseline così non ripete il callback.
+     */
+    private synchronized void fireIfExternallyChanged() {
+        if (lastClosedMtime > 0 && fileMtime() != lastClosedMtime) {
+            logger.log("DB MODIFICATO ESTERNAMENTE", "sync OneDrive rilevata");
+            lastClosedMtime = -1;  // consuma l'evento: evita callback ripetuti
+            Runnable cb = externalChangeCallback;
+            if (cb != null) cb.run();
+        }
+    }
+
+    /**
+     * Controlla se il file è stato modificato esternamente SENZA riaprire la connessione.
+     * Chiamato dal polling periodico del frontend (dbStatus): quando l'app è ferma in
+     * primo piano e nessuna query passa da ensureOpen(), è l'unico punto che rileva la
+     * sync OneDrive del telefono e fa ricaricare la dashboard senza interazione utente.
+     */
+    public synchronized void checkExternalChange() {
+        if (!isOpen()) fireIfExternallyChanged();
     }
 
     /**

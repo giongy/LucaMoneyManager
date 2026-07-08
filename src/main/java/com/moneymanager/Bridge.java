@@ -715,7 +715,13 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             }
 
             // ─── DB remoto (WebServer) ─────────────────────────────────────
-            case "dbStatus" -> java.util.Map.of("open", db.isOpen());
+            case "dbStatus" -> {
+                // Il polling dello stato è anche il momento in cui, se l'app è ferma in primo
+                // piano, rileviamo una modifica esterna del file (sync OneDrive da telefono) e
+                // facciamo ricaricare i dati stale nel frontend, senza attendere una query.
+                db.checkExternalChange();
+                yield java.util.Map.of("open", db.isOpen());
+            }
             case "dbOpen"   -> { db.reopen(); yield java.util.Map.of("ok", true); }
             case "dbClose"  -> { db.close();  yield java.util.Map.of("ok", true); }
 

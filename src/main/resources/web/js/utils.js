@@ -300,6 +300,7 @@ function toastWithAction(msg, actionLabel, actionCb, duration = 5000) {
   t.innerHTML = `<span>↩️</span><span>${msg}</span>`;
   const btn = document.createElement('button');
   btn.textContent = actionLabel;
+  btn.className = 'toast-action-btn';
   btn.style.cssText = 'margin-left:auto;background:transparent;border:1px solid var(--txt2);color:var(--txt);cursor:pointer;padding:3px 12px;border-radius:4px;font-size:12px;font-weight:600';
   let done = false;
   btn.onclick = () => {

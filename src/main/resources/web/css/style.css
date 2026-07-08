@@ -64,6 +64,15 @@
 [data-theme="carta"] .budget-row-parent td { background: var(--bg2); }
 [data-theme="carta"] .budget-gestione-badge.monthly { background: #d4e4f4; color: #1a4a7a; border-color: #1a4a7a55; }
 [data-theme="carta"] .budget-gestione-badge.annual  { background: #cce8d4; color: #1a5a2e; border-color: #1a5a2e55; }
+/* Toast: nel tema carta i fondi scuri fissi (.toast-info #1a2a3a ecc.) rendono il testo
+   quasi illeggibile. Override con fondi chiari coerenti col tema e testo scuro. */
+[data-theme="carta"] .toast         { color: var(--txt); }
+[data-theme="carta"] .toast-info    { background: #e3ecf4; border-color: #1a4a7a; color: #163a5e; }
+[data-theme="carta"] .toast-success { background: #d8ecdc; border-color: var(--income);  color: #16532a; }
+[data-theme="carta"] .toast-error   { background: #f4dcd8; border-color: var(--expense); color: #8a2015; }
+[data-theme="carta"] .toast-warning { background: #f0e6cc; border-color: var(--warn);    color: #5c4200; }
+/* Bottone azione (Annulla): riempito col colore accento del tema → ben visibile sul fondo chiaro. */
+[data-theme="carta"] .toast-action-btn { background: var(--accent) !important; border-color: var(--accent) !important; color: #fff !important; }
 [data-theme="carta"] {
   --bg:       #ece5d8;
   --bg2:      #f4ede0;

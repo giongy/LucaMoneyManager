@@ -26,9 +26,14 @@ public class TrayManager {
     // se il file SQLite è aperto/chiuso e a chiuderlo/riaprirlo: utile quando il desktop è
     // nel tray ma il DB resta in uso (es. browser LAN su un altro PC) e si vuole rilasciare
     // il lock per la sync OneDrive.
-    static java.util.function.BooleanSupplier dbStatusSupplier; // true se la connessione è aperta
+    static java.util.function.BooleanSupplier dbStatusSupplier;         // true se la connessione è aperta
+    static java.util.function.BooleanSupplier dbManuallyClosedSupplier; // true se chiuso a mano (non idle)
     static Runnable closeDbAction;  // chiude la connessione DB
     static Runnable openDbAction;   // riapre la connessione DB
+
+    // Timer che aggiorna il colore dell'icona tray in base allo stato DB (aperto/idle/chiuso).
+    // Autonomo: funziona anche a finestra nascosta nel tray, indipendente dal polling del frontend.
+    private static java.util.Timer iconStateTimer;
 
     // Riferimenti alle voci dinamiche del menu (aggiornate ad ogni apertura)
     private static StatusRow dbStatusRow;
@@ -67,11 +72,45 @@ public class TrayManager {
         try {
             SystemTray.getSystemTray().add(trayIcon);
             trayActive = true;
+            startIconStatePolling();
             return true;
         } catch (AWTException e) {
             System.err.println("TrayManager: impossibile aggiungere icona tray: " + e.getMessage());
             return false;
         }
+    }
+
+    /** Stato DB corrente (per l'icona tray) derivato dai supplier: aperto → OPEN, chiuso a
+     *  mano → CLOSED, altrimenti (idle/iconify temporaneo) → IDLE. */
+    private static IconFactory.DbState currentDbState() {
+        boolean open = dbStatusSupplier != null && dbStatusSupplier.getAsBoolean();
+        if (open) return IconFactory.DbState.OPEN;
+        boolean manual = dbManuallyClosedSupplier != null && dbManuallyClosedSupplier.getAsBoolean();
+        return manual ? IconFactory.DbState.CLOSED : IconFactory.DbState.IDLE;
+    }
+
+    /** Avvia il polling (ogni 2s) che tiene il colore dell'icona tray allineato allo stato DB.
+     *  Solo un check booleano su db.isOpen()/isManuallyClosed(): non riapre il DB. */
+    private static void startIconStatePolling() {
+        if (iconStateTimer != null) return;
+        updateIcon(currentDbState());  // stato iniziale
+        iconStateTimer = new java.util.Timer("tray-icon-state", true);
+        iconStateTimer.schedule(new java.util.TimerTask() {
+            @Override public void run() {
+                SwingUtilities.invokeLater(() -> updateIcon(currentDbState()));
+            }
+        }, 2000, 2000);
+    }
+
+    // Ultimo stato riflesso nell'icona: evita di rigenerare l'immagine se invariato.
+    private static IconFactory.DbState lastIconState = IconFactory.DbState.OPEN;
+
+    /** Aggiorna l'icona della tray in base allo stato del DB (verde=aperto, grigio=idle,
+     *  rosso=chiuso a mano). No-op se il tray non è attivo o lo stato non è cambiato. */
+    public static void updateIcon(IconFactory.DbState state) {
+        if (trayIcon == null || state == lastIconState) return;
+        lastIconState = state;
+        trayIcon.setImage(IconFactory.createForState(16, state));
     }
 
     /** Costruisce il JPopupMenu stilizzato: stato DB, azioni (Apri, Ricarica, Chiudi DB), Esci. */

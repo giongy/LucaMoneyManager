@@ -189,6 +189,7 @@ public class App {
                 db.setExternalChangeCallback(window::notifyExternalDbChange);
                 // Stato/controllo connessione DB dal menu tray (indicatore + chiudi/riapri)
                 TrayManager.dbStatusSupplier = db::isOpen;
+                TrayManager.dbManuallyClosedSupplier = db::isManuallyClosed;
                 TrayManager.closeDbAction = () -> {
                     try { db.closeManual(); } catch (Exception ex) {
                         System.err.println("Errore chiusura DB dal tray: " + ex.getMessage());

@@ -14,8 +14,31 @@ import java.util.List;
  */
 public class IconFactory {
 
+    // Palette per lo sfondo € nelle varianti di stato DB (usate solo nella tray).
+    // L'icona dell'app (taskbar, .ico) resta sempre verde: vedi create(size).
+    private static final int[] GREEN = {0x1a8a4a, 0x0a5c30, 0x3fb950}; // aperto  (top, bottom, bordo)
+    private static final int[] GREY  = {0x5a6068, 0x3a3f45, 0x7a828c}; // idle
+    private static final int[] RED   = {0x9a2a1a, 0x6a1a10, 0xc0392b}; // chiuso a mano
+
+    /** Stato del DB riflesso dall'icona tray. */
+    public enum DbState { OPEN, IDLE, CLOSED }
+
+    /** Icona € per la tray secondo lo stato DB: verde=aperto, grigio=idle, rosso=chiuso a mano. */
+    public static BufferedImage createForState(int size, DbState state) {
+        return create(size, switch (state) {
+            case OPEN   -> GREEN;
+            case IDLE   -> GREY;
+            case CLOSED -> RED;
+        });
+    }
+
     /** Disegna l'icona dell'app (€ verde) a una data dimensione. */
     public static BufferedImage create(int size) {
+        return create(size, GREEN);
+    }
+
+    /** Disegna l'icona € con lo sfondo del colore dato (gradiente top/bottom + bordo). */
+    private static BufferedImage create(int size, int[] palette) {
         BufferedImage img = new BufferedImage(size, size, BufferedImage.TYPE_INT_ARGB);
         Graphics2D g = img.createGraphics();
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING,      RenderingHints.VALUE_ANTIALIAS_ON);
@@ -26,15 +49,15 @@ public class IconFactory {
         g.setColor(new Color(0, 0, 0, 0));
         g.fillRect(0, 0, size, size);
 
-        // Sfondo arrotondato (gradiente verde) — sempre verde, identità dell'app
+        // Sfondo arrotondato (gradiente secondo la palette di stato)
         float pad = size * 0.04f;
         float arc = size * 0.22f;
         RoundRectangle2D.Float bg = new RoundRectangle2D.Float(pad, pad, size - 2*pad, size - 2*pad, arc, arc);
-        g.setPaint(new GradientPaint(0, 0, new Color(0x1a8a4a), 0, size, new Color(0x0a5c30)));
+        g.setPaint(new GradientPaint(0, 0, new Color(palette[0]), 0, size, new Color(palette[1])));
         g.fill(bg);
 
         // Bordo sottile più chiaro
-        g.setColor(new Color(0x3fb950));
+        g.setColor(new Color(palette[2]));
         g.setStroke(new BasicStroke(size * 0.03f));
         g.draw(bg);
 

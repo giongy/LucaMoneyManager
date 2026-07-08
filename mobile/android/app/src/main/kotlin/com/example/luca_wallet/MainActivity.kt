@@ -37,7 +37,12 @@ class MainActivity : AppCompatActivity() {
     private val addTransactionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        if (result.resultCode == RESULT_OK) lifecycleScope.launch { init() }
+        // Dopo un inserimento NON rileggere dall'URI (init): la copia locale è già quella giusta
+        // — l'abbiamo appena scritta in insertTransaction/touchSyncMeta. init() farebbe
+        // clearLocalCache + copyUriToLocal, rischiando di rileggere dall'URI una versione OneDrive
+        // non ancora aggiornata (transazione che "sparisce") o un file in transito ("unable to
+        // open db"). Ricarichiamo solo la UI dal DB locale; OneDrive sincronizza in background.
+        if (result.resultCode == RESULT_OK) lifecycleScope.launch { loadAccounts() }
     }
 
     private val notifPermissionLauncher = registerForActivityResult(

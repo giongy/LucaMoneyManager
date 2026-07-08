@@ -147,7 +147,7 @@ public class DbLogger {
     }
 
     private static final java.util.Set<String> SYSTEM_ACTIONS = java.util.Set.of(
-        "AVVIO", "DB CAMBIATO", "BACKUP ESEGUITO", "RIPRISTINO BACKUP", "MANUTENZIONE"
+        "AVVIO", "DB CAMBIATO", "BACKUP ESEGUITO", "RIPRISTINO BACKUP", "MANUTENZIONE", "DB IDLE-RELEASE"
     );
 
     /**
@@ -162,7 +162,7 @@ public class DbLogger {
 
     /**
      * Elimina dal file di log tutte le righe di sistema
-     * (AVVIO, DB CAMBIATO, BACKUP ESEGUITO, RIPRISTINO BACKUP, MANUTENZIONE).
+     * (AVVIO, DB CAMBIATO, BACKUP ESEGUITO, RIPRISTINO BACKUP, MANUTENZIONE, DB IDLE-RELEASE).
      * Restituisce il numero di righe eliminate e quelle rimaste.
      */
     public Map<String, Object> purgeSystemEntries() {

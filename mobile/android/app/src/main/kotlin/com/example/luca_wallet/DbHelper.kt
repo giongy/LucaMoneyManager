@@ -103,8 +103,16 @@ object DbHelper {
     private fun writeLocalBackToUri(context: Context) {
         val uri  = contentUri  ?: return
         val path = localPath   ?: return
-        context.contentResolver.openOutputStream(uri, "wt")!!.use { output ->
-            FileInputStream(path).use { input -> input.copyTo(output) }
+        // Scrivi via ParcelFileDescriptor e forza fsync: openOutputStream(uri) da solo lascia
+        // i byte in un buffer del DocumentsProvider di OneDrive, che non fa partire l'upload
+        // finché un'operazione successiva (es. la lettura allo swipe) non forza il flush. Con
+        // pfd.fileDescriptor.sync() committiamo subito → OneDrive sincronizza senza refresh manuale.
+        context.contentResolver.openFileDescriptor(uri, "wt")!!.use { pfd ->
+            FileOutputStream(pfd.fileDescriptor).use { output ->
+                FileInputStream(path).use { input -> input.copyTo(output) }
+                output.flush()
+                try { pfd.fileDescriptor.sync() } catch (_: Exception) {}
+            }
         }
     }
 

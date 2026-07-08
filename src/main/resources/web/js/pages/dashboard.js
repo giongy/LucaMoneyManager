@@ -267,6 +267,10 @@ window._dashQuickTx = async (accountId, type) => {
 // widget conti, bolle budget, salute finanziaria, prossime pianificate, ultime transazioni
 // e i grafici (entrate/uscite, budget vs reale, risparmio, top categorie).
 async function renderDashboard() {
+  // Invalida la cache conti: se il DB è stato aggiornato esternamente (sync OneDrive dal
+  // telefono) i saldi in _accountsCache sarebbero stale. Ricaricando la dashboard vogliamo
+  // sempre saldi freschi nel widget "I miei conti".
+  api._invalidateAccounts();
   api.getDbPath().then(r => {
     const el = document.getElementById('pageTitleSub');
     if (el) el.textContent = '(' + r.path + ')' + (window._appVersion ? '  v' + window._appVersion : '');

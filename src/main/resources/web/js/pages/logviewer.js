@@ -12,6 +12,8 @@ async function renderLogViewer() {
       <div style="display:flex;gap:8px;align-items:center;margin-left:auto">
         <input class="form-control" id="logSearch" placeholder="🔍 Filtra..." style="width:220px">
         <button class="btn btn-ghost" id="btnLogRefresh" title="Aggiorna">↻ Aggiorna</button>
+        <button class="btn btn-ghost" id="btnLogPurgeSystem"
+                title="Elimina dal log le voci di sistema (avvio, backup, manutenzione), mantenendo le operazioni utente">🗑️ Voci sistema</button>
       </div>
     </div>
     <div class="card" style="flex:1;display:flex;flex-direction:column;min-height:0">
@@ -33,6 +35,19 @@ async function renderLogViewer() {
   };
 
   document.getElementById('btnLogRefresh').onclick = load;
+
+  // Riusa la stessa operazione Java delle Impostazioni (purgeSystemLog): elimina
+  // le voci di sistema (avvio, backup, manutenzione) tenendo le operazioni utente.
+  document.getElementById('btnLogPurgeSystem').onclick = async () => {
+    const ok = await confirm('Elimina voci di sistema', 'Eliminare tutte le voci di sistema dal log (avvio, backup, manutenzione)?');
+    if (!ok) return;
+    const res = await callJava('purgeSystemLog');
+    if (res.error) { toast('Errore: ' + res.error, 'error'); return; }
+    toast(res.deleted > 0 ? `Eliminate ${res.deleted} righe` : 'Nessuna voce di sistema trovata',
+          res.deleted > 0 ? 'success' : 'info');
+    if (res.deleted > 0) await load();
+  };
+
   let _logTimer;
   document.getElementById('logSearch').addEventListener('input', () => {
     clearTimeout(_logTimer);

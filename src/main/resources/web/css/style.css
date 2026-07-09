@@ -471,7 +471,46 @@ input,select,textarea { font-family:inherit; }
 .nav-item:hover  { background:var(--bg4); color:var(--txt); }
 .nav-item.active { background:var(--bg3); color:var(--accent); border-left-color:var(--accent); }
 .nav-icon { font-size:var(--fs-lg,14px); width:18px; text-align:center; }
-.nav-icon-svg { width:17px; height:17px; flex-shrink:0; stroke:currentColor; stroke-width:1.75; }
+
+/* ─── Icone nav "duotone" colorate ───────────────────────────────────────────
+   Effetto duotone senza cambiare set icone: il tratto Lucide prende il colore
+   della voce (--nc), dietro un chip riempito con lo stesso colore a bassa
+   opacità (fill tenue) → l'occhio legge riempimento + tratto = duotone.
+   I colori sono ruoli neutri: color-mix con lo sfondo del tema li mantiene
+   leggibili su Twilight/light/glassy senza duplicare regole per-tema.        */
+.nav-icon-svg {
+  /* box-sizing:border-box → il padding del chip resta dentro i 17px originali,
+     così l'ingombro totale dell'icona è identico a prima (glifo ~11px + chip). */
+  width:17px; height:17px; flex-shrink:0; box-sizing:border-box;
+  padding:3px; border-radius:6px;
+  stroke:var(--nc, currentColor); stroke-width:2;
+  /* chip di sfondo (il "fill" tenue del duotone) */
+  background:color-mix(in srgb, var(--nc, var(--txt2)) 16%, transparent);
+  transition:background .15s, stroke .15s, box-shadow .15s;
+}
+/* Voce attiva/hover: il chip si intensifica e prende un anello sottile */
+.nav-item:hover  .nav-icon-svg { background:color-mix(in srgb, var(--nc, var(--txt2)) 26%, transparent); }
+.nav-item.active .nav-icon-svg {
+  background:color-mix(in srgb, var(--nc, var(--accent)) 30%, transparent);
+  box-shadow:0 0 0 1px color-mix(in srgb, var(--nc, var(--accent)) 45%, transparent);
+}
+
+/* Palette per voce — un ruolo di tinta per pagina. color-mix col tema (sopra)
+   garantisce leggibilità ovunque, quindi bastano queste tinte base.          */
+.nav-item[data-page="dashboard"]    { --nc:#5b8def; } /* blu    */
+.nav-item[data-page="accounts"]     { --nc:#3fae7a; } /* verde  */
+.nav-item[data-page="transactions"] { --nc:#e0a13c; } /* ambra  */
+.nav-item[data-page="budgets"]      { --nc:#9b6ce0; } /* viola  */
+.nav-item[data-page="scheduled"]    { --nc:#e07b9a; } /* rosa   */
+.nav-item[data-page="portfolio"]    { --nc:#26b6a6; } /* teal   */
+.nav-item[data-page="analytics"]    { --nc:#e06a5a; } /* corallo*/
+.nav-item[data-page="reports"]      { --nc:#7a8aa0; } /* grigio-blu (Filtri) */
+.nav-item[data-page="categories"]   { --nc:#c78a3c; } /* ocra   */
+.nav-item[data-page="tags"]         { --nc:#4fa3d8; } /* azzurro*/
+.nav-item[data-page="ranges"]       { --nc:#8f9b46; } /* oliva  */
+.nav-item[data-page="notes"]        { --nc:#d4b13e; } /* giallo */
+.nav-item[data-page="logviewer"]    { --nc:#8a93a3; } /* grigio */
+.nav-item[data-page="settings"]     { --nc:#7f8794; } /* grigio */
 
 .sidebar-accounts {
   padding:6px 8px; margin-top:10px; border-top:1px solid var(--border);

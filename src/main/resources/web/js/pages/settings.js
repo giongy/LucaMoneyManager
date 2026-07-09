@@ -144,7 +144,7 @@ async function renderSettings() {
           <div class="settings-control">
             <div style="display:flex;flex-direction:column;gap:10px">
               <div style="display:flex;gap:6px;flex-wrap:wrap">
-                ${[['dark','🌙 Scuro'],['glassy','🪟 Vetro'],['cristallo','🧊 Cristallo'],['carta','📜 Carta']].map(([key,label]) => `
+                ${[['dark','🌙 Scuro'],['glassy','🪟 Vetro'],['twilight','🌌 Twilight'],['carta','📜 Carta']].map(([key,label]) => `
                   <button class="btn theme-btn ${(s['appearance.theme']||'dark')===key?'theme-btn-active':''}"
                           onclick="settingsSetTheme('${key}')">${label}</button>
                   <button class="btn btn-ghost btn-icon" title="Duplica e personalizza" onclick="duplicateTheme('${key}')">⧉</button>`).join('')}
@@ -1013,17 +1013,11 @@ const _BUILTIN_VARS = {
     '--income':'#1e6b2e','--expense':'#b52a1a','--warn':'#7a5600',
     '--txt':'#241a08','--txt2':'#5c4a2c','--txt3':'#8a7860',
   },
-  cristallo: {
-    '--bg':'#eaecf6','--bg2':'#f7f6fc','--bg3':'#eceaf6','--bg4':'#fbfaff',
-    '--border':'#d7d9e8','--accent':'#6a4fe6','--accent2':'#0ea5a0',
-    '--income':'#14804a','--expense':'#d6455a','--warn':'#b06d12',
-    '--txt':'#1b2333','--txt2':'#545f7a','--txt3':'#838fa6',
-  },
-  sintesi: {
-    '--bg':'#0d0618','--bg2':'#140a28','--bg3':'#1c1038','--bg4':'#261548',
-    '--border':'#3a2060','--accent':'#ff2d78','--accent2':'#00f5c0',
-    '--income':'#39e87a','--expense':'#ff5040','--warn':'#ffd040',
-    '--txt':'#f0e8ff','--txt2':'#b090d8','--txt3':'#705888',
+  twilight: {
+    '--bg':'#0c0e1c','--bg2':'#1c2039','--bg3':'#282c4e','--bg4':'#343a5f',
+    '--border':'#3a3a66','--accent':'#8b7dff','--accent2':'#34d3ee',
+    '--income':'#34d399','--expense':'#fb5e7d','--warn':'#fbbf4f',
+    '--txt':'#ecebff','--txt2':'#a9a6d4','--txt3':'#6d6a9e',
   },
 };
 
@@ -1105,7 +1099,7 @@ function _clearCustomVars() {
 
 // Applica un tema: built-in (data-theme) o personalizzato ("c:id" → variabili inline). Non persiste.
 function applyTheme(theme) {
-  if (theme === 'salvia') theme = 'cristallo'; // migrazione: il tema Salvia è stato sostituito da Cristallo
+  if (theme === 'salvia' || theme === 'cristallo' || theme === 'nebula') theme = 'twilight'; // migrazione: Salvia→Cristallo→Nebula→Twilight
   _activeThemeKey = theme || 'dark';
   _clearCustomVars();
   if (theme && theme.startsWith('c:')) {
@@ -1113,7 +1107,7 @@ function applyTheme(theme) {
     document.documentElement.dataset.theme = '';
     if (ct) _applyCustomVars(ct);
   } else {
-    const valid = ['carta', 'cristallo', 'glassy'];
+    const valid = ['carta', 'twilight', 'glassy'];
     document.documentElement.dataset.theme = valid.includes(theme) ? theme : '';
   }
   _updateThemeBtn();
@@ -1156,7 +1150,7 @@ async function settingsSetTheme(theme) {
 const _THEME_CYCLE = [
   { key: '',          icon: '🌙', label: 'Scuro' },
   { key: 'glassy',    icon: '🪟', label: 'Vetro' },
-  { key: 'cristallo', icon: '🧊', label: 'Cristallo' },
+  { key: 'twilight',  icon: '🌌', label: 'Twilight' },
   { key: 'carta',     icon: '📜', label: 'Carta' },
 ];
 
@@ -1197,7 +1191,7 @@ function duplicateTheme(sourceKey) {
     if (!ct) return;
     base = { ...ct, id: Date.now().toString(36), name: ct.name + ' (copia)', vars: { ...ct.vars } };
   } else {
-    const names = { dark: 'Scuro', carta: 'Carta', cristallo: 'Cristallo', sintesi: 'Sintesi' };
+    const names = { dark: 'Scuro', carta: 'Carta', twilight: 'Twilight' };
     base = {
       id: Date.now().toString(36),
       name: (names[sourceKey] || 'Tema') + ' (copia)',

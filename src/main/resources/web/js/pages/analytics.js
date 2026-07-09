@@ -1479,7 +1479,7 @@ function _renderAnalyticsTrendChart() {
 
   const cc = chartColors();
   const t = document.documentElement.dataset.theme;
-  const isLight    = t === 'carta' || t === 'cristallo';
+  const isLight    = t === 'carta';
   const lineBlue   = isLight ? 'rgba(20,70,190,1)'  : 'rgba(100,160,255,1)';
   const linePurple = isLight ? 'rgba(100,30,190,1)' : 'rgba(185,120,255,1)';
   const barColor = (cat.color && cat.color.startsWith('#') && cat.color.length === 7)

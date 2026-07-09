@@ -15,8 +15,6 @@
 let   _accTypeOrder         = ['checking','savings','cash','credit','investment'];
 const _DASH_ACC_TYPE_LABELS = {checking:'Conti Correnti',savings:'Risparmio',cash:'Contanti',credit:'Carte di Credito',investment:'Investimenti'};
 
-// computeHealthScore() è in utils.js — single source of truth condivisa con analytics.
-
 // Disegna il widget budget del mese corrente: una riga-barra per categoria foglia
 // (barra di progresso speso/budget) divise in Uscite/Entrate, con riga totali in fondo.
 function _renderDashBudgetBubbles(budgetYear) {
@@ -319,12 +317,12 @@ async function renderDashboard() {
       </div>
     </div>
     <div class="dash-bottom-charts">
-      <div class="card dash-chart-sm" id="dashHealthWidget" style="cursor:pointer" onclick="_analyticsTab='health';navigate('analytics')" title="Ultimi 12 mesi completi (escluso mese corrente)">
+      <div class="card dash-chart-sm" id="dashMonthDonutCard" style="cursor:pointer" onclick="_analyticsTab='catmonth';navigate('analytics')" title="Uscite per categoria — mese corrente">
         <div class="card-header">
-          <span class="card-title">💚 Salute Finanziaria</span>
-          <span style="font-size:10px;color:var(--txt3);font-weight:400">ultimi 12 mesi</span>
+          <span class="card-title">🍩 Analisi mese corrente</span>
+          <span style="font-size:10px;color:var(--txt3);font-weight:400" id="dashMonthDonutTot"></span>
         </div>
-        <div id="dashHealthBody" style="padding:8px 16px 14px;flex:1;display:flex;align-items:center"></div>
+        <div id="dashMonthDonutBody" style="flex:1;display:flex;gap:14px;padding:8px 16px 14px;min-height:0"></div>
       </div>
       <div class="card dash-chart-sm" style="cursor:pointer" onclick="_analyticsTab='balance';navigate('analytics')">
         <div class="card-header"><span class="card-title">Entrate vs Uscite ${dashYear}</span></div>
@@ -336,9 +334,6 @@ async function renderDashboard() {
       </div>
     </div>`;
 
-  // Range Salute: ultimi 12 mesi completi (esclude mese corrente, allineato all'analytics default)
-  const healthRange = lastNCompleteMonthsRange(12);
-
   // Day-exact YTD: 1 gen → oggi (entrambi gli anni allo stesso giorno-mese)
   // Confronto onesto considerando che il mese corrente è quasi sempre incompleto
   // (es. utente con entrate/uscite fisse a fine mese).
@@ -348,7 +343,7 @@ async function renderDashboard() {
   const todayStr   = _ymd(_today.getFullYear(),     _today.getMonth() + 1, _today.getDate());
   const prevDayStr = _ymd(_today.getFullYear() - 1, _today.getMonth() + 1, _today.getDate());
 
-  const [stats, accounts, recent, monthly, catData, upcoming, budgetYear, prevMonthly, balRowsRaw, ytdCurStats, ytdPrevStats] = await Promise.all([
+  const [stats, accounts, recent, monthly, catData, upcoming, budgetYear, prevMonthly, ytdCurStats, ytdPrevStats] = await Promise.all([
     api.getDashboardStats(dashYear),
     api.getAccounts(),
     api.getTransactions({limit:12, sort_desc:true}),
@@ -357,16 +352,9 @@ async function renderDashboard() {
     api.getUpcomingAll(10),
     api.getBudgetYear(dashYear),
     api.getMonthlyChartData(dashYear - 1),
-    api.getMonthlyBalance(healthRange.fetchMonths),
     api.getStatsByDateRange(`${dashYear}-01-01`,   todayStr),
     api.getStatsByDateRange(`${dashYear-1}-01-01`, prevDayStr),
   ]);
-
-  // Filtra ai soli 12 mesi completi (esclude mese corrente parziale)
-  const balRows12 = healthRange.months.map(ym => {
-    const r = balRowsRaw.find(x => x.ym === ym);
-    return { ym, income: r?.income || 0, expense: r?.expense || 0 };
-  });
 
   // Cache upcoming per "Esegui ora" inline
   window._dashUpcomingCache = upcoming;
@@ -487,8 +475,8 @@ async function renderDashboard() {
   _renderDashBudgetBubbles(budgetYear);
   _initBubbleDrag();
 
-  // ── Widget Salute Finanziaria (F1+F5) ────────────────────────────────────
-  _renderDashHealth(balRows12, accounts);
+  // ── Widget donut "Analisi mese corrente" ─────────────────────────────────
+  _renderDashMonthDonut(budgetYear);
 
   // Gradient plugin per bar chart dashboard
   const _dashGradPlugin = {
@@ -515,24 +503,47 @@ async function renderDashboard() {
   const incArr = Array(12).fill(0), expArr = Array(12).fill(0);
   monthly.forEach(r => { incArr[r.month-1]=r.income; expArr[r.month-1]=r.expenses; });
 
+  // Tronca ai soli mesi fino a quello corrente (i mesi futuri sarebbero a 0 e
+  // schiaccerebbero i grafici a linea/area con una lunga caduta a zero). Usato dai
+  // grafici Entrate/Uscite (bar) e Risparmio mensile (savings).
+  const _lastMonthIdx = new Date().getMonth(); // 0-indexed
+  const monthsYtd = months.slice(0, _lastMonthIdx + 1);
+  const incYtd    = incArr.slice(0, _lastMonthIdx + 1);
+  const expYtd    = expArr.slice(0, _lastMonthIdx + 1);
+
   if (charts.bar) charts.bar.destroy();
-  charts.bar = new Chart(document.getElementById('barChart'), {
-    type:'bar',
-    plugins:[_dashGradPlugin],
-    data:{ labels:months,
-      datasets:[
-        {label:'Entrate', data:incArr, _gradColors:['rgba(63,185,80,.9)','rgba(63,185,80,.2)'], backgroundColor:'rgba(63,185,80,.7)', borderRadius:4},
-        {label:'Uscite',  data:expArr, _gradColors:['rgba(248,81,73,.9)','rgba(248,81,73,.2)'], backgroundColor:'rgba(248,81,73,.7)', borderRadius:4}
-      ]},
-    options:{ responsive:true, maintainAspectRatio:false,
-      interaction:{ mode:'index', intersect:false },
-      plugins:{
-        legend:{labels:{color:chartColors().tick}},
-        tooltip:{ callbacks:{ label: ctx => ` ${ctx.dataset.label}: ${fmt.currency(ctx.parsed.y)}` } }
-      },
-      scales:{x:{ticks:{color:chartColors().tick},grid:{color:chartColors().grid}},
-              y:{ticks:{color:chartColors().tick},grid:{color:chartColors().grid}}}}
-  });
+  {
+    // Grafico ad area con gradiente verticale (satura in alto → trasparente in basso),
+    // linee morbide e punti sui vertici. Il gradiente per il fill va creato sul contesto
+    // 2D (lo stesso approccio del chart "Budget vs Reale" qui sotto).
+    const _barCtxEl = document.getElementById('barChart');
+    const _bc  = _barCtxEl.getContext('2d');
+    const _bcH = _barCtxEl.offsetHeight || 260;
+    const _areaGrad = (r, g, b) => {
+      const grad = _bc.createLinearGradient(0, 0, 0, _bcH);
+      grad.addColorStop(0, `rgba(${r},${g},${b},.42)`);
+      grad.addColorStop(1, `rgba(${r},${g},${b},.02)`);
+      return grad;
+    };
+    charts.bar = new Chart(_barCtxEl, {
+      type:'line',
+      data:{ labels:monthsYtd,
+        datasets:[
+          {label:'Entrate', data:incYtd, borderColor:'rgba(63,185,80,1)', backgroundColor:_areaGrad(63,185,80),
+           fill:true, tension:.4, borderWidth:2, pointRadius:3, pointBackgroundColor:'rgba(63,185,80,1)', pointBorderWidth:0},
+          {label:'Uscite',  data:expYtd, borderColor:'rgba(248,81,73,1)', backgroundColor:_areaGrad(248,81,73),
+           fill:true, tension:.4, borderWidth:2, pointRadius:3, pointBackgroundColor:'rgba(248,81,73,1)', pointBorderWidth:0}
+        ]},
+      options:{ responsive:true, maintainAspectRatio:false,
+        interaction:{ mode:'index', intersect:false },
+        plugins:{
+          legend:{labels:{color:chartColors().tick, usePointStyle:true, pointStyle:'circle'}},
+          tooltip:{ callbacks:{ label: ctx => ` ${ctx.dataset.label}: ${fmt.currency(ctx.parsed.y)}` } }
+        },
+        scales:{x:{ticks:{color:chartColors().tick},grid:{color:chartColors().grid}},
+                y:{ticks:{color:chartColors().tick},grid:{color:chartColors().grid}}}}
+    });
+  }
 
   // Budget vs Reale chart (solo mesi fino al mese precedente)
   {
@@ -671,8 +682,8 @@ async function renderDashboard() {
   }).join('') :
     '<tr><td colspan="5" class="text-muted" style="text-align:center;padding:20px">Nessuna transazione pianificata</td></tr>';
 
-  // Savings chart (monthly net = income - expenses)
-  const savArr = incArr.map((v,i) => v - expArr[i]);
+  // Savings chart (monthly net = income - expenses) — troncato ai mesi fino a oggi
+  const savArr = incYtd.map((v,i) => v - expYtd[i]);
   if (charts.savings) charts.savings.destroy();
   // Gradiente verticale per-barra: verde (netto >=0) o rosso (netto <0), con la parte
   // satura vicino allo zero che sfuma verso l'estremità della barra. Scriptable function:
@@ -689,7 +700,7 @@ async function renderDashboard() {
   };
   charts.savings = new Chart(document.getElementById('savingsChart'), {
     type: 'bar',
-    data: { labels: months, datasets: [
+    data: { labels: monthsYtd, datasets: [
       // Un'unica serie: ogni mese ha una sola barra (netto), verde se >=0, rossa se <0.
       // Due dataset separati facevano riservare a Chart.js due slot affiancati per mese,
       // disallineando la barra dal centro come se ci fossero due serie.
@@ -726,40 +737,91 @@ async function renderDashboard() {
   }
 }
 
-// ── Widget Salute Finanziaria (F1+F5) ─────────────────────────────────────
-// Widget Salute Finanziaria: calcola lo score (utils.computeHealthScore) e mostra punteggio,
-// etichetta, mesi di riserva di emergenza e tasso di risparmio degli ultimi 12 mesi.
-function _renderDashHealth(balRows12, accounts) {
-  const body = document.getElementById('dashHealthBody');
+// ── Widget donut "Analisi mese corrente" ──────────────────────────────────
+// Ripartizione delle uscite del mese corrente per categoria: donut Chart.js a sinistra
+// + legenda (categoria · % · importo) a destra. Ricava tutto da budgetYear (actuals +
+// categories, già caricato in renderDashboard) — nessuna query dedicata. Le categorie
+// oltre le prime MAX_SLICES vengono aggregate in una fetta "Altro".
+const _DONUT_FALLBACK = ['#58a6ff','#3fb950','#ff7b72','#e3b341','#bc8cff','#79c0ff','#56d364','#ffa657','#f78166','#d2a8ff'];
+function _renderDashMonthDonut(budgetYear) {
+  const body = document.getElementById('dashMonthDonutBody');
+  const totEl = document.getElementById('dashMonthDonutTot');
   if (!body) return;
-  const h = computeHealthScore(balRows12, accounts);
-  const runwayDisplay = !isFinite(h.runwayMonths) || h.runwayMonths >= 99 ? '99+' : h.runwayMonths.toFixed(1);
-  const runwayColor = h.scoreRunway >= 10 ? 'var(--income)' : h.scoreRunway >= 6 ? '#e8a838' : 'var(--expense)';
-  const rateColor   = h.avgSavingsRate >= 10 ? 'var(--income)' : h.avgSavingsRate >= 5 ? '#e8a838' : 'var(--expense)';
+
+  const { actuals = [], categories = [] } = budgetYear;
+  const curMonth = new Date().getMonth() + 1;
+  const catMap = Object.fromEntries(categories.map(c => [c.id, c]));
+
+  // Aggrega le uscite del mese corrente per categoria (solo categorie di tipo expense).
+  const byCat = {};
+  actuals.forEach(a => {
+    if (a.month !== curMonth) return;
+    const c = catMap[a.category_id];
+    if (!c || c.type !== 'expense') return;
+    const t = Number(a.total) || 0;
+    if (t <= 0) return;
+    byCat[a.category_id] = (byCat[a.category_id] || 0) + t;
+  });
+
+  let items = Object.entries(byCat)
+    .map(([id, total]) => { const c = catMap[id]; return { name: c.name, icon: c.icon || '📁', color: c.color, total }; })
+    .sort((a, b) => b.total - a.total);
+
+  const totMonth = items.reduce((s, i) => s + i.total, 0);
+
+  if (!items.length) {
+    if (totEl) totEl.textContent = '';
+    body.innerHTML = `<div style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--txt3);font-size:13px">Nessuna spesa nel mese</div>`;
+    if (charts.monthDonut) { charts.monthDonut.destroy(); charts.monthDonut = null; }
+    return;
+  }
+  if (totEl) totEl.textContent = fmt.currency(totMonth);
+
+  // Cap alle prime N categorie; il resto confluisce in "Altro" (fetta grigia).
+  const MAX_SLICES = 8;
+  if (items.length > MAX_SLICES) {
+    const head = items.slice(0, MAX_SLICES);
+    const rest = items.slice(MAX_SLICES);
+    const restTot = rest.reduce((s, i) => s + i.total, 0);
+    head.push({ name: 'Altro', icon: '•', color: 'var(--txt3)', total: restTot, _isOther: true });
+    items = head;
+  }
+
+  // Colore per fetta: colore categoria se valido (#hex), altrimenti dalla palette fallback.
+  const sliceColor = (it, i) => it._isOther ? '#8b949e'
+    : (it.color && it.color.startsWith('#') ? it.color : _DONUT_FALLBACK[i % _DONUT_FALLBACK.length]);
+  const colors = items.map(sliceColor);
+
+  const pct = t => totMonth > 0 ? Math.round(t / totMonth * 100) : 0;
+  const hesc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+
+  // Layout: donut a sinistra (larghezza fissa), legenda scrollabile a destra.
   body.innerHTML = `
-    <div style="display:flex;align-items:center;gap:18px;width:100%">
-      <div style="text-align:center;flex-shrink:0;padding:6px 14px;background:var(--bg3);border-radius:12px;min-width:90px">
-        <div style="font-size:38px;font-weight:700;color:${h.scoreColor};line-height:1">${h.score}</div>
-        <div style="font-size:10px;color:var(--txt3);margin-top:2px">/ 100</div>
-        <div style="font-size:12px;font-weight:600;color:${h.scoreColor};margin-top:4px">${h.scoreLabel}</div>
-      </div>
-      <div style="flex:1;display:flex;flex-direction:column;gap:10px">
-        <div>
-          <div style="font-size:10px;color:var(--txt3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px">Riserva di emergenza</div>
-          <div style="display:flex;align-items:baseline;gap:8px">
-            <span style="font-size:20px;font-weight:700;color:${runwayColor}">${runwayDisplay}</span>
-            <span style="font-size:11px;color:var(--txt3)">mesi</span>
-          </div>
-        </div>
-        <div>
-          <div style="font-size:10px;color:var(--txt3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px">Tasso risparmio (12m)</div>
-          <div style="display:flex;align-items:baseline;gap:8px">
-            <span style="font-size:18px;font-weight:700;color:${rateColor}">${h.avgSavingsRate.toFixed(1)}%</span>
-            <span style="font-size:11px;color:var(--txt3)">· ${(h.posPct*100).toFixed(0)}% mesi positivi</span>
-          </div>
-        </div>
-      </div>
+    <div style="width:40%;max-width:150px;flex-shrink:0;display:flex;align-items:center;justify-content:center;position:relative">
+      <canvas id="dashMonthDonut"></canvas>
+    </div>
+    <div class="donut-legend" style="flex:1;min-width:0;overflow-y:auto;display:flex;flex-direction:column;gap:3px;align-content:center;justify-content:center">
+      ${items.map((it, i) => `
+        <div style="display:flex;align-items:center;gap:7px;font-size:12px;line-height:1.5">
+          <span style="width:9px;height:9px;border-radius:2px;background:${colors[i]};flex-shrink:0"></span>
+          <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--txt2)">${it.icon} ${hesc(it.name)}</span>
+          <span style="color:var(--txt3);font-size:11px;flex-shrink:0">${pct(it.total)}%</span>
+          <span style="font-weight:600;flex-shrink:0;min-width:60px;text-align:right">${fmt.currency(it.total)}</span>
+        </div>`).join('')}
     </div>`;
+
+  if (charts.monthDonut) charts.monthDonut.destroy();
+  charts.monthDonut = new Chart(document.getElementById('dashMonthDonut'), {
+    type: 'doughnut',
+    data: { labels: items.map(i => i.name), datasets: [{ data: items.map(i => i.total), backgroundColor: colors, borderWidth: 0 }] },
+    options: {
+      responsive: true, maintainAspectRatio: true, cutout: '62%',
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${fmt.currency(ctx.parsed)} (${pct(ctx.parsed)}%)` } }
+      }
+    }
+  });
 }
 
 // ── Esegui pianificata ora (F6) ───────────────────────────────────────────

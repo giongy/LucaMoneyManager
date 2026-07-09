@@ -30,16 +30,16 @@ Due piattaforme: **desktop (primaria)** e **Android (secondaria)**, database SQL
 ```
 JS Frontend (js/pages/*.js, ~10 moduli)
     ↓  cefQuery (payload JSON in Base64)
-Bridge.java (~740 LOC) — dispatch ~120 operazioni
+Bridge.java (~820 LOC) — dispatch ~120 operazioni
     ↓
-Database.java (~3170 LOC) — tutte le query JDBC
+Database.java (~4530 LOC) — tutte le query JDBC
     ↓
 SQLite
 ```
 
 **Classi Java:** `App` (entry point), `MainWindow` (Swing + JCEF), `Bridge` (dispatch JS↔Java), `Database` (JDBC), `Settings` (preferenze utente), `IconFactory` (generazione .ico), `SplashWindow` (splash Swing 700ms), `TrayManager` (system tray), `SingleInstance` (lock istanza unica), `WebServer` (serve web/ da filesystem), `DbLogger` (logging query), `ContextMenuHandler` (menu tasto destro nativo: ricarica/zoom/devtools)
 
-**Moduli JS pagine** (LOC indicativi): `analytics` (2500), `portfolio` (1790), `budget` (1760), `settings` (1400), `transactions` (1100), `scheduled` (1010), `dashboard` (580), `accounts` (360), `categories` (250), `forecasts` (230), `ranges` (190), `logviewer` (190), `notes` (300), `tags` (85)
+**Moduli JS pagine** (LOC indicativi): `analytics` (3010), `portfolio` (2020), `budget` (1960), `settings` (1680), `transactions` (1310), `scheduled` (1050), `dashboard` (790), `accounts` (370), `notes` (350), `categories` (270), `forecasts` (235), `logviewer` (190), `ranges` (195), `tags` (105)
 
 ---
 

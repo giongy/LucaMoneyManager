@@ -50,7 +50,8 @@ public class TrayManager {
     private static final Color MENU_HOVER  = new Color(0x2f, 0x6b, 0x5e);
     private static final Color MENU_SEP    = new Color(0xff, 0xff, 0xff, 26);
     private static final Color STATUS_OK   = new Color(0x3f, 0xb9, 0x50); // verde: DB connesso
-    private static final Color STATUS_OFF  = new Color(0x8b, 0x94, 0x9e); // grigio: DB chiuso
+    private static final Color STATUS_OFF  = new Color(0x8b, 0x94, 0x9e); // grigio: DB inattivo (idle)
+    private static final Color STATUS_CLOSED = new Color(0xc0, 0x39, 0x2b); // rosso: DB chiuso a mano
     private static final Font  MENU_FONT   = new Font("Segoe UI", Font.PLAIN, 13);
     private static final Font  MENU_EMOJI  = new Font("Segoe UI Emoji", Font.PLAIN, 14);
     private static final int   MENU_RADIUS = 12; // raggio angoli (clip finestra + bordo)
@@ -207,7 +208,7 @@ public class TrayManager {
     /** Riga informativa (non cliccabile) che mostra lo stato della connessione al DB:
      *  pallino verde + "Database connesso" oppure pallino grigio + "Database chiuso". */
     private static final class StatusRow extends JPanel {
-        private boolean open = false;
+        private IconFactory.DbState state = IconFactory.DbState.OPEN;
         private final JLabel tx;
 
         StatusRow() {
@@ -223,7 +224,11 @@ public class TrayManager {
                     Graphics2D g2 = (Graphics2D) g.create();
                     g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                     int d = 9;
-                    g2.setColor(open ? STATUS_OK : STATUS_OFF);
+                    g2.setColor(switch (state) {
+                        case OPEN   -> STATUS_OK;
+                        case IDLE   -> STATUS_OFF;
+                        case CLOSED -> STATUS_CLOSED;
+                    });
                     g2.fillOval((getWidth() - d) / 2, (getHeight() - d) / 2, d, d);
                     g2.dispose();
                 }
@@ -238,10 +243,14 @@ public class TrayManager {
             setMaximumSize(new Dimension(Integer.MAX_VALUE, getPreferredSize().height));
         }
 
-        void setOpen(boolean o) {
-            open = o;
-            tx.setText(o ? "Database connesso" : "Database chiuso");
-            tx.setForeground(o ? MENU_FG : STATUS_OFF);
+        void setState(IconFactory.DbState s) {
+            state = s;
+            tx.setText(switch (s) {
+                case OPEN   -> "Database connesso";
+                case IDLE   -> "Database inattivo";
+                case CLOSED -> "Database chiuso";
+            });
+            tx.setForeground(s == IconFactory.DbState.OPEN ? MENU_FG : STATUS_OFF);
             repaint();
         }
     }
@@ -254,22 +263,27 @@ public class TrayManager {
             if (dbToggleRow != null) dbToggleRow.setVisible(false);
             return;
         }
-        boolean open = dbStatusSupplier.getAsBoolean();
+        IconFactory.DbState state = currentDbState();
         if (dbStatusRow != null) {
             dbStatusRow.setVisible(true);
-            dbStatusRow.setOpen(open);
+            dbStatusRow.setState(state);
         }
         if (dbToggleRow != null) {
             dbToggleRow.setVisible(true);
-            if (open) dbToggleRow.setContent("🔌", "Chiudi connessione DB");
-            else      dbToggleRow.setContent("🔗", "Riapri connessione DB");
+            // Aperto → offri "Chiudi"; idle → si riaprirà da solo, ma lasciamo comunque
+            // "Chiudi definitivamente" per rilasciare il lock a mano; chiuso a mano → "Riapri".
+            switch (state) {
+                case OPEN   -> dbToggleRow.setContent("🔌", "Chiudi connessione DB");
+                case IDLE   -> dbToggleRow.setContent("🔌", "Chiudi connessione DB");
+                case CLOSED -> dbToggleRow.setContent("🔗", "Riapri connessione DB");
+            }
         }
     }
 
-    /** Chiude o riapre la connessione DB a seconda dello stato corrente. */
+    /** Chiude o riapre la connessione DB a seconda dello stato corrente. Coerente col menu:
+     *  aperto/idle → "Chiudi" (closeManual, rilascia il lock a mano); chiuso a mano → "Riapri". */
     public static void toggleDb() {
-        boolean open = dbStatusSupplier != null && dbStatusSupplier.getAsBoolean();
-        Runnable action = open ? closeDbAction : openDbAction;
+        Runnable action = currentDbState() == IconFactory.DbState.CLOSED ? openDbAction : closeDbAction;
         if (action != null) SwingUtilities.invokeLater(action);
     }
 

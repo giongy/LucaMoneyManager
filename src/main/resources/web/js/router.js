@@ -16,6 +16,8 @@ let charts = {};
 // Cambia pagina visibile (SPA): aggiorna classi .active, titolo e renderizza la pagina.
 function navigate(page) {
   if (currentPage === page) return;
+  // Guardia: pagina inesistente → non toccare la UI (eviterebbe di lasciarla vuota).
+  if (!page || !document.getElementById(`pg-${page}`)) return;
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.getElementById(`pg-${page}`).classList.add('active');
@@ -27,7 +29,10 @@ function navigate(page) {
 }
 
 // txFilters e _budgetTab sono dichiarati in app.js: risolti lazy al click.
-document.querySelectorAll('.nav-item').forEach(el => {
+// Solo le voci con data-page navigano: quelle con azioni proprie (es. Calcolatrice,
+// che usa onclick=openCalculator) non hanno data-page e vanno ignorate qui, altrimenti
+// navigate(undefined) svuoterebbe la pagina corrente senza attivarne una nuova.
+document.querySelectorAll('.nav-item[data-page]').forEach(el => {
   el.addEventListener('click', () => {
     if (el.dataset.page === 'transactions') txFilters = { range: txFilters.range };
     if (el.dataset.page === 'budgets') _budgetTab = 'grid';

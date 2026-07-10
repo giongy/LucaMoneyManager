@@ -511,24 +511,25 @@ input,select,textarea { font-family:inherit; }
 .nav-item[data-page="notes"]        { --nc:#d4b13e; } /* giallo */
 .nav-item[data-page="logviewer"]    { --nc:#8a93a3; } /* grigio */
 .nav-item[data-page="settings"]     { --nc:#7f8794; } /* grigio */
+.nav-item-icon                      { --nc:#5aa9c4; } /* ciano (Calcolatrice) */
 
 .sidebar-accounts {
-  padding:6px 8px; margin-top:10px; border-top:1px solid var(--border);
-  display:grid; grid-template-columns:repeat(3, 1fr); gap:4px;
+  padding:5px 8px; margin-top:8px; border-top:1px solid var(--border);
+  display:grid; grid-template-columns:repeat(3, 1fr); gap:3px;
 }
 .sidebar-account-item {
   display:flex; flex-direction:column; align-items:center;
-  padding:7px 4px 6px; border-radius:9px; background:var(--bg3);
+  padding:5px 3px 4px; border-radius:8px; background:var(--bg3);
   border:1px solid transparent;
-  transition:background .15s, border-color .15s; gap:4px; min-width:0; cursor:pointer;
+  transition:background .15s, border-color .15s; gap:3px; min-width:0; cursor:pointer;
 }
 .sidebar-account-item:hover {
   background:var(--bg4,var(--border));
   border-color:color-mix(in srgb, var(--acc-color, var(--border)) 40%, transparent);
 }
 .acc-tile-icon {
-  font-size:15px; line-height:1;
-  width:30px; height:30px; border-radius:8px;
+  font-size:13px; line-height:1;
+  width:24px; height:24px; border-radius:7px;
   display:flex; align-items:center; justify-content:center;
   background:color-mix(in srgb, var(--acc-color, var(--border)) 16%, transparent);
   box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--acc-color, var(--border)) 32%, transparent);
@@ -691,6 +692,80 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 }
 .form-control:focus { outline:none; border-color:var(--accent); }
 .form-row { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+
+/* ─── Calcolatrice ───────────────────────────────────────────────────────────
+   Bottoncino 🧮 agganciato dentro i campi importo (calculator.js) + popup
+   flottante col tastierino. Il popup è centrato e sopra al modale.            */
+
+/* Wrapper che ospita input + bottone calcolatrice sovrapposto a destra */
+.calc-field-wrap { position:relative; display:block; }
+.form-control.has-calc-btn { padding-right:32px; }        /* spazio per il bottone */
+.calc-field-btn {
+  position:absolute; top:50%; right:4px; transform:translateY(-50%);
+  width:24px; height:24px; padding:0; border:none; border-radius:5px;
+  background:transparent; color:var(--txt2); cursor:pointer;
+  font-size:13px; line-height:1; display:flex; align-items:center; justify-content:center;
+  opacity:.6; transition:opacity .15s, background .15s;
+}
+.calc-field-btn:hover { opacity:1; background:var(--bg4); }
+
+/* Overlay del popup calcolatrice */
+.calc-overlay {
+  position:fixed; inset:0; z-index:10050;               /* sopra al modal (9999) */
+  background:rgba(0,0,0,.35); backdrop-filter:blur(2px);
+  display:none; align-items:center; justify-content:center;
+}
+.calc-overlay.open { display:flex; }
+
+.calc-panel {
+  width:264px; background:var(--bg2); border:1px solid var(--border);
+  border-radius:var(--radius); box-shadow:var(--shadow);
+  padding:12px; user-select:none;
+}
+.calc-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
+.calc-title { font-size:var(--fs-md,12px); font-weight:600; color:var(--txt2); }
+.calc-close {
+  background:transparent; border:none; color:var(--txt3); cursor:pointer;
+  font-size:14px; line-height:1; padding:2px 5px; border-radius:5px; transition:all .15s;
+}
+.calc-close:hover { background:var(--bg4); color:var(--txt); }
+
+.calc-display {
+  width:100%; padding:8px 10px; border-radius:8px;
+  border:1px solid var(--border); background:var(--bg3); color:var(--txt);
+  font-size:20px; font-weight:600; text-align:right; letter-spacing:.5px;
+  font-variant-numeric:tabular-nums;
+}
+.calc-display:focus { outline:none; border-color:var(--accent); }
+.calc-preview {
+  min-height:18px; margin:4px 2px 8px; text-align:right;
+  font-size:13px; color:var(--txt3); font-variant-numeric:tabular-nums;
+}
+
+.calc-keys { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; }
+.calc-key {
+  height:42px; border:1px solid var(--border); border-radius:8px;
+  background:var(--bg3); color:var(--txt); cursor:pointer;
+  font-size:16px; font-weight:600; transition:background .12s, transform .05s;
+  display:flex; align-items:center; justify-content:center;
+}
+.calc-key:hover  { background:var(--bg4); }
+.calc-key:active { transform:scale(.96); }
+.calc-op { color:var(--accent); }                          /* + − × ÷ */
+.calc-fn { color:var(--txt2); font-size:14px; }            /* C  ⌫ */
+.calc-eq {
+  grid-row:span 2;                                          /* "=" alto due righe */
+  background:var(--accent); color:#000; border-color:transparent;
+}
+.calc-eq:hover { filter:brightness(1.1); }
+.calc-zero { grid-column:span 1; }
+.calc-ok {
+  background:var(--income); color:#fff; border-color:transparent;
+}
+.calc-ok:hover { filter:brightness(1.1); }
+/* In modalità standalone (dalla sidebar) non c'è campo da riempire: il tasto OK
+   è nascosto via JS. Lo "0" si allarga su 2 colonne per riempire la riga finale. */
+.calc-standalone .calc-zero { grid-column:span 2; }
 
 /* ─── Cat picker ──────────────────────────────────────────────────────────── */
 .cat-picker { position:relative; }
@@ -1303,7 +1378,16 @@ tr.tx-selected td { background:rgba(124,124,255,.07); }
 .sidebar-bottom {
   margin-top:auto; border-top:1px solid var(--border); padding-top:6px;
   position:sticky; bottom:0; z-index:2; background:var(--bg2);
+  /* Impostazioni (80%) + Calcolatrice (solo icona, 20%) sulla stessa riga */
+  display:flex; align-items:stretch;
 }
+.sidebar-bottom .nav-item[data-page="settings"] { flex:0 0 80%; min-width:0; }
+/* Voce solo-icona: niente label, centrata, occupa il 20% residuo, separatore a sinistra */
+.nav-item-icon {
+  flex:0 0 20%; justify-content:center; padding-left:0; padding-right:0;
+  border-left:1px solid var(--border);
+}
+.nav-item-icon .nav-icon-svg { margin:0; }
 
 /* ─── Categorie ──────────────────────────────────────────────────────────── */
 .cats-section-title { font-size:var(--fs-sm,11px); font-weight:700; text-transform:uppercase;

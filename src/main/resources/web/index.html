@@ -128,9 +128,14 @@
       </a>
     </nav>
 
+    <!-- Riga divisa ~90/10: Impostazioni (con testo) + Calcolatrice (solo icona) -->
     <div class="sidebar-bottom">
       <a class="nav-item" data-page="settings">
         <i data-lucide="settings" class="nav-icon-svg"></i><span>Impostazioni</span>
+      </a>
+      <!-- Apre la calcolatrice standalone (utility di calcolo libera, senza campo di destinazione) -->
+      <a class="nav-item nav-item-icon" onclick="openCalculator()" title="Calcolatrice">
+        <i data-lucide="calculator" class="nav-icon-svg"></i>
       </a>
     </div>
   </aside>
@@ -210,6 +215,7 @@
 <!-- quill.min.js caricato on-demand da js/pages/notes.js (solo editor Note) -->
 <script src="js/bridge.js"></script>
 <script src="js/utils.js"></script>
+<script src="js/calculator.js"></script>
 <script src="js/ui-shell.js"></script>
 <script src="js/router.js"></script>
 <script src="js/sidebar.js"></script>

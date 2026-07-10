@@ -23,7 +23,6 @@ import androidx.swiperefreshlayout.widget.SwipeRefreshLayout
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -43,13 +42,13 @@ class MainActivity : AppCompatActivity() {
         // clearLocalCache + copyUriToLocal, rischiando di rileggere dall'URI una versione OneDrive
         // non ancora aggiornata (transazione che "sparisce") o un file in transito ("unable to
         // open db"). Ricarichiamo solo la UI dal DB locale; OneDrive sincronizza in background.
-        if (result.resultCode == RESULT_OK) lifecycleScope.launch {
-            loadAccounts()
-            // Kick ritardato: la scrittura su OneDrive non sempre fa partire l'upload da sola.
-            // Dopo un breve ritardo (scrittura ormai propagata, DB stabile) rileggiamo l'URI in
-            // background — come lo swipe — per svegliare OneDrive. Isolato: non tocca il DB locale.
-            delay(2500)
-            withContext(Dispatchers.IO) { DbHelper.kickOneDriveUpload(this@MainActivity) }
+        if (result.resultCode == RESULT_OK) {
+            lifecycleScope.launch { loadAccounts() }
+            // Kick di upload affidabile: la scrittura su OneDrive non sempre fa partire l'upload
+            // da sola. Il vecchio delay(2500) nella coroutine era fragile (moriva se l'app andava
+            // in background, timing fisso). WorkManager esegue il kick anche a processo terminato,
+            // con retry automatico finché OneDrive non risponde. Vedi UploadKickWorker.
+            UploadKickWorker.enqueue(this)
         }
     }
 
@@ -113,6 +112,10 @@ class MainActivity : AppCompatActivity() {
     override fun onStop() {
         super.onStop()
         DbHelper.closeDb()
+        // Rilasciato il file, è il momento in cui OneDrive avvia più facilmente la sync: programma
+        // un kick garantito (sopravvive alla terminazione del processo). Copre il caso in cui si
+        // inserisce una transazione e si manda subito l'app in background prima del kick post-insert.
+        UploadKickWorker.enqueue(this)
     }
 
     override fun onDestroy() {

@@ -39,6 +39,13 @@ public class Database {
     // ai pochi secondi attorno a ogni operazione, invece di durare tutta la sessione.
     private static final long IDLE_RELEASE_MS = 20_000;  // 20s senza query → chiudi il lock
     private final java.util.Timer idleTimer = new java.util.Timer("db-idle-release", true);
+    // Numero di query attualmente in esecuzione (executeQuery/executeUpdate in volo). Finché è
+    // > 0 l'auto-release NON deve chiudere la connessione, altrimenti la query in volo esplode
+    // con "database connection closed". Le query girano fuori dal lock synchronized (per non
+    // serializzarle), quindi il timer non può escluderle col solo synchronized: si coordina
+    // con questo contatore. Incrementato in withConnection() prima della query, decrementato
+    // nel finally; il timer richiude solo quando torna a 0 (o si riprogramma se ancora in uso).
+    private int activeQueries = 0;
     private java.util.TimerTask pendingRelease;
     private volatile boolean autoReleaseEnabled = true;
 
@@ -146,7 +153,7 @@ public class Database {
      * se differisce, OneDrive ha sostituito il file (modifica da telefono/altro PC) e
      * invoca externalChangeCallback per far ricaricare i dati stale nel frontend.
      */
-    private void ensureOpen() throws SQLException {
+    private synchronized void ensureOpen() throws SQLException {
         if (!isOpen()) {
             conn = openConnection(currentDbPath);
             manuallyClosed = false;  // riaperto (da una query): non più "chiuso a mano"
@@ -157,6 +164,26 @@ public class Database {
                 if (cb != null) cb.run();
             }
         }
+        scheduleIdleRelease();
+    }
+
+    /**
+     * Marca l'inizio di una query: garantisce la connessione aperta e incrementa il contatore
+     * delle query attive, così l'auto-release non può chiudere la connessione mentre la query
+     * è in volo. Da bilanciare SEMPRE con {@link #endQuery()} in un finally. Ritorna la
+     * connessione da usare (catturata sotto lock, per non leggere un campo che il timer potrebbe
+     * azzerare in mezzo). Vedi {@link #activeQueries}.
+     */
+    private synchronized Connection beginQuery() throws SQLException {
+        ensureOpen();       // apre se serve e riarma il timer idle
+        activeQueries++;    // da qui l'auto-release non chiude finché non si decrementa
+        return conn;
+    }
+
+    /** Marca la fine di una query e riarma il timer idle a partire da adesso (così i 20s di
+     *  inattività contano dalla FINE dell'ultima query, non dal suo inizio). */
+    private synchronized void endQuery() {
+        if (activeQueries > 0) activeQueries--;
         scheduleIdleRelease();
     }
 
@@ -173,6 +200,9 @@ public class Database {
         pendingRelease = new java.util.TimerTask() {
             @Override public void run() {
                 synchronized (Database.this) {
+                    // Non chiudere se una query è in volo: la chiuderebbe a metà ("database
+                    // connection closed"). endQuery() riprogrammerà l'auto-release al termine.
+                    if (activeQueries > 0) return;
                     try {
                         if (autoReleaseEnabled && isOpen()) {
                             conn.close();
@@ -202,10 +232,12 @@ public class Database {
 
     /** Versione della libreria SQLite in uso (mostrata in Impostazioni). */
     public String getSQLiteVersion() throws SQLException {
-        ensureOpen();
-        try (var st = conn.createStatement();
+        Connection c = beginQuery();  // guardia: l'auto-release non chiude finché non facciamo endQuery()
+        try (var st = c.createStatement();
              var rs = st.executeQuery("SELECT sqlite_version()")) {
             return rs.next() ? rs.getString(1) : "?";
+        } finally {
+            endQuery();
         }
     }
 
@@ -392,15 +424,19 @@ public class Database {
 
     /** Esegue una SELECT e restituisce le righe come lista di mappe colonna→valore. */
     private List<Map<String, Object>> queryList(String sql, Object... params) throws SQLException {
-        ensureOpen();
-        long t0 = System.nanoTime();
-        try (PreparedStatement ps = conn.prepareStatement(sql)) {
-            bind(ps, params);
-            List<Map<String, Object>> result = toList(ps.executeQuery());
-            long ms = (System.nanoTime() - t0) / 1_000_000;
-            if (ms >= SLOW_QUERY_MS)
-                System.err.printf("[SLOW QUERY %dms] %s%n", ms, sql.substring(0, Math.min(120, sql.length())).replaceAll("\\s+", " ").trim());
-            return result;
+        Connection c = beginQuery();  // guardia: l'auto-release non chiude finché non facciamo endQuery()
+        try {
+            long t0 = System.nanoTime();
+            try (PreparedStatement ps = c.prepareStatement(sql)) {
+                bind(ps, params);
+                List<Map<String, Object>> result = toList(ps.executeQuery());
+                long ms = (System.nanoTime() - t0) / 1_000_000;
+                if (ms >= SLOW_QUERY_MS)
+                    System.err.printf("[SLOW QUERY %dms] %s%n", ms, sql.substring(0, Math.min(120, sql.length())).replaceAll("\\s+", " ").trim());
+                return result;
+            }
+        } finally {
+            endQuery();
         }
     }
 
@@ -412,29 +448,37 @@ public class Database {
 
     /** Esegue INSERT/UPDATE/DELETE e ritorna la chiave generata (o -1). */
     private long execute(String sql, Object... params) throws SQLException {
-        ensureOpen();
-        long t0 = System.nanoTime();
-        try (PreparedStatement ps = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
-            bind(ps, params);
-            ps.executeUpdate();
-            ResultSet keys = ps.getGeneratedKeys();
-            long id = keys.next() ? keys.getLong(1) : -1;
-            long ms = (System.nanoTime() - t0) / 1_000_000;
-            if (ms >= SLOW_QUERY_MS)
-                System.err.printf("[SLOW QUERY %dms] %s%n", ms, sql.substring(0, Math.min(120, sql.length())).replaceAll("\\s+", " ").trim());
-            return id;
+        Connection c = beginQuery();  // guardia: l'auto-release non chiude finché non facciamo endQuery()
+        try {
+            long t0 = System.nanoTime();
+            try (PreparedStatement ps = c.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+                bind(ps, params);
+                ps.executeUpdate();
+                ResultSet keys = ps.getGeneratedKeys();
+                long id = keys.next() ? keys.getLong(1) : -1;
+                long ms = (System.nanoTime() - t0) / 1_000_000;
+                if (ms >= SLOW_QUERY_MS)
+                    System.err.printf("[SLOW QUERY %dms] %s%n", ms, sql.substring(0, Math.min(120, sql.length())).replaceAll("\\s+", " ").trim());
+                return id;
+            }
+        } finally {
+            endQuery();
         }
     }
 
     /** Esegue uno script SQL multi-istruzione (usato da initSchema/migrate). */
     private void executePlain(String sql) throws SQLException {
-        ensureOpen();
-        // JDBC esegue solo la prima istruzione: splittiamo per ";"
-        for (String stmt : sql.split(";")) {
-            String s = stmt.strip();
-            if (!s.isEmpty()) {
-                try (Statement st = conn.createStatement()) { st.execute(s); }
+        Connection c = beginQuery();  // guardia: l'auto-release non chiude finché non facciamo endQuery()
+        try {
+            // JDBC esegue solo la prima istruzione: splittiamo per ";"
+            for (String stmt : sql.split(";")) {
+                String s = stmt.strip();
+                if (!s.isEmpty()) {
+                    try (Statement st = c.createStatement()) { st.execute(s); }
+                }
             }
+        } finally {
+            endQuery();
         }
     }
 
@@ -3742,12 +3786,16 @@ public class Database {
 
     /** Aggiorna le statistiche del query planner (ANALYZE) e le restituisce. */
     public Map<String, Object> dbAnalyze() throws SQLException {
-        ensureOpen();
-        try (Statement st = conn.createStatement()) { st.execute("ANALYZE"); }
-        List<Map<String, Object>> stats = queryList(
-            "SELECT tbl AS name, stat FROM sqlite_stat1 ORDER BY tbl");
-        logger.log("MANUTENZIONE", "ANALYZE: " + stats.size() + " indici analizzati");
-        return Map.of("ok", true, "stats", stats);
+        Connection c = beginQuery();  // guardia: l'auto-release non chiude finché non facciamo endQuery()
+        try {
+            try (Statement st = c.createStatement()) { st.execute("ANALYZE"); }
+            List<Map<String, Object>> stats = queryList(
+                "SELECT tbl AS name, stat FROM sqlite_stat1 ORDER BY tbl");
+            logger.log("MANUTENZIONE", "ANALYZE: " + stats.size() + " indici analizzati");
+            return Map.of("ok", true, "stats", stats);
+        } finally {
+            endQuery();
+        }
     }
 
 
@@ -3755,22 +3803,26 @@ public class Database {
 
     /** Entrate/uscite mensili degli ultimi N mesi (per i grafici Analytics). */
     public List<Map<String, Object>> getMonthlyBalance(int months) throws SQLException {
-        ensureOpen();
-        java.time.LocalDate start = java.time.LocalDate.now()
-                .withDayOfMonth(1).minusMonths(months - 1);
-        String sql = """
-            SELECT strftime('%Y-%m', date) AS ym,
-                   SUM(CASE WHEN type='income'  THEN ABS(amount) ELSE 0 END) AS income,
-                   SUM(CASE WHEN type='expense' THEN ABS(amount) ELSE 0 END) AS expense
-            FROM transactions t
-            WHERE date >= ? AND type IN ('income','expense')
-              AND COALESCE((SELECT excluded_from_budget FROM categories WHERE id=t.category_id),0)=0
-            GROUP BY ym
-            ORDER BY ym
-            """;
-        try (PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setString(1, start.toString());
-            return toList(ps.executeQuery());
+        Connection c = beginQuery();  // guardia: l'auto-release non chiude finché non facciamo endQuery()
+        try {
+            java.time.LocalDate start = java.time.LocalDate.now()
+                    .withDayOfMonth(1).minusMonths(months - 1);
+            String sql = """
+                SELECT strftime('%Y-%m', date) AS ym,
+                       SUM(CASE WHEN type='income'  THEN ABS(amount) ELSE 0 END) AS income,
+                       SUM(CASE WHEN type='expense' THEN ABS(amount) ELSE 0 END) AS expense
+                FROM transactions t
+                WHERE date >= ? AND type IN ('income','expense')
+                  AND COALESCE((SELECT excluded_from_budget FROM categories WHERE id=t.category_id),0)=0
+                GROUP BY ym
+                ORDER BY ym
+                """;
+            try (PreparedStatement ps = c.prepareStatement(sql)) {
+                ps.setString(1, start.toString());
+                return toList(ps.executeQuery());
+            }
+        } finally {
+            endQuery();
         }
     }
 
@@ -3779,7 +3831,8 @@ public class Database {
      * il saldo cumulato di ogni conto a fine di ciascun mese (serie per il grafico patrimonio).
      */
     public Map<String, Object> getAccountBalanceHistory(int months) throws SQLException {
-        ensureOpen();
+        Connection c = beginQuery();  // guardia: l'auto-release non chiude finché non facciamo endQuery()
+        try {
         LocalDate today = LocalDate.now();
         LocalDate startDate = today.withDayOfMonth(1).minusMonths(months - 1);
         String startStr = startDate.toString();
@@ -3820,7 +3873,7 @@ public class Database {
             ORDER BY sub.account_id, sub.ym
             """;
         Map<Integer, Map<String, Double>> deltasByAccount = new HashMap<>();
-        try (PreparedStatement ps = conn.prepareStatement(deltaSql)) {
+        try (PreparedStatement ps = c.prepareStatement(deltaSql)) {
             ps.setString(1, startStr); ps.setString(2, startStr);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
@@ -3844,7 +3897,7 @@ public class Database {
             ORDER BY pt.portfolio_id, strftime('%Y-%m', pt.date)
             """;
         Map<Integer, Map<String, Double>> ptDeltasByPos = new HashMap<>();
-        try (PreparedStatement ps = conn.prepareStatement(ptSql)) {
+        try (PreparedStatement ps = c.prepareStatement(ptSql)) {
             ps.setString(1, startStr);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
@@ -3922,14 +3975,21 @@ public class Database {
         ret.put("accounts", accountMeta);
         ret.put("monthly", monthly);
         return ret;
+        } finally {
+            endQuery();
+        }
     }
 
     /** Mese (YYYY-MM) della transazione più vecchia, per limitare i range dei grafici. */
     public String getOldestTransactionMonth() throws SQLException {
-        ensureOpen();
-        String sql = "SELECT strftime('%Y-%m', MIN(date)) AS ym FROM transactions WHERE type IN ('income','expense')";
-        try (Statement s = conn.createStatement(); ResultSet rs = s.executeQuery(sql)) {
-            return rs.next() ? rs.getString("ym") : null;
+        Connection c = beginQuery();  // guardia: l'auto-release non chiude finché non facciamo endQuery()
+        try {
+            String sql = "SELECT strftime('%Y-%m', MIN(date)) AS ym FROM transactions WHERE type IN ('income','expense')";
+            try (Statement s = c.createStatement(); ResultSet rs = s.executeQuery(sql)) {
+                return rs.next() ? rs.getString("ym") : null;
+            }
+        } finally {
+            endQuery();
         }
     }
 
@@ -4496,6 +4556,8 @@ public class Database {
 
     /** Totale per categoria e per mese negli ultimi N mesi (tabella pivot di Analytics, split inclusi). */
     public List<Map<String, Object>> getCategoryMonthTable(int months) throws SQLException {
+        Connection c = beginQuery();  // guardia: l'auto-release non chiude finché non facciamo endQuery()
+        try {
         java.time.LocalDate start = java.time.LocalDate.now()
                 .withDayOfMonth(1).minusMonths(months - 1);
         String sql = """
@@ -4520,10 +4582,13 @@ public class Database {
             LEFT JOIN categories p ON c.parent_id = p.id
             GROUP BY c.id, ym ORDER BY c.type, COALESCE(p.name, c.name), c.parent_id NULLS FIRST, c.name, ym
             """;
-        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+        try (PreparedStatement ps = c.prepareStatement(sql)) {
             ps.setString(1, start.toString());
             ps.setString(2, start.toString());
             return toList(ps.executeQuery());
+        }
+        } finally {
+            endQuery();
         }
     }
 }

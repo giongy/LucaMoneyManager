@@ -85,15 +85,50 @@ function _buildMonthsForYear(year, fromYm, toYm, selectedMonth) {
   return html;
 }
 
+// ── Guard centrale contro race condition + blocco su "Caricamento…" ─────────
+// Le funzioni renderAnalytics* sono async: scrivono "Caricamento…", fanno await su
+// chiamate Java lente, poi disegnano. Cambiando periodo/tab rapidamente si sovrappongono
+// più render sullo stesso contenitore, e se una await lancia (es. connessione DB chiusa a
+// metà per la sync OneDrive, o un getElementById null perché il DOM è stato sostituito)
+// la funzione muore DOPO "Caricamento…" ma PRIMA del contenuto → la tab resta bloccata.
+//
+// _analyticsRenderToken identifica l'ultimo render richiesto: ogni nuovo render lo incrementa.
+// Le funzioni render, dopo ogni await, chiamano _analyticsRenderStale(token): se un render più
+// recente è partito nel frattempo, si fermano senza toccare il DOM ("ultima richiesta vince").
+// _runAnalyticsRender avvolge la chiamata in un try/catch che, in errore, mostra un messaggio
+// nel contenitore invece di lasciare "Caricamento…" a tempo indeterminato.
+let _analyticsRenderToken = 0;
+
+// True se il render identificato da `token` non è più quello corrente (ne è partito uno più
+// recente): la funzione chiamante deve interrompersi senza scrivere sul DOM.
+function _analyticsRenderStale(token) { return token !== _analyticsRenderToken; }
+
+// Esegue una funzione render (sync o async) sotto guard: assegna un token fresco e cattura
+// ogni eccezione, mostrando l'errore nel contenitore invece di lasciare "Caricamento…".
+function _runAnalyticsRender(fn) {
+  const token = ++_analyticsRenderToken;
+  Promise.resolve()
+    .then(() => fn(token))
+    .catch(e => {
+      // Solo se questo è ancora il render corrente: non sovrascrivere un render più recente
+      // già in corso con l'errore di uno vecchio.
+      if (_analyticsRenderStale(token)) return;
+      const el = document.getElementById('analyticsContent');
+      if (el) el.innerHTML = `<p style="padding:20px;color:var(--expense)">Errore nel caricamento: ${(e && e.message) || e}</p>`;
+    });
+}
+
 // Dispatcher: renderizza la tab Analytics attiva nel contenitore #analyticsContent.
 function _renderCurrentAnalyticsTab() {
-  if (_analyticsTab === 'balance')     renderAnalyticsBalance();
-  else if (_analyticsTab === 'trend')      renderAnalyticsTrend();
-  else if (_analyticsTab === 'health')     renderAnalyticsHealth();
-  else if (_analyticsTab === 'forecast')   renderAnalyticsForecast();
-  else if (_analyticsTab === 'accbalance') renderAnalyticsAccBalance();
-  else if (_analyticsTab === 'nature')     renderNatureReport();
-  else renderAnalyticsCatMonth();
+  _runAnalyticsRender(token => {
+    if (_analyticsTab === 'balance')     return renderAnalyticsBalance(token);
+    else if (_analyticsTab === 'trend')      return renderAnalyticsTrend(token);
+    else if (_analyticsTab === 'health')     return renderAnalyticsHealth(token);
+    else if (_analyticsTab === 'forecast')   return renderAnalyticsForecast(token);
+    else if (_analyticsTab === 'accbalance') return renderAnalyticsAccBalance(token);
+    else if (_analyticsTab === 'nature')     return renderNatureReport(token);
+    else return renderAnalyticsCatMonth(token);
+  });
 }
 
 // Disegna la pagina Analytics: barra delle 7 tab (Salute, Categorie/Mese, Bilancio, Andamento,
@@ -297,7 +332,7 @@ function _renderAnalyticsControls() {
       // Clamp se start > end
       if (_analyticsCompareA.endYm < _analyticsCompareA.startYm) _analyticsCompareA.endYm = _analyticsCompareA.startYm;
       if (_analyticsCompareB.endYm < _analyticsCompareB.startYm) _analyticsCompareB.endYm = _analyticsCompareB.startYm;
-      renderAnalyticsBalance();
+      _renderCurrentAnalyticsTab();
     };
     ['aCompAStartY','aCompAStartM','aCompAEndY','aCompAEndM',
      'aCompBStartY','aCompBStartM','aCompBEndY','aCompBEndM'].forEach(id => {
@@ -322,7 +357,7 @@ function _shiftYmByYears(ym, yearDelta) {
 window._toggleBalanceYtd = () => {
   _analyticsBalanceYtd = !_analyticsBalanceYtd;
   _renderAnalyticsControls();
-  renderAnalyticsBalance();
+  _renderCurrentAnalyticsTab();
 };
 
 // Cambia la tab Analytics attiva, aggiorna i controlli periodo e renderizza la tab.
@@ -331,13 +366,7 @@ window._setAnalyticsTab = (tab, btn) => {
   document.querySelectorAll('[data-atab]').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   _renderAnalyticsControls();
-  if (tab === 'catmonth')   renderAnalyticsCatMonth();
-  if (tab === 'balance')    renderAnalyticsBalance();
-  if (tab === 'trend')      renderAnalyticsTrend();
-  if (tab === 'health')     renderAnalyticsHealth();
-  if (tab === 'forecast')   renderAnalyticsForecast();
-  if (tab === 'accbalance') renderAnalyticsAccBalance();
-  if (tab === 'nature')     renderNatureReport();
+  _renderCurrentAnalyticsTab();
 };
 
 // Attiva/disattiva la modalità confronto nel Bilancio: periodo A vs B (default B = A −1 anno).
@@ -356,7 +385,7 @@ window._toggleBalanceCompare = () => {
     _analyticsBalanceYtd = false;
   }
   _renderAnalyticsControls();
-  renderAnalyticsBalance();
+  _renderCurrentAnalyticsTab();
 };
 
 // Pending nav payload: usato per portare periodo + tab da altre pagine senza farsi
@@ -377,13 +406,15 @@ let _analyticsCatSort = { col: null, dir: -1 };
 let _analyticsCatCache = null;
 
 // Tab "Categorie / Mese": carica la tabella pivot categoria×mese e la renderizza.
-async function renderAnalyticsCatMonth() {
+// token: identifica questo render; dopo l'await ci si ferma se ne è partito uno più recente.
+async function renderAnalyticsCatMonth(token) {
   const el = document.getElementById('analyticsContent');
   if (!el) return;
   el.innerHTML = '<p style="padding:20px;color:var(--txt2)">Caricamento…</p>';
 
   const { fetchMonths, monthCols } = _analyticsMonthRange();
   const rows = await api.getCategoryMonthTable(fetchMonths);
+  if (_analyticsRenderStale(token)) return;  // periodo/tab cambiato durante l'await: annulla
 
   const catMap = {};
   for (const r of rows) {
@@ -513,7 +544,7 @@ function _buildMonthCols(startYm, endYm) {
 
 // Tab "Bilancio Mensile": entrate/uscite/saldo per mese, con eventuale confronto A vs B e YTD.
 // Instrada alla vista singola o di confronto in base allo stato.
-async function renderAnalyticsBalance() {
+async function renderAnalyticsBalance(token) {
   const el = document.getElementById('analyticsContent');
   if (!el) return;
   el.innerHTML = '<p style="padding:20px;color:var(--txt2)">Caricamento…</p>';
@@ -522,7 +553,7 @@ async function renderAnalyticsBalance() {
   const cc = chartColors();
 
   if (!compare) {
-    return _renderAnalyticsBalanceSingle();
+    return _renderAnalyticsBalanceSingle(token);
   }
 
   // ── Modalità confronto Periodo A vs Periodo B ───────────────────────────
@@ -538,6 +569,7 @@ async function renderAnalyticsBalance() {
     (now.getFullYear() - oldestStartDate.getFullYear()) * 12 +
     (now.getMonth()    - oldestStartDate.getMonth())    + 1);
   const rows = await api.getMonthlyBalance(fetchMonths);
+  if (_analyticsRenderStale(token)) return;  // periodo/tab cambiato durante l'await: annulla
   const byYm = {};
   for (const r of rows) byYm[r.ym] = r;
 
@@ -559,6 +591,7 @@ async function renderAnalyticsBalance() {
     _applyYtdTruncation(colsA, incA, expA, balA, _truncCompare),
     _applyYtdTruncation(colsB, incB, expB, balB, _truncCompare),
   ]);
+  if (_analyticsRenderStale(token)) return;  // periodo/tab cambiato durante l'await: annulla
 
   let cuA = 0; const cumA = balA.map(b => (cuA += b));
   let cuB = 0; const cumB = balB.map(b => (cuB += b));
@@ -704,11 +737,12 @@ async function renderAnalyticsBalance() {
 }
 
 // Vista Bilancio "singola" (senza confronto): grafico + tabella entrate/uscite/saldo per mese.
-async function _renderAnalyticsBalanceSingle() {
+async function _renderAnalyticsBalanceSingle(token) {
   const el = document.getElementById('analyticsContent');
   if (!el) return;
   const { fetchMonths, monthCols } = _analyticsMonthRange();
   const rows = await api.getMonthlyBalance(fetchMonths);
+  if (_analyticsRenderStale(token)) return;  // periodo/tab cambiato durante l'await: annulla
   const byYm = {};
   for (const r of rows) byYm[r.ym] = r;
 
@@ -718,6 +752,7 @@ async function _renderAnalyticsBalanceSingle() {
 
   // YTD: tronca ultimo mese al giorno odierno
   await _applyYtdTruncation(monthCols, incomes, expenses, balances);
+  if (_analyticsRenderStale(token)) return;  // periodo/tab cambiato durante l'await: annulla
 
   let cumul = 0;
   const cumuls = balances.map(b => (cumul += b));
@@ -802,7 +837,7 @@ let _healthVolChart  = null;
 
 // ── Previsione Saldo nel contesto Analytics ───────────────────────────────────
 // Tab "Previsione Saldo": delega al motore Previsione Saldo (sezione _fc* più in basso).
-async function renderAnalyticsForecast() {
+async function renderAnalyticsForecast(token) {
   const el = document.getElementById('analyticsContent');
   if (!el) return;
   // Inizializza default con il primo mese disponibile in DB (caricato a livello Analytics)
@@ -810,11 +845,13 @@ async function renderAnalyticsForecast() {
   el.innerHTML = _fcControlsHtml() + `<div id="fcOutput"></div>`;
   _fcBindControls();
   await _runForecastSaldo();
+  // token non serve dopo: _runForecastSaldo scrive nel suo #fcOutput (già creato qui in modo
+  // sincrono) e questa tab non è tra quelle con race sui select periodo (i controlli sono suoi).
 }
 
 // Tab "Salute Finanziaria": score 0-100 (via utils.computeHealthScore) con dettaglio di tutte
 // le componenti (tasso risparmio, mesi positivi, riserva, trend, stabilità entrate) e spiegazioni.
-async function renderAnalyticsHealth() {
+async function renderAnalyticsHealth(token) {
   const el = document.getElementById('analyticsContent');
   if (!el) return;
   el.innerHTML = '<p style="padding:20px;color:var(--txt2)">Caricamento…</p>';
@@ -824,6 +861,7 @@ async function renderAnalyticsHealth() {
     api.getMonthlyBalance(fetchMonths),
     api.getAccounts(),
   ]);
+  if (_analyticsRenderStale(token)) return;  // periodo/tab cambiato durante l'await: annulla
 
   // Allinea i dati ai mesi selezionati dall'utente
   const byYm = {};
@@ -1202,7 +1240,7 @@ let _accBalData  = null;   // { accounts, byAccount: {aid: {ym: balance}}, month
 let _accBalSel   = null;   // Set di account_id selezionati
 
 // Tab "Saldo Conti": andamento storico del saldo per conto (serie multiple selezionabili).
-async function renderAnalyticsAccBalance() {
+async function renderAnalyticsAccBalance(token) {
   const el = document.getElementById('analyticsContent');
   if (!el) return;
   el.innerHTML = '<p style="padding:20px;color:var(--txt2)">Caricamento…</p>';
@@ -1226,6 +1264,7 @@ async function renderAnalyticsAccBalance() {
   let raw;
   try { raw = await api.getAccountBalanceHistory(fetchMonths); }
   catch(e) { el.innerHTML = `<p style="padding:20px;color:var(--expense)">Errore: ${e.message}</p>`; return; }
+  if (_analyticsRenderStale(token)) return;  // periodo/tab cambiato durante l'await: annulla
   if (!raw || !raw.accounts) { el.innerHTML = `<p style="padding:20px;color:var(--expense)">Dati non disponibili</p>`; return; }
   const accounts = raw.accounts;
 
@@ -1368,13 +1407,14 @@ let _analyticsTrendCache  = null; // { monthCols, catMap }
 let _trendIncludeZero     = true;
 
 // Tab "Andamento Categoria": evoluzione mensile della spesa/entrata di una o più categorie scelte.
-async function renderAnalyticsTrend() {
+async function renderAnalyticsTrend(token) {
   const el = document.getElementById('analyticsContent');
   if (!el) return;
   el.innerHTML = '<p style="padding:20px;color:var(--txt2)">Caricamento…</p>';
 
   const { fetchMonths, monthCols } = _analyticsMonthRange();
   const rows = await api.getCategoryMonthTable(fetchMonths);
+  if (_analyticsRenderStale(token)) return;  // periodo/tab cambiato durante l'await: annulla
 
   const catMap = {};
   for (const r of rows) {
@@ -1566,7 +1606,9 @@ async function renderReports() {
 
 
 // Tab "Natura Spese": ripartizione delle uscite per natura (essenziale/variabile/superflua) e per categoria.
-async function renderNatureReport() {
+// token: presente solo quando invocata dal dispatcher Analytics (guard race); assente (undefined)
+// quando riusata dalla pagina Resoconti (#rNatureContent), dove il guard non si applica.
+async function renderNatureReport(token) {
   const el = document.getElementById('analyticsContent') || document.getElementById('rNatureContent');
   if (!el) return;
   el.innerHTML = '<div style="padding:40px;text-align:center;color:var(--txt3)">⏳ Caricamento...</div>';
@@ -1577,6 +1619,7 @@ async function renderNatureReport() {
     ? { date_from: startYm + '-01', date_to: endYm + '-31' }
     : {};
   const data   = await api.getExpenseNatureReport(filter);
+  if (token != null && _analyticsRenderStale(token)) return;  // periodo/tab cambiato durante l'await
   const byNature = data.by_nature   || [];
   const byCat    = data.by_category || [];
   const totalAll = byNature.reduce((s, r) => s + (Number(r.total) || 0), 0);

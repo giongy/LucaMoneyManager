@@ -21,8 +21,11 @@ async function onTrayRestore() {
   api._invalidateAccounts();
   api._invalidateCategories();
   api._invalidateTags();
-  // Ricarica la pagina con dati freschi
-  await renderPage(currentPage);
+  // Al risveglio dal tray torna sempre sulla dashboard (con dati freschi).
+  // navigate() aggiorna sidebar/titolo e renderizza; se siamo già sulla dashboard
+  // la guardia interna blocca il navigate → forziamo comunque il render.
+  if (currentPage === 'dashboard') await renderPage('dashboard');
+  else navigate('dashboard');
   // Azzera le notice stale e ricontrolla tutto da zero
   _noticeData.length = 0;
   _noticeDelay = 0;

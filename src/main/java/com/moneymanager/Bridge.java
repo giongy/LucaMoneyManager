@@ -740,15 +740,21 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
     private static final Pattern PAT_SCHEDA2 = Pattern.compile(
             "href=\"(/borsa/[^\"]+/scheda/[^\"]*-([A-Z0-9]+)\\.html)\"");
     private static final Pattern PAT_MIC     = Pattern.compile("[?&]mic=([A-Z0-9]+)");
-    // Priorità 1: "Prezzo di riferimento 101,581" — valore ufficiale di chiusura
+    // Numero in formato italiano: migliaia con '.' opzionali, decimali con ',' (es. 1.234,567)
+    private static final String NUM_IT = "(?:0|[1-9][0-9]{0,4})(?:[.][0-9]{3})*[,][0-9]{1,4}";
+    // Priorità 0: prezzo "Ultimo contratto" nel markup attuale (azioni e bond) —
+    // <span class="… -formatPrice"><strong>11,99</strong></span>. Applicato all'HTML grezzo.
+    private static final Pattern PAT_PRICE_FORMAT = Pattern.compile(
+            "(?is)-formatPrice[^>]*>\\s*<strong>\\s*(" + NUM_IT + ")");
+    // Priorità 1: "Prezzo di riferimento 101,581" — valore ufficiale di chiusura (layout legacy)
     private static final Pattern PAT_PRICE_REF = Pattern.compile(
-            "(?i)prezzo di riferimento[^0-9]{0,40}((?:0|[1-9][0-9]{0,4})(?:[.][0-9]{3})*[,][0-9]{1,4})");
-    // Priorità 2: qualsiasi voce "prezzo/price" — fallback generico obbligazioni
+            "(?i)prezzo di riferimento[^0-9]{0,40}(" + NUM_IT + ")");
+    // Priorità 2: qualsiasi voce "prezzo/price" — fallback generico obbligazioni (layout legacy)
     private static final Pattern PAT_PRICE   = Pattern.compile(
-            "(?i)(?:prezzo|price)[^0-9]{0,80}((?:0|[1-9][0-9]{0,4})(?:[.][0-9]{3})*[,][0-9]{1,4})");
-    // Priorità 3: numero seguito da variazione percentuale — funziona per azioni (es. "0,1376 -1,01%")
+            "(?i)(?:prezzo|price)[^0-9]{0,80}(" + NUM_IT + ")");
+    // Priorità 3: numero seguito da variazione percentuale — azioni layout legacy (es. "0,1376 -1,01%")
     private static final Pattern PAT_PRICE_PCT = Pattern.compile(
-            "((?:0|[1-9][0-9]{0,4})(?:[.][0-9]{3})*[,][0-9]{1,4})\\s{0,5}[+-][0-9]");
+            "(" + NUM_IT + ")\\s{0,5}[+-][0-9]");
 
     /**
      * Recupera il prezzo di un titolo facendo scraping di Borsa Italiana:
@@ -783,15 +789,21 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
         if (schedaUrl == null)
             throw new Exception("Titolo non trovato su Borsa Italiana: " + ticker);
 
-        // Step 3: carica la scheda e legge il prezzo in formato italiano (virgola decimale)
-        String text = httpGet(schedaUrl).replaceAll("<[^>]+>", " ").replaceAll("\\s+", " ");
-        Matcher priceMat = PAT_PRICE_REF.matcher(text);
+        // Step 3: carica la scheda e legge il prezzo in formato italiano (virgola decimale).
+        // Priorità 0 sull'HTML grezzo (classe -formatPrice del layout attuale, azioni e bond);
+        // se assente si ricade sui pattern legacy applicati al testo senza tag.
+        String html = httpGet(schedaUrl);
+        Matcher priceMat = PAT_PRICE_FORMAT.matcher(html);
         if (!priceMat.find()) {
-            priceMat = PAT_PRICE.matcher(text);
+            String text = html.replaceAll("<[^>]+>", " ").replaceAll("\\s+", " ");
+            priceMat = PAT_PRICE_REF.matcher(text);
             if (!priceMat.find()) {
-                priceMat = PAT_PRICE_PCT.matcher(text);
-                if (!priceMat.find())
-                    throw new Exception("Prezzo non trovato su Borsa Italiana per: " + ticker);
+                priceMat = PAT_PRICE.matcher(text);
+                if (!priceMat.find()) {
+                    priceMat = PAT_PRICE_PCT.matcher(text);
+                    if (!priceMat.find())
+                        throw new Exception("Prezzo non trovato su Borsa Italiana per: " + ticker);
+                }
             }
         }
 

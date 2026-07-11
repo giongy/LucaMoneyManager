@@ -29,6 +29,15 @@ async function onTrayRestore() {
   // Azzera le notice stale e ricontrolla tutto da zero
   _noticeData.length = 0;
   _noticeDelay = 0;
+  // Importa la coda pendenti: al risveglio il DB può essere stato sincronizzato da OneDrive
+  // con transazioni nuove dal telefono. Va PRIMA della notifica "da telefono".
+  try {
+    const importate = await api.importPending();
+    if (importate && importate.length) {
+      toast(`Importate ${importate.length} transazion${importate.length===1?'e':'i'} dal telefono`, 'success');
+      await renderPage('dashboard');   // saldi aggiornati con le nuove transazioni
+    }
+  } catch(e) {}
   try {
     const daTelefono = await api.getTransactionsWithTag('phone');
     if (daTelefono.length) showDaTelefonoNotice(daTelefono);

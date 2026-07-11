@@ -1901,9 +1901,10 @@ public class Database {
             p.addProperty("to_account_id", e.get("to_account_id").getAsInt());
         p.addProperty("description",
                 e.has("description") && !e.get("description").isJsonNull() ? e.get("description").getAsString() : "");
-        // reconciled=0: la transazione da telefono va rivista sul desktop (compare tra le
-        // "da controllare" via tag phone e tra le "da verificare").
-        p.addProperty("reconciled", 0);
+        // reconciled=1: il tag "phone" è già il segnale di "da telefono da controllare" (notifica
+        // dedicata). Marcarla anche "da verificare" sarebbe un doppione; inoltre reconciled=1 la
+        // include nel saldo riconciliato.
+        p.addProperty("reconciled", 1);
         if (phoneTagId > 0) {
             JsonArray tags = new JsonArray();
             tags.add(phoneTagId);

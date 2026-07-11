@@ -131,6 +131,20 @@ async function renderSettings() {
             </div>
           </div>
         </div>
+      </div>
+
+      <div class="settings-section">
+        <div class="settings-section-title">📱 Coda da telefono</div>
+        <div class="settings-row" style="align-items:flex-start">
+          <div class="settings-label">
+            <strong>Transazioni in coda</strong>
+            <span class="settings-hint">Contenuto di pending.jsonl: transazioni inserite da Android, in attesa di essere importate (o già importate).</span>
+          </div>
+          <div class="settings-control" style="flex-direction:column;align-items:flex-start;gap:8px">
+            <button class="btn btn-secondary" onclick="settingsShowPendingQueue()">📱 Mostra coda</button>
+            <div id="pendingQueueView" style="width:100%"></div>
+          </div>
+        </div>
       </div>`,
 
     prefs: `
@@ -1531,6 +1545,65 @@ async function settingsChooseAttachmentsDir() {
   if (res.cancelled) return;
   await api.setSetting('attachments.dir', res.path);
   renderSettings();
+}
+
+// Carica e mostra il contenuto di pending.jsonl (coda transazioni da telefono) ben formattato.
+async function settingsShowPendingQueue() {
+  const view = document.getElementById('pendingQueueView');
+  if (!view) return;
+  view.innerHTML = '<span class="settings-hint">⏳ Lettura coda...</span>';
+  try {
+    const [rows, accounts, categories] = await Promise.all([
+      api.readPendingQueue(), api.getAccounts(), api.getCategories()
+    ]);
+    if (!rows.length) {
+      view.innerHTML = '<span class="settings-hint">La coda è vuota — nessuna transazione dal telefono.</span>';
+      return;
+    }
+    // Mappe id → nome per rendere leggibili conto e categoria (in coda ci sono solo gli id).
+    const accName = {}; accounts.forEach(a => accName[a.id] = a.name);
+    const catName = {}; categories.forEach(c => catName[c.id] = c.parent_name ? `${c.parent_name}: ${c.name}` : c.name);
+
+    const typeIcon = { income: '↓', expense: '↑', transfer: '⇄' };
+    const typeSign = { income: '+', expense: '-', transfer: '' };
+    // Non applicate prima (le vere "da importare"), poi le già importate; entro il gruppo per data desc.
+    rows.sort((a, b) => (a.applied - b.applied) || String(b.date).localeCompare(String(a.date)));
+
+    const pending = rows.filter(r => !r.applied).length;
+    const body = rows.map(r => {
+      const conto = accName[r.account_id] || `#${r.account_id ?? '?'}`;
+      const dest  = r.to_account_id != null ? ` → ${accName[r.to_account_id] || '#'+r.to_account_id}` : '';
+      const catg  = r.type === 'transfer' ? 'Trasferimento' : (catName[r.category_id] || '—');
+      const desc  = r.description || catg;
+      return `<tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:6px 8px;white-space:nowrap">${r.applied ? '✅' : '⏳'}</td>
+        <td style="padding:6px 8px;white-space:nowrap;color:var(--txt2)">${fmt.date(r.date)}</td>
+        <td style="padding:6px 8px">${desc}</td>
+        <td style="padding:6px 8px;color:var(--txt2)">${conto}${dest} · ${catg}</td>
+        <td style="padding:6px 8px;white-space:nowrap;text-align:right;font-weight:600"
+            class="amount-${r.type}">${typeSign[r.type]||''}${fmt.currency(r.amount)}</td>
+      </tr>`;
+    }).join('');
+
+    view.innerHTML = `
+      <div style="font-size:12px;color:var(--txt3);margin-bottom:6px">
+        ${rows.length} rig${rows.length===1?'a':'he'} · ${pending} da importare · ${rows.length-pending} già importate
+      </div>
+      <div style="max-height:340px;overflow:auto;border:1px solid var(--border);border-radius:8px">
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+          <thead><tr style="position:sticky;top:0;background:var(--bg2)">
+            <th style="padding:6px 8px;text-align:left;font-size:11px;color:var(--txt3)"></th>
+            <th style="padding:6px 8px;text-align:left;font-size:11px;color:var(--txt3)">Data</th>
+            <th style="padding:6px 8px;text-align:left;font-size:11px;color:var(--txt3)">Descrizione</th>
+            <th style="padding:6px 8px;text-align:left;font-size:11px;color:var(--txt3)">Conto · Categoria</th>
+            <th style="padding:6px 8px;text-align:right;font-size:11px;color:var(--txt3)">Importo</th>
+          </tr></thead>
+          <tbody>${body}</tbody>
+        </table>
+      </div>`;
+  } catch(e) {
+    view.innerHTML = `<span class="settings-hint">❌ Errore lettura coda: ${e.message}</span>`;
+  }
 }
 
 // Esegue un backup manuale del DB mostrando lo stato nell'hint.

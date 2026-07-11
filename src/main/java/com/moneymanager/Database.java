@@ -1889,6 +1889,43 @@ public class Database {
         return imported;
     }
 
+    /**
+     * Legge la coda pending.jsonl senza applicarla (per la visualizzazione in Impostazioni).
+     * Ritorna una riga per ogni entry valida, con i campi grezzi + `applied`. Le righe illeggibili
+     * sono saltate. I nomi di conto/categoria li risolve il frontend.
+     */
+    public List<Map<String, Object>> readPendingRaw() {
+        Path queue = pendingQueuePath();
+        if (!Files.exists(queue)) return List.of();
+        List<String> lines;
+        try {
+            lines = Files.readAllLines(queue, java.nio.charset.StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            return List.of();
+        }
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (String line : lines) {
+            String trimmed = line.trim();
+            if (trimmed.isEmpty()) continue;
+            try {
+                JsonObject o = com.google.gson.JsonParser.parseString(trimmed).getAsJsonObject();
+                Map<String, Object> r = new LinkedHashMap<>();
+                r.put("id",            o.has("id") && !o.get("id").isJsonNull() ? o.get("id").getAsString() : null);
+                r.put("created",       o.has("created") && !o.get("created").isJsonNull() ? o.get("created").getAsString() : null);
+                r.put("applied",       o.has("applied") && o.get("applied").getAsBoolean());
+                r.put("date",          o.has("date") ? o.get("date").getAsString() : null);
+                r.put("amount",        o.has("amount") ? o.get("amount").getAsDouble() : 0.0);
+                r.put("type",          o.has("type") ? o.get("type").getAsString() : null);
+                r.put("category_id",   o.has("category_id") && !o.get("category_id").isJsonNull() ? o.get("category_id").getAsInt() : null);
+                r.put("account_id",    o.has("account_id") ? o.get("account_id").getAsInt() : null);
+                r.put("to_account_id", o.has("to_account_id") && !o.get("to_account_id").isJsonNull() ? o.get("to_account_id").getAsInt() : null);
+                r.put("description",   o.has("description") && !o.get("description").isJsonNull() ? o.get("description").getAsString() : "");
+                out.add(r);
+            } catch (Exception ignored) { /* riga illeggibile: saltala */ }
+        }
+        return out;
+    }
+
     private boolean alreadyImported(String id) throws SQLException {
         return queryOne("SELECT 1 FROM imported_pending WHERE id=?", id) != null;
     }

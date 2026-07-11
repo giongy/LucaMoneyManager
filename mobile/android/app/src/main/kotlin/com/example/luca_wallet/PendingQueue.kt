@@ -117,6 +117,23 @@ object PendingQueue {
         try { context.contentResolver.notifyChange(uri, null) } catch (_: Exception) {}
     }
 
+    /**
+     * "Sveglia" OneDrive a far partire l'upload del file coda rileggendolo integralmente dall'URI.
+     * fsync + notifyChange da soli NON bastano: il DocumentsProvider di OneDrive lascia i byte in
+     * un buffer e non avvia la sync finché un'operazione di lettura non forza il commit (è lo
+     * stesso effetto dello swipe manuale). Va invocato con un piccolo ritardo dopo append, così la
+     * scrittura è già propagata. Sola lettura, idempotente, best-effort: ogni eccezione è ignorata.
+     */
+    fun kickUpload(context: Context) {
+        val uri = queueUri(context) ?: return
+        try {
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                val buf = ByteArray(64 * 1024)
+                while (input.read(buf) != -1) { /* scarta: la lettura serve solo a svegliare OneDrive */ }
+            }
+        } catch (_: Exception) {}
+    }
+
     // ── Lettura ──────────────────────────────────────────────────────────────────
 
     private fun readRaw(context: Context, uri: Uri): String = try {

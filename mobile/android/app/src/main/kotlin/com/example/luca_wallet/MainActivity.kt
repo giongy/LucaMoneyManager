@@ -54,9 +54,13 @@ class MainActivity : AppCompatActivity() {
     ) { result ->
         // La transazione è stata accodata su pending.jsonl (non scritta nel DB). Il DB locale non
         // è cambiato: ricarichiamo solo la UI, che ora somma il delta delle pendenti al saldo.
-        // PendingQueue.append fa già il notifyChange sul file coda → OneDrive lo sincronizza.
         if (result.resultCode == RESULT_OK) {
             lifecycleScope.launch { loadAccounts() }
+            // Kick di upload affidabile: fsync + notifyChange da soli non fanno partire l'upload
+            // OneDrive del file coda (serve una rilettura che forzi il commit del DocumentsProvider,
+            // come lo swipe manuale). WorkManager esegue il kick anche a processo terminato, con
+            // retry finché OneDrive non risponde. Vedi UploadKickWorker.
+            UploadKickWorker.enqueue(this)
         }
     }
 
@@ -126,6 +130,9 @@ class MainActivity : AppCompatActivity() {
     override fun onStop() {
         super.onStop()
         DbHelper.closeDb()
+        // Kick garantito anche andando in background: copre il caso in cui si inserisce una
+        // transazione e si manda subito l'app in background prima del kick post-inserimento.
+        UploadKickWorker.enqueue(this)
     }
 
     override fun onDestroy() {

@@ -1775,6 +1775,125 @@ public class Database {
         });
     }
 
+    // ── Import coda pendenti da Android (pending.jsonl) ──────────────────────────
+    // Android non scrive più nel DB condiviso: accoda le transazioni in un file JSON-lines
+    // `pending.jsonl` accanto al DB su OneDrive. Qui, all'avvio, le importiamo nel DB vero.
+    // Ogni riga ha un `id` (UUID) usato per l'idempotenza (tabella imported_pending): se il DB
+    // è già stato aggiornato e sincronizzato ma la riga della coda non è ancora arrivata marcata
+    // `applied` sul telefono, l'id già registrato ci impedisce di importarla due volte.
+
+    /** Path del file coda, accanto al DB corrente. */
+    private Path pendingQueuePath() {
+        Path db = Paths.get(currentDbPath);
+        Path dir = db.getParent();
+        return (dir != null ? dir : Paths.get(".")).resolve("pending.jsonl");
+    }
+
+    /**
+     * Importa le transazioni della coda pending.jsonl non ancora applicate.
+     * Ritorna la lista delle transazioni importate ora (vuota se nessuna o file assente).
+     * Idempotente: le righe con id già importato vengono saltate e ri-marcate applied.
+     */
+    public List<Map<String, Object>> importPending() throws SQLException {
+        Path queue = pendingQueuePath();
+        if (!Files.exists(queue)) return List.of();
+
+        List<String> lines;
+        try {
+            lines = Files.readAllLines(queue, java.nio.charset.StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            logger.log("IMPORT CODA — ERRORE LETTURA", "file:" + queue, "err:" + e.getMessage());
+            return List.of();
+        }
+
+        // Tabella di idempotenza (fuori dallo schema versionato: CREATE IF NOT EXISTS locale).
+        execute("CREATE TABLE IF NOT EXISTS imported_pending (id TEXT PRIMARY KEY, imported_at TEXT)");
+
+        int phoneTagId = phoneTagId();
+        List<Map<String, Object>> imported = new ArrayList<>();
+        boolean fileChanged = false;
+        List<String> rewritten = new ArrayList<>(lines.size());
+
+        for (String line : lines) {
+            String trimmed = line.trim();
+            if (trimmed.isEmpty()) continue;   // salta righe vuote (non le riscriviamo)
+
+            JsonObject o;
+            try {
+                o = com.google.gson.JsonParser.parseString(trimmed).getAsJsonObject();
+            } catch (Exception e) {
+                rewritten.add(line);           // riga illeggibile: conservala com'è, non perderla
+                continue;
+            }
+
+            boolean applied = o.has("applied") && o.get("applied").getAsBoolean();
+            String id = o.has("id") && !o.get("id").isJsonNull() ? o.get("id").getAsString() : null;
+
+            if (!applied && id != null && !alreadyImported(id)) {
+                // Ordine voluto: prima la transazione (in una sua inTx atomica), poi registra l'id.
+                // Non annidiamo le inTx (l'implementazione di inTx non è rientrante). Nel caso raro
+                // in cui addTransaction committi ma l'INSERT sotto fallisca, un futuro ri-import
+                // produrrebbe un DUPLICATO VISIBILE (tag phone, compare nella notifica) — che noti e
+                // cancelli — invece di una perdita silenziosa: preferibile per un'app personale.
+                Map<String, Object> tx = applyPendingEntry(o, phoneTagId);
+                execute("INSERT OR IGNORE INTO imported_pending(id,imported_at) VALUES(?,?)",
+                        id, LocalDateTime.now().toString());
+                if (tx != null) imported.add(tx);
+                o.addProperty("applied", true);
+                fileChanged = true;
+            }
+            rewritten.add(o.toString());
+        }
+
+        if (fileChanged) {
+            try {
+                Files.write(queue, rewritten, java.nio.charset.StandardCharsets.UTF_8);
+            } catch (IOException e) {
+                // La scrittura del file "applied" è best-effort: le transazioni sono già nel DB e
+                // registrate in imported_pending, quindi anche se qui fallisce non c'è doppio import.
+                logger.log("IMPORT CODA — ERRORE SCRITTURA applied", "file:" + queue, "err:" + e.getMessage());
+            }
+        }
+
+        if (!imported.isEmpty())
+            logger.log("IMPORT CODA", "importate:" + imported.size());
+        return imported;
+    }
+
+    private boolean alreadyImported(String id) throws SQLException {
+        return queryOne("SELECT 1 FROM imported_pending WHERE id=?", id) != null;
+    }
+
+    /** Id del tag di sistema "phone" (creato in seedDefaultData). */
+    private int phoneTagId() throws SQLException {
+        Map<String, Object> r = queryOne("SELECT id FROM tags WHERE system_key='phone' LIMIT 1");
+        return r != null ? ((Number) r.get("id")).intValue() : 0;
+    }
+
+    /** Applica una singola entry della coda come nuova transazione, taggata "phone". */
+    private Map<String, Object> applyPendingEntry(JsonObject e, int phoneTagId) throws SQLException {
+        JsonObject p = new JsonObject();
+        p.addProperty("date", e.get("date").getAsString());
+        p.addProperty("amount", e.get("amount").getAsDouble());
+        p.addProperty("type", e.get("type").getAsString());
+        if (e.has("category_id") && !e.get("category_id").isJsonNull())
+            p.addProperty("category_id", e.get("category_id").getAsInt());
+        p.addProperty("account_id", e.get("account_id").getAsInt());
+        if (e.has("to_account_id") && !e.get("to_account_id").isJsonNull())
+            p.addProperty("to_account_id", e.get("to_account_id").getAsInt());
+        p.addProperty("description",
+                e.has("description") && !e.get("description").isJsonNull() ? e.get("description").getAsString() : "");
+        // reconciled=0: la transazione da telefono va rivista sul desktop (compare tra le
+        // "da controllare" via tag phone e tra le "da verificare").
+        p.addProperty("reconciled", 0);
+        if (phoneTagId > 0) {
+            JsonArray tags = new JsonArray();
+            tags.add(phoneTagId);
+            p.add("tag_ids", tags);
+        }
+        return addTransaction(p);
+    }
+
     /** Aggiorna una transazione (tag, split, e prezzo dello storico portfolio se collegato). */
     public Map<String, Object> updateTransaction(int id, JsonObject p) throws SQLException {
         return inTx(() -> {

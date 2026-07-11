@@ -1,16 +1,12 @@
 package com.example.luca_wallet
 
-import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.database.sqlite.SQLiteDatabase
 import android.net.Uri
 import android.provider.OpenableColumns
 import java.io.File
-import java.io.FileInputStream
 import java.io.FileOutputStream
-import java.time.LocalDate
-import java.time.format.DateTimeFormatter
 
 object DbHelper {
 
@@ -31,7 +27,6 @@ object DbHelper {
 
     private var db: SQLiteDatabase? = null
     private var localPath: String? = null
-    private var contentUri: Uri? = null
     private var openedAt: String? = null
 
     /** True se il DB è stato configurato (path noto), indipendentemente dalla connessione aperta. */
@@ -100,40 +95,6 @@ object DbHelper {
         return localFile.absolutePath
     }
 
-    private fun writeLocalBackToUri(context: Context) {
-        val uri  = contentUri  ?: return
-        val path = localPath   ?: return
-        // Scrivi via ParcelFileDescriptor e forza fsync: openOutputStream(uri) da solo lascia
-        // i byte in un buffer del DocumentsProvider di OneDrive, che non fa partire l'upload
-        // finché un'operazione successiva (es. la lettura allo swipe) non forza il flush. Con
-        // pfd.fileDescriptor.sync() committiamo subito → OneDrive sincronizza senza refresh manuale.
-        context.contentResolver.openFileDescriptor(uri, "wt")!!.use { pfd ->
-            FileOutputStream(pfd.fileDescriptor).use { output ->
-                FileInputStream(path).use { input -> input.copyTo(output) }
-                output.flush()
-                try { pfd.fileDescriptor.sync() } catch (_: Exception) {}
-            }
-        }
-    }
-
-    /**
-     * Sveglia OneDrive a far partire l'upload rileggendo integralmente il documento dall'URI —
-     * lo stesso "kick" che di fatto fa lo swipe, ma isolato: NON tocca la copia locale (localPath)
-     * né la connessione (db), quindi è sicuro chiamarlo a DB già aperto e stabile.
-     * Va invocato con un piccolo ritardo dopo il salvataggio, così la scrittura precedente è
-     * gia' propagata e non si rischia di leggere una versione in transito.
-     * Best-effort: ogni eccezione è ignorata.
-     */
-    fun kickOneDriveUpload(context: Context) {
-        val uri = contentUri ?: return
-        try {
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                val buf = ByteArray(64 * 1024)
-                while (input.read(buf) != -1) { /* scarta: la lettura serve solo a svegliare OneDrive */ }
-            }
-        } catch (_: Exception) {}
-    }
-
     private fun resolveDisplayName(context: Context, uri: Uri): String? = try {
         context.contentResolver.query(uri, null, null, null, null)?.use { c ->
             val col = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
@@ -143,11 +104,13 @@ object DbHelper {
 
     // ── Connessione ───────────────────────────────────────────────────────────
 
+    // Il parametro uri non è più memorizzato (Android è read-only: non riscrive più il DB
+    // sull'URI OneDrive). Firma mantenuta per non toccare i chiamanti (MainActivity, widget).
+    @Suppress("UNUSED_PARAMETER")
     fun openDb(path: String, uri: Uri?): String? {
         return try {
             closeDb()
-            localPath  = path
-            contentUri = uri
+            localPath = path
             ensureOpen()
             openedAt = readLastModified()
             null
@@ -158,17 +121,17 @@ object DbHelper {
         }
     }
 
-    /** Apre la connessione se chiusa, senza ri-scaricare da OneDrive. */
+    /**
+     * Apre la connessione se chiusa, senza ri-scaricare da OneDrive.
+     * READ-ONLY: Android non scrive più il DB condiviso (le transazioni vanno sulla coda
+     * pending.jsonl, vedi PendingQueue). Aprire read-only elimina ogni lock di scrittura →
+     * OneDrive è sempre libero di sincronizzare e non c'è rischio di corruzione.
+     */
     @Synchronized
     fun ensureOpen() {
         if (db?.isOpen == true) return
         val path = localPath ?: throw Exception("Database non configurato")
-        db = SQLiteDatabase.openDatabase(path, null, SQLiteDatabase.OPEN_READWRITE)
-        ensureSyncMeta()
-        try {
-            db!!.execSQL("PRAGMA journal_mode=DELETE")
-            db!!.execSQL("PRAGMA synchronous=FULL")
-        } catch (_: Exception) {}
+        db = SQLiteDatabase.openDatabase(path, null, SQLiteDatabase.OPEN_READONLY)
     }
 
     /** Chiude la connessione e rimuove file WAL/SHM residui. */
@@ -183,13 +146,9 @@ object DbHelper {
         }
     }
 
-    // ── sync_meta ─────────────────────────────────────────────────────────────
-
-    private fun ensureSyncMeta() {
-        db!!.execSQL(
-            "CREATE TABLE IF NOT EXISTS sync_meta (key TEXT PRIMARY KEY, value TEXT)"
-        )
-    }
+    // ── sync_meta (sola lettura) ────────────────────────────────────────────────
+    // Android è read-only: legge last_modified solo per capire se OneDrive ha portato una
+    // versione più recente del DB (notifica "DB aggiornato"). Non scrive più sync_meta.
 
     private fun readLastModified(): String? = try {
         db!!.rawQuery(
@@ -197,46 +156,17 @@ object DbHelper {
         ).use { c -> if (c.moveToFirst()) c.getString(0) else null }
     } catch (_: Exception) { null }
 
-    fun hasConflict(): Boolean {
-        if (!isConfigured) return false
-        ensureOpen()
-        return readLastModified() != openedAt
-    }
-
-    fun refreshOpenedAt() {
-        ensureOpen()
-        openedAt = readLastModified()
-    }
-
-    private fun touchSyncMeta(context: Context) {
-        val now = java.time.Instant.now().toString()
-        db!!.insertWithOnConflict("sync_meta", null,
-            ContentValues().apply { put("key", "last_modified"); put("value", now) },
-            SQLiteDatabase.CONFLICT_REPLACE)
-        db!!.insertWithOnConflict("sync_meta", null,
-            ContentValues().apply { put("key", "last_modified_by"); put("value", "android") },
-            SQLiteDatabase.CONFLICT_REPLACE)
-        try { db!!.rawQuery("PRAGMA wal_checkpoint(TRUNCATE)", null).close() } catch (_: Exception) {}
-        // Chiudi prima di scrivere su OneDrive → nessun lock residuo
-        closeDb()
-        writeLocalBackToUri(context)
-        openedAt = now
-        // Riapri subito così il prossimo accesso è già pronto.
-        ensureOpen()
-        // Sollecita OneDrive a far partire l'upload senza attendere uno swipe manuale.
-        // Solo notifyChange: non rileggiamo il file dall'URI (interferirebbe con la copia locale
-        // e, subito dopo la scrittura, rischierebbe di rileggere la versione vecchia).
-        contentUri?.let { uri ->
-            try { context.contentResolver.notifyChange(uri, null) } catch (_: Exception) {}
-        }
-    }
-
     // ── Queries ───────────────────────────────────────────────────────────────
 
-    fun getFavoriteAccounts(): List<Account> {
+    /**
+     * Conti preferiti con saldo. Il saldo include il DELTA delle transazioni ancora in coda
+     * (PendingQueue): se sei in vacanza e hai inserito 2 spese non ancora importate dal desktop,
+     * il conto le mostra già scalate. Passare context per leggere la coda.
+     */
+    fun getFavoriteAccounts(context: Context): List<Account> {
         if (!isConfigured) return emptyList()
         ensureOpen()
-        return db!!.rawQuery("""
+        val base = db!!.rawQuery("""
             SELECT a.id, a.name, a.icon, a.color, a.currency, a.initial_balance,
                 COALESCE(SUM(
                     CASE
@@ -265,6 +195,10 @@ object DbHelper {
                 ))
             }
         }
+        // Somma il delta delle pendenti non ancora importate (saldo "come sarà" dopo l'import).
+        // Una sola lettura della coda per tutti i conti → saldi coerenti tra loro.
+        val deltas = PendingQueue.deltasByAccount(context)
+        return base.map { it.copy(balance = it.balance + (deltas[it.id] ?: 0.0)) }
     }
 
     fun getAllAccounts(): List<Account> {
@@ -309,47 +243,23 @@ object DbHelper {
         }
     }
 
-    // ── Insert ────────────────────────────────────────────────────────────────
-
-    fun insertTransaction(
-        context: Context,
-        date: LocalDate,
-        amount: Double,
-        type: String,
-        categoryId: Int?,
-        accountId: Int,
-        toAccountId: Int?,
-        description: String
-    ) {
-        if (!isConfigured) throw Exception("Database non aperto")
+    /** Mappa id → "Macro: Sottocategoria" per tutte le categorie (per risolvere le pendenti). */
+    fun getAllCategoryNames(): Map<Int, String> {
+        if (!isConfigured) return emptyMap()
         ensureOpen()
-        val tagId = getOrCreateTag()
-        val txId = db!!.insert("transactions", null, ContentValues().apply {
-            put("date", date.format(DateTimeFormatter.ISO_LOCAL_DATE))
-            put("amount", amount)
-            put("type", type)
-            if (categoryId != null) put("category_id", categoryId) else putNull("category_id")
-            put("account_id", accountId)
-            if (toAccountId != null) put("to_account_id", toAccountId) else putNull("to_account_id")
-            put("description", description)
-            put("reconciled", 1)
-        })
-        db!!.insert("transaction_tags", null, ContentValues().apply {
-            put("transaction_id", txId)
-            put("tag_id", tagId)
-        })
-        touchSyncMeta(context)
+        return db!!.rawQuery("""
+            SELECT c.id, c.name, p.name
+            FROM categories c
+            LEFT JOIN categories p ON c.parent_id = p.id
+        """.trimIndent(), null).use { c ->
+            buildMap {
+                while (c.moveToNext()) {
+                    val name   = c.getString(1) ?: ""
+                    val parent = c.getString(2)
+                    put(c.getInt(0), if (parent != null) "$parent: $name" else name)
+                }
+            }
+        }
     }
 
-    private fun getOrCreateTag(): Int {
-        db!!.rawQuery("SELECT id FROM tags WHERE system_key='phone' LIMIT 1", null).use { c ->
-            if (c.moveToFirst()) return c.getInt(0)
-        }
-        return db!!.insert("tags", null, ContentValues().apply {
-            put("name", "Da Telefono")
-            put("color", "#58a6ff")
-            put("is_system", 1)
-            put("system_key", "phone")
-        }).toInt()
-    }
 }

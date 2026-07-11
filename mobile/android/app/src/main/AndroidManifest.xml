@@ -36,6 +36,11 @@
             android:exported="false"
             android:parentActivityName=".MainActivity"/>
 
+        <activity
+            android:name=".PendingActivity"
+            android:exported="false"
+            android:parentActivityName=".MainActivity"/>
+
         <receiver
             android:name=".AccountsWidget"
             android:exported="true">

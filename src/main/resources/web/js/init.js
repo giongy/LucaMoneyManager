@@ -375,6 +375,15 @@ async function init() {
   requestAnimationFrame(() => requestAnimationFrame(() => {
     try { api.uiReady(); } catch(e) {}
   }));
+  // Importa la coda pendenti dal telefono (pending.jsonl accanto al DB), poi notifica.
+  // Va PRIMA di getTransactionsWithTag('phone') così le appena-importate entrano nel conteggio.
+  try {
+    const importate = await api.importPending();
+    if (importate && importate.length) {
+      toast(`Importate ${importate.length} transazion${importate.length===1?'e':'i'} dal telefono`, 'success');
+      await renderDashboard();   // saldi aggiornati con le nuove transazioni
+    }
+  } catch(e) {}
   // Notifica transazioni da telefono
   try {
     const daTelefono = await api.getTransactionsWithTag('phone');

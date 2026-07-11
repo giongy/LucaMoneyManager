@@ -115,6 +115,7 @@ const api = {
   updateTag:              async data => { api._invalidateTags(); return callJava('updateTag', data); },
   deleteTag:              async id   => { api._invalidateTags(); return callJava('deleteTag', {id}); },
   getTransactionsWithTag: name => callJava('getTransactionsWithTag', {name}),
+  importPending:          ()   => { api._invalidateAccounts(); return callJava('importPending'); },
 
   // Note
   getNotes:       ()           => callJava('getNotes'),

@@ -28,27 +28,23 @@ import kotlinx.coroutines.withContext
 
 class MainActivity : AppCompatActivity() {
 
-    private val openFileLauncher = registerForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri: Uri? ->
-        if (uri != null) onFilePicked(uri)
+    // OpenDocumentTree (non più OpenDocument): l'utente sceglie la CARTELLA del DB su OneDrive.
+    // Serve un tree URI per poter creare/scrivere il file coda pending.jsonl nella stessa cartella
+    // — da un URI a singolo documento SAF non consente di creare file fratelli.
+    private val openTreeLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { treeUri: Uri? ->
+        if (treeUri != null) onTreePicked(treeUri)
     }
 
     private val addTransactionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        // Dopo un inserimento NON rileggere dall'URI (init): la copia locale è già quella giusta
-        // — l'abbiamo appena scritta in insertTransaction/touchSyncMeta. init() farebbe
-        // clearLocalCache + copyUriToLocal, rischiando di rileggere dall'URI una versione OneDrive
-        // non ancora aggiornata (transazione che "sparisce") o un file in transito ("unable to
-        // open db"). Ricarichiamo solo la UI dal DB locale; OneDrive sincronizza in background.
+        // La transazione è stata accodata su pending.jsonl (non scritta nel DB). Il DB locale non
+        // è cambiato: ricarichiamo solo la UI, che ora somma il delta delle pendenti al saldo.
+        // PendingQueue.append fa già il notifyChange sul file coda → OneDrive lo sincronizza.
         if (result.resultCode == RESULT_OK) {
             lifecycleScope.launch { loadAccounts() }
-            // Kick di upload affidabile: la scrittura su OneDrive non sempre fa partire l'upload
-            // da sola. Il vecchio delay(2500) nella coroutine era fragile (moriva se l'app andava
-            // in background, timing fisso). WorkManager esegue il kick anche a processo terminato,
-            // con retry automatico finché OneDrive non risponde. Vedi UploadKickWorker.
-            UploadKickWorker.enqueue(this)
         }
     }
 
@@ -108,14 +104,10 @@ class MainActivity : AppCompatActivity() {
         SyncWorker.ensureScheduled(this)
     }
 
-    // Libera il lock sul file quando l'app va in background → OneDrive può sincronizzare
+    // Chiudi la connessione (sola lettura) quando l'app va in background → OneDrive libero.
     override fun onStop() {
         super.onStop()
         DbHelper.closeDb()
-        // Rilasciato il file, è il momento in cui OneDrive avvia più facilmente la sync: programma
-        // un kick garantito (sopravvive alla terminazione del processo). Copre il caso in cui si
-        // inserisce una transazione e si manda subito l'app in background prima del kick post-insert.
-        UploadKickWorker.enqueue(this)
     }
 
     override fun onDestroy() {
@@ -130,8 +122,9 @@ class MainActivity : AppCompatActivity() {
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         return when (item.itemId) {
-            R.id.menu_open     -> { openFileLauncher.launch(arrayOf("*/*")); true }
+            R.id.menu_open     -> { openTreeLauncher.launch(null); true }
             R.id.menu_refresh  -> { lifecycleScope.launch { init() }; true }
+            R.id.menu_pending  -> { startActivity(Intent(this, PendingActivity::class.java)); true }
             R.id.menu_settings -> { startActivity(Intent(this, SettingsActivity::class.java)); true }
             else -> super.onOptionsItemSelected(item)
         }
@@ -204,14 +197,45 @@ class MainActivity : AppCompatActivity() {
         contentObserver = obs
     }
 
-    private fun onFilePicked(uri: Uri) {
+    private fun onTreePicked(treeUri: Uri) {
+        // Permesso persistente sull'albero → potremo leggere il DB e scrivere la coda anche dopo
+        // il riavvio dell'app, senza ri-chiedere all'utente.
+        try {
+            contentResolver.takePersistableUriPermission(
+                treeUri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            )
+        } catch (_: Exception) {}
+
+        val dbFiles = PendingQueue.listDatabases(this, treeUri)
+        when {
+            dbFiles.isEmpty() -> {
+                showToast("Nessun file .db trovato nella cartella selezionata")
+                return
+            }
+            dbFiles.size == 1 -> selectDatabase(treeUri, dbFiles[0].uri)
+            else -> {
+                // Più DB nella cartella: chiedi quale usare.
+                val names = dbFiles.map { it.name ?: "database.db" }.toTypedArray()
+                androidx.appcompat.app.AlertDialog.Builder(this)
+                    .setTitle("Quale database?")
+                    .setItems(names) { _, which -> selectDatabase(treeUri, dbFiles[which].uri) }
+                    .show()
+            }
+        }
+    }
+
+    /** Salva tree + DB scelti e apre il database (copia locale). */
+    private fun selectDatabase(treeUri: Uri, dbUri: Uri) {
         lifecycleScope.launch {
             try {
+                PendingQueue.saveTreeUri(this@MainActivity, treeUri.toString())
                 val localPath = withContext(Dispatchers.IO) {
-                    DbHelper.copyUriToLocal(this@MainActivity, uri)
+                    DbHelper.copyUriToLocal(this@MainActivity, dbUri)
                 }
-                DbHelper.savePrefs(this@MainActivity, localPath, uri.toString())
-                openDbAndLoad(localPath, uri)
+                DbHelper.savePrefs(this@MainActivity, localPath, dbUri.toString())
+                openDbAndLoad(localPath, dbUri)
+                registerObserver(dbUri)
             } catch (e: Exception) {
                 showToast("Errore apertura file: ${e.message}")
             }
@@ -229,7 +253,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private suspend fun loadAccounts() {
-        val list = withContext(Dispatchers.IO) { DbHelper.getFavoriteAccounts() }
+        val list = withContext(Dispatchers.IO) { DbHelper.getFavoriteAccounts(this@MainActivity) }
         accounts.clear()
         accounts.addAll(list)
         adapter.notifyDataSetChanged()

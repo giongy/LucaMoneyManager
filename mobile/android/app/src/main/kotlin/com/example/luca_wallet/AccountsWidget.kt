@@ -71,7 +71,7 @@ class AccountsWidget : AppWidgetProvider() {
         private fun loadAccounts(context: Context): List<DbHelper.Account> = try {
             val path = DbHelper.getSavedPath(context) ?: return emptyList()
             if (!DbHelper.isConfigured) DbHelper.openDb(path, null)
-            DbHelper.getFavoriteAccounts()
+            DbHelper.getFavoriteAccounts(context)
         } catch (_: Exception) { emptyList() }
 
         fun updateAll(context: Context) {

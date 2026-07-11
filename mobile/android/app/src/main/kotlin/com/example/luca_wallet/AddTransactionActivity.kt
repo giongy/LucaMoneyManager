@@ -9,7 +9,6 @@ import android.view.inputmethod.InputMethodManager
 import android.widget.ArrayAdapter
 import android.widget.AutoCompleteTextView
 import android.widget.Toast
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.appbar.MaterialToolbar
@@ -19,7 +18,6 @@ import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -181,24 +179,21 @@ class AddTransactionActivity : AppCompatActivity() {
             Toast.makeText(this, "Seleziona il conto di destinazione", Toast.LENGTH_SHORT).show(); return
         }
 
-        if (withContext(Dispatchers.IO) { DbHelper.hasConflict() }) {
-            val go = suspendCancellableCoroutine<Boolean> { cont ->
-                AlertDialog.Builder(this)
-                    .setTitle("Attenzione")
-                    .setMessage("Il file è stato modificato da un altro dispositivo. Continuare?")
-                    .setPositiveButton("Continua") { _, _ -> cont.resumeWith(Result.success(true))  }
-                    .setNegativeButton("Annulla")  { _, _ -> cont.resumeWith(Result.success(false)) }
-                    .setOnCancelListener           { cont.resumeWith(Result.success(false)) }
-                    .show()
-            }
-            if (!go) return
-            withContext(Dispatchers.IO) { DbHelper.refreshOpenedAt() }
+        // La coda richiede di conoscere la cartella del DB (tree URI). Se manca — tipico dopo
+        // l'aggiornamento da una versione che salvava solo l'URI del file — chiedi di ri-selezionare.
+        if (!PendingQueue.isAvailable(this)) {
+            Toast.makeText(this,
+                "Riseleziona la cartella del database dal menu per abilitare l'inserimento",
+                Toast.LENGTH_LONG).show()
+            return
         }
 
         btnSave.isEnabled = false
         try {
+            // NON scriviamo più nel DB condiviso: accodiamo su pending.jsonl accanto al DB.
+            // Il desktop importerà la transazione all'avvio.
             withContext(Dispatchers.IO) {
-                DbHelper.insertTransaction(
+                PendingQueue.append(
                     context     = this@AddTransactionActivity,
                     date        = date,
                     amount      = amount,

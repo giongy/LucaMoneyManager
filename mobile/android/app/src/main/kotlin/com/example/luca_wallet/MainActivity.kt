@@ -239,8 +239,10 @@ class MainActivity : AppCompatActivity() {
                 DbHelper.savePrefs(this@MainActivity, localPath, dbUri.toString())
                 openDbAndLoad(localPath, dbUri)
                 registerObserver(dbUri)
-                // Se la coda non è ancora configurata, chiedi di selezionare il file (una volta sola).
-                if (!PendingQueue.isAvailable(this@MainActivity)) promptSelectQueue()
+                // Chiedi sempre il file coda dopo aver scelto il DB: la coda deve seguire il DB
+                // (cambiando DB, il pending.jsonl giusto sta nella nuova cartella). Selezionarla
+                // ogni volta evita di scrivere nella coda del DB precedente.
+                promptSelectQueue()
             } catch (e: Exception) {
                 showToast("Errore apertura file: ${e.message}")
             }

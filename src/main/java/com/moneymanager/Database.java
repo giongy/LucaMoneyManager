@@ -1790,12 +1790,30 @@ public class Database {
     }
 
     /**
+     * Crea pending.jsonl vuoto accanto al DB se non esiste. Serve perché OneDrive su Android non
+     * consente ad app esterne di CREARE nuovi documenti via SAF (solo di aprire file esistenti):
+     * il file deve esistere già, così Android lo può selezionare con OpenDocument e scriverci.
+     * Best-effort: se la creazione fallisce (permessi, path), non è fatale.
+     */
+    public void ensurePendingQueueExists() {
+        Path queue = pendingQueuePath();
+        if (Files.exists(queue)) return;
+        try {
+            Files.createFile(queue);
+            logger.log("CODA CREATA", "file:" + queue);
+        } catch (IOException e) {
+            logger.log("CODA — ERRORE CREAZIONE", "file:" + queue, "err:" + e.getMessage());
+        }
+    }
+
+    /**
      * Importa le transazioni della coda pending.jsonl non ancora applicate.
      * Ritorna la lista delle transazioni importate ora (vuota se nessuna o file assente).
      * Idempotente: le righe con id già importato vengono saltate e ri-marcate applied.
      */
     public List<Map<String, Object>> importPending() throws SQLException {
         Path queue = pendingQueuePath();
+        ensurePendingQueueExists();   // garantisce che il file esista per la selezione da Android
         if (!Files.exists(queue)) return List.of();
 
         List<String> lines;

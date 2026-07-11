@@ -24,9 +24,10 @@ import java.util.UUID
  * `id` (UUID) è la chiave con cui il desktop de-duplica e marca lo stato → nessun doppio conteggio
  * del saldo nella finestra di sincronizzazione OneDrive.
  *
- * Il file coda è un singolo documento SAF scelto/creato dall'utente (CreateDocument): OneDrive non
- * espone alberi navigabili, quindi non si può derivare la cartella dal DB — DB e coda sono due
- * documenti scelti separatamente. Perché il desktop la trovi, va creata nella cartella del DB.
+ * Il file coda è un singolo documento SAF che l'utente SELEZIONA (OpenDocument), non crea: OneDrive
+ * non lascia creare documenti ad app esterne via SAF né espone alberi navigabili. Il file lo crea
+ * il DESKTOP (vuoto, accanto al DB) al primo avvio; Android lo seleziona e ci scrive. DB e coda
+ * sono due documenti scelti separatamente, entrambi nella cartella del DB su OneDrive.
  */
 object PendingQueue {
 

@@ -180,10 +180,11 @@ class AddTransactionActivity : AppCompatActivity() {
         }
 
         // La coda richiede il file pending.jsonl configurato. Se manca (mai scelto, o primo avvio
-        // dopo l'update), ri-seleziona il DB dal menu: al termine l'app chiede dove creare la coda.
+        // dopo l'update), riapri il DB dal menu: al termine l'app chiede di selezionare la coda.
+        // Il file lo crea il desktop nella cartella del DB (OneDrive non lascia crearlo da Android).
         if (!PendingQueue.isAvailable(this)) {
             Toast.makeText(this,
-                "Coda non configurata: riapri il DB dal menu per creare il file della coda",
+                "Coda non configurata: riapri il DB dal menu e seleziona il file pending.jsonl",
                 Toast.LENGTH_LONG).show()
             return
         }

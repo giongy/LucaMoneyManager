@@ -37,14 +37,14 @@ class MainActivity : AppCompatActivity() {
         if (uri != null) onDbPicked(uri)
     }
 
-    // CreateDocument per il file coda pending.jsonl: OneDrive supporta la creazione di documenti.
-    // Da un URI di file (il DB) SAF non permette di creare un file "fratello" automaticamente,
-    // quindi l'utente sceglie una volta dove crearlo (pre-posizionato nella cartella del DB).
-    private val createQueueLauncher = registerForActivityResult(
-        ActivityResultContracts.CreateDocument("application/json")
+    // OpenDocument per SELEZIONARE il file coda pending.jsonl (già esistente): OneDrive non
+    // consente ad app esterne di CREARE documenti via SAF, ma mostra e lascia scrivere i file
+    // esistenti. Il file lo crea il desktop (vuoto, accanto al DB) al primo avvio.
+    private val selectQueueLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         if (uri != null) onQueuePicked(uri)
-        else showToast("File coda non creato: l'inserimento da telefono resterà disabilitato")
+        else showToast("File coda non selezionato: l'inserimento da telefono resterà disabilitato")
     }
 
     private val addTransactionLauncher = registerForActivityResult(
@@ -224,24 +224,21 @@ class MainActivity : AppCompatActivity() {
                 DbHelper.savePrefs(this@MainActivity, localPath, dbUri.toString())
                 openDbAndLoad(localPath, dbUri)
                 registerObserver(dbUri)
-                // Se la coda non è ancora configurata, chiedi ora dove crearla (una volta sola).
-                if (!PendingQueue.isAvailable(this@MainActivity)) promptCreateQueue(dbUri)
+                // Se la coda non è ancora configurata, chiedi di selezionare il file (una volta sola).
+                if (!PendingQueue.isAvailable(this@MainActivity)) promptSelectQueue()
             } catch (e: Exception) {
                 showToast("Errore apertura file: ${e.message}")
             }
         }
     }
 
-    /** Avvia la creazione del file coda pending.jsonl, pre-posizionato nella cartella del DB. */
-    private fun promptCreateQueue(dbUri: Uri) {
-        showToast("Scegli dove creare il file della coda (stessa cartella del DB)")
-        // EXTRA_INITIAL_URI: molti provider (OneDrive incluso) aprono il picker già nella cartella
-        // del DB, così basta confermare. Il launcher CreateDocument non espone l'extra direttamente,
-        // quindi lo impostiamo tramite l'input del contratto — di default parte dal nome file.
-        createQueueLauncher.launch("pending.jsonl")
+    /** Avvia la selezione del file coda pending.jsonl (creato dal desktop nella cartella del DB). */
+    private fun promptSelectQueue() {
+        showToast("Seleziona il file pending.jsonl (nella stessa cartella del DB)")
+        selectQueueLauncher.launch(arrayOf("*/*"))
     }
 
-    /** File coda scelto/creato: salva il suo URI (permesso persistente) per le scritture future. */
+    /** File coda selezionato: salva il suo URI (permesso persistente) per le scritture future. */
     private fun onQueuePicked(queueUri: Uri) {
         try {
             contentResolver.takePersistableUriPermission(

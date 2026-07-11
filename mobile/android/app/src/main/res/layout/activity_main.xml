@@ -41,4 +41,16 @@
         android:visibility="gone"
         app:icon="@drawable/ic_add"/>
 
+    <!-- Bottone "Da importare": apre la lista delle pendenti non ancora importate dal desktop.
+         Visibile solo se ci sono pendenti (gestito in MainActivity). Lato opposto del FAB. -->
+    <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
+        android:id="@+id/fabPending"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|start"
+        android:layout_margin="16dp"
+        android:text="Da importare"
+        android:visibility="gone"
+        app:icon="@drawable/ic_download"/>
+
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

@@ -65,6 +65,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var swipeRefresh: SwipeRefreshLayout
     private lateinit var recyclerView: RecyclerView
     private lateinit var fab: ExtendedFloatingActionButton
+    private lateinit var fabPending: ExtendedFloatingActionButton
     private val accounts = mutableListOf<DbHelper.Account>()
     private lateinit var adapter: AccountAdapter
 
@@ -81,6 +82,7 @@ class MainActivity : AppCompatActivity() {
         swipeRefresh = findViewById(R.id.swipeRefresh)
         recyclerView = findViewById(R.id.recyclerView)
         fab          = findViewById(R.id.fabAdd)
+        fabPending   = findViewById(R.id.fabPending)
 
         adapter = AccountAdapter(accounts) { account ->
             val intent = Intent(this, AddTransactionActivity::class.java)
@@ -101,6 +103,10 @@ class MainActivity : AppCompatActivity() {
             addTransactionLauncher.launch(
                 Intent(this, AddTransactionActivity::class.java)
             )
+        }
+
+        fabPending.setOnClickListener {
+            startActivity(Intent(this, PendingActivity::class.java))
         }
 
         NotifHelper.createChannel(this)
@@ -134,7 +140,6 @@ class MainActivity : AppCompatActivity() {
         return when (item.itemId) {
             R.id.menu_open     -> { openDbLauncher.launch(arrayOf("*/*")); true }
             R.id.menu_refresh  -> { lifecycleScope.launch { init() }; true }
-            R.id.menu_pending  -> { startActivity(Intent(this, PendingActivity::class.java)); true }
             R.id.menu_settings -> { startActivity(Intent(this, SettingsActivity::class.java)); true }
             else -> super.onOptionsItemSelected(item)
         }
@@ -267,6 +272,18 @@ class MainActivity : AppCompatActivity() {
         adapter.notifyDataSetChanged()
         fab.visibility = if (DbHelper.isConfigured) View.VISIBLE else View.GONE
         AccountsWidget.updateAll(this)
+        updatePendingButton()
+    }
+
+    /** Mostra il bottone "Da importare" con il conteggio solo se ci sono pendenti non importate. */
+    private suspend fun updatePendingButton() {
+        val count = withContext(Dispatchers.IO) { PendingQueue.readPending(this@MainActivity).size }
+        if (count > 0) {
+            fabPending.text = "Da importare ($count)"
+            fabPending.visibility = View.VISIBLE
+        } else {
+            fabPending.visibility = View.GONE
+        }
     }
 
     private fun showToast(msg: String) =

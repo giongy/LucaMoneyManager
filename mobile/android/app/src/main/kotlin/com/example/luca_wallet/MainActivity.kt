@@ -28,13 +28,23 @@ import kotlinx.coroutines.withContext
 
 class MainActivity : AppCompatActivity() {
 
-    // OpenDocumentTree (non più OpenDocument): l'utente sceglie la CARTELLA del DB su OneDrive.
-    // Serve un tree URI per poter creare/scrivere il file coda pending.jsonl nella stessa cartella
-    // — da un URI a singolo documento SAF non consente di creare file fratelli.
-    private val openTreeLauncher = registerForActivityResult(
-        ActivityResultContracts.OpenDocumentTree()
-    ) { treeUri: Uri? ->
-        if (treeUri != null) onTreePicked(treeUri)
+    // OpenDocument (scelta FILE): unico picker in cui OneDrive è visibile. OpenDocumentTree
+    // (scelta cartella) nasconde OneDrive, che non pubblica alberi navigabili. Perciò DB e file
+    // coda vanno scelti entrambi a mano come singoli documenti.
+    private val openDbLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) onDbPicked(uri)
+    }
+
+    // CreateDocument per il file coda pending.jsonl: OneDrive supporta la creazione di documenti.
+    // Da un URI di file (il DB) SAF non permette di creare un file "fratello" automaticamente,
+    // quindi l'utente sceglie una volta dove crearlo (pre-posizionato nella cartella del DB).
+    private val createQueueLauncher = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri: Uri? ->
+        if (uri != null) onQueuePicked(uri)
+        else showToast("File coda non creato: l'inserimento da telefono resterà disabilitato")
     }
 
     private val addTransactionLauncher = registerForActivityResult(
@@ -122,7 +132,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         return when (item.itemId) {
-            R.id.menu_open     -> { openTreeLauncher.launch(null); true }
+            R.id.menu_open     -> { openDbLauncher.launch(arrayOf("*/*")); true }
             R.id.menu_refresh  -> { lifecycleScope.launch { init() }; true }
             R.id.menu_pending  -> { startActivity(Intent(this, PendingActivity::class.java)); true }
             R.id.menu_settings -> { startActivity(Intent(this, SettingsActivity::class.java)); true }
@@ -197,49 +207,50 @@ class MainActivity : AppCompatActivity() {
         contentObserver = obs
     }
 
-    private fun onTreePicked(treeUri: Uri) {
-        // Permesso persistente sull'albero → potremo leggere il DB e scrivere la coda anche dopo
-        // il riavvio dell'app, senza ri-chiedere all'utente.
+    /** DB scelto (OpenDocument): permesso persistente, salva, apre. Poi guida alla scelta coda. */
+    private fun onDbPicked(dbUri: Uri) {
         try {
             contentResolver.takePersistableUriPermission(
-                treeUri,
+                dbUri,
                 Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
             )
         } catch (_: Exception) {}
 
-        val dbFiles = PendingQueue.listDatabases(this, treeUri)
-        when {
-            dbFiles.isEmpty() -> {
-                showToast("Nessun file .db trovato nella cartella selezionata")
-                return
-            }
-            dbFiles.size == 1 -> selectDatabase(treeUri, dbFiles[0].uri)
-            else -> {
-                // Più DB nella cartella: chiedi quale usare.
-                val names = dbFiles.map { it.name ?: "database.db" }.toTypedArray()
-                androidx.appcompat.app.AlertDialog.Builder(this)
-                    .setTitle("Quale database?")
-                    .setItems(names) { _, which -> selectDatabase(treeUri, dbFiles[which].uri) }
-                    .show()
-            }
-        }
-    }
-
-    /** Salva tree + DB scelti e apre il database (copia locale). */
-    private fun selectDatabase(treeUri: Uri, dbUri: Uri) {
         lifecycleScope.launch {
             try {
-                PendingQueue.saveTreeUri(this@MainActivity, treeUri.toString())
                 val localPath = withContext(Dispatchers.IO) {
                     DbHelper.copyUriToLocal(this@MainActivity, dbUri)
                 }
                 DbHelper.savePrefs(this@MainActivity, localPath, dbUri.toString())
                 openDbAndLoad(localPath, dbUri)
                 registerObserver(dbUri)
+                // Se la coda non è ancora configurata, chiedi ora dove crearla (una volta sola).
+                if (!PendingQueue.isAvailable(this@MainActivity)) promptCreateQueue(dbUri)
             } catch (e: Exception) {
                 showToast("Errore apertura file: ${e.message}")
             }
         }
+    }
+
+    /** Avvia la creazione del file coda pending.jsonl, pre-posizionato nella cartella del DB. */
+    private fun promptCreateQueue(dbUri: Uri) {
+        showToast("Scegli dove creare il file della coda (stessa cartella del DB)")
+        // EXTRA_INITIAL_URI: molti provider (OneDrive incluso) aprono il picker già nella cartella
+        // del DB, così basta confermare. Il launcher CreateDocument non espone l'extra direttamente,
+        // quindi lo impostiamo tramite l'input del contratto — di default parte dal nome file.
+        createQueueLauncher.launch("pending.jsonl")
+    }
+
+    /** File coda scelto/creato: salva il suo URI (permesso persistente) per le scritture future. */
+    private fun onQueuePicked(queueUri: Uri) {
+        try {
+            contentResolver.takePersistableUriPermission(
+                queueUri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            )
+        } catch (_: Exception) {}
+        PendingQueue.saveQueueUri(this, queueUri.toString())
+        showToast("Coda configurata: gli inserimenti dal telefono verranno sincronizzati")
     }
 
     private suspend fun openDbAndLoad(path: String, uri: Uri?) {

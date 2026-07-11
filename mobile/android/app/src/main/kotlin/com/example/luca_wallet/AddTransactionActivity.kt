@@ -179,18 +179,18 @@ class AddTransactionActivity : AppCompatActivity() {
             Toast.makeText(this, "Seleziona il conto di destinazione", Toast.LENGTH_SHORT).show(); return
         }
 
-        // La coda richiede di conoscere la cartella del DB (tree URI). Se manca — tipico dopo
-        // l'aggiornamento da una versione che salvava solo l'URI del file — chiedi di ri-selezionare.
+        // La coda richiede il file pending.jsonl configurato. Se manca (mai scelto, o primo avvio
+        // dopo l'update), ri-seleziona il DB dal menu: al termine l'app chiede dove creare la coda.
         if (!PendingQueue.isAvailable(this)) {
             Toast.makeText(this,
-                "Riseleziona la cartella del database dal menu per abilitare l'inserimento",
+                "Coda non configurata: riapri il DB dal menu per creare il file della coda",
                 Toast.LENGTH_LONG).show()
             return
         }
 
         btnSave.isEnabled = false
         try {
-            // NON scriviamo più nel DB condiviso: accodiamo su pending.jsonl accanto al DB.
+            // NON scriviamo più nel DB condiviso: accodiamo sul file pending.jsonl su OneDrive.
             // Il desktop importerà la transazione all'avvio.
             withContext(Dispatchers.IO) {
                 PendingQueue.append(

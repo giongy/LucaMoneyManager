@@ -1828,6 +1828,11 @@ public class Database {
         execute("CREATE TABLE IF NOT EXISTS imported_pending (id TEXT PRIMARY KEY, imported_at TEXT)");
 
         int phoneTagId = phoneTagId();
+        // Soglia pulizia: le righe già applicate più vecchie di 30 giorni vengono rimosse dal file
+        // (così non cresce all'infinito). 30 giorni è ben oltre qualsiasi ritardo di sync OneDrive,
+        // quindi nessun rischio di doppio conteggio del saldo su Android. L'id resta comunque in
+        // imported_pending → anche se una riga vecchia riapparisse, l'idempotenza la bloccherebbe.
+        java.time.Instant cleanupBefore = java.time.Instant.now().minus(30, java.time.temporal.ChronoUnit.DAYS);
         List<Map<String, Object>> imported = new ArrayList<>();
         boolean fileChanged = false;
         List<String> rewritten = new ArrayList<>(lines.size());
@@ -1846,6 +1851,12 @@ public class Database {
 
             boolean applied = o.has("applied") && o.get("applied").getAsBoolean();
             String id = o.has("id") && !o.get("id").isJsonNull() ? o.get("id").getAsString() : null;
+
+            // Pulizia: riga già applicata e abbastanza vecchia → non riscriverla (rimossa dal file).
+            if (applied && isOlderThan(o, cleanupBefore)) {
+                fileChanged = true;
+                continue;
+            }
 
             if (!applied && id != null && !alreadyImported(id)) {
                 // Ordine voluto: prima la transazione (in una sua inTx atomica), poi registra l'id.
@@ -1880,6 +1891,17 @@ public class Database {
 
     private boolean alreadyImported(String id) throws SQLException {
         return queryOne("SELECT 1 FROM imported_pending WHERE id=?", id) != null;
+    }
+
+    /** True se il campo `created` (ISO-8601) della riga è precedente alla soglia. Se manca o è
+     *  illeggibile ritorna false (per prudenza la riga viene conservata, non rimossa). */
+    private boolean isOlderThan(JsonObject o, java.time.Instant threshold) {
+        if (!o.has("created") || o.get("created").isJsonNull()) return false;
+        try {
+            return java.time.Instant.parse(o.get("created").getAsString()).isBefore(threshold);
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     /** Id del tag di sistema "phone" (creato in seedDefaultData). */

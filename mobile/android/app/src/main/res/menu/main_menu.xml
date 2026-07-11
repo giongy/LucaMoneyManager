@@ -15,6 +15,11 @@
         app:showAsAction="never"/>
 
     <item
+        android:id="@+id/menu_pending"
+        android:title="Da importare"
+        app:showAsAction="never"/>
+
+    <item
         android:id="@+id/menu_settings"
         android:title="Impostazioni"
         app:showAsAction="never"/>

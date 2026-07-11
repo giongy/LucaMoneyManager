@@ -3,7 +3,9 @@ package com.example.luca_wallet
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.ColorStateList
 import android.database.ContentObserver
+import android.graphics.Color
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -140,6 +142,7 @@ class MainActivity : AppCompatActivity() {
         return when (item.itemId) {
             R.id.menu_open     -> { openDbLauncher.launch(arrayOf("*/*")); true }
             R.id.menu_refresh  -> { lifecycleScope.launch { init() }; true }
+            R.id.menu_pending  -> { startActivity(Intent(this, PendingActivity::class.java)); true }
             R.id.menu_settings -> { startActivity(Intent(this, SettingsActivity::class.java)); true }
             else -> super.onOptionsItemSelected(item)
         }
@@ -275,14 +278,32 @@ class MainActivity : AppCompatActivity() {
         updatePendingButton()
     }
 
-    /** Mostra il bottone "Da importare" con il conteggio solo se ci sono pendenti non importate. */
+    /**
+     * Bottone "Da importare": sempre visibile (se il DB è configurato). Colorato e cliccabile con
+     * il conteggio quando ci sono pendenti; grigio e disabilitato quando non c'è nulla da importare.
+     * Colore ambra per distinguerlo dal FAB primario "Movimento".
+     */
     private suspend fun updatePendingButton() {
+        if (!DbHelper.isConfigured) {
+            fabPending.visibility = View.GONE
+            return
+        }
         val count = withContext(Dispatchers.IO) { PendingQueue.readPending(this@MainActivity).size }
+        fabPending.visibility = View.VISIBLE
         if (count > 0) {
             fabPending.text = "Da importare ($count)"
-            fabPending.visibility = View.VISIBLE
+            fabPending.isEnabled = true
+            fabPending.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#d29922")) // ambra
+            val fg = ColorStateList.valueOf(Color.parseColor("#1c2128"))                        // testo scuro
+            fabPending.setTextColor(fg)
+            fabPending.iconTint = fg
         } else {
-            fabPending.visibility = View.GONE
+            fabPending.text = "Da importare"
+            fabPending.isEnabled = false
+            fabPending.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#30363d")) // grigio
+            val fg = ColorStateList.valueOf(Color.parseColor("#8b949e"))                        // grigio chiaro
+            fabPending.setTextColor(fg)
+            fabPending.iconTint = fg
         }
     }
 

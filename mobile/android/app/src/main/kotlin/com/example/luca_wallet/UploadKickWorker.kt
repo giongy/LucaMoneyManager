@@ -9,13 +9,13 @@ import kotlinx.coroutines.withContext
  * Worker one-shot che "sveglia" OneDrive a far partire l'upload del file coda (pending.jsonl)
  * dopo un inserimento da telefono.
  *
- * Necessario perché fsync + notifyChange da soli non fanno partire l'upload OneDrive: il
- * DocumentsProvider tiene i byte in un buffer finché una rilettura del file non forza il commit
- * (lo stesso effetto dello swipe manuale). Senza questo kick il jsonl resta locale finché non
- * si fa refresh a mano una o due volte.
+ * Il kick chiama ContentResolver.refresh() sul documento — l'equivalente programmatico dello
+ * swipe manuale: chiede al DocumentsProvider di risincronizzare l'item, upload delle modifiche
+ * locali incluso. (La sola rilettura del file, usata in passato, NON basta: il provider serve la
+ * cache locale senza avviare alcuna sync.) Vedi PendingQueue.kickUpload.
  *
- * WorkManager garantisce l'esecuzione anche a processo terminato, con retry automatico finché
- * OneDrive non risponde. Idempotente: rileggere l'URI è a sola lettura.
+ * WorkManager garantisce l'esecuzione anche a processo terminato, con vincolo di rete.
+ * Idempotente: refresh e rilettura sono operazioni a sola lettura.
  */
 class UploadKickWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx, params) {
 

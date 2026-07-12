@@ -46,4 +46,16 @@
 
     </FrameLayout>
 
+    <!-- Sollecito manuale dell'upload OneDrive della coda (touch + refresh del provider):
+         rimedio in-app per quando la sync automatica non parte, senza aprire l'app OneDrive. -->
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnForceUpload"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginTop="4dp"
+        android:layout_marginBottom="12dp"
+        android:text="Forza upload su OneDrive"/>
+
 </LinearLayout>

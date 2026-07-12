@@ -56,10 +56,9 @@ class MainActivity : AppCompatActivity() {
         // è cambiato: ricarichiamo solo la UI, che ora somma il delta delle pendenti al saldo.
         if (result.resultCode == RESULT_OK) {
             lifecycleScope.launch { loadAccounts() }
-            // Kick di upload affidabile: fsync + notifyChange da soli non fanno partire l'upload
-            // OneDrive del file coda (serve una rilettura che forzi il commit del DocumentsProvider,
-            // come lo swipe manuale). WorkManager esegue il kick anche a processo terminato, con
-            // retry finché OneDrive non risponde. Vedi UploadKickWorker.
+            // Sollecita l'upload OneDrive della coda: refresh esplicito del DocumentsProvider
+            // (l'equivalente dello swipe manuale), eseguito via WorkManager così sopravvive al
+            // passaggio in background. Vedi UploadKickWorker / PendingQueue.kickUpload.
             UploadKickWorker.enqueue(this)
         }
     }

@@ -21,19 +21,19 @@
         <dependency>
             <groupId>me.friwi</groupId>
             <artifactId>jcefmaven</artifactId>
-            <version>143.0.14</version>
+            <version>146.0.10</version>
         </dependency>
         <!-- SQLite JDBC (include nativi pre-compilati Windows/Mac/Linux, zero compilazione) -->
         <dependency>
             <groupId>org.xerial</groupId>
             <artifactId>sqlite-jdbc</artifactId>
-            <version>3.53.0.0</version>
+            <version>3.53.2.0</version>
         </dependency>
         <!-- JSON serialization -->
         <dependency>
             <groupId>com.google.code.gson</groupId>
             <artifactId>gson</artifactId>
-            <version>2.13.1</version>
+            <version>2.14.0</version>
         </dependency>
         <!-- Silenzia warning SLF4J "Failed to load StaticLoggerBinder" (transitivo da jcefmaven) -->
         <dependency>
@@ -54,7 +54,7 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
-                <version>3.11.0</version>
+                <version>3.15.0</version>
                 <configuration>
                     <source>25</source>
                     <target>25</target>
@@ -65,7 +65,7 @@
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>exec-maven-plugin</artifactId>
-                <version>3.1.0</version>
+                <version>3.6.3</version>
                 <configuration>
                     <mainClass>com.moneymanager.App</mainClass>
                     <jvmArgs>
@@ -92,7 +92,7 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-shade-plugin</artifactId>
-                <version>3.5.2</version>
+                <version>3.6.2</version>
                 <executions>
                     <execution>
                         <phase>package</phase>

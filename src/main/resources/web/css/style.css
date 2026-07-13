@@ -5,7 +5,7 @@
    ogni pagina/widget: dashboard, budget, portfolio, analytics, scheduled, ecc.).
 
    TEMI: il default è scuro (variabili in :root). I temi alternativi sovrascrivono le
-   variabili via [data-theme="carta|twilight|glassy"] (impostato su <html> dal JS).
+   variabili via [data-theme="carta|chiaro|glassy"] (impostato su <html> dal JS).
 
    CONVENZIONE COLORI DI SFONDO (vedi CLAUDE.md): gerarchia bg3 < bg < bg2, cioè le card
    (bg2) sono PIÙ CHIARE dello sfondo (bg) — mai bianco puro nei temi chiari. bg3 è il
@@ -119,136 +119,129 @@
 }
 
 
-/* ─── Twilight theme (aurora scura: blu-notte con vetro scuro e neon viola/ciano) ─ */
-/* Tema SCURO moderno. Il fondo è un blu-notte profondo con aloni aurora (viola + blu +
-   un tocco di ciano) che sfumano dolcemente. Le superfici sono vetro scuro translucido
-   con un bordo interno tenue-luminoso in alto (accenno vetroso illuminato). Accenti al
-   neon soft: viola primario + ciano secondario. Bordi molto arrotondati (18px) per un
-   look moderno. Blur solo sul chrome (performance); popover scuri opachi. */
-[data-theme="twilight"] {
-  --bg:       #0c0e1c;
-  --bg2:      rgba(28,32,58,.60);
-  --bg3:      rgba(40,44,78,.55);
-  --bg4:      rgba(52,58,100,.72);
-  --border:   rgba(150,140,235,.20);
-  --accent:   #8b7dff;
-  --accent2:  #34d3ee;
-  --income:   #34d399;
-  --expense:  #fb5e7d;
-  --warn:     #fbbf4f;
-  --purple:   #b892ff;
-  --orange:   #ff9d5c;
-  --txt:      #ecebff;
-  --txt2:     #a9a6d4;
-  --txt3:     #6d6a9e;
-  --radius:   18px;
-  --shadow:   0 18px 44px rgba(0,0,8,.6);
+/* ─── Chiaro theme (bianco pastello: minimal e pulito, accento lavanda) ─────── */
+/* Tema CHIARO moderno. Sfondo bianco-lavanda tenue (NON bianco puro: aggressivo),
+   card bianche pure che "galleggiano" sopra con ombra morbida → look pulito e arioso.
+   Accenti pastello: lavanda primario + menta secondario. Testo blu-grigio scuro per
+   contrasto morbido. Nessun blur/aurora: piatto, minimale, leggero. Rispetta la
+   gerarchia bg3 < bg < bg2 (card più chiare dello sfondo). */
+/* Toast: i fondi scuri fissi (.toast-info #1a2a3a ecc.) sono illeggibili su tema chiaro.
+   Override con fondi pastello coerenti e testo scuro (come nel tema carta). */
+[data-theme="chiaro"] .toast         { color: var(--txt); }
+[data-theme="chiaro"] .toast-info    { background: #e9e6ff; border-color: var(--accent);  color: #4a3ca8; }
+[data-theme="chiaro"] .toast-success { background: #d9f0e2; border-color: var(--income);  color: #1c6b3c; }
+[data-theme="chiaro"] .toast-error   { background: #fbe0e1; border-color: var(--expense); color: #a82026; }
+[data-theme="chiaro"] .toast-warning { background: #f6ecd4; border-color: var(--warn);    color: #7a5400; }
+/* Bottone azione (Annulla): riempito con l'accento → ben visibile sul fondo chiaro. */
+[data-theme="chiaro"] .toast-action-btn { background: var(--accent) !important; border-color: var(--accent) !important; color: #fff !important; }
+[data-theme="chiaro"] {
+  --bg:       #f2f3f9;
+  --bg2:      #ffffff;
+  --bg3:      #e9eaf3;
+  --bg4:      #e2e3ef;
+  --border:   #e0e1ec;
+  --accent:   #7c6cff;
+  --accent2:  #34c3a8;
+  --income:   #2e9e57;
+  --expense:  #e5484d;
+  --warn:     #c98a12;
+  --purple:   #8b5cf6;
+  --orange:   #ea8a3a;
+  --txt:      #2b2d42;
+  --txt2:     #6b6e87;
+  --txt3:     #9a9db3;
+  --radius:   14px;
+  --shadow:   0 8px 28px rgba(60,60,110,.10);
 }
-/* Aurora: aloni viola/blu/ciano che sfumano nel blu-notte. Su body E .main (l'area
-   contenuti copre quasi tutto, quindi il body da solo si vedrebbe solo ai margini). */
-[data-theme="twilight"] body,
-[data-theme="twilight"] .main {
+/* Sfondo: bianco-lavanda pianeggiante con un alito di colore agli angoli per non
+   risultare piatto/asettico (aloni pastello lavanda + menta a bassissima opacità). */
+[data-theme="chiaro"] body,
+[data-theme="chiaro"] .main {
   background:
-    radial-gradient(1300px 900px at  4% -14%, rgba(120,80,240,.42), transparent 60%),
-    radial-gradient(1200px 880px at 100%  2%, rgba(52,150,238,.30), transparent 60%),
-    radial-gradient(1100px 860px at 92% 116%, rgba(52,211,238,.20), transparent 60%),
-    radial-gradient(1050px 820px at  6% 118%, rgba(90,70,220,.30), transparent 60%),
-    radial-gradient(1600px 1100px at 50% 44%, rgba(80,60,180,.20), transparent 66%),
-    linear-gradient(160deg, #0d0f20 0%, #0c0e1c 55%, #0e0c1e 100%);
+    radial-gradient(1200px 850px at  6% -12%, rgba(124,108,255,.07), transparent 60%),
+    radial-gradient(1100px 800px at 96% 108%, rgba(52,195,168,.06), transparent 60%),
+    linear-gradient(160deg, #f4f4fb 0%, #f2f3f9 55%, #f3f2f9 100%);
 }
-[data-theme="twilight"] .main { background-color: transparent; }
-/* Chrome (sidebar, titlebar, modale): vetro scuro + blur → l'aurora filtra sotto */
-[data-theme="twilight"] .sidebar,
-[data-theme="twilight"] .titlebar,
-[data-theme="twilight"] .modal {
-  backdrop-filter: blur(16px) saturate(150%);
-  -webkit-backdrop-filter: blur(16px) saturate(150%);
-}
-/* Sidebar e titlebar translucide: l'aurora deve continuare a sinistra e in alto,
-   non essere tagliata da un blocco opaco. */
-[data-theme="twilight"] .sidebar,
-[data-theme="twilight"] .titlebar { background: rgba(16,18,38,.55); }
-/* Card: vetro scuro translucido (mostra l'aurora ai bordi) + ombra profonda +
-   bordo interno tenue-luminoso in alto = superficie vetrosa illuminata dall'alto. */
-[data-theme="twilight"] .card,
-[data-theme="twilight"] .stat-card {
-  background: rgba(28,32,58,.55);
-  border-color: rgba(150,140,235,.20);
+[data-theme="chiaro"] .main { background-color: transparent; }
+/* Chrome (sidebar, titlebar): bianco tenue coerente con lo sfondo, bordo leggero. */
+[data-theme="chiaro"] .sidebar,
+[data-theme="chiaro"] .titlebar { background: #fafbff; }
+/* Card: bianco puro che galleggia sopra lo sfondo tinto + ombra morbida diffusa +
+   bordo appena percettibile = superficie pulita e ariosa. */
+[data-theme="chiaro"] .card,
+[data-theme="chiaro"] .stat-card {
+  background: #ffffff;
+  border-color: #ebecf4;
   box-shadow:
-    0 1px 2px rgba(0,0,8,.4),
-    0 14px 40px rgba(0,0,12,.5),
-    inset 0 1px 0 rgba(180,165,255,.14);
+    0 1px 2px rgba(60,60,110,.04),
+    0 8px 24px rgba(60,60,110,.07);
 }
-[data-theme="twilight"] .modal {
-  background: rgba(22,25,48,.88);
-  border-color: rgba(150,140,235,.28);
-  box-shadow: 0 30px 70px rgba(0,0,10,.7), inset 0 1px 0 rgba(180,165,255,.16);
+[data-theme="chiaro"] .modal {
+  background: #ffffff;
+  border-color: #e6e7f1;
+  box-shadow: 0 24px 60px rgba(40,40,80,.18);
 }
-[data-theme="twilight"] .modal-overlay { background: rgba(4,4,14,.62); }
-[data-theme="twilight"] .modal-header,
-[data-theme="twilight"] .modal-footer { border-color: rgba(150,140,235,.18); }
-[data-theme="twilight"] .sidebar { border-right-color: rgba(150,140,235,.16); }
-[data-theme="twilight"] .titlebar { border-bottom-color: rgba(150,140,235,.16); }
-/* Bottone primario: accento viola luminoso → testo scuro + alone (glow) al neon */
-[data-theme="twilight"] .btn-primary {
-  color: #0c0e1c;
-  box-shadow: 0 4px 18px rgba(139,125,255,.35);
+[data-theme="chiaro"] .modal-overlay { background: rgba(40,42,70,.28); }
+[data-theme="chiaro"] .modal-header,
+[data-theme="chiaro"] .modal-footer { border-color: #edeef5; }
+[data-theme="chiaro"] .sidebar { border-right-color: #e8e9f2; }
+[data-theme="chiaro"] .titlebar { border-bottom-color: #e8e9f2; }
+/* Bottone primario: accento lavanda pieno → testo bianco + alone tenue. */
+[data-theme="chiaro"] .btn-primary {
+  color: #ffffff;
+  box-shadow: 0 4px 14px rgba(124,108,255,.25);
 }
-[data-theme="twilight"] .btn-primary:hover { background: #9d90ff; }
-/* Form controls: fondo scuro semi-opaco per emergere dall'aurora e restare leggibili */
-[data-theme="twilight"] .form-control {
-  background: rgba(18,20,40,.78);
-  border-color: rgba(150,140,235,.26);
+[data-theme="chiaro"] .btn-primary:hover { background: #8b7dff; }
+/* Form controls: fondo bianco-tenue leggermente incassato rispetto alle card. */
+[data-theme="chiaro"] .form-control {
+  background: #f6f7fc;
+  border-color: #e2e3ee;
 }
-[data-theme="twilight"] .form-control:hover  { border-color: rgba(150,140,235,.5); }
-[data-theme="twilight"] .form-control:focus  {
-  background: rgba(22,24,46,.92);
+[data-theme="chiaro"] .form-control:hover  { border-color: #c9c8e6; }
+[data-theme="chiaro"] .form-control:focus  {
+  background: #ffffff;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(139,125,255,.16);
+  box-shadow: 0 0 0 3px rgba(124,108,255,.14);
 }
-[data-theme="twilight"] select { background-color: rgba(18,20,40,.9); }
-[data-theme="twilight"] select option { background-color: #16182e; color: var(--txt); }
-/* Popover flottanti: vetro scuro opaco con blur — non hanno l'aurora dietro su cui contare */
-[data-theme="twilight"] .cat-picker-list,
-[data-theme="twilight"] .sched-tag-dropdown,
-[data-theme="twilight"] #dash-tooltip,
-[data-theme="twilight"] .ctx-menu,
-[data-theme="twilight"] #portfolio-ctx-menu,
-[data-theme="twilight"] #sched-ctx-menu,
-[data-theme="twilight"] #shortcutsPanel,
-[data-theme="twilight"] .nav-sub-flyout {
-  background: rgba(20,22,42,.97) !important;
-  border-color: rgba(150,140,235,.28);
-  backdrop-filter: blur(16px) saturate(150%);
-  -webkit-backdrop-filter: blur(16px) saturate(150%);
-  box-shadow: 0 18px 44px rgba(0,0,10,.6);
+[data-theme="chiaro"] select { background-color: #f6f7fc; }
+[data-theme="chiaro"] select option { background-color: #ffffff; color: var(--txt); }
+/* Popover flottanti: bianchi opachi con ombra morbida. */
+[data-theme="chiaro"] .cat-picker-list,
+[data-theme="chiaro"] .sched-tag-dropdown,
+[data-theme="chiaro"] #dash-tooltip,
+[data-theme="chiaro"] .ctx-menu,
+[data-theme="chiaro"] #portfolio-ctx-menu,
+[data-theme="chiaro"] #sched-ctx-menu,
+[data-theme="chiaro"] #shortcutsPanel,
+[data-theme="chiaro"] .nav-sub-flyout {
+  background: #ffffff !important;
+  border-color: #e6e7f1;
+  box-shadow: 0 12px 32px rgba(40,40,80,.14);
 }
-[data-theme="twilight"] .cat-picker-item:hover,
-[data-theme="twilight"] .cat-picker-item.active,
-[data-theme="twilight"] .sched-tag-opt:hover { background: rgba(139,125,255,.16); }
-/* Tabelle: header e celle sticky con sfondo scuro opaco (il contenuto scorre dietro) */
-[data-theme="twilight"] th { background: #1b1e38; color: var(--txt2); }
-[data-theme="twilight"] td { border-bottom-color: rgba(150,140,235,.14); }
-[data-theme="twilight"] .budget-row-child td  { background: rgba(34,38,66,.45); }
-[data-theme="twilight"] .budget-row-parent td { background: rgba(42,46,80,.55); }
-[data-theme="twilight"] .budget-table thead th,
-[data-theme="twilight"] .budget-table thead td,
-[data-theme="twilight"] .budget-cat-th,
-[data-theme="twilight"] .budget-cat-cell { background: #1b1e38 !important; }
-[data-theme="twilight"] .budget-total-th { background: #262a50 !important; }
-[data-theme="twilight"] .budget-row-parent .budget-cat-cell { background: #1b1e38 !important; }
-[data-theme="twilight"] .budget-row-child  .budget-cat-cell { background: #16182e !important; }
-[data-theme="twilight"] .analytics-table thead th,
-[data-theme="twilight"] #txTable thead th { background: #1b1e38 !important; }
-/* Badge budget: colori translucidi tenui su fondo scuro (le trasparenze qui funzionano) */
-[data-theme="twilight"] .budget-gestione-badge.monthly { background: rgba(139,125,255,.18); color: #c6bcff; border-color: rgba(139,125,255,.4); }
-[data-theme="twilight"] .budget-gestione-badge.annual  { background: rgba(52,211,238,.15); color: #8ce7f5; border-color: rgba(52,211,238,.36); }
-/* Notifiche flottanti: vetro scuro translucido con blur come card/modali */
-[data-theme="twilight"] .overdue-notice {
-  background: rgba(28,32,58,.82);
-  backdrop-filter: blur(16px) saturate(150%);
-  -webkit-backdrop-filter: blur(16px) saturate(150%);
-  box-shadow: 0 18px 44px rgba(0,0,10,.6), inset 0 1px 0 rgba(180,165,255,.14);
+[data-theme="chiaro"] .cat-picker-item:hover,
+[data-theme="chiaro"] .cat-picker-item.active,
+[data-theme="chiaro"] .sched-tag-opt:hover { background: rgba(124,108,255,.10); }
+/* Tabelle: header e celle sticky con fondo tenue (il contenuto scorre dietro). */
+[data-theme="chiaro"] th { background: #eef0f7; color: var(--txt2); }
+[data-theme="chiaro"] td { border-bottom-color: #edeef5; }
+[data-theme="chiaro"] .budget-row-child td  { background: #f7f8fc; }
+[data-theme="chiaro"] .budget-row-parent td { background: #eef0f7; }
+[data-theme="chiaro"] .budget-table thead th,
+[data-theme="chiaro"] .budget-table thead td,
+[data-theme="chiaro"] .budget-cat-th,
+[data-theme="chiaro"] .budget-cat-cell { background: #eef0f7 !important; }
+[data-theme="chiaro"] .budget-total-th { background: #e4e6f2 !important; }
+[data-theme="chiaro"] .budget-row-parent .budget-cat-cell { background: #eef0f7 !important; }
+[data-theme="chiaro"] .budget-row-child  .budget-cat-cell { background: #f7f8fc !important; }
+[data-theme="chiaro"] .analytics-table thead th,
+[data-theme="chiaro"] #txTable thead th { background: #eef0f7 !important; }
+/* Badge budget: colori solidi tenui (in light le trasparenze non rendono → override). */
+[data-theme="chiaro"] .budget-gestione-badge.monthly { background: #e7e3ff; color: #5847c8; border-color: #c9c1f5; }
+[data-theme="chiaro"] .budget-gestione-badge.annual  { background: #d6f2ea; color: #1c7a63; border-color: #a8dfd1; }
+/* Notifiche flottanti: bianche opache con ombra morbida come card/modali. */
+[data-theme="chiaro"] .overdue-notice {
+  background: #ffffff;
+  box-shadow: 0 12px 32px rgba(40,40,80,.14);
 }
 
 /* ─── Glassy theme (scuro morbido con effetto vetro) ─────────────────────── */
@@ -477,7 +470,7 @@ input,select,textarea { font-family:inherit; }
    della voce (--nc), dietro un chip riempito con lo stesso colore a bassa
    opacità (fill tenue) → l'occhio legge riempimento + tratto = duotone.
    I colori sono ruoli neutri: color-mix con lo sfondo del tema li mantiene
-   leggibili su Twilight/light/glassy senza duplicare regole per-tema.        */
+   leggibili su Chiaro/dark/glassy senza duplicare regole per-tema.           */
 .nav-icon-svg {
   /* box-sizing:border-box → il padding del chip resta dentro i 17px originali,
      così l'ingombro totale dell'icona è identico a prima (glifo ~11px + chip). */
@@ -2190,11 +2183,10 @@ tr.tx-selected td { background:rgba(124,124,255,.07); }
 }
 [data-theme="glassy"] .note-editor-quill { background:rgba(0,0,0,.18); }
 
-/* Twilight: popup Quill vetro scuro opaco con blur (non hanno l'aurora dietro) */
-[data-theme="twilight"] .ql-snow .ql-picker-options,
-[data-theme="twilight"] .ql-snow .ql-tooltip {
-  background:rgba(20,22,42,.97) !important;
-  backdrop-filter:blur(16px) saturate(150%);
-  -webkit-backdrop-filter:blur(16px) saturate(150%);
+/* Chiaro: popup Quill bianchi opachi con ombra morbida */
+[data-theme="chiaro"] .ql-snow .ql-picker-options,
+[data-theme="chiaro"] .ql-snow .ql-tooltip {
+  background:#ffffff !important;
+  box-shadow:0 12px 32px rgba(40,40,80,.14);
 }
-[data-theme="twilight"] .note-editor-quill { background:rgba(18,20,40,.5); }
+[data-theme="chiaro"] .note-editor-quill { background:#f6f7fc; }

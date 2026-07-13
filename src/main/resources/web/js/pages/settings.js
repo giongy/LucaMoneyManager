@@ -158,7 +158,7 @@ async function renderSettings() {
           <div class="settings-control">
             <div style="display:flex;flex-direction:column;gap:10px">
               <div style="display:flex;gap:6px;flex-wrap:wrap">
-                ${[['dark','🌙 Scuro'],['glassy','🪟 Vetro'],['twilight','🌌 Twilight'],['carta','📜 Carta']].map(([key,label]) => `
+                ${[['dark','🌙 Scuro'],['glassy','🪟 Vetro'],['chiaro','☀️ Chiaro'],['carta','📜 Carta']].map(([key,label]) => `
                   <button class="btn theme-btn ${(s['appearance.theme']||'dark')===key?'theme-btn-active':''}"
                           onclick="settingsSetTheme('${key}')">${label}</button>
                   <button class="btn btn-ghost btn-icon" title="Duplica e personalizza" onclick="duplicateTheme('${key}')">⧉</button>`).join('')}
@@ -1027,11 +1027,11 @@ const _BUILTIN_VARS = {
     '--income':'#1e6b2e','--expense':'#b52a1a','--warn':'#7a5600',
     '--txt':'#241a08','--txt2':'#5c4a2c','--txt3':'#8a7860',
   },
-  twilight: {
-    '--bg':'#0c0e1c','--bg2':'#1c2039','--bg3':'#282c4e','--bg4':'#343a5f',
-    '--border':'#3a3a66','--accent':'#8b7dff','--accent2':'#34d3ee',
-    '--income':'#34d399','--expense':'#fb5e7d','--warn':'#fbbf4f',
-    '--txt':'#ecebff','--txt2':'#a9a6d4','--txt3':'#6d6a9e',
+  chiaro: {
+    '--bg':'#f2f3f9','--bg2':'#ffffff','--bg3':'#e9eaf3','--bg4':'#e2e3ef',
+    '--border':'#e0e1ec','--accent':'#7c6cff','--accent2':'#34c3a8',
+    '--income':'#2e9e57','--expense':'#e5484d','--warn':'#c98a12',
+    '--txt':'#2b2d42','--txt2':'#6b6e87','--txt3':'#9a9db3',
   },
 };
 
@@ -1113,7 +1113,7 @@ function _clearCustomVars() {
 
 // Applica un tema: built-in (data-theme) o personalizzato ("c:id" → variabili inline). Non persiste.
 function applyTheme(theme) {
-  if (theme === 'salvia' || theme === 'cristallo' || theme === 'nebula') theme = 'twilight'; // migrazione: Salvia→Cristallo→Nebula→Twilight
+  if (theme === 'salvia' || theme === 'cristallo' || theme === 'nebula' || theme === 'twilight') theme = 'chiaro'; // migrazione: Salvia→Cristallo→Nebula→Twilight→Chiaro
   _activeThemeKey = theme || 'dark';
   _clearCustomVars();
   if (theme && theme.startsWith('c:')) {
@@ -1121,7 +1121,7 @@ function applyTheme(theme) {
     document.documentElement.dataset.theme = '';
     if (ct) _applyCustomVars(ct);
   } else {
-    const valid = ['carta', 'twilight', 'glassy'];
+    const valid = ['carta', 'chiaro', 'glassy'];
     document.documentElement.dataset.theme = valid.includes(theme) ? theme : '';
   }
   _updateThemeBtn();
@@ -1164,7 +1164,7 @@ async function settingsSetTheme(theme) {
 const _THEME_CYCLE = [
   { key: '',          icon: '🌙', label: 'Scuro' },
   { key: 'glassy',    icon: '🪟', label: 'Vetro' },
-  { key: 'twilight',  icon: '🌌', label: 'Twilight' },
+  { key: 'chiaro',    icon: '☀️', label: 'Chiaro' },
   { key: 'carta',     icon: '📜', label: 'Carta' },
 ];
 
@@ -1205,7 +1205,7 @@ function duplicateTheme(sourceKey) {
     if (!ct) return;
     base = { ...ct, id: Date.now().toString(36), name: ct.name + ' (copia)', vars: { ...ct.vars } };
   } else {
-    const names = { dark: 'Scuro', carta: 'Carta', twilight: 'Twilight' };
+    const names = { dark: 'Scuro', carta: 'Carta', chiaro: 'Chiaro' };
     base = {
       id: Date.now().toString(36),
       name: (names[sourceKey] || 'Tema') + ' (copia)',

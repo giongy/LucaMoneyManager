@@ -10,7 +10,7 @@ Chart.defaults.animation.easing   = 'linear';
 const chartColors = () => {
   const t = document.documentElement.dataset.theme;
   if (t === 'carta') return { tick: '#8a7860', grid: 'rgba(0,0,0,0.05)' };
-  if (t === 'twilight') return { tick: '#a9a6d4', grid: 'rgba(150,140,235,0.12)' };
+  if (t === 'chiaro') return { tick: '#6b6e87', grid: 'rgba(60,60,110,0.08)' };
   return { tick: '#8b949e', grid: 'rgba(255,255,255,0.06)' };
 };
 

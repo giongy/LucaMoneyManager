@@ -197,7 +197,8 @@ function showDaTelefonoNotice(list, save=true) {
     () => {
       api.getTags().then(tags => {
         const tag = tags.find(t => t.system_key === 'phone');
-        txFilters = { range: 'all', tag_id: tag ? String(tag.id) : undefined };
+        const r = notifRange();
+        txFilters = { range: r, ...rangeToFilter(r), tag_id: tag ? String(tag.id) : undefined };
         navigate('transactions');
       });
     });
@@ -274,7 +275,7 @@ function showUnverifiedNotice(list, save=true) {
       ${list.length>4?`<div class="overdue-more">+ altre ${list.length-4}…</div>`:''}
     </div>
     <div class="overdue-notice-bar"><div class="overdue-notice-progress"></div></div>`,
-    () => { txFilters = { reconciled: 0, range: 'all' }; navigate('transactions'); });
+    () => { const r = notifRange(); txFilters = { reconciled: 0, range: r, ...rangeToFilter(r) }; navigate('transactions'); });
 }
 
 /* ─── Chart.js global font (allineato al body Segoe UI) ──────────────────── */
@@ -364,7 +365,8 @@ async function init() {
   if (s['fc.networth'])  _fcShowNetWorth = s['fc.networth'] === '1';
   if (s['cf.range'])     _cfRange    = s['cf.range'];
   if (s['cf.months'])    _cfMonths   = parseInt(s['cf.months'])   || 6;
-  if (s['tx.range'])              txFilters           = { range: s['tx.range'], ...rangeToFilter(s['tx.range']) };
+  seedRangeSettings(s);  // popola cache range per-conto/global/notif (migra 'tx.range' legacy)
+  { const r = preferredRange();  txFilters = { range: r, ...rangeToFilter(r) }; }  // vista iniziale = range global
   if (s['portfolio.active_only']) _portfolioActiveOnly = ['active','closed','all'].includes(s['portfolio.active_only']) ? s['portfolio.active_only'] : (s['portfolio.active_only'] !== '0' ? 'active' : 'all');
   // Modalità browser: aggiorna il toggle, avvia il polling di stato e blocca il
   // caricamento dati se DB chiuso

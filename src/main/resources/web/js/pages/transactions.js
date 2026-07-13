@@ -11,6 +11,51 @@
 
 let txFilters = { range: '30d' };
 
+// ── Preferenze range per contesto ──────────────────────────────────────────
+// Il timeframe non è più unico e globale: ogni conto ricorda il proprio range,
+// più uno per la vista "Tutti i conti" (global) e uno per le notifiche (notif).
+// Tutto persiste in app_settings (nessuna colonna nuova):
+//   tx.range.global        → vista senza conto selezionato
+//   tx.range.acct.<id>     → range memorizzato per un conto specifico
+//   tx.range.notif         → range usato dalle notifiche (default 'all')
+// La cache è seminata all'avvio da initApp (getSettings) e tenuta in sync ad
+// ogni salvataggio, così le letture sono sincrone.
+const RANGE_FALLBACK = '30d';
+let _rangeSettings = {};  // { 'tx.range.global': '14d', 'tx.range.acct.3': '3m', ... }
+
+// Popola la cache dai settings caricati all'avvio, migrando la vecchia chiave
+// 'tx.range' (globale unica) in 'tx.range.global' se quest'ultima manca.
+function seedRangeSettings(s) {
+  _rangeSettings = {};
+  Object.keys(s || {}).forEach(k => { if (k.startsWith('tx.range')) _rangeSettings[k] = s[k]; });
+  if (!_rangeSettings['tx.range.global'] && s && s['tx.range']) {
+    _rangeSettings['tx.range.global'] = s['tx.range'];
+    api.setSetting('tx.range.global', s['tx.range']);
+  }
+}
+
+// Chiave settings per il contesto (conto o vista globale).
+function rangeKeyFor(accountId) {
+  return accountId ? `tx.range.acct.${accountId}` : 'tx.range.global';
+}
+
+// Range preferito per un conto (o vista globale): chiave specifica → global → fallback.
+function preferredRange(accountId) {
+  return _rangeSettings[rangeKeyFor(accountId)] || _rangeSettings['tx.range.global'] || RANGE_FALLBACK;
+}
+
+// Range usato dalle notifiche: mostra di default TUTTO (così vedi anche tx vecchie),
+// senza mai toccare le preferenze di conto/globale.
+function notifRange() {
+  return _rangeSettings['tx.range.notif'] || 'all';
+}
+
+// Salva il range su una chiave settings, aggiornando cache + persistenza.
+function saveRangeSetting(key, range) {
+  _rangeSettings[key] = range;
+  api.setSetting(key, range);
+}
+
 // Totale mese corrente per conto carta di credito (mostrato in barra riepilogo).
 // null se il conto filtrato non è una carta. Persiste tra le riconciliazioni.
 let _txCreditMonth = null;
@@ -108,8 +153,10 @@ let _selectedTxId = null;
 let _selectedTxIds = new Set();  // multi-select per bulk operations
 
 // Apre la pagina Transazioni filtrata su un conto specifico (da sidebar/dashboard).
+// Carica il range memorizzato per quel conto (fallback: global → 30d).
 function navigateToAccountTx(accountId) {
-  txFilters = { range: txFilters.range, account_id: String(accountId) };
+  const range = preferredRange(accountId);
+  txFilters = { range, ...rangeToFilter(range), account_id: String(accountId) };
   if (currentPage === 'transactions') renderTransactions();
   else navigate('transactions');
 }
@@ -209,17 +256,19 @@ async function renderTransactions() {
     const range = document.getElementById('txRange').value;
     const from  = document.getElementById('txFrom').value;
     const to    = document.getElementById('txTo').value;
+    const accountId = document.getElementById('txAccount').value || undefined;
     txFilters = {
       range,
       ...rangeToFilter(range, from, to),
       type:        document.getElementById('txType').value,
-      account_id:  document.getElementById('txAccount').value   || undefined,
+      account_id:  accountId,
       category_id: document.getElementById('txCategory').value  || undefined,
       tag_id:         document.getElementById('txTag').value            || undefined,
       has_attachment: document.getElementById('txHasAttachment').value  || undefined,
       search:         document.getElementById('txSearch').value,
     };
-    api.setSetting('tx.range', range);
+    // Ricorda il range sulla chiave del contesto corrente (conto selezionato o global).
+    saveRangeSetting(rangeKeyFor(accountId), range);
     loadTxRows(categories, accounts);
   };
 

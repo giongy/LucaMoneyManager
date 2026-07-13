@@ -34,7 +34,8 @@ function navigate(page) {
 // navigate(undefined) svuoterebbe la pagina corrente senza attivarne una nuova.
 document.querySelectorAll('.nav-item[data-page]').forEach(el => {
   el.addEventListener('click', () => {
-    if (el.dataset.page === 'transactions') txFilters = { range: txFilters.range };
+    // Voce sidebar "Transazioni" (nessun conto) → vista global col suo range preferito.
+    if (el.dataset.page === 'transactions') { const r = preferredRange(); txFilters = { range: r, ...rangeToFilter(r) }; }
     if (el.dataset.page === 'budgets') _budgetTab = 'grid';
     navigate(el.dataset.page);
   });

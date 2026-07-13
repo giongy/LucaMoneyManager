@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Controller di layoutAnimation: applica item_fall_down a cascata (stagger) su tutti
+     gli item del RecyclerView, dall'alto verso il basso. -->
+<layoutAnimation xmlns:android="http://schemas.android.com/apk/res/android"
+    android:animation="@anim/item_fall_down"
+    android:delay="8%"
+    android:animationOrder="normal"/>

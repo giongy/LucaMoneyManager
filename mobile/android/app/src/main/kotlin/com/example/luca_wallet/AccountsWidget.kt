@@ -99,7 +99,7 @@ class AccountsWidget : AppWidgetProvider() {
                     views.setViewVisibility(ROW_IDS[i], View.VISIBLE)
                     views.setTextViewText(ICON_IDS[i], a.icon)
                     views.setTextViewText(NAME_IDS[i], a.name)
-                    views.setTextViewText(BAL_IDS[i], "${"%.2f".format(a.balance)} ${a.currency}")
+                    views.setTextViewText(BAL_IDS[i], Money.format(a.balance, a.currency))
                     val balColor = if (a.balance >= 0) Color.parseColor("#3fb950") else Color.parseColor("#f85149")
                     views.setTextColor(BAL_IDS[i], balColor)
                     val stripeColor = runCatching { Color.parseColor(a.color) }.getOrDefault(Color.parseColor("#58a6ff"))

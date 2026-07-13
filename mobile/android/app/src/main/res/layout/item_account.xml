@@ -5,49 +5,62 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:layout_marginBottom="10dp"
-    app:cardCornerRadius="12dp">
+    app:cardBackgroundColor="@color/surface"
+    app:cardCornerRadius="16dp"
+    app:cardElevation="0dp"
+    app:strokeColor="@color/stroke"
+    app:strokeWidth="1dp"
+    app:rippleColor="@color/accent">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal">
+        android:orientation="horizontal"
+        android:padding="14dp"
+        android:gravity="center_vertical">
 
-        <!-- Colored stripe from account color -->
-        <View
-            android:id="@+id/stripe"
-            android:layout_width="4dp"
-            android:layout_height="match_parent"/>
+        <!-- Emoji del conto dentro un cerchio tinto col colore del conto (runtime) -->
+        <TextView
+            android:id="@+id/tvIcon"
+            android:layout_width="46dp"
+            android:layout_height="46dp"
+            android:gravity="center"
+            android:textSize="22sp"
+            android:background="@drawable/bg_account_icon"/>
 
         <LinearLayout
-            android:layout_width="match_parent"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:padding="16dp"
-            android:gravity="center_vertical">
-
-            <TextView
-                android:id="@+id/tvIcon"
-                android:layout_width="44dp"
-                android:layout_height="44dp"
-                android:gravity="center"
-                android:textSize="22sp"/>
+            android:layout_weight="1"
+            android:layout_marginStart="14dp"
+            android:orientation="vertical">
 
             <TextView
                 android:id="@+id/tvName"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:layout_marginStart="14dp"
-                android:textSize="16sp"/>
-
-            <TextView
-                android:id="@+id/tvBalance"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:textColor="@color/text"
                 android:textSize="16sp"
                 android:textStyle="bold"/>
 
+            <TextView
+                android:id="@+id/tvCurrency"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="1dp"
+                android:textColor="@color/text_dim"
+                android:textSize="12sp"/>
+
         </LinearLayout>
+
+        <TextView
+            android:id="@+id/tvBalance"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:textSize="17sp"
+            android:textStyle="bold"/>
+
     </LinearLayout>
 
 </com.google.android.material.card.MaterialCardView>

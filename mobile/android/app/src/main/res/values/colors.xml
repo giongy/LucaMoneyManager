@@ -1,4 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="ic_launcher_background">#2E7D32</color>
+
+    <!-- ── Palette app (coerente col tema dark desktop: bg #0d1117, accento #58a6ff) ──
+         Centralizzata qui: prima questi valori erano ripetuti a mano in Kotlin e XML. -->
+    <color name="bg">#0d1117</color>          <!-- sfondo finestra -->
+    <color name="surface">#161b22</color>     <!-- card/superfici -->
+    <color name="surface2">#1c2128</color>    <!-- superfici più chiare / testo su ambra -->
+    <color name="stroke">#30363d</color>      <!-- bordi / stati disabilitati -->
+
+    <color name="accent">#58a6ff</color>      <!-- accento primario (= tag "Da Telefono") -->
+    <color name="positive">#3fb950</color>    <!-- saldo positivo -->
+    <color name="negative">#f85149</color>    <!-- saldo negativo -->
+    <color name="amber">#d29922</color>       <!-- bottone "Da importare" -->
+
+    <color name="text">#c9d1d9</color>        <!-- testo primario -->
+    <color name="text_dim">#8b949e</color>    <!-- testo secondario / disabilitato -->
 </resources>

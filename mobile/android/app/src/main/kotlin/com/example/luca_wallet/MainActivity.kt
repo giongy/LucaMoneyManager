@@ -5,7 +5,6 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.database.ContentObserver
-import android.graphics.Color
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -281,6 +280,9 @@ class MainActivity : AppCompatActivity() {
         accounts.clear()
         accounts.addAll(list)
         adapter.notifyDataSetChanged()
+        // Rilancia l'animazione di ingresso a cascata ad ogni ricarica (di default parte
+        // solo al primo attach): fa "ricadere" le card ad ogni refresh/swipe.
+        recyclerView.scheduleLayoutAnimation()
         fab.visibility = if (DbHelper.isConfigured) View.VISIBLE else View.GONE
         AccountsWidget.updateAll(this)
         updatePendingButton()
@@ -301,15 +303,15 @@ class MainActivity : AppCompatActivity() {
         if (count > 0) {
             fabPending.text = "Da importare ($count)"
             fabPending.isEnabled = true
-            fabPending.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#d29922")) // ambra
-            val fg = ColorStateList.valueOf(Color.parseColor("#1c2128"))                        // testo scuro
+            fabPending.backgroundTintList = colorStateList(R.color.amber)     // ambra
+            val fg = colorStateList(R.color.surface2)                          // testo scuro
             fabPending.setTextColor(fg)
             fabPending.iconTint = fg
         } else {
             fabPending.text = "Da importare"
             fabPending.isEnabled = false
-            fabPending.backgroundTintList = ColorStateList.valueOf(Color.parseColor("#30363d")) // grigio
-            val fg = ColorStateList.valueOf(Color.parseColor("#8b949e"))                        // grigio chiaro
+            fabPending.backgroundTintList = colorStateList(R.color.stroke)    // grigio
+            val fg = colorStateList(R.color.text_dim)                          // grigio chiaro
             fabPending.setTextColor(fg)
             fabPending.iconTint = fg
         }
@@ -317,4 +319,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun showToast(msg: String) =
         Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
+
+    /** ColorStateList da una risorsa colore (helper per i tint dei FAB). */
+    private fun colorStateList(colorRes: Int): ColorStateList =
+        ColorStateList.valueOf(ContextCompat.getColor(this, colorRes))
 }

@@ -13,29 +13,53 @@
 const _noticeData = []; // {type:'telefono'|'overdue'|'forecast'|'unverified', list}
 let _noticeDelay = 0; // stagger automatico tra notice successive
 
-/** Chiamata quando l'app torna visibile dal tray.
- *  Invalida i cache JS (il DB su OneDrive potrebbe essere cambiato),
- *  ricarica la pagina corrente e ricontrolla tutte le scadenze/notifiche. */
+/** Chiamata quando l'app torna visibile dal tray o dalla taskbar (l'utente era via).
+ *  Invalida i cache JS (il DB su OneDrive potrebbe essere cambiato), torna sulla
+ *  dashboard con dati freschi e ricontrolla tutte le scadenze/notifiche. */
 async function onTrayRestore() {
+  await _refreshFromExternalChange(true);
+}
+
+/** Chiamata quando il DB viene riaperto (dopo l'auto-release idle) e si rileva che
+ *  il file è stato modificato esternamente (sync OneDrive), MENTRE l'app è aperta e
+ *  in uso. A differenza del ripristino da tray, qui l'utente sta lavorando su una
+ *  pagina: NON deve essere spostato sulla dashboard. Refresh in place della pagina
+ *  corrente + ricontrollo notifiche. */
+async function onExternalDbChange() {
+  await _refreshFromExternalChange(false);
+}
+
+/** Logica condivisa di refresh dopo un possibile cambio del DB su OneDrive.
+ *  @param toDashboard true = torna sulla dashboard (ripristino da tray/taskbar);
+ *                     false = resta sulla pagina corrente (cambio idle in foreground). */
+async function _refreshFromExternalChange(toDashboard) {
   // Invalida cache in-session: il DB potrebbe essere stato sincronizzato da Android
   api._invalidateAccounts();
   api._invalidateCategories();
   api._invalidateTags();
-  // Al risveglio dal tray torna sempre sulla dashboard (con dati freschi).
-  // navigate() aggiorna sidebar/titolo e renderizza; se siamo già sulla dashboard
-  // la guardia interna blocca il navigate → forziamo comunque il render.
-  if (currentPage === 'dashboard') await renderPage('dashboard');
-  else navigate('dashboard');
+  if (toDashboard) {
+    // Ripristino dal tray/taskbar: torna sempre sulla dashboard (con dati freschi).
+    // navigate() aggiorna sidebar/titolo e renderizza; se siamo già sulla dashboard
+    // la guardia interna blocca il navigate → forziamo comunque il render.
+    if (currentPage === 'dashboard') await renderPage('dashboard');
+    else navigate('dashboard');
+  } else {
+    // App in foreground, utente al lavoro: ridisegna la pagina corrente senza spostarlo.
+    // renderPage() rilegge i dati dal DB appena risincronizzato.
+    try { await renderPage(currentPage); } catch(e) {}
+  }
   // Azzera le notice stale e ricontrolla tutto da zero
   _noticeData.length = 0;
   _noticeDelay = 0;
   // Importa la coda pendenti: al risveglio il DB può essere stato sincronizzato da OneDrive
   // con transazioni nuove dal telefono. Va PRIMA della notifica "da telefono".
+  // Niente toast "N importate": sarebbe ridondante con la notice "📱 …da telefono da
+  // controllare" qui sotto, che segnala le stesse transazioni in modo persistente e con
+  // i dettagli. Qui ci limitiamo a ridisegnare per aggiornare i saldi con le nuove transazioni.
   try {
     const importate = await api.importPending();
     if (importate && importate.length) {
-      toast(`Importate ${importate.length} transazion${importate.length===1?'e':'i'} dal telefono`, 'success');
-      await renderPage('dashboard');   // saldi aggiornati con le nuove transazioni
+      await renderPage(currentPage);   // saldi aggiornati con le nuove transazioni, sulla pagina corrente
     }
   } catch(e) {}
   try {

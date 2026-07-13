@@ -47,14 +47,27 @@ public class Database {
     // nel finally; il timer richiude solo quando torna a 0 (o si riprogramma se ancora in uso).
     private int activeQueries = 0;
     private java.util.TimerTask pendingRelease;
-    private volatile boolean autoReleaseEnabled = true;
+    // Default false: mentre l'app è aperta in foreground sei l'unico a scrivere (il telefono
+    // accoda su pending.jsonl, non tocca il DB), quindi tenere il lock non crea conflitti e il
+    // rilascio idle a metà lavoro causava refresh a sorpresa. L'auto-release si abilita solo
+    // quando la finestra va in background (minimizzata/tray, vedi MainWindow.windowIconified/
+    // windowClosing) e si ridisabilita al ritorno in foreground. Backup/reconnect lo
+    // disabilitano/riabilitano temporaneamente salvando il valore precedente.
+    private volatile boolean autoReleaseEnabled = false;
 
     // Rilevamento modifiche esterne: quando la connessione viene chiusa (idle/tray/iconify)
-    // salviamo l'mtime del file. Alla riapertura via ensureOpen() lo confrontiamo: se OneDrive
-    // ha sostituito il file (modifica dal telefono/altro PC) l'mtime cambia → invochiamo
+    // salviamo mtime + dimensione del file. Alla riapertura via ensureOpen() li confrontiamo:
+    // se OneDrive ha sostituito il file (modifica dal telefono/altro PC) cambiano → invochiamo
     // externalChangeCallback che fa ricaricare i dati nel frontend. Copre il caso "app in primo
     // piano ferma mentre il telefono scrive", che non genera alcun evento di finestra.
+    // La dimensione oltre all'mtime taglia i falsi positivi: OneDrive spesso "tocca" il file
+    // (re-touch dell'mtime, re-download identico) senza cambiarne il contenuto → mtime diverso
+    // ma size uguale ⇒ nessun refresh a sorpresa. Consideriamo modifica esterna solo se cambia
+    // almeno la dimensione (un cambio reale di dati SQLite quasi sempre cambia la size del file;
+    // per gli edge case a size identica il refresh in place della pagina resta comunque corretto
+    // ma non lo forziamo, per non disturbare l'utente su ogni tocco di OneDrive).
     private long lastClosedMtime = -1;
+    private long lastClosedSize  = -1;
     private Runnable externalChangeCallback;
 
     /** Apre il DB e prepara lo schema: crea tabelle, applica migrazioni e dati di default. */
@@ -111,7 +124,9 @@ public class Database {
     public void close() throws SQLException {
         if (conn != null && !conn.isClosed()) {
             conn.close();
-            lastClosedMtime = fileMtime();  // baseline per rilevare modifiche esterne alla riapertura
+            // baseline per rilevare modifiche esterne alla riapertura (mtime + dimensione)
+            lastClosedMtime = fileMtime();
+            lastClosedSize  = fileSize();
         }
     }
 
@@ -142,6 +157,12 @@ public class Database {
         catch (IOException e) { return -1; }
     }
 
+    /** Dimensione del file DB in byte, o -1 se non leggibile. */
+    private long fileSize() {
+        try { return Files.size(Path.of(currentDbPath)); }
+        catch (IOException e) { return -1; }
+    }
+
     /**
      * Garantisce che la connessione sia aperta prima di ogni accesso JDBC e
      * riarma il timer di rilascio idle. Chiamato all'inizio di ogni helper
@@ -149,19 +170,32 @@ public class Database {
      * trasparente la riapertura dopo che il DB è stato chiuso per la sync OneDrive,
      * così l'auto-release non provoca mai una SQLException nel frontend.
      *
-     * Alla riapertura confronta l'mtime del file con quello salvato alla chiusura:
-     * se differisce, OneDrive ha sostituito il file (modifica da telefono/altro PC) e
-     * invoca externalChangeCallback per far ricaricare i dati stale nel frontend.
+     * Alla riapertura confronta dimensione + mtime del file con i valori salvati alla chiusura:
+     * consideriamo modifica esterna reale solo se cambia la DIMENSIONE (un cambio di dati SQLite
+     * quasi sempre altera la size del file), così i "tocchi" di OneDrive che aggiornano solo
+     * l'mtime senza cambiare il contenuto non generano falsi refresh. Se rilevata, invoca
+     * externalChangeCallback per far ricaricare i dati stale nel frontend.
      */
     private synchronized void ensureOpen() throws SQLException {
         if (!isOpen()) {
             conn = openConnection(currentDbPath);
             manuallyClosed = false;  // riaperto (da una query): non più "chiuso a mano"
-            if (lastClosedMtime > 0 && fileMtime() != lastClosedMtime) {
-                logger.log("DB MODIFICATO ESTERNAMENTE", "sync OneDrive rilevata alla riapertura");
+            boolean sizeChanged  = lastClosedSize  > 0 && fileSize()  != lastClosedSize;
+            boolean mtimeChanged = lastClosedMtime > 0 && fileMtime() != lastClosedMtime;
+            if (sizeChanged) {
+                logger.log("DB MODIFICATO ESTERNAMENTE",
+                    "sync OneDrive rilevata alla riapertura (dimensione cambiata)");
                 lastClosedMtime = -1;  // consuma l'evento: evita callback ripetuti
+                lastClosedSize  = -1;
                 Runnable cb = externalChangeCallback;
                 if (cb != null) cb.run();
+            } else if (mtimeChanged) {
+                // mtime cambiato ma size identica: quasi certamente un tocco di OneDrive senza
+                // modifiche reali. Non facciamo refresh; logghiamo solo per diagnostica.
+                logger.log("DB TOCCO ESTERNO",
+                    "mtime cambiato ma dimensione invariata: nessun refresh (probabile touch OneDrive)");
+                lastClosedMtime = -1;
+                lastClosedSize  = -1;
             }
         }
         scheduleIdleRelease();

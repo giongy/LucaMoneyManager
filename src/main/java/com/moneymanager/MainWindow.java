@@ -111,6 +111,9 @@ public class MainWindow {
                 // Se il tray è attivo, pulisci lo stato di sessione, chiudi il DB e nascondi
                 if (TrayManager.isActive()) {
                     bridge.clearSessionState();
+                    // In background (tray): abilita l'auto-release così eventuali query mentre
+                    // l'app è nascosta non tornano a tenere il lock, e chiudi subito il DB.
+                    db.setAutoRelease(true);
                     try { db.close(); } catch (Exception ex) {
                         System.err.println("Errore chiusura DB al tray: " + ex.getMessage());
                     }
@@ -127,7 +130,10 @@ public class MainWindow {
                 // Finestra minimizzata = l'utente non sta usando l'app: rilascia subito il
                 // lock sul file DB così OneDrive può sincronizzare le modifiche del telefono
                 // senza generare un file di conflitto. La prossima query riaprirà la
-                // connessione in modo trasparente (Database.ensureOpen()).
+                // connessione in modo trasparente (Database.ensureOpen()). Abilita anche
+                // l'auto-release idle: se mentre è minimizzata partono query in background,
+                // il lock viene rilasciato di nuovo dopo l'inattività invece di restare preso.
+                db.setAutoRelease(true);
                 try { db.close(); } catch (Exception ex) {
                     System.err.println("Errore chiusura DB su iconify: " + ex.getMessage());
                 }
@@ -141,6 +147,9 @@ public class MainWindow {
                 // la dashboard mostrerebbe importi stale. onTrayRestore() invalida i cache,
                 // ridisegna la pagina corrente e ricontrolla le notifiche. Stessa logica di
                 // bringToFront() dal tray, qui per il ripristino via taskbar.
+                // Tornati in foreground: disabilita l'auto-release, il lock resta preso finché
+                // l'utente lavora (niente rilasci idle a metà lavoro con refresh a sorpresa).
+                db.setAutoRelease(false);
                 browser.executeJavaScript(
                     "if(typeof onTrayRestore==='function') onTrayRestore();", "", 0);
             }
@@ -200,6 +209,9 @@ public class MainWindow {
     /** Riapre il DB, porta la finestra in primo piano e aggiorna il frontend.
      *  Usato dal tray dopo che il DB era stato chiuso per permettere la sync OneDrive. */
     public void bringToFront() {
+        // Tornati in foreground dal tray: il lock resta preso finché l'utente lavora
+        // (niente auto-release idle a metà lavoro). Speculare a windowDeiconified.
+        db.setAutoRelease(false);
         try { db.reopen(); } catch (Exception e) {
             System.err.println("Errore riapertura DB dal tray: " + e.getMessage());
         }
@@ -214,17 +226,21 @@ public class MainWindow {
         browser.executeJavaScript("if(typeof onTrayRestore==='function') onTrayRestore();", "", 0);
     }
 
-    /** Innesca nel frontend l'invalidazione cache + refresh (onTrayRestore), quando il DB
-     *  è stato modificato esternamente da OneDrive mentre l'app era in idle. Chiamato da
-     *  Database.ensureOpen() via callback: disaccoppiato con invokeLater per non eseguire
-     *  JS in modo rientrante durante il dispatch della query che ha riaperto la connessione. */
+    /** Innesca nel frontend l'invalidazione cache + refresh, quando il DB è stato modificato
+     *  esternamente da OneDrive mentre l'app era in idle (auto-release) ma la finestra è aperta
+     *  e l'utente sta lavorando. Usa onExternalDbChange() — che ridisegna la pagina CORRENTE,
+     *  senza spostare l'utente sulla dashboard (a differenza di onTrayRestore, riservato al
+     *  ripristino da tray/taskbar). Chiamato da Database.ensureOpen() via callback: disaccoppiato
+     *  con invokeLater per non eseguire JS in modo rientrante durante il dispatch della query che
+     *  ha riaperto la connessione. */
     public void notifyExternalDbChange() {
         SwingUtilities.invokeLater(() ->
-            browser.executeJavaScript("if(typeof onTrayRestore==='function') onTrayRestore();", "", 0));
+            browser.executeJavaScript("if(typeof onExternalDbChange==='function') onExternalDbChange();", "", 0));
     }
 
     /** Ricarica la UI web (e riapre il DB se era stato chiuso dal tray). Usato dal menu tray. */
     public void reload() {
+        db.setAutoRelease(false);  // ricarica = torniamo attivi in foreground: niente auto-release idle
         try { db.reopen(); } catch (Exception e) {
             System.err.println("Errore riapertura DB dal tray (ricarica): " + e.getMessage());
         }

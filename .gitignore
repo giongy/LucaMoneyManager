@@ -9,6 +9,9 @@ dist/
 *.db-shm
 *.db-wal
 
+# Coda pendenti dal telefono (dati runtime locali, non in repo)
+pending.jsonl
+
 # Log di avvio
 *.log
 run*.log

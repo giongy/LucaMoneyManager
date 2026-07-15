@@ -315,20 +315,21 @@ function _renderSchedRows(scheds) {
     </tr>`).join('');
 }
 
+// Tutti i range partono SEMPRE da oggi (è una proiezione: i mesi passati non hanno senso).
 const PROJ_RANGES = [
-  {v:'3m',       l:'Prossimi 3 mesi'},
-  {v:'6m',       l:'Prossimi 6 mesi'},
-  {v:'1y',       l:'Prossimo anno'},
-  {v:'2y',       l:'Prossimi 2 anni'},
-  {v:'ytd',      l:'Anno corrente'},
-  {v:'nxt_year', l:'Anno prossimo'},
-  {v:'custom',   l:'Personalizza…'},
+  {v:'6m',      l:'Prossimi 6 mesi'},
+  {v:'12m',     l:'Prossimi 12 mesi'},
+  {v:'eoy',     l:'Fino a fine anno'},
+  {v:'eoy_nxt', l:'Fino all\'anno prossimo'},
+  {v:'3y',      l:'Prossimi 3 anni'},
+  {v:'custom',  l:'Personalizza…'},
 ];
 let _projRange = '6m';
 let _projMonths = 6;
 let _projMode = 'monthly'; // 'monthly' | 'daily'
 
-// Converte un range di proiezione (3m/6m/1y/2y/ytd/nxt_year/custom) in {from_date, to_date}.
+// Converte un range di proiezione (6m/12m/eoy/eoy_nxt/3y/custom) in {from_date, to_date}.
+// Ogni range parte SEMPRE da oggi (proiezione futura: no mesi passati).
 // useMonthBoundaries=true per la vista mensile (fine mese); altrimenti vista daily.
 function projRangeToFilter(range, customMonths, useMonthBoundaries = false) {
   const today = new Date();
@@ -336,42 +337,23 @@ function projRangeToFilter(range, customMonths, useMonthBoundaries = false) {
   const localFmt = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   const y = today.getFullYear();
 
-  if (useMonthBoundaries) {
-    // Mensile: parte sempre da oggi (saldo reale attuale), arriva alla fine dell'N-esimo mese
-    // Mostra un punto per fine mese → N punti totali
-    // Stessa data di fine del daily: oggi + N mesi
-    let n;
-    switch(range) {
-      case '3m':       n = 3;  break;
-      case '6m':       n = 6;  break;
-      case '1y':       n = 12; break;
-      case '2y':       n = 24; break;
-      case 'ytd':      return { from_date: `${y}-01-01`, to_date: `${y}-12-31` };
-      case 'nxt_year': return { from_date: `${y+1}-01-01`, to_date: `${y+1}-12-31` };
-      case 'custom':   n = parseInt(customMonths)||6; break;
-      default:         n = 6;
-    }
-    const end = new Date(today); end.setMonth(end.getMonth() + n);
-    const eom = new Date(end.getFullYear(), end.getMonth() + 1, 0); // fine del mese di arrivo
-    return { from_date: localFmt(today), to_date: localFmt(eom) };
-  }
+  // "Fino a fine anno": oggi → 31 dicembre dell'anno indicato (0 = corrente, 1 = prossimo)
+  if (range === 'eoy')     return { from_date: localFmt(today), to_date: `${y}-12-31` };
+  if (range === 'eoy_nxt') return { from_date: localFmt(today), to_date: `${y+1}-12-31` };
 
-  // Daily: parte da oggi, fine arrotondata a fine mese di arrivo
-  const addEom = months => {
-    const d = new Date(today); d.setMonth(d.getMonth() + months);
-    return new Date(d.getFullYear(), d.getMonth() + 1, 0);
-  };
+  // Range espressi in mesi da oggi
+  let n;
   switch(range) {
-    case '3m':       return { from_date: localFmt(today), to_date: localFmt(addEom(3)) };
-    case '6m':       return { from_date: localFmt(today), to_date: localFmt(addEom(6)) };
-    case '1y':       return { from_date: localFmt(today), to_date: localFmt(addEom(12)) };
-    case '2y':       return { from_date: localFmt(today), to_date: localFmt(addEom(24)) };
-    case 'ytd':      return { from_date: `${y}-01-01`, to_date: `${y}-12-31` };
-    case 'nxt_year': return { from_date: `${y+1}-01-01`, to_date: `${y+1}-12-31` };
-    case 'custom':   { const m = parseInt(customMonths)||6;
-                       return { from_date: localFmt(today), to_date: localFmt(addEom(m)) }; }
-    default:         return { from_date: localFmt(today), to_date: localFmt(addEom(6)) };
+    case '6m':     n = 6;   break;
+    case '12m':    n = 12;  break;
+    case '3y':     n = 36;  break;
+    case 'custom': n = parseInt(customMonths)||6; break;
+    default:       n = 6;
   }
+  // Sia mensile che daily: fine arrotondata alla fine del mese di arrivo (oggi + N mesi)
+  const end = new Date(today); end.setMonth(end.getMonth() + n);
+  const eom = new Date(end.getFullYear(), end.getMonth() + 1, 0); // fine del mese di arrivo
+  return { from_date: localFmt(today), to_date: localFmt(eom) };
 }
 
 // Tab "Proiezione Saldo": controlli (range, conti, mensile/giornaliero) + grafico del saldo
@@ -601,7 +583,7 @@ async function loadProjectionChart(accounts) {
   }
 }
 
-let _cfRange = '1y';
+let _cfRange = '12m';
 let _cfMonths = 6;
 let _cfAccSel = null;
 
@@ -657,7 +639,7 @@ async function renderSchedCashflow() {
 
 // Carica e disegna il grafico Flusso di Cassa (entrate vs uscite per mese) per i conti selezionati.
 async function loadCashflowChart() {
-  const range      = document.getElementById('cfRange')?.value || '1y';
+  const range      = document.getElementById('cfRange')?.value || '12m';
   const customMths = document.getElementById('cfMonths')?.value;
   const { from_date, to_date } = projRangeToFilter(range, customMths);
   if (!from_date || !to_date) return;

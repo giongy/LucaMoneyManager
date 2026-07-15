@@ -599,7 +599,12 @@ public class Database {
 
     // ─── Schema ───────────────────────────────────────────────────────────────
 
-    /** Crea tutte le tabelle (CREATE TABLE IF NOT EXISTS) e gli indici dello schema base. */
+    /**
+     * Crea l'intero schema v20 in un colpo (tutte le tabelle con le colonne finali + indici).
+     * Idempotente (CREATE ... IF NOT EXISTS): non tocca un DB già popolato alla v20.
+     * Le migrazioni storiche v1..v20 sono state consolidate qui; migrate() resta vuota,
+     * pronta ad accogliere eventuali aggiornamenti futuri (v21+).
+     */
     private void initSchema() throws SQLException {
         executePlain("""
             CREATE TABLE IF NOT EXISTS accounts (
@@ -612,29 +617,34 @@ public class Database {
                 icon            TEXT    DEFAULT '🏦',
                 is_favorite     INTEGER DEFAULT 0,
                 is_closed       INTEGER DEFAULT 0,
+                sort_order      INTEGER DEFAULT 0,
                 created_at      TEXT    DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE IF NOT EXISTS categories (
-                id         INTEGER PRIMARY KEY AUTOINCREMENT,
-                name       TEXT    NOT NULL,
-                type       TEXT    NOT NULL,
-                color      TEXT    DEFAULT '#58a6ff',
-                icon       TEXT    DEFAULT '📁',
-                is_default INTEGER DEFAULT 0,
-                parent_id  INTEGER REFERENCES categories(id) ON DELETE CASCADE,
-                created_at TEXT    DEFAULT CURRENT_TIMESTAMP
+                id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+                name                 TEXT    NOT NULL,
+                type                 TEXT    NOT NULL,
+                color                TEXT    DEFAULT '#58a6ff',
+                icon                 TEXT    DEFAULT '📁',
+                is_default           INTEGER DEFAULT 0,
+                parent_id            INTEGER REFERENCES categories(id) ON DELETE CASCADE,
+                expense_nature       TEXT,
+                excluded_from_budget INTEGER DEFAULT 0,
+                created_at           TEXT    DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE IF NOT EXISTS transactions (
-                id            INTEGER PRIMARY KEY AUTOINCREMENT,
-                date          TEXT    NOT NULL,
-                amount        REAL    NOT NULL,
-                type          TEXT    NOT NULL,
-                category_id   INTEGER REFERENCES categories(id) ON DELETE SET NULL,
-                account_id    INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-                to_account_id INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
-                description   TEXT    NOT NULL,
-                reconciled    INTEGER DEFAULT 1,
-                created_at    TEXT    DEFAULT CURRENT_TIMESTAMP
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                date            TEXT    NOT NULL,
+                amount          REAL    NOT NULL,
+                type            TEXT    NOT NULL,
+                category_id     INTEGER REFERENCES categories(id) ON DELETE SET NULL,
+                account_id      INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+                to_account_id   INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
+                description     TEXT    NOT NULL,
+                reconciled      INTEGER DEFAULT 1,
+                color           TEXT,
+                attachment_path TEXT,
+                created_at      TEXT    DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE IF NOT EXISTS transaction_splits (
                 id             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -659,15 +669,23 @@ public class Database {
                 PRIMARY KEY (category_id, year)
             );
             CREATE TABLE IF NOT EXISTS portfolio (
-                id            INTEGER PRIMARY KEY AUTOINCREMENT,
-                account_id    INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-                ticker        TEXT    NOT NULL,
-                name          TEXT    NOT NULL,
-                quantity      REAL    NOT NULL DEFAULT 0,
-                avg_price     REAL    NOT NULL DEFAULT 0,
-                current_price REAL    DEFAULT 0,
-                notes         TEXT,
-                created_at    TEXT    DEFAULT CURRENT_TIMESTAMP
+                id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_id         INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+                ticker             TEXT    NOT NULL,
+                name               TEXT    NOT NULL,
+                quantity           REAL    NOT NULL DEFAULT 0,
+                avg_price          REAL    NOT NULL DEFAULT 0,
+                current_price      REAL    DEFAULT 0,
+                notes              TEXT,
+                asset_type         TEXT    DEFAULT 'equity',
+                face_value         REAL    DEFAULT 1,
+                maturity_date      TEXT,
+                coupon_rate        REAL    DEFAULT 0,
+                coupon_frequency   TEXT,
+                coupon_tax         REAL    DEFAULT 12.5,
+                total_commissions  REAL    DEFAULT 0,
+                country            TEXT,
+                created_at         TEXT    DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE IF NOT EXISTS portfolio_transactions (
                 id             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -676,8 +694,9 @@ public class Database {
                 quantity       REAL    NOT NULL,
                 price          REAL    NOT NULL,
                 date           TEXT    NOT NULL,
-                transaction_id INTEGER REFERENCES transactions(id) ON DELETE SET NULL,
+                transaction_id INTEGER REFERENCES transactions(id) ON DELETE CASCADE,
                 notes          TEXT,
+                commission     REAL    DEFAULT 0,
                 created_at     TEXT    DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE IF NOT EXISTS tags (
@@ -696,20 +715,61 @@ public class Database {
         """);
         executePlain("""
             CREATE TABLE IF NOT EXISTS scheduled_transactions (
-                id            INTEGER PRIMARY KEY AUTOINCREMENT,
-                description   TEXT,
-                amount        REAL    NOT NULL,
-                type          TEXT    NOT NULL,
-                category_id   INTEGER REFERENCES categories(id) ON DELETE SET NULL,
-                account_id    INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-                to_account_id INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
-                frequency     TEXT    NOT NULL DEFAULT 'monthly',
-                start_date    TEXT    NOT NULL,
-                end_date      TEXT,
-                is_active     INTEGER DEFAULT 1,
-                color         TEXT,
-                reconciled    INTEGER DEFAULT 1,
-                created_at    TEXT    DEFAULT CURRENT_TIMESTAMP
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                description         TEXT,
+                amount              REAL    NOT NULL,
+                type                TEXT    NOT NULL,
+                category_id         INTEGER REFERENCES categories(id) ON DELETE SET NULL,
+                account_id          INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+                to_account_id       INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
+                frequency           TEXT    NOT NULL DEFAULT 'monthly',
+                start_date          TEXT    NOT NULL,
+                end_date            TEXT,
+                is_active           INTEGER DEFAULT 1,
+                color               TEXT,
+                reconciled          INTEGER DEFAULT 1,
+                portfolio_id        INTEGER REFERENCES portfolio(id) ON DELETE SET NULL,
+                original_start_date TEXT,
+                created_at          TEXT    DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS scheduled_transaction_tags (
+                scheduled_id INTEGER NOT NULL REFERENCES scheduled_transactions(id) ON DELETE CASCADE,
+                tag_id       INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+                PRIMARY KEY (scheduled_id, tag_id)
+            );
+            CREATE TABLE IF NOT EXISTS reports (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                name         TEXT    NOT NULL,
+                filters_json TEXT    NOT NULL DEFAULT '{}',
+                groupby      TEXT    NOT NULL DEFAULT 'none',
+                chart_type   TEXT    NOT NULL DEFAULT 'none',
+                created_at   TEXT    DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS forecasts (
+                id                INTEGER PRIMARY KEY AUTOINCREMENT,
+                created_at        TEXT    DEFAULT CURRENT_TIMESTAMP,
+                forecast_date     TEXT    NOT NULL,
+                projected_balance REAL    NOT NULL,
+                notes             TEXT,
+                archived          INTEGER DEFAULT 0
+            );
+            CREATE TABLE IF NOT EXISTS forecast_categories (
+                id               INTEGER PRIMARY KEY AUTOINCREMENT,
+                forecast_id      INTEGER NOT NULL REFERENCES forecasts(id) ON DELETE CASCADE,
+                category_id      INTEGER,
+                category_name    TEXT    NOT NULL,
+                category_type    TEXT    NOT NULL,
+                projected_amount REAL    NOT NULL DEFAULT 0
+            );
+            CREATE TABLE IF NOT EXISTS range_presets (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                label      TEXT    NOT NULL,
+                range_key  TEXT    NOT NULL UNIQUE,
+                sort_order INTEGER DEFAULT 0
+            );
+            CREATE TABLE IF NOT EXISTS app_settings (
+                key   TEXT PRIMARY KEY,
+                value TEXT NOT NULL DEFAULT ''
             );
             CREATE TABLE IF NOT EXISTS notes (
                 id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -727,172 +787,6 @@ public class Database {
                 PRIMARY KEY (note_id, tag_id)
             );
         """);
-    }
-
-    private static final int SCHEMA_VERSION = 20;
-
-    /**
-     * Migrazioni incrementali dello schema. Confronta la versione salvata in
-     * schema_version con SCHEMA_VERSION e applica i blocchi v1..v17 mancanti
-     * (ALTER TABLE, nuove tabelle, indici), poi aggiorna il numero di versione.
-     */
-    private void migrate() throws SQLException {
-        // Crea tabella versione se non esiste
-        executePlain("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL DEFAULT 0)");
-        Map<String, Object> vRow = queryOne("SELECT version FROM schema_version");
-        int currentVersion = vRow == null ? 0 : ((Number) vRow.get("version")).intValue();
-        if (currentVersion >= SCHEMA_VERSION) return; // già aggiornato, salta tutto
-
-        // ── v1: migrazioni iniziali ────────────────────────────────────────────
-        if (currentVersion < 1) {
-        // Aggiunge parent_id se il DB è stato creato prima di questa versione
-        try {
-            executePlain("ALTER TABLE categories ADD COLUMN parent_id INTEGER REFERENCES categories(id) ON DELETE CASCADE");
-        } catch (SQLException ignored) { /* colonna già presente */ }
-        // Unifica notes in description, poi rimuove la colonna notes
-        try {
-            executePlain("UPDATE transactions SET description = TRIM(COALESCE(NULLIF(TRIM(description),''), '') || CASE WHEN notes IS NOT NULL AND TRIM(notes)!='' THEN CASE WHEN TRIM(description)!='' THEN ' - ' ELSE '' END || notes ELSE '' END)");
-            executePlain("ALTER TABLE transactions DROP COLUMN notes");
-        } catch (SQLException ignored) { /* colonna già rimossa */ }
-        // Aggiunge colonna color alle transazioni (evidenziazione riga)
-        try {
-            executePlain("ALTER TABLE transactions ADD COLUMN color TEXT");
-        } catch (SQLException ignored) { /* già presente */ }
-        // Aggiunge colonna reconciled alle transazioni (conciliata/da verificare)
-        try {
-            executePlain("ALTER TABLE transactions ADD COLUMN reconciled INTEGER DEFAULT 1");
-            // Imposta tutte le transazioni esistenti come conciliate (default retroattivo)
-            executePlain("UPDATE transactions SET reconciled=1 WHERE reconciled IS NULL OR reconciled=0");
-        } catch (SQLException ignored) { /* già presente */ }
-        // Crea tabelle tag se non esistono (CREATE IF NOT EXISTS è idempotente)
-        executePlain("CREATE TABLE IF NOT EXISTS tags (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, color TEXT DEFAULT '#58a6ff', created_at TEXT DEFAULT CURRENT_TIMESTAMP)");
-        executePlain("CREATE TABLE IF NOT EXISTS transaction_tags (transaction_id INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE, tag_id INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE, PRIMARY KEY (transaction_id, tag_id))");
-        // scheduled_transactions (idempotente)
-        executePlain("""
-            CREATE TABLE IF NOT EXISTS scheduled_transactions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                description TEXT, amount REAL NOT NULL, type TEXT NOT NULL,
-                category_id INTEGER REFERENCES categories(id) ON DELETE SET NULL,
-                account_id INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-                to_account_id INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
-                frequency TEXT NOT NULL DEFAULT 'monthly',
-                start_date TEXT NOT NULL, end_date TEXT, is_active INTEGER DEFAULT 1,
-                color TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP
-            )
-        """);
-        // Rimuove scheduled_skips (non più usata — start_date viene avanzata direttamente)
-        try { executePlain("DROP TABLE IF EXISTS scheduled_skips"); } catch (SQLException ignored) {}
-        // Crea budget_config se non esiste
-        executePlain("""
-            CREATE TABLE IF NOT EXISTS budget_config (
-                category_id   INTEGER NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
-                year          INTEGER NOT NULL,
-                mode          TEXT    NOT NULL DEFAULT 'mensile',
-                master_amount REAL    NOT NULL DEFAULT 0,
-                PRIMARY KEY (category_id, year)
-            )
-        """);
-        // Aggiunge reconciled a scheduled_transactions
-        try {
-            executePlain("ALTER TABLE scheduled_transactions ADD COLUMN reconciled INTEGER DEFAULT 1");
-            executePlain("UPDATE scheduled_transactions SET reconciled=1 WHERE reconciled IS NULL");
-        } catch (SQLException ignored) {}
-        // Tabella tag per transazioni pianificate
-        executePlain("""
-            CREATE TABLE IF NOT EXISTS scheduled_transaction_tags (
-                scheduled_id INTEGER NOT NULL REFERENCES scheduled_transactions(id) ON DELETE CASCADE,
-                tag_id       INTEGER NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
-                PRIMARY KEY (scheduled_id, tag_id)
-            )
-        """);
-        // Aggiunge is_favorite e is_closed agli account
-        try { executePlain("ALTER TABLE accounts ADD COLUMN is_favorite  INTEGER DEFAULT 0"); } catch (SQLException ignored) {}
-        try { executePlain("ALTER TABLE accounts ADD COLUMN is_closed    INTEGER DEFAULT 0"); } catch (SQLException ignored) {}
-        try { executePlain("ALTER TABLE accounts ADD COLUMN sort_order   INTEGER DEFAULT 0"); } catch (SQLException ignored) {}
-        try { executePlain("UPDATE accounts SET sort_order = (SELECT COUNT(*) FROM accounts a2 WHERE a2.id <= accounts.id) WHERE sort_order = 0"); } catch (SQLException ignored) {}
-        // Portfolio redesign: drop old structure solo se non ancora migrato (assenza colonna avg_price)
-        boolean portfolioNeedsMigration = true;
-        try (var rs = conn.getMetaData().getColumns(null, null, "portfolio", "avg_price")) {
-            if (rs.next()) portfolioNeedsMigration = false;
-        } catch (SQLException ignored) {}
-        if (portfolioNeedsMigration) {
-            try { executePlain("DROP TABLE IF EXISTS portfolio_transactions"); } catch (SQLException ignored) {}
-            try { executePlain("DROP TABLE IF EXISTS portfolio"); } catch (SQLException ignored) {}
-        }
-        // Aggiungi colonne bond se mancanti (upgrade da versione precedente)
-        try { executePlain("ALTER TABLE portfolio ADD COLUMN asset_type TEXT DEFAULT 'equity'"); } catch (SQLException ignored) {}
-        try { executePlain("ALTER TABLE portfolio ADD COLUMN face_value REAL DEFAULT 1"); } catch (SQLException ignored) {}
-        try { executePlain("ALTER TABLE portfolio ADD COLUMN maturity_date TEXT"); } catch (SQLException ignored) {}
-        try { executePlain("ALTER TABLE portfolio ADD COLUMN coupon_rate REAL DEFAULT 0"); } catch (SQLException ignored) {}
-        try { executePlain("ALTER TABLE portfolio ADD COLUMN coupon_frequency TEXT"); } catch (SQLException ignored) {}
-        try { executePlain("ALTER TABLE portfolio ADD COLUMN coupon_tax REAL DEFAULT 12.5"); } catch (SQLException ignored) {}
-        try { executePlain("ALTER TABLE portfolio ADD COLUMN total_commissions REAL DEFAULT 0"); } catch (SQLException ignored) {}
-        try { executePlain("ALTER TABLE portfolio ADD COLUMN country TEXT"); } catch (SQLException ignored) {}
-        executePlain("""
-            CREATE TABLE IF NOT EXISTS portfolio (
-                id               INTEGER PRIMARY KEY AUTOINCREMENT,
-                account_id       INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
-                ticker           TEXT    NOT NULL,
-                name             TEXT    NOT NULL,
-                quantity         REAL    NOT NULL DEFAULT 0,
-                avg_price        REAL    NOT NULL DEFAULT 0,
-                current_price    REAL    DEFAULT 0,
-                notes            TEXT,
-                asset_type       TEXT    DEFAULT 'equity',
-                face_value       REAL    DEFAULT 1,
-                maturity_date    TEXT,
-                coupon_rate      REAL    DEFAULT 0,
-                coupon_frequency TEXT,
-                coupon_tax         REAL    DEFAULT 12.5,
-                total_commissions  REAL    DEFAULT 0,
-                country            TEXT,
-                created_at         TEXT    DEFAULT CURRENT_TIMESTAMP
-            )
-        """);
-        executePlain("""
-            CREATE TABLE IF NOT EXISTS portfolio_transactions (
-                id             INTEGER PRIMARY KEY AUTOINCREMENT,
-                portfolio_id   INTEGER NOT NULL REFERENCES portfolio(id) ON DELETE CASCADE,
-                type           TEXT    NOT NULL,
-                quantity       REAL    NOT NULL,
-                price          REAL    NOT NULL,
-                date           TEXT    NOT NULL,
-                transaction_id INTEGER REFERENCES transactions(id) ON DELETE SET NULL,
-                notes          TEXT,
-                created_at     TEXT    DEFAULT CURRENT_TIMESTAMP
-            )
-        """);
-        // Resoconti salvati
-        executePlain("""
-            CREATE TABLE IF NOT EXISTS reports (
-                id           INTEGER PRIMARY KEY AUTOINCREMENT,
-                name         TEXT    NOT NULL,
-                filters_json TEXT    NOT NULL DEFAULT '{}',
-                groupby      TEXT    NOT NULL DEFAULT 'none',
-                chart_type   TEXT    NOT NULL DEFAULT 'none',
-                created_at   TEXT    DEFAULT CURRENT_TIMESTAMP
-            )
-        """);
-        // Previsioni
-        executePlain("""
-            CREATE TABLE IF NOT EXISTS forecasts (
-                id                INTEGER PRIMARY KEY AUTOINCREMENT,
-                created_at        TEXT    DEFAULT CURRENT_TIMESTAMP,
-                forecast_date     TEXT    NOT NULL,
-                projected_balance REAL    NOT NULL,
-                notes             TEXT
-            )
-        """);
-        executePlain("""
-            CREATE TABLE IF NOT EXISTS forecast_categories (
-                id               INTEGER PRIMARY KEY AUTOINCREMENT,
-                forecast_id      INTEGER NOT NULL REFERENCES forecasts(id) ON DELETE CASCADE,
-                category_id      INTEGER,
-                category_name    TEXT    NOT NULL,
-                category_type    TEXT    NOT NULL,
-                projected_amount REAL    NOT NULL DEFAULT 0
-            )
-        """);
 
         // ─── Indici per performance (idempotenti) ─────────────────────────────
         executePlain("CREATE INDEX IF NOT EXISTS idx_tx_date        ON transactions(date)");
@@ -905,197 +799,39 @@ public class Database {
         executePlain("CREATE INDEX IF NOT EXISTS idx_sched_active    ON scheduled_transactions(is_active)");
         executePlain("CREATE INDEX IF NOT EXISTS idx_tx_tags_tag     ON transaction_tags(tag_id)");
         executePlain("CREATE INDEX IF NOT EXISTS idx_portfolio_acc   ON portfolio(account_id)");
-        executePlain("PRAGMA optimize");
-        } // fine blocco v1
+        executePlain("CREATE INDEX IF NOT EXISTS idx_note_tags_tag   ON note_tags(tag_id)");
+        executePlain("CREATE INDEX IF NOT EXISTS idx_splits_tx        ON transaction_splits(transaction_id)");
+        executePlain("CREATE INDEX IF NOT EXISTS idx_porttx_tx        ON portfolio_transactions(transaction_id)");
 
-        // ── v2: tag di sistema ─────────────────────────────────────────────────
-        if (currentVersion < 2) {
-            try { executePlain("ALTER TABLE tags ADD COLUMN is_system INTEGER DEFAULT 0"); } catch (SQLException ignored) {}
-            ensureSystemTags();
-        }
-        // ── v3: system_key immutabile sui tag di sistema ───────────────────────
-        if (currentVersion < 3) {
-            try { executePlain("ALTER TABLE tags ADD COLUMN system_key TEXT"); } catch (SQLException ignored) {}
-            ensureSystemTags();
-        }
-        // ── v4: colonna archived sulle previsioni ───────────────────────────────
-        if (currentVersion < 4) {
-            try { executePlain("ALTER TABLE forecasts ADD COLUMN archived INTEGER DEFAULT 0"); } catch (SQLException ignored) {}
-        }
-        // ── v5: allegati sulle transazioni ──────────────────────────────────────
-        if (currentVersion < 5) {
-            try { executePlain("ALTER TABLE transactions ADD COLUMN attachment_path TEXT"); } catch (SQLException ignored) {}
-        }
-        // ── v6: range_presets personalizzati ────────────────────────────────────
-        if (currentVersion < 6) {
-            executePlain("""
-                CREATE TABLE IF NOT EXISTS range_presets (
-                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-                    label      TEXT    NOT NULL,
-                    range_key  TEXT    NOT NULL UNIQUE,
-                    sort_order INTEGER DEFAULT 0
-                )""");
-        }
+        // Tag di sistema (idempotente: INSERT OR IGNORE su system_key)
+        ensureSystemTags();
 
-        // ── v7: portfolio_transactions.transaction_id ON DELETE CASCADE ─────────
-        if (currentVersion < 7) {
-            executePlain("""
-                CREATE TABLE portfolio_transactions_new (
-                    id             INTEGER PRIMARY KEY AUTOINCREMENT,
-                    portfolio_id   INTEGER NOT NULL REFERENCES portfolio(id) ON DELETE CASCADE,
-                    type           TEXT    NOT NULL,
-                    quantity       REAL    NOT NULL,
-                    price          REAL    NOT NULL,
-                    date           TEXT    NOT NULL,
-                    transaction_id INTEGER REFERENCES transactions(id) ON DELETE CASCADE,
-                    notes          TEXT,
-                    created_at     TEXT    DEFAULT CURRENT_TIMESTAMP
-                )""");
-            executePlain("INSERT INTO portfolio_transactions_new SELECT * FROM portfolio_transactions");
-            executePlain("DROP TABLE portfolio_transactions");
-            executePlain("ALTER TABLE portfolio_transactions_new RENAME TO portfolio_transactions");
+        // DB nuovo (o già completo): allinea subito la versione allo schema corrente,
+        // così migrate() salta tutti gli aggiornamenti storici già inclusi qui sopra.
+        executePlain("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL DEFAULT 0)");
+        Map<String, Object> svRow = queryOne("SELECT version FROM schema_version");
+        if (svRow == null) {
+            executePlain("INSERT INTO schema_version(version) VALUES(" + SCHEMA_VERSION + ")");
         }
+    }
 
-        // ── v8: portfolio_id su scheduled_transactions ──────────────────────────
-        if (currentVersion < 8) {
-            try { executePlain("ALTER TABLE scheduled_transactions ADD COLUMN portfolio_id INTEGER REFERENCES portfolio(id) ON DELETE SET NULL"); } catch (SQLException ignored) {}
-        }
+    private static final int SCHEMA_VERSION = 20;
 
-        // ── v9: transazioni escluse dalla previsione saldo ──────────────────────
-        if (currentVersion < 9) {
-            executePlain("""
-                CREATE TABLE IF NOT EXISTS forecast_excluded (
-                    transaction_id INTEGER PRIMARY KEY REFERENCES transactions(id) ON DELETE CASCADE,
-                    ym             TEXT    NOT NULL,
-                    amount         REAL    NOT NULL,
-                    type           TEXT    NOT NULL
-                )""");
-        }
+    /**
+     * Migrazioni incrementali dello schema per DB creati con versioni precedenti.
+     * Lo schema completo fino alla v20 è ora consolidato in {@link #initSchema()};
+     * qui restano solo gli aggiornamenti futuri (v21+). initSchema() marca già i DB
+     * nuovi/completi come SCHEMA_VERSION, quindi il guard sotto li fa uscire subito.
+     */
+    private void migrate() throws SQLException {
+        // Crea tabella versione se non esiste
+        executePlain("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL DEFAULT 0)");
+        Map<String, Object> vRow = queryOne("SELECT version FROM schema_version");
+        int currentVersion = vRow == null ? 0 : ((Number) vRow.get("version")).intValue();
+        if (currentVersion >= SCHEMA_VERSION) return; // già aggiornato, salta tutto
 
-        // ── v10: semplifica forecast_excluded a solo transaction_id (JOIN su transactions) ──
-        if (currentVersion < 10) {
-            executePlain("DROP TABLE IF EXISTS forecast_excluded");
-            executePlain("""
-                CREATE TABLE forecast_excluded (
-                    transaction_id INTEGER PRIMARY KEY REFERENCES transactions(id) ON DELETE CASCADE
-                )""");
-        }
-
-        // ── v11: original_start_date su scheduled_transactions ──────────────
-        if (currentVersion < 11) {
-            try { executePlain("ALTER TABLE scheduled_transactions ADD COLUMN original_start_date TEXT"); } catch (SQLException ignored) {}
-            // Record esistenti: original_start_date=NULL → _countSchedYearOcc usa il fallback (proiezione storica)
-        }
-
-        // ── v12: impostazioni app nel DB ─────────────────────────────────────
-        if (currentVersion < 12) {
-            executePlain("""
-                CREATE TABLE IF NOT EXISTS app_settings (
-                    key   TEXT PRIMARY KEY,
-                    value TEXT NOT NULL DEFAULT ''
-                )""");
-        }
-
-        // ── v13: expense_nature su categories ───────────────────────────────
-        if (currentVersion < 13) {
-            try { executePlain("ALTER TABLE categories ADD COLUMN expense_nature TEXT"); } catch (SQLException ignored) {}
-        }
-
-        // ── v14: commission column su portfolio_transactions + backfill ─────
-        if (currentVersion < 14) {
-            try { executePlain("ALTER TABLE portfolio_transactions ADD COLUMN commission REAL DEFAULT 0"); } catch (SQLException ignored) {}
-            // Backfill commissioni di acquisto da notes "comm. X.XX"
-            var buyRows = queryList("SELECT id, notes FROM portfolio_transactions WHERE type='buy' AND notes LIKE 'comm.%'");
-            for (var b : buyRows) {
-                String notes = (String) b.get("notes");
-                try {
-                    String[] parts = notes.substring(5).trim().split("\\s+");
-                    double comm = Double.parseDouble(parts[0].replace(",", "."));
-                    execute("UPDATE portfolio_transactions SET commission=? WHERE id=?",
-                            comm, ((Number) b.get("id")).longValue());
-                } catch (Exception ignored) {}
-            }
-            // Commissioni di vendita: salvate come expense rows con notes='Commissione'
-            // (price contiene già l'importo); copiamo in commission per coerenza
-            executePlain("UPDATE portfolio_transactions SET commission=price WHERE type='expense' AND notes='Commissione' AND commission=0");
-            // NOTA: total_commissions NON viene ricalcolato. I valori esistenti potrebbero includere
-            // commissioni di posizioni importate via "Carica esistente" (che non creano pt rows),
-            // ricalcolare le perderebbe.
-        }
-
-        // ── v15: normalizza prezzi bond a forma percentuale (99.5 = 99.5%) ─
-        // Convenzione storica mista: alcuni bond avevano avg_price/current_price/pt.price
-        // salvati in forma decimale (0.995 = 99.5%) incompatibili con buyStock/scraper online
-        // che usano forma percentuale. Riconosciamo i decimali (< 5) e li moltiplichiamo per 100.
-        if (currentVersion < 15) {
-            // Posizioni bond con prezzi in forma decimale (es. 0.9394 → 93.94)
-            executePlain("UPDATE portfolio SET avg_price = avg_price * 100 WHERE asset_type='bond' AND avg_price > 0 AND avg_price < 5");
-            executePlain("UPDATE portfolio SET current_price = current_price * 100 WHERE asset_type='bond' AND current_price > 0 AND current_price < 5");
-            // Transazioni buy/sell di posizioni bond (price column conserva il prezzo in % al momento dell'operazione)
-            executePlain("""
-                UPDATE portfolio_transactions
-                SET price = price * 100
-                WHERE type IN ('buy','sell')
-                  AND price > 0 AND price < 5
-                  AND portfolio_id IN (SELECT id FROM portfolio WHERE asset_type='bond')
-            """);
-        }
-
-        // ── v16: tabella notes (note libere con formattazione + tag + colore) ─
-        if (currentVersion < 16) {
-            executePlain("""
-                CREATE TABLE IF NOT EXISTS notes (
-                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-                    title      TEXT    NOT NULL DEFAULT '',
-                    content    TEXT    NOT NULL DEFAULT '',
-                    color      TEXT    DEFAULT '',
-                    pinned     INTEGER DEFAULT 0,
-                    sort_order INTEGER DEFAULT 0,
-                    created_at TEXT    DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TEXT    DEFAULT CURRENT_TIMESTAMP
-                )
-            """);
-            executePlain("""
-                CREATE TABLE IF NOT EXISTS note_tags (
-                    note_id INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
-                    tag_id  INTEGER NOT NULL REFERENCES tags(id)  ON DELETE CASCADE,
-                    PRIMARY KEY (note_id, tag_id)
-                )
-            """);
-            executePlain("CREATE INDEX IF NOT EXISTS idx_note_tags_tag ON note_tags(tag_id)");
-        }
-
-        // ── v17: indici su transaction_id mancanti ─────────────────────────────
-        // SQLite NON indicizza automaticamente le foreign key: senza questi indici
-        // le numerose subquery correlate "WHERE ts.transaction_id=t.id" (aggregazioni
-        // budget/analytics) e i GROUP BY per transaction_id facevano una scansione
-        // completa delle tabelle per ogni transazione (O(N×M)).
-        if (currentVersion < 17) {
-            executePlain("CREATE INDEX IF NOT EXISTS idx_splits_tx  ON transaction_splits(transaction_id)");
-            executePlain("CREATE INDEX IF NOT EXISTS idx_porttx_tx  ON portfolio_transactions(transaction_id)");
-            executePlain("PRAGMA optimize");
-        }
-
-        // ── v18: tag di sistema RAGGRUPPATE (svecchiamento) ─────────────────────
-        if (currentVersion < 18) {
-            ensureSystemTags();
-        }
-
-        // ── v19: rimozione macchina esclusioni della Previsione Saldo ───────────
-        // Il motore Previsione Saldo è stato riscritto a decomposizione: usa la mediana
-        // (robusta agli outlier per natura), quindi le esclusioni manuali non servono più.
-        if (currentVersion < 19) {
-            executePlain("DROP TABLE IF EXISTS forecast_excluded");
-        }
-
-        // ── v20: flag "escludi da budget/report" su categories ──────────────────
-        // Categoria marcata come "neutra": le sue transazioni restano visibili e
-        // cercabili e muovono comunque il saldo del conto (i soldi escono/entrano
-        // davvero), ma NON vengono conteggiate in budget, report/analisi, dashboard
-        // (flussi income/expense) e previsioni. Uso tipico: addebito del capital gain.
-        if (currentVersion < 20) {
-            try { executePlain("ALTER TABLE categories ADD COLUMN excluded_from_budget INTEGER DEFAULT 0"); } catch (SQLException ignored) {}
-        }
+        // ── v21+: aggiungere qui i blocchi futuri, es.:
+        //   if (currentVersion < 21) { try { executePlain("ALTER TABLE ..."); } catch (SQLException ignored) {} }
 
         // Segna il DB come aggiornato all'ultima versione
         executePlain("DELETE FROM schema_version");

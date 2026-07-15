@@ -358,15 +358,6 @@ function _initGlobalTooltip() {
   });
 }
 
-// Migra i vecchi valori di range proiezione (3m/1y/2y/ytd/nxt_year) verso i nuovi
-// (proiezione sempre da oggi). Valori validi restano invariati.
-function _migrateProjRange(r) {
-  const map = { '3m':'6m', '1y':'12m', '2y':'3y', 'ytd':'eoy', 'nxt_year':'eoy_nxt' };
-  const valid = ['6m','12m','eoy','eoy_nxt','3y','custom'];
-  if (valid.includes(r)) return r;
-  return map[r] || '6m';
-}
-
 // Bootstrap dell'app: tooltip, icone, modalità browser/desktop, preferenze persistenti,
 // primo render (sidebar+dashboard), segnale uiReady a Java e controllo di tutte le notifiche.
 async function init() {
@@ -392,11 +383,11 @@ async function init() {
   if (s['appearance.theme']) applyTheme(s['appearance.theme']);
   if (s['accounts.favorites_only']) _accFavoritesOnly = s['accounts.favorites_only'] === '1';
   if (s['accounts.type_order']) { try { _accTypeOrder = JSON.parse(s['accounts.type_order']); } catch(e) {} }
-  if (s['proj.range'])   _projRange  = _migrateProjRange(s['proj.range']);
+  if (s['proj.range'])   _projRange  = s['proj.range'];
   if (s['proj.months'])  _projMonths = parseInt(s['proj.months']) || 6;
   if (s['proj.mode'])    _projMode   = s['proj.mode'];
   if (s['fc.networth'])  _fcShowNetWorth = s['fc.networth'] === '1';
-  if (s['cf.range'])     _cfRange    = _migrateProjRange(s['cf.range']);
+  if (s['cf.range'])     _cfRange    = s['cf.range'];
   if (s['cf.months'])    _cfMonths   = parseInt(s['cf.months'])   || 6;
   seedRangeSettings(s);  // popola cache range per-conto/global/notif (migra 'tx.range' legacy)
   { const r = preferredRange();  txFilters = { range: r, ...rangeToFilter(r) }; }  // vista iniziale = range global

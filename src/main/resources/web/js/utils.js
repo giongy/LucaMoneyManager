@@ -45,8 +45,10 @@ const isAccountActive  = a => !a.is_closed;
 /* ─── Calculator helper ────────────────────────────────────────────────────── */
 /** Valuta una semplice espressione +/- (es. "40+10.30", "100-49.70").
  *  Accetta sia virgola che punto come separatore decimale.
- *  Ritorna un Number >= 0 se valido, null altrimenti. */
-function evalAmount(raw) {
+ *  Ritorna un Number se valido, null altrimenti.
+ *  Di default rifiuta i risultati negativi (campi importo); passare
+ *  `allowNegative = true` (calcolatrice) per accettarli. */
+function evalAmount(raw, allowNegative = false) {
   if (!raw || !raw.toString().trim()) return null;
   const s = raw.toString().replace(/,/g, '.').replace(/\s/g, '');
   if (!/^[0-9+\-*/.][0-9+\-*/.]*$/.test(s)) return null;
@@ -70,7 +72,7 @@ function evalAmount(raw) {
     }
     result += sign * val;
   }
-  return result >= 0 ? result : null;
+  return (allowNegative || result >= 0) ? result : null;
 }
 
 /* ─── Utils ───────────────────────────────────────────────────────────────── */

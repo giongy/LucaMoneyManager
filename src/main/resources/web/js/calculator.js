@@ -28,7 +28,7 @@
   function _updatePreview() {
     const raw = _display.value.trim();
     if (!raw) { _preview.textContent = ''; return; }
-    const r = evalAmount(raw);
+    const r = evalAmount(raw, true);   // consenti risultati negativi in anteprima
     _preview.textContent = (r == null) ? '—' : fmt.currency(r);
   }
 
@@ -52,7 +52,7 @@
   // Valuta l'espressione e la sostituisce col risultato numerico (tasto =).
   // Ritorna il Number valutato, oppure null se l'espressione non è valida.
   function _evaluate() {
-    const r = evalAmount(_display.value);
+    const r = evalAmount(_display.value, true);   // consenti risultati negativi
     if (r == null) return null;
     // Numero "pulito": max 2 decimali, senza zeri superflui.
     _display.value = String(Math.round(r * 100) / 100);
@@ -66,6 +66,9 @@
   function _confirm() {
     const r = _evaluate();
     if (r == null) return;
+    // Un campo importo non accetta valori negativi: valuta e mostra il
+    // risultato, ma non confermarlo nel campo (l'utente vede l'anteprima).
+    if (r < 0) return;
     if (_targetInput) {
       _targetInput.value = _display.value;
       // Notifica la logica esistente (validazione, calcolo resto split, ecc.).

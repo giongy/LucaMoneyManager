@@ -427,13 +427,15 @@ async function renderDashboard() {
   const _sbAzioni   = (stats.invest_market_total || 0) - (stats.bond_market_total || 0);
   const _sbAltri    = stats.balance - (stats.invest_market_total || 0);
   const _sbTot100   = stats.balance - (stats.bond_market_total || 0) + _sbBondNom;
+  // Formato decimale it-IT senza simbolo € (per la riga di composizione del saldo).
+  const _sbFmt = v => new Intl.NumberFormat('it-IT', {minimumFractionDigits:2, maximumFractionDigits:2}).format(v ?? 0);
   document.getElementById('statsGrid').innerHTML = `
     <div class="stat-card stat-balance" ${_sbBondNom>0?`title="Saldo con bond a scadenza (a 100). Valore di mercato attuale: ${fmt.currency(stats.balance)}"`:''}>
       <div class="stat-label">💳 Saldo Totale</div>
       <div style="flex:1;display:flex;flex-direction:column;justify-content:center">
         <div class="stat-value">${fmt.currencyRich(_sbBondNom>0 ? _sbTot100 : stats.balance)}</div>
         <div class="stat-sub" style="color:var(--txt3)">${_sbBondNom>0
-          ? `bond a 100 ${fmt.currency(_sbBondNom)} + azioni ${fmt.currency(_sbAzioni)} + altri conti ${fmt.currency(_sbAltri)}`
+          ? `bond(100%): ${_sbFmt(_sbBondNom)} + azioni: ${_sbFmt(_sbAzioni)} + altri conti: ${_sbFmt(_sbAltri)}`
           : 'Tutti i conti'}</div>
       </div>
     </div>

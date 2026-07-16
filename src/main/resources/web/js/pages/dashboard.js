@@ -106,8 +106,9 @@ function _renderDashBudgetBubbles(budgetYear) {
         : (c.actual < c.budget ? 'var(--income)' : c.actual > c.budget ? 'var(--expense)' : 'var(--txt3)');
 
     const hexColor = c.color?.startsWith('#') ? c.color : null;
-    // Colore di riempimento barra: rosso se "bad", altrimenti colore categoria (o accent), trasparente se 0.
-    const barColor = bad ? 'var(--expense)' : c.actual > 0 ? (hexColor || 'var(--accent)') : 'transparent';
+    // Colore di riempimento barra: sempre il colore categoria (o accent) anche se sforato;
+    // lo sforamento è segnalato dal bordo rosso della card, non dal colore della barra.
+    const barColor = c.actual > 0 ? (hexColor || 'var(--accent)') : 'transparent';
 
     const catLine   = c.parent_name ? `${c.parent_name} : ${c.name}` : c.name;
     const remaining = c.budget > 0
@@ -120,7 +121,10 @@ function _renderDashBudgetBubbles(budgetYear) {
       ? `<span class="bbar-pct" style="color:${bad ? 'var(--expense)' : 'var(--txt3)'}">${pctLbl}%</span>`
       : '';
 
-    return `<div class="bbar" onclick="_dashBubbleDetail(${c.id})"
+    // Sforato/sotto target: sottile bordo rosso attorno alla card (il colore resta quello della categoria).
+    const badClass = bad ? ' bbar-over' : '';
+
+    return `<div class="bbar${badClass}" onclick="_dashBubbleDetail(${c.id})"
         data-tt-cat="${hesc(catLine)}"
         data-tt-budget="${hesc((c.budget > 0 || c.actual > 0) ? fmt.currency(c.budget) : '—')}"
         data-tt-actual="${hesc(fmt.currency(c.actual))}"

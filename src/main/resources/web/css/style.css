@@ -705,8 +705,8 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 /* Overlay del popup calcolatrice */
 .calc-overlay {
   position:fixed; inset:0; z-index:10050;               /* sopra al modal (9999) */
-  background:rgba(0,0,0,.35); backdrop-filter:blur(2px);
   display:none; align-items:center; justify-content:center;
+  pointer-events:none;   /* trasparente ai click: si interagisce con ciò che c'è sotto */
 }
 .calc-overlay.open { display:flex; }
 
@@ -714,9 +714,13 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
   width:264px; background:var(--bg2); border:1px solid var(--border);
   border-radius:var(--radius); box-shadow:var(--shadow);
   padding:12px; user-select:none;
+  pointer-events:auto;   /* ma il pannello sì, resta cliccabile */
+  position:absolute;     /* posizione libera per il drag (impostata via JS) */
 }
-.calc-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
+/* Barra del titolo = maniglia per trascinare il pannello sullo schermo. */
+.calc-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; cursor:move; }
 .calc-title { font-size:var(--fs-md,12px); font-weight:600; color:var(--txt2); }
+.calc-title { cursor:move; }
 .calc-close {
   background:transparent; border:none; color:var(--txt3); cursor:pointer;
   font-size:14px; line-height:1; padding:2px 5px; border-radius:5px; transition:all .15s;

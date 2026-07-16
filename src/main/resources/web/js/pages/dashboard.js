@@ -421,13 +421,19 @@ async function renderDashboard() {
   const navStyle   = `cursor:pointer`;
 
   // Stat cards (con sparkline a destra del numero e trend YoY)
+  // Composizione del Saldo Totale (bond a 100): bond a scadenza + azioni a mercato + altri conti (liquidità).
+  // azioni a mercato = valore mercato investimenti − valore mercato bond; altri conti = saldo totale − investimenti a mercato.
+  const _sbBondNom  = stats.bond_nominal_total || 0;
+  const _sbAzioni   = (stats.invest_market_total || 0) - (stats.bond_market_total || 0);
+  const _sbAltri    = stats.balance - (stats.invest_market_total || 0);
+  const _sbTot100   = stats.balance - (stats.bond_market_total || 0) + _sbBondNom;
   document.getElementById('statsGrid').innerHTML = `
-    <div class="stat-card stat-balance" ${stats.bond_nominal_total>0?`title="Saldo con bond a scadenza (a 100). Valore di mercato attuale: ${fmt.currency(stats.balance)}"`:''}>
+    <div class="stat-card stat-balance" ${_sbBondNom>0?`title="Saldo con bond a scadenza (a 100). Valore di mercato attuale: ${fmt.currency(stats.balance)}"`:''}>
       <div class="stat-label">💳 Saldo Totale</div>
       <div style="flex:1;display:flex;flex-direction:column;justify-content:center">
-        <div class="stat-value">${fmt.currencyRich(stats.bond_nominal_total>0 ? (stats.balance - (stats.bond_market_total||0) + stats.bond_nominal_total) : stats.balance)}</div>
-        <div class="stat-sub">${stats.bond_nominal_total>0
-          ? `Tutti i conti · <span style="color:var(--txt3)">valore reale ${fmt.currency(stats.balance)}</span>`
+        <div class="stat-value">${fmt.currencyRich(_sbBondNom>0 ? _sbTot100 : stats.balance)}</div>
+        <div class="stat-sub" style="color:var(--txt3)">${_sbBondNom>0
+          ? `bond a 100 ${fmt.currency(_sbBondNom)} + azioni ${fmt.currency(_sbAzioni)} + altri conti ${fmt.currency(_sbAltri)}`
           : 'Tutti i conti'}</div>
       </div>
     </div>

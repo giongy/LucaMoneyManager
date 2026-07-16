@@ -22,6 +22,7 @@
   let _display    = null;   // <input> del display espressione
   let _preview    = null;   // riga anteprima risultato
   let _targetInput = null;  // campo importo agganciato (null in standalone)
+  let _pos        = null;   // {left, top} posizione salvata del pannello (null = da centrare)
 
   // ─── Anteprima / valutazione ───────────────────────────────────────────────
   // Aggiorna la riga di anteprima col risultato dell'espressione corrente.
@@ -87,8 +88,9 @@
     const overlay = document.createElement('div');
     overlay.className = 'calc-overlay';
     overlay.id = 'calcOverlay';
-    // Click fuori dal pannello → chiudi.
-    overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) close(); });
+    // Nota: l'overlay è pointer-events:none (vedi CSS) così i click "passano"
+    // agli elementi sottostanti e si può lavorare vedendo cosa c'è sotto.
+    // Di conseguenza non c'è più chiusura "click fuori": si chiude con ✕ o Esc.
 
     _panel = document.createElement('div');
     _panel.className = 'calc-panel';
@@ -152,6 +154,44 @@
       // evalAmount accetta comunque entrambe, ma teniamo il display pulito.
       _updatePreview();
     });
+
+    _enableDrag();
+  }
+
+  // ─── Trascinamento del pannello ─────────────────────────────────────────────
+  // La barra del titolo (.calc-head) fa da maniglia. Il ✕ è escluso (è un bottone).
+  // La posizione scelta viene ricordata in _pos e riusata alle aperture successive.
+  function _enableDrag() {
+    const head = _panel.querySelector('.calc-head');
+    let startX, startY, startLeft, startTop, dragging = false;
+
+    const onMove = (e) => {
+      if (!dragging) return;
+      // Mantieni il pannello dentro il viewport.
+      const maxLeft = window.innerWidth  - _panel.offsetWidth;
+      const maxTop  = window.innerHeight - _panel.offsetHeight;
+      const left = Math.max(0, Math.min(maxLeft, startLeft + (e.clientX - startX)));
+      const top  = Math.max(0, Math.min(maxTop,  startTop  + (e.clientY - startY)));
+      _pos = { left, top };
+      _panel.style.left = left + 'px';
+      _panel.style.top  = top  + 'px';
+    };
+    const onUp = () => {
+      dragging = false;
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+
+    head.addEventListener('mousedown', (e) => {
+      if (e.target.closest('.calc-close')) return;   // il ✕ non avvia il drag
+      e.preventDefault();
+      const r = _panel.getBoundingClientRect();
+      startX = e.clientX; startY = e.clientY;
+      startLeft = r.left;  startTop = r.top;
+      dragging = true;
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
   }
 
   // Traduce un data-k (o tasto fisico) in azione sul display.
@@ -209,6 +249,19 @@
     _panel.classList.toggle('calc-standalone', !_targetInput);
 
     document.getElementById('calcOverlay').classList.add('open');
+
+    // Posiziona il pannello: riusa la posizione scelta dall'utente (drag) se presente,
+    // altrimenti lo centra nel viewport. Fatto dopo l'add di 'open' così offsetWidth è valido.
+    if (_pos) {
+      _panel.style.left = _pos.left + 'px';
+      _panel.style.top  = _pos.top  + 'px';
+    } else {
+      const left = Math.max(0, (window.innerWidth  - _panel.offsetWidth)  / 2);
+      const top  = Math.max(0, (window.innerHeight - _panel.offsetHeight) / 2);
+      _panel.style.left = left + 'px';
+      _panel.style.top  = top  + 'px';
+    }
+
     // Focus sul display: consente subito la digitazione da tastierino numerico.
     setTimeout(() => { _display.focus(); _display.select(); }, 20);
   }

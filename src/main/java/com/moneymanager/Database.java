@@ -3620,7 +3620,13 @@ public class Database {
                               THEN p.quantity * COALESCE(NULLIF(p.current_price,0), p.avg_price) / 100.0
                               ELSE 0 END)
                               FROM portfolio p WHERE p.account_id = a.id), 0)
-                    ELSE 0 END), 0) AS bond_market_total
+                    ELSE 0 END), 0) AS bond_market_total,
+                COALESCE(SUM(CASE WHEN a.type='investment' THEN
+                    COALESCE((SELECT SUM(CASE WHEN p.asset_type='bond'
+                              THEN p.quantity * COALESCE(NULLIF(p.current_price,0), p.avg_price) / 100.0
+                              ELSE p.quantity * COALESCE(NULLIF(p.current_price,0), p.avg_price) END)
+                              FROM portfolio p WHERE p.account_id = a.id), 0)
+                    ELSE 0 END), 0) AS invest_market_total
             FROM accounts a
         """);
         double inc  = yearly != null ? ((Number)yearly.get("income")).doubleValue()   : 0;
@@ -3630,9 +3636,12 @@ public class Database {
                 ? ((Number)balance.get("bond_nominal_total")).doubleValue() : 0;
         double bondMkt = balance != null && balance.get("bond_market_total") != null
                 ? ((Number)balance.get("bond_market_total")).doubleValue() : 0;
+        double investMkt = balance != null && balance.get("invest_market_total") != null
+                ? ((Number)balance.get("invest_market_total")).doubleValue() : 0;
         int    cnt  = yearly != null ? ((Number)yearly.get("transaction_count")).intValue() : 0;
         return Map.of("income",inc,"expenses",exp,"balance",bal,
                       "bond_nominal_total",bondNom,"bond_market_total",bondMkt,
+                      "invest_market_total",investMkt,
                       "net",inc-exp,"transaction_count",cnt);
     }
 

@@ -6,7 +6,7 @@
 
     <groupId>com.moneymanager</groupId>
     <artifactId>moneymanager</artifactId>
-    <version>1.17.9</version>
+    <version>1.17.10</version>
     <packaging>jar</packaging>
     <name>LucaMoneyManager</name>
 
@@ -45,9 +45,23 @@
 
     <build>
         <resources>
+            <!-- Solo version.properties va filtrato (inietta @project.version@).
+                 Il resto (web/ con decine di file JS/CSS) viene copiato SENZA filtering:
+                 evita che Maven riscriva ogni file via .tmp, causa di race con OneDrive/auto-save
+                 (NoSuchFileException del resources-plugin durante il Run in IDE). -->
             <resource>
                 <directory>src/main/resources</directory>
+                <includes>
+                    <include>version.properties</include>
+                </includes>
                 <filtering>true</filtering>
+            </resource>
+            <resource>
+                <directory>src/main/resources</directory>
+                <excludes>
+                    <exclude>version.properties</exclude>
+                </excludes>
+                <filtering>false</filtering>
             </resource>
         </resources>
         <plugins>

@@ -1041,7 +1041,8 @@ public class Database {
     /** Tutti i conti con il saldo calcolato (per gli investment: valore di mercato del portafoglio). */
     public List<Map<String, Object>> getAccounts() throws SQLException {
         // Per investment account: balance = valore di mercato (bond: qty × prezzo% / 100; equity: qty × prezzo).
-        // bond_nominal = somma nominale dei bond, esposto separatamente per UI che vuole mostrare il "valore a scadenza".
+        // bond_nominal = somma nominale dei bond (valore a scadenza, a 100); bond_market = valore di mercato dei soli bond.
+        // Entrambi esposti separatamente per UI che vuole mostrare il totale con bond "a 100" e, in secondo piano, il valore reale.
         return queryList("""
             SELECT a.*,
                 CASE WHEN a.type = 'investment' THEN
@@ -1060,7 +1061,13 @@ public class Database {
                 CASE WHEN a.type = 'investment' THEN
                     COALESCE((SELECT SUM(CASE WHEN p.asset_type='bond' THEN p.quantity ELSE 0 END)
                               FROM portfolio p WHERE p.account_id = a.id), 0)
-                ELSE 0 END AS bond_nominal
+                ELSE 0 END AS bond_nominal,
+                CASE WHEN a.type = 'investment' THEN
+                    COALESCE((SELECT SUM(CASE WHEN p.asset_type='bond'
+                              THEN p.quantity * COALESCE(NULLIF(p.current_price,0), p.avg_price) / 100.0
+                              ELSE 0 END)
+                              FROM portfolio p WHERE p.account_id = a.id), 0)
+                ELSE 0 END AS bond_market
             FROM accounts a
             LEFT JOIN transactions t ON (t.account_id = a.id OR t.to_account_id = a.id) AND a.type != 'investment'
             GROUP BY a.id
@@ -3607,7 +3614,13 @@ public class Database {
                 COALESCE(SUM(CASE WHEN a.type='investment' THEN
                     COALESCE((SELECT SUM(CASE WHEN p.asset_type='bond' THEN p.quantity ELSE 0 END)
                               FROM portfolio p WHERE p.account_id = a.id), 0)
-                    ELSE 0 END), 0) AS bond_nominal_total
+                    ELSE 0 END), 0) AS bond_nominal_total,
+                COALESCE(SUM(CASE WHEN a.type='investment' THEN
+                    COALESCE((SELECT SUM(CASE WHEN p.asset_type='bond'
+                              THEN p.quantity * COALESCE(NULLIF(p.current_price,0), p.avg_price) / 100.0
+                              ELSE 0 END)
+                              FROM portfolio p WHERE p.account_id = a.id), 0)
+                    ELSE 0 END), 0) AS bond_market_total
             FROM accounts a
         """);
         double inc  = yearly != null ? ((Number)yearly.get("income")).doubleValue()   : 0;
@@ -3615,9 +3628,11 @@ public class Database {
         double bal  = balance != null ? ((Number)balance.get("total")).doubleValue()  : 0;
         double bondNom = balance != null && balance.get("bond_nominal_total") != null
                 ? ((Number)balance.get("bond_nominal_total")).doubleValue() : 0;
+        double bondMkt = balance != null && balance.get("bond_market_total") != null
+                ? ((Number)balance.get("bond_market_total")).doubleValue() : 0;
         int    cnt  = yearly != null ? ((Number)yearly.get("transaction_count")).intValue() : 0;
         return Map.of("income",inc,"expenses",exp,"balance",bal,
-                      "bond_nominal_total",bondNom,
+                      "bond_nominal_total",bondNom,"bond_market_total",bondMkt,
                       "net",inc-exp,"transaction_count",cnt);
     }
 

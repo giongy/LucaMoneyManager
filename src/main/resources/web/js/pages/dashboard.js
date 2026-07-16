@@ -190,7 +190,8 @@ function _initBubbleDrag() {
 }
 
 // Disegna il widget "I miei conti": tabella raggruppata per tipo con saldo, pulsanti rapidi
-// (+/−/⇄) e righe totali (conti liquidi + investimenti, con nominale bond a scadenza).
+// (+/−/⇄) e righe totali (conti liquidi + investimenti). Per gli investment il valore in primo
+// piano è calcolato con i bond a scadenza (a 100); il valore di mercato reale è mostrato in secondo piano.
 function _renderDashAccountsWidget(accounts) {
   const el = document.getElementById('dashAccounts');
   if (!el) return;
@@ -198,6 +199,9 @@ function _renderDashAccountsWidget(accounts) {
   const investBalance = visibleAccounts.filter(a => a.type === 'investment').reduce((s,a) => s + (a.balance||0), 0);
   const contiBalance  = visibleAccounts.filter(a => a.type !== 'investment').reduce((s,a) => s + (a.balance||0), 0);
   const bondNominal   = visibleAccounts.reduce((s,a) => s + (a.bond_nominal||0), 0);
+  const bondMarket    = visibleAccounts.reduce((s,a) => s + (a.bond_market||0), 0);
+  // Valore investimenti con i bond conteggiati a 100 (a scadenza) invece che a prezzo di mercato.
+  const investBalanceAt100 = investBalance - bondMarket + bondNominal;
   const visGrouped = {};
   visibleAccounts.forEach(a => { (visGrouped[a.type] = visGrouped[a.type] || []).push(a); });
   const visOrderedTypes = [...new Set([..._accTypeOrder.filter(t => visGrouped[t]), ...Object.keys(visGrouped)])];
@@ -218,10 +222,10 @@ function _renderDashAccountsWidget(accounts) {
                 <span class="acc-name">${a.name}</span>
               </td>
               <td class="acc-bal ${a.balance<0?'neg':''}" style="color:${a.balance<0?'var(--expense)':(a.color||'var(--accent)')}"
-                  ${a.type==='investment' && a.bond_nominal>0 ? `title="Valore di mercato. Bond a scadenza: ${fmt.currency(a.bond_nominal)}"` : ''}>
-                ${fmt.currency(a.balance)}
+                  ${a.type==='investment' && a.bond_nominal>0 ? `title="Valore con bond a scadenza (a 100). Valore di mercato attuale: ${fmt.currency(a.balance)}"` : ''}>
+                ${a.type==='investment' && a.bond_nominal>0 ? fmt.currency((a.balance||0) - (a.bond_market||0) + (a.bond_nominal||0)) : fmt.currency(a.balance)}
                 ${a.type==='credit'?`<span id="cc-cur-${a.id}" style="display:block;font-size:11px;color:var(--txt2);font-weight:400"></span>`:''}
-                ${a.type==='investment' && a.bond_nominal>0 ? `<span style="display:block;font-size:10px;color:var(--txt3);font-weight:400">bond a scad. ${fmt.currency(a.bond_nominal)}</span>` : ''}
+                ${a.type==='investment' && a.bond_nominal>0 ? `<span style="display:block;font-size:10px;color:var(--txt3);font-weight:400">valore reale ${fmt.currency(a.balance)}</span>` : ''}
               </td>
               <td onclick="event.stopPropagation()">
                 <div class="acc-quick-btns">
@@ -241,10 +245,10 @@ function _renderDashAccountsWidget(accounts) {
                 <span class="acc-bal" style="font-size:13px;font-weight:700;color:${contiBalance<0?'var(--expense)':'var(--income)'}">${fmt.currency(contiBalance)}</span>
               </div>
               ${investBalance !== 0 ? `
-              <div style="display:flex;align-items:baseline;gap:6px" ${bondNominal>0?`title="Valore di mercato di tutti gli investimenti (azioni a prezzo attuale + bond a prezzo attuale). Bond a scadenza: ${fmt.currency(bondNominal)}"`:''}>
+              <div style="display:flex;align-items:baseline;gap:6px" ${bondNominal>0?`title="Valore investimenti con bond a scadenza (a 100). Valore di mercato attuale: ${fmt.currency(investBalance)}"`:''}>
                 <span style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--txt3)">Investimenti</span>
-                <span class="acc-bal" style="font-size:13px;font-weight:700;color:var(--accent2)">${fmt.currency(investBalance)}</span>
-                ${bondNominal>0?`<span style="font-size:10px;color:var(--txt3)">· bond a scad. ${fmt.currency(bondNominal)}</span>`:''}
+                <span class="acc-bal" style="font-size:13px;font-weight:700;color:var(--accent2)">${fmt.currency(bondNominal>0?investBalanceAt100:investBalance)}</span>
+                ${bondNominal>0?`<span style="font-size:10px;color:var(--txt3)">· valore reale ${fmt.currency(investBalance)}</span>`:''}
               </div>` : ''}
             </div>
           </td>
@@ -418,12 +422,12 @@ async function renderDashboard() {
 
   // Stat cards (con sparkline a destra del numero e trend YoY)
   document.getElementById('statsGrid').innerHTML = `
-    <div class="stat-card stat-balance" ${stats.bond_nominal_total>0?`title="Valore di mercato di tutti i conti. Nominale bond a scadenza: ${fmt.currency(stats.bond_nominal_total)}"`:''}>
+    <div class="stat-card stat-balance" ${stats.bond_nominal_total>0?`title="Saldo con bond a scadenza (a 100). Valore di mercato attuale: ${fmt.currency(stats.balance)}"`:''}>
       <div class="stat-label">💳 Saldo Totale</div>
       <div style="flex:1;display:flex;flex-direction:column;justify-content:center">
-        <div class="stat-value">${fmt.currencyRich(stats.balance)}</div>
+        <div class="stat-value">${fmt.currencyRich(stats.bond_nominal_total>0 ? (stats.balance - (stats.bond_market_total||0) + stats.bond_nominal_total) : stats.balance)}</div>
         <div class="stat-sub">${stats.bond_nominal_total>0
-          ? `Tutti i conti · <span style="color:var(--txt3)">bond a scadenza ${fmt.currency(stats.bond_nominal_total)}</span>`
+          ? `Tutti i conti · <span style="color:var(--txt3)">valore reale ${fmt.currency(stats.balance)}</span>`
           : 'Tutti i conti'}</div>
       </div>
     </div>

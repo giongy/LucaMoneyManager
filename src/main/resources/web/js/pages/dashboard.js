@@ -121,7 +121,7 @@ function _renderDashBudgetBubbles(budgetYear) {
       ? `<span class="bbar-pct" style="color:${bad ? 'var(--expense)' : 'var(--txt3)'}">${pctLbl}%</span>`
       : '';
 
-    // Sforato/sotto target: sottile bordo rosso attorno alla card (il colore resta quello della categoria).
+    // Sforato/sotto target: la barra tiene il colore categoria + tratteggio rosso in overlay (classe .bbar-over).
     const badClass = bad ? ' bbar-over' : '';
 
     return `<div class="bbar${badClass}" onclick="_dashBubbleDetail(${c.id})"
@@ -137,7 +137,7 @@ function _renderDashBudgetBubbles(budgetYear) {
         ${pctBadge}
       </div>
       <div class="bbar-track">
-        <div class="bbar-fill" data-fill="${fillPct.toFixed(1)}" style="width:0;background:${barColor}"></div>
+        <div class="bbar-fill" data-fill="${fillPct.toFixed(1)}" style="width:0;background-color:${barColor}"></div>
       </div>
       <div class="bbar-amounts">
         <span style="color:${amtColor};font-weight:700">${fmt.currency(c.actual)}</span>

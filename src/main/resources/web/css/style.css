@@ -861,8 +861,16 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
   transition:background .12s;
 }
 .bbar:hover { background:var(--bg3); }
-/* Categoria sforata (o entrata sotto target): sottile bordo rosso, colore barra invariato. */
-.bbar-over { box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--expense) 40%, transparent); }
+/* Categoria sforata (o entrata sotto target): la barra mantiene il colore categoria ma
+   riceve un tratteggio rosso in sovrapposizione, come segnale di sforamento. */
+.bbar-over .bbar-fill {
+  background-image:repeating-linear-gradient(
+    45deg,
+    transparent 0, transparent 2px,
+    color-mix(in srgb, var(--expense) 85%, transparent) 2px,
+    color-mix(in srgb, var(--expense) 85%, transparent) 4px
+  );
+}
 .bbar-head { display:flex; align-items:center; gap:6px; min-width:0; }
 .bbar-icon { font-size:14px; line-height:1; flex-shrink:0; }
 .bbar-name {

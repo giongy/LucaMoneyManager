@@ -570,6 +570,8 @@ input,select,textarea { font-family:inherit; }
 #pg-scheduled.active { display:flex; }
 #pg-budgets { display:none; flex-direction:column; overflow:hidden; padding:0; }
 #pg-budgets.active { display:flex; }
+#pg-portfolio { display:none; flex-direction:column; overflow:hidden; }
+#pg-portfolio.active { display:flex; }
 
 /* ─── Scroll ─────────────────────────────────────────────────────────────── */
 ::-webkit-scrollbar { width:5px; }

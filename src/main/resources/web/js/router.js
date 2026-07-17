@@ -70,7 +70,6 @@ function renderPage(page) {
 }
 
 /* ─── Refresh after any transaction change ───────────────────────────────── */
-let _dashboardDirty = false;
 // Riallinea sidebar, lista transazioni e (se visibile) dashboard dopo una modifica alle transazioni.
 async function refreshAfterTxChange() {
   updateSidebar();

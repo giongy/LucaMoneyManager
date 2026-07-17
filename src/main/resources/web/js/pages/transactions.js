@@ -645,15 +645,6 @@ function initCatPicker(inputId, hiddenId, listId) {
   input.addEventListener('blur', () => setTimeout(hide, 150));
 }
 
-// Genera le <option> delle sole categorie foglia (con percorso parent › figlio nell'etichetta).
-function buildCatOptions(cats, selectedId) {
-  const leafs = _leafCats(cats);
-  return leafs.map(c => {
-    const label = c.parent_id ? `${c.parent_name} › ${c.icon} ${c.name}` : `${c.icon} ${c.name}`;
-    return `<option value="${c.id}" ${selectedId==c.id?'selected':''}>${label}</option>`;
-  }).join('');
-}
-
 // Modale crea/modifica transazione (il più complesso dell'app): tipo, importo con espressioni,
 // categoria (cat-picker) o split multi-categoria, conti, data, tag, colore, allegato e stato
 // di conciliazione. tx=null → nuova; onAfterSave callback opzionale dopo il salvataggio.

@@ -124,7 +124,6 @@ const api = {
   saveNote:       data         => callJava('saveNote',      data),
   deleteNote:     id           => callJava('deleteNote',    {id}),
   setNotePinned:  (id, pinned) => callJava('setNotePinned', {id, pinned}),
-  setNoteColor:   (id, color)  => callJava('setNoteColor',  {id, color}),
 
   // Range Preset
   getRangePresets:    ()     => callJava('getRangePresets'),
@@ -147,7 +146,6 @@ const api = {
   archiveTransactions: async ids => { api._invalidateAccounts(); return callJava('archiveTransactions', {ids}); },
 
   // Budget
-  getBudgets:  (month,year) => callJava('getBudgets', {month,year}),
   setBudget:   data         => callJava('setBudget',  data),
   deleteBudget:id           => callJava('deleteBudget',{id}),
   getBudgetYear: y          => callJava('getBudgetYear', {year:y}),
@@ -194,7 +192,6 @@ const api = {
   openSettingsFile:      ()             => callJava('openSettingsFile', {}),
   openAppLog:            ()             => callJava('openAppLog', {}),
   openUrl:           (url)   => callJava('openUrl', {url}),
-  resetJcef:         ()      => callJava('resetJcef', {}),
   doBackup:        ()         => callJava('doBackup', {}),
   listBackups:     ()         => callJava('listBackups', {}),
   restoreBackup:   (path)     => callJava('restoreBackup', {path}),
@@ -223,7 +220,6 @@ const api = {
   getOldestTransactionMonth: ()       => callJava('getOldestTransactionMonth',  {}),
   getAccountBalanceHistory: (months) => callJava('getAccountBalanceHistory', { months }),
   getForecastExpenseSplit:(months)    => callJava('getForecastExpenseSplit', {months}),
-  getScheduledForecast:  (months)    => callJava('getScheduledForecast',   {months}),
   getForecastEngine:(histMonths, horizonMonths, includePortfolio) =>
     callJava('getForecastEngine', { hist_months: histMonths, horizon_months: horizonMonths, include_portfolio: includePortfolio }),
 

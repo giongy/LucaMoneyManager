@@ -17,7 +17,6 @@ let _reportFilters    = {};
 let _reportGroupby    = 'none';
 let _reportChartType  = 'none';
 let _reportChart      = null;
-let _reportsTab       = 'resoconti';
 
 // Stato Previsione Saldo (era in transactions.js con FIXME)
 // histFromYm   = primo mese dello storico (incluso) → fino al mese precedente al corrente

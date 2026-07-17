@@ -119,7 +119,7 @@ async function renderPortfolio() {
   const totalReturnPct   = totalMaxInvested > 0 ? (totalReturnAll / totalMaxInvested) * 100 : 0;
 
   pg.innerHTML = `
-    <div style="display:flex;align-items:center;gap:0;margin-bottom:16px">
+    <div style="display:flex;align-items:center;gap:0;flex-shrink:0;margin-bottom:16px">
       <div class="scheduled-tabs" style="margin-bottom:0">
         <button class="sched-tab ${_portfolioTab==='portfolio'?'active':''}" onclick="_setPortfolioTab('portfolio')">📋 Portafoglio</button>
         <button class="sched-tab ${_portfolioTab==='analisi'?'active':''}"   onclick="_setPortfolioTab('analisi')">📊 Analisi</button>
@@ -149,6 +149,7 @@ async function renderPortfolio() {
           <button class="btn btn-primary" id="btnBuyStock">+ Acquista</button>
         </div>` : ''}
     </div>
+    <div id="portfolioContent" style="flex:1;overflow-y:auto">
     ${!investAccounts.length ? `
       <div class="card" style="padding:32px;text-align:center;color:var(--txt2)">
         <div style="font-size:32px;margin-bottom:12px">💼</div>
@@ -323,7 +324,8 @@ async function renderPortfolio() {
         })()}
         </tbody></table>
       </div>
-    </div>`}`;
+    </div>`}
+    </div>`;
 
   if (investAccounts.length && _portfolioTab === 'portfolio') {
     document.getElementById('btnBuyStock').onclick      = () => showBuyModal(null, investAccounts, accounts).catch(e => toast(e.message,'error'));

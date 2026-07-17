@@ -73,15 +73,6 @@ function _schedOccurrences(startDate, freq, endDate) {
   return count;
 }
 
-// Restituisce la prossima occorrenza di una transazione pianificata.
-// Con il sistema attuale start_date viene già avanzata ad ogni registrazione/salto,
-// quindi start_date È la prossima occorrenza (passata = scaduta, futura = in arrivo).
-function computeSchedNext(startDate, _freq, endDate) {
-  const d = new Date(startDate + 'T00:00:00');
-  if (endDate && d > new Date(endDate + 'T00:00:00')) return null;
-  return d;
-}
-
 let _schedSort   = { col: 'days', dir: 'asc' };
 let _schedFilter = { type: '', active: '1', category: '', tags: new Set() };
 
@@ -585,28 +576,10 @@ async function loadProjectionChart(accounts) {
 
 let _cfRange = '12m';
 let _cfMonths = 6;
-let _cfAccSel = null;
 
-// Tab "Flusso di Cassa": controlli (range, conti selezionabili via pillole) + grafico a barre
-// entrate/uscite mensili proiettate dalle pianificate.
+// Tab "Flusso di Cassa": controlli (range) + grafico a barre
+// entrate/uscite mensili proiettate dalle pianificate (tutti i conti).
 async function renderSchedCashflow() {
-  const accounts = await api.getAccounts();
-  if (!_cfAccSel)
-    _cfAccSel = new Set(accounts.filter(a => !a.is_closed).map(a => a.id));
-
-  const palette = ['#58a6ff','#3fb950','#ff7b72','#e3b341','#bc8cff','#79c0ff','#56d364','#ffa657','#f78166','#d2a8ff'];
-  const accColor = (a, i) => a.color || palette[i % palette.length];
-  const accPills = accounts.map((a, i) => {
-    const on = _cfAccSel.has(a.id);
-    const col = accColor(a, i);
-    return `<button type="button" onclick="_toggleCfAcc(${a.id})"
-      style="padding:4px 12px;font-size:12px;border-radius:16px;border:1.5px solid ${col};cursor:pointer;
-             background:${on ? col+'33' : 'transparent'};color:${on ? col : 'var(--txt2)'};
-             font-weight:${on ? '600' : '400'};transition:all .15s;white-space:nowrap">
-      ${a.icon||''} ${a.name}${a.is_closed ? ' ✕' : ''}
-    </button>`;
-  }).join('');
-
   const el = document.getElementById('schedContent');
   el.innerHTML = `
     <div class="card" style="margin-bottom:16px">
@@ -619,7 +592,6 @@ async function renderSchedCashflow() {
           <span class="settings-hint" style="white-space:nowrap">mesi</span>
         </span>
       </div>
-      <div style="display:flex;flex-wrap:wrap;gap:6px;padding:0 16px 12px">${accPills}</div>
       <div class="proj-chart-wrap"><canvas id="cfChart"></canvas></div>
     </div>`;
 
@@ -643,10 +615,9 @@ async function loadCashflowChart() {
   const customMths = document.getElementById('cfMonths')?.value;
   const { from_date, to_date } = projRangeToFilter(range, customMths);
   if (!from_date || !to_date) return;
-  const accIds = _cfAccSel ? [..._cfAccSel].join(',') : '';
 
   let data;
-  try { data = await api.getProjection({from_date:from_date, to_date:to_date, account_ids:accIds}); }
+  try { data = await api.getProjection({from_date:from_date, to_date:to_date}); }
   catch(e) { toast(e.message,'error'); return; }
 
   const { cashflow } = data;

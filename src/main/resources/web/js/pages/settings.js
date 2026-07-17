@@ -1435,18 +1435,6 @@ async function _deleteCustomTheme(id) {
 }
 
 /* ─── Shortcuts overlay ──────────────────────────────────────────────────── */
-const _NAV_SHORTCUTS = [
-  { key:'1', page:'dashboard',    label:'Dashboard' },
-  { key:'2', page:'accounts',     label:'Conti' },
-  { key:'3', page:'transactions', label:'Transazioni' },
-  { key:'4', page:'budgets',      label:'Budget' },
-  { key:'5', page:'scheduled',    label:'Pianificate' },
-  { key:'6', page:'portfolio',    label:'Portfolio' },
-  { key:'7', page:'analytics',    label:'Analisi' },
-  { key:'8', page:'reports',      label:'Report' },
-  { key:'9', page:'settings',     label:'Impostazioni' },
-];
-
 // Mostra l'overlay con l'elenco delle scorciatoie da tastiera.
 function showShortcutsHelp() {
   const kbdStyle = "background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:0 5px;font-size:10px";

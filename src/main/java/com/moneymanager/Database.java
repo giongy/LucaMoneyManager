@@ -1572,7 +1572,7 @@ public class Database {
      * il file deve esistere già, così Android lo può selezionare con OpenDocument e scriverci.
      * Best-effort: se la creazione fallisce (permessi, path), non è fatale.
      */
-    public void ensurePendingQueueExists() {
+    private void ensurePendingQueueExists() {
         Path queue = pendingQueuePath();
         if (Files.exists(queue)) return;
         try {
@@ -1955,13 +1955,6 @@ public class Database {
         return getNote(id);
     }
 
-    /** Imposta il colore di sfondo di una nota. */
-    public Map<String, Object> setNoteColor(int id, String color) throws SQLException {
-        execute("UPDATE notes SET color=? WHERE id=?", color != null ? color : "", id);
-        touchSyncMeta();
-        return getNote(id);
-    }
-
     // ─── Range Preset ─────────────────────────────────────────────────────────
 
     /** Preset di intervalli date salvati dall'utente (per i filtri rapidi). */
@@ -2111,35 +2104,6 @@ public class Database {
     }
 
     // ─── Budget ───────────────────────────────────────────────────────────────
-
-    /** Budget di un singolo mese con lo speso effettivo (spent) per categoria. */
-    public List<Map<String, Object>> getBudgets(int month, int year) throws SQLException {
-        return queryList("""
-            WITH cat_amounts AS (
-                SELECT t.type, t.category_id AS cat_id, t.amount AS amt
-                FROM transactions t
-                WHERE t.category_id IS NOT NULL
-                  AND NOT EXISTS (SELECT 1 FROM transaction_splits ts WHERE ts.transaction_id = t.id)
-                  AND COALESCE((SELECT excluded_from_budget FROM categories WHERE id=t.category_id),0)=0
-                  AND strftime('%m',t.date)=? AND strftime('%Y',t.date)=?
-                UNION ALL
-                SELECT t.type, ts.category_id AS cat_id, ts.amount AS amt
-                FROM transactions t
-                JOIN transaction_splits ts ON ts.transaction_id = t.id
-                WHERE COALESCE((SELECT excluded_from_budget FROM categories WHERE id=ts.category_id),0)=0
-                  AND strftime('%m',t.date)=? AND strftime('%Y',t.date)=?
-            )
-            SELECT b.*, c.name AS category_name, c.icon AS category_icon, c.color AS category_color,
-                COALESCE(SUM(CASE WHEN ca.type='expense' THEN ca.amt ELSE 0 END), 0) AS spent
-            FROM budgets b
-            JOIN categories c ON b.category_id = c.id
-            LEFT JOIN cat_amounts ca ON ca.cat_id = b.category_id
-            WHERE b.month=? AND b.year=?
-            GROUP BY b.id ORDER BY c.name
-        """, String.format("%02d",month), String.valueOf(year),
-             String.format("%02d",month), String.valueOf(year),
-             month, year);
-    }
 
     /** Imposta (upsert) il budget di una categoria per uno specifico mese/anno. */
     public Map<String, Object> setBudget(JsonObject p) throws SQLException {
@@ -4185,84 +4149,6 @@ public class Database {
         return Map.of("categories", categories, "monthly", monthly);
     }
 
-    // ── Previsione Saldo — proiezione mensile delle pianificate attive ───────
-    // Espande le scheduled_transactions attive nei prossimi `months` mesi (incluso
-    // il mese corrente). Ritorna per ogni mese:
-    //   ym, sched_income, sched_expense
-    //   sched_income_remaining, sched_expense_remaining   (solo mese corrente:
-    //   occorrenze da oggi compreso in poi; per gli altri mesi = totale)
-    // I trasferimenti tra conti propri sono esclusi (non spostano il saldo totale).
-    /**
-     * Proietta entrate/uscite pianificate per i prossimi N mesi (trasferimenti esclusi).
-     * Per il mese corrente espone anche i valori "remaining" (solo occorrenze da oggi in poi).
-     */
-    public List<Map<String, Object>> getScheduledForecast(int months) throws SQLException {
-        java.time.LocalDate today  = java.time.LocalDate.now();
-        java.time.LocalDate monStart = today.withDayOfMonth(1);
-        java.time.LocalDate horizon  = monStart.plusMonths(months).minusDays(1);
-
-        var scheds = getScheduled().stream()
-                .filter(s -> Integer.valueOf(1).equals(s.get("is_active")))
-                .filter(s -> !"transfer".equals(s.get("type")))
-                .toList();
-
-        Map<String, double[]> agg = new TreeMap<>();
-        for (int i = 0; i < months; i++) {
-            java.time.LocalDate ms = monStart.plusMonths(i);
-            String ym = String.format("%04d-%02d", ms.getYear(), ms.getMonthValue());
-            agg.put(ym, new double[]{0, 0, 0, 0});
-        }
-
-        for (var s : scheds) {
-            java.time.LocalDate start   = java.time.LocalDate.parse((String) s.get("start_date"));
-            String freq                  = (String) s.get("frequency");
-            String edStr                 = (String) s.get("end_date");
-            java.time.LocalDate endDate  = edStr != null ? java.time.LocalDate.parse(edStr) : horizon;
-            if (endDate.isAfter(horizon)) endDate = horizon;
-            double amount = ((Number) s.get("amount")).doubleValue();
-            String type   = (String) s.get("type");
-
-            // Parto dalla prima occorrenza dentro [monStart, horizon]
-            java.time.LocalDate cur = firstOccurrenceFrom(start, freq, monStart);
-            if (cur == null) continue;
-            while (!cur.isAfter(endDate)) {
-                String ym = String.format("%04d-%02d", cur.getYear(), cur.getMonthValue());
-                double[] row = agg.get(ym);
-                if (row != null) {
-                    boolean fromTodayOn = !cur.isBefore(today);
-                    if ("income".equals(type)) {
-                        row[0] += amount;
-                        if (fromTodayOn) row[2] += amount;
-                    } else if ("expense".equals(type)) {
-                        row[1] += amount;
-                        if (fromTodayOn) row[3] += amount;
-                    }
-                }
-                if ("once".equals(freq)) break;
-                java.time.LocalDate nxt = advanceDate(cur, freq);
-                if (nxt == null || !nxt.isAfter(cur)) break;
-                cur = nxt;
-            }
-        }
-
-        List<Map<String, Object>> result = new ArrayList<>();
-        for (var e : agg.entrySet()) {
-            String ym = e.getKey();
-            double[] r = e.getValue();
-            boolean isCurrentMonth = ym.equals(String.format("%04d-%02d", today.getYear(), today.getMonthValue()));
-            Map<String, Object> row = new LinkedHashMap<>();
-            row.put("ym", ym);
-            row.put("sched_income",  Math.round(r[0] * 100.0) / 100.0);
-            row.put("sched_expense", Math.round(r[1] * 100.0) / 100.0);
-            // Per il mese corrente "remaining" è quanto avviene da oggi in poi;
-            // per i mesi futuri remaining == totale.
-            row.put("sched_income_remaining",  Math.round((isCurrentMonth ? r[2] : r[0]) * 100.0) / 100.0);
-            row.put("sched_expense_remaining", Math.round((isCurrentMonth ? r[3] : r[1]) * 100.0) / 100.0);
-            result.add(row);
-        }
-        return result;
-    }
-
     // ── Previsione Saldo (decomposizione) — motore completo ──────────────────
     /** Estrae un double da un valore SQL (null → 0). */
     private static double num(Object o) { return o == null ? 0.0 : ((Number) o).doubleValue(); }
@@ -4462,7 +4348,7 @@ public class Database {
      * Ogni evento espone sia "amount" (cassa che entra sul conto) sia "market_drop" (valore di
      * mercato che esce dal portfolio): la variazione di patrimonio netto è amount − market_drop.
      */
-    public Map<String, Object> getForecastPortfolioEvents(int horizonMonths) throws SQLException {
+    private Map<String, Object> getForecastPortfolioEvents(int horizonMonths) throws SQLException {
         LocalDate today    = LocalDate.now();
         LocalDate monStart = today.withDayOfMonth(1);
         LocalDate horizon  = monStart.plusMonths(horizonMonths).minusDays(1);

@@ -9,11 +9,11 @@ Due piattaforme: **desktop (primaria)** e **Android (secondaria)**, database SQL
 
 ### Desktop
 - **Linguaggio:** Java 25, Maven 3.x
-- **UI:** JCEF v143 (Chromium embedded) + Swing per dialogs/titlebar/splash
+- **UI:** JCEF v146 (Chromium embedded) + Swing per dialogs/titlebar/splash
 - **Frontend:** Vanilla JS puro (`src/main/resources/web/`, modulare in `js/pages/*.js`), no React/Vue
 - **Versione:** 1.18.0 — output `target/moneymanager-1.18.0.jar` (fat JAR, web/ esclusa)
 - **Web assets:** serviti da filesystem (cartella `web/` accanto al `.exe` in produzione, `target/classes/web/` in IDE)
-- **DB path:** `%APPDATA%\Roaming\LucaMoneyManager\data.db`
+- **DB path:** `%APPDATA%\LucaMoneyManager\data.db` (`%APPDATA%` = `...\Roaming`)
 - **Build:** `mvn package` oppure `build.bat`
 
 ### Android
@@ -43,7 +43,7 @@ SQLite
 
 ---
 
-## Schema DB (v19, 21 tabelle)
+## Schema DB (v20, 21 tabelle)
 
 - **Core:** `accounts`, `categories` (gerarchiche, `expense_nature`), `transactions` (`reconciled`, `attachment_path`, `color`), `transaction_splits`, `transaction_tags`, `tags` (`is_system`, `system_key`)
 - **Budget:** `budgets`, `budget_config` (master_amount mensile/annuale)

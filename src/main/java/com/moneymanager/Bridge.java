@@ -332,7 +332,6 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             case "getAccountSummary"  -> db.getAccountSummary(p.get("account_id").getAsInt());
 
             // ─── Budget ────────────────────────────────────────────────────
-            case "getBudgets"   -> db.getBudgets(p.get("month").getAsInt(), p.get("year").getAsInt());
             case "setBudget"    -> db.setBudget(p);
             case "deleteBudget" -> db.deleteBudget(p.get("id").getAsInt());
             case "getBudgetYear" -> db.getBudgetYear(p.get("year").getAsInt());
@@ -395,7 +394,6 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             case "archiveForecast"   -> { db.archiveForecast(p.get("id").getAsInt()); yield Map.of("ok", true); }
             case "getForecastDetail"    -> db.getForecastDetail(p.get("id").getAsInt());
             case "getForecastExpenseSplit"   -> db.getForecastExpenseSplit(p.get("months").getAsInt());
-            case "getScheduledForecast"      -> db.getScheduledForecast(p.get("months").getAsInt());
             case "getForecastEngine" -> db.getForecastEngine(
                 p.get("hist_months").getAsInt(), p.get("horizon_months").getAsInt(),
                 p.has("include_portfolio") && p.get("include_portfolio").getAsBoolean());
@@ -425,7 +423,6 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             case "saveNote"      -> db.saveNote(p);
             case "deleteNote"    -> db.deleteNote(p.get("id").getAsInt());
             case "setNotePinned" -> db.setNotePinned(p.get("id").getAsInt(), p.get("pinned").getAsBoolean());
-            case "setNoteColor"  -> db.setNoteColor(p.get("id").getAsInt(), p.has("color") && !p.get("color").isJsonNull() ? p.get("color").getAsString() : "");
 
             // ─── Range Preset ──────────────────────────────────────────────────────
             case "getRangePresets"    -> db.getRangePresets();
@@ -602,25 +599,6 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
 
             case "openDataDir" -> {
                 java.awt.Desktop.getDesktop().open(dataDir.toFile());
-                yield Map.of("ok", true);
-            }
-
-            case "resetJcef" -> {
-                java.nio.file.Path jcefDir = dataDir.resolve("jcef");
-                if (java.nio.file.Files.exists(jcefDir)) {
-                    // Su Windows i DLL JCEF sono lockati finché il processo è vivo.
-                    // Lanciamo uno script batch che aspetta l'uscita del processo
-                    // e poi cancella la cartella con rmdir /s /q.
-                    java.nio.file.Path script = dataDir.resolve("_reset_jcef.bat");
-                    String bat = "@echo off\r\n"
-                            + "ping 127.0.0.1 -n 4 > nul\r\n"
-                            + "rmdir /s /q \"" + jcefDir.toAbsolutePath() + "\"\r\n"
-                            + "del \"%~f0\"\r\n";
-                    java.nio.file.Files.writeString(script, bat);
-                    new ProcessBuilder("cmd", "/c", "start", "/min", "", script.toAbsolutePath().toString())
-                            .start();
-                }
-                SwingUtilities.invokeLater(() -> System.exit(0));
                 yield Map.of("ok", true);
             }
 

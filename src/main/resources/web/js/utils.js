@@ -207,18 +207,6 @@ function computeHealthScore(balRows, accounts) {
   };
 }
 
-// Range "ultimi N mesi completi" — esclude il mese corrente (parziale, distorcerebbe le metriche).
-// Restituisce: months[] di stringhe YYYY-MM (lunghezza N) + fetchMonths (per chiamate API che partono da oggi).
-function lastNCompleteMonthsRange(n = 12) {
-  const now = new Date();
-  const toYm = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
-  const months = [];
-  for (let i = n; i >= 1; i--) {
-    months.push(toYm(new Date(now.getFullYear(), now.getMonth() - i, 1)));
-  }
-  return { months, fetchMonths: n + 1 };  // fetch include il mese corrente per copertura sicura
-}
-
 // Sparkline cumulativa con confronto anno precedente.
 // Linea solida (anno corrente) + linea tratteggiata grigia (anno precedente, stessi mesi).
 // Il colore della solida è semanticamente corretto (verde = sopra/meglio dell'anno scorso, rosso = sotto).
@@ -262,23 +250,6 @@ function cumulativeCompareSvg(currCum, prevCum, color, w = 150, h = 48, showXTic
     ${prevPts ? `<polyline points="${prevPts}" fill="none" stroke="var(--txt3)" stroke-width="1.2" stroke-dasharray="3,2" opacity="0.55" stroke-linecap="round"/>` : ''}
     <polyline points="${currPts}" fill="none" stroke="${color}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
     ${xTicksHtml}
-  </svg>`;
-}
-
-// Sparkline SVG inline (no Chart.js). Per dashboard stat cards.
-function sparklineSvg(values, color = 'currentColor', w = 90, h = 36) {
-  if (!values || !values.length || values.every(v => v === 0)) return '';
-  const max = Math.max(...values);
-  const min = Math.min(...values, 0);
-  const range = max - min || 1;
-  const stepX = w / (values.length - 1 || 1);
-  const pad = 2;
-  const points = values.map((v, i) =>
-    `${(i * stepX).toFixed(1)},${(h - pad - ((v - min) / range) * (h - 2 * pad)).toFixed(1)}`
-  ).join(' ');
-  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" style="display:block;opacity:.85;flex-shrink:0">
-    <polyline points="${points}" fill="none" stroke="${color}" stroke-width="1.5"
-              stroke-linecap="round" stroke-linejoin="round"/>
   </svg>`;
 }
 

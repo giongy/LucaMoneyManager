@@ -952,6 +952,12 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
   display:flex; align-items:center; justify-content:center;
   transition:transform .1s, opacity .1s;
 }
+/* Il glifo (+/−/⇄) è avvolto in uno <span>: l'inchiostro di questi caratteri
+   è basso nella em-box del font, quindi lo alziamo otticamente col translateY
+   per centrarlo nel cerchio (il flexbox da solo non basta). */
+.acc-quick-btn > span {
+  display:block; line-height:1; transform:translateY(-2px);
+}
 .acc-quick-btn:hover { transform:scale(1.2); }
 .acc-quick-exp { background:rgba(248,81,73,.85); color:#fff; }
 .acc-quick-inc { background:rgba(63,185,80,.85); color:#fff; }

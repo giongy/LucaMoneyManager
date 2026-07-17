@@ -866,9 +866,9 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 .bbar-over .bbar-fill {
   background-image:repeating-linear-gradient(
     45deg,
-    transparent 0, transparent 2px,
-    color-mix(in srgb, var(--expense) 85%, transparent) 2px,
-    color-mix(in srgb, var(--expense) 85%, transparent) 4px
+    transparent 0, transparent 4px,
+    color-mix(in srgb, var(--expense) 95%, transparent) 4px,
+    color-mix(in srgb, var(--expense) 95%, transparent) 10px
   );
 }
 .bbar-head { display:flex; align-items:center; gap:6px; min-width:0; }

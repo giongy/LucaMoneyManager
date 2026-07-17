@@ -2436,7 +2436,7 @@ function renderReportResults(txs, groupby, chartType, catMap) {
     const totE = txs.filter(t=>t.type==='expense').reduce((s,t)=>s+effectiveAmt(t),0);
     const net  = totI - totE;
     tableHtml = `<table><thead><tr>
-      <th>Data</th><th>Descrizione</th><th>Categoria</th><th>Conto</th>
+      <th>Data</th><th>Descrizione</th><th>Tag</th><th>Categoria</th><th>Conto</th>
       <th class="text-right">Importo</th><th>Tipo</th></tr></thead><tbody>
       ${txs.map(t=>{
         const isSplitFiltered = t.filtered_split_amount != null;
@@ -2444,13 +2444,14 @@ function renderReportResults(txs, groupby, chartType, catMap) {
         return `<tr style="cursor:pointer" onclick="editTx(${t.id})">
         <td>${fmt.date(t.date)}</td>
         <td class="td-main">${t.description||'—'}${isSplitFiltered ? ` <span style="font-size:10px;opacity:.5" title="Totale transazione: ${fmt.currency(t.amount)}">(tot. ${fmt.currency(t.amount)})</span>` : ''}</td>
+        <td class="td-tags">${(t.tags&&t.tags.length)?t.tags.map(tg=>`<span class="tag-inline" style="--tc:${tg.color}">${tg.name}</span>`).join(''):''}</td>
         <td>${effectiveCatIcon(t)} ${effectiveCatName(t)}${isSplitFiltered ? ' <span style="font-size:10px;opacity:.5">(÷)</span>' : ''}</td>
         <td>${t.account_name||'—'}</td>
         <td class="text-right amount-${t.type}">${t.type==='expense'?'-':''}${fmt.currency(dispAmt)}</td>
         <td><span class="badge badge-${t.type}">${t.type==='income'?'Entrata':t.type==='expense'?'Uscita':'Trasf.'}</span></td>
         </tr>`;}).join('')}
       <tr style="border-top:2px solid var(--border);font-weight:700">
-        <td colspan="4">Totale</td>
+        <td colspan="5">Totale</td>
         <td class="text-right" style="color:${net>=0?'var(--income)':'var(--expense)'}">${fmt.currency(net)}</td>
         <td></td>
       </tr></tbody></table>`;

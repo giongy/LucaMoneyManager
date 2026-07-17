@@ -1021,7 +1021,7 @@ function renderBudgetMese() {
       : (isExpSide ? '−' + fmt.currency(-r.remaining) : '−' + fmt.currency(-r.remaining));
 
     const macroEl = r.parent
-      ? `<div style="font-size:10px;color:var(--txt3);line-height:1.2">${r.parent.icon} ${r.parent.name}</div>`
+      ? `<span style="font-size:11px;color:var(--txt3)">${r.parent.icon} ${r.parent.name}:</span> `
       : '';
     return `<tr style="background:${zoneBg}">
       <td style="${tdS}">
@@ -1043,7 +1043,7 @@ function renderBudgetMese() {
   }).join('');
 
   const cardStyle = (bg, col) =>
-    `style="flex:1;min-width:0;background:${bg};border-radius:10px;padding:12px 16px;display:flex;flex-direction:column;gap:2px"`;
+    `style="flex:1;min-width:0;background:${bg};border-radius:10px;padding:7px 16px;display:flex;flex-direction:column;gap:1px"`;
 
   const expRemaining = expBudget - expSpent;
   const incRemaining = incSpent - incBudget;
@@ -1079,7 +1079,7 @@ function renderBudgetMese() {
     const fillW       = Math.min(100, budgetPct).toFixed(1);
     const markerLeft  = Math.min(100, monthPct).toFixed(1);
     pacingBanner = `
-      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:10px 16px;margin-bottom:14px;display:flex;align-items:center;gap:20px;flex-wrap:wrap">
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:6px 16px;margin-bottom:8px;display:flex;align-items:center;gap:20px;flex-wrap:wrap">
         <div style="white-space:nowrap">
           <div style="font-size:11px;color:var(--txt3);text-transform:uppercase;letter-spacing:.5px">Andamento mese</div>
           <div style="font-size:13px;font-weight:600">Giorno ${dayOfMonth} di ${daysInMonth}</div>
@@ -1103,7 +1103,7 @@ function renderBudgetMese() {
   }
 
   el.innerHTML = `
-    <div style="padding:14px 0 10px;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+    <div style="padding:8px 0 6px;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
       <div style="display:flex;align-items:center;gap:8px">
         <h3 style="margin:0;font-size:15px;white-space:nowrap">Stato budget</h3>
         <select class="form-control" style="font-size:13px;padding:3px 10px;width:auto;font-weight:600"
@@ -1122,7 +1122,7 @@ function renderBudgetMese() {
 
       <!-- ── USCITE ── -->
       <div class="budget-mese-col">
-        <div style="display:flex;gap:8px;margin-bottom:12px">
+        <div style="display:flex;gap:8px;margin-bottom:8px">
           <div ${cardStyle('color-mix(in srgb,var(--expense) 10%,var(--bg2))', 'var(--expense)')}>
             <span style="font-size:11px;color:var(--txt2)">Budget uscite</span>
             <span style="font-size:16px;font-weight:700">${fmt.currency(-expBudget)}</span>
@@ -1153,7 +1153,7 @@ function renderBudgetMese() {
 
       <!-- ── ENTRATE ── -->
       <div class="budget-mese-col">
-        <div style="display:flex;gap:8px;margin-bottom:12px">
+        <div style="display:flex;gap:8px;margin-bottom:8px">
           <div ${cardStyle('color-mix(in srgb,var(--income) 10%,var(--bg2))', 'var(--income)')}>
             <span style="font-size:11px;color:var(--txt2)">Budget entrate</span>
             <span style="font-size:16px;font-weight:700">${fmt.currency(incBudget)}</span>

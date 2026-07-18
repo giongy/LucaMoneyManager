@@ -3,6 +3,19 @@
 > Obiettivo: applicazione "a prova di bomba", ogni eccezione tracciata in `app.log`, try/catch corretti.
 > Data audit: 2026-07-18 · Scope: `src/main/java/com/moneymanager/*.java` (12 file, ~7100 righe).
 
+## Stato interventi (aggiornato 2026-07-18)
+
+- ✅ **C1** — Bridge logga ogni eccezione in app.log (+ dialog async, fetchOnlinePrice)
+- ✅ **C4** — avvio a prova di crash: `run()` sotto guardia in `main`, redirect log anticipato, crash.log + dialog
+- ✅ **I1** — catch muti che loggano (isOpen, getAppSetting, getAllAppSettings, getSystemTagIdByKey, sidecar, coda)
+- ✅ **I2** — parse date pianificate difensivo (`tryParseDate`): riga malformata saltata e loggata, non blocca la lista
+- ✅ **I3** — import coda telefono per-riga (try/catch nel loop + validazione campi obbligatori in applyPendingEntry)
+- ✅ **I6** — null-guard sui PRAGMA di dbGetInfo
+- ✅ **I8** — ResultSet di execute() in try-with-resources
+- ➕ extra — fix bug drag/resize titlebar (coordinate NaN→JsonNull) lato JS + hasNum lato Java
+- ⏭️ **C3** — scartato (uso singolo, niente concorrenza LAN reale)
+- ⏭️ **I5/I7** — opzionali/già a posto (vedi sotto); **I4** rimane da valutare
+
 ---
 
 ## Come funziona il logging (per capire cosa è "perso")

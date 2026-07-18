@@ -1661,12 +1661,23 @@ public class Database {
                 // in cui addTransaction committi ma l'INSERT sotto fallisca, un futuro ri-import
                 // produrrebbe un DUPLICATO VISIBILE (tag phone, compare nella notifica) — che noti e
                 // cancelli — invece di una perdita silenziosa: preferibile per un'app personale.
-                Map<String, Object> tx = applyPendingEntry(o, phoneTagId);
-                execute("INSERT OR IGNORE INTO imported_pending(id,imported_at) VALUES(?,?)",
-                        id, LocalDateTime.now().toString());
-                if (tx != null) imported.add(tx);
-                o.addProperty("applied", true);
-                fileChanged = true;
+                // try/catch PER RIGA: una voce malformata (campo mancante, importo non numerico)
+                // non deve interrompere l'import delle righe successive. La riga fallita NON viene
+                // marcata "applied" né registrata in imported_pending → resta in coda e verrà
+                // ritentata al prossimo import (se corretta a monte).
+                try {
+                    Map<String, Object> tx = applyPendingEntry(o, phoneTagId);
+                    execute("INSERT OR IGNORE INTO imported_pending(id,imported_at) VALUES(?,?)",
+                            id, LocalDateTime.now().toString());
+                    if (tx != null) imported.add(tx);
+                    o.addProperty("applied", true);
+                    fileChanged = true;
+                } catch (Exception e) {
+                    System.err.println("Database.importPending: riga coda non applicata (id=" + id
+                            + "): " + e.getMessage());
+                    logger.log("IMPORT CODA — RIGA SALTATA", "id:" + id, "err:" + e.getMessage());
+                    // riga conservata invariata sotto (rewritten.add) per ritentare in futuro
+                }
             }
             rewritten.add(o.toString());
         }
@@ -1750,6 +1761,13 @@ public class Database {
 
     /** Applica una singola entry della coda come nuova transazione, taggata "phone". */
     private Map<String, Object> applyPendingEntry(JsonObject e, int phoneTagId) throws SQLException {
+        // Valida i campi obbligatori con un messaggio chiaro: se manca qualcosa il chiamante
+        // (importPending, try/catch per riga) logga questo errore leggibile invece di una
+        // criptica UnsupportedOperationException/NPE di Gson, e salta la sola riga.
+        for (String req : new String[]{"date", "amount", "type", "account_id"}) {
+            if (!e.has(req) || e.get(req).isJsonNull())
+                throw new IllegalArgumentException("campo obbligatorio mancante: " + req);
+        }
         JsonObject p = new JsonObject();
         p.addProperty("date", e.get("date").getAsString());
         p.addProperty("amount", e.get("amount").getAsDouble());
@@ -2410,6 +2428,21 @@ public class Database {
         return Map.of("id", id, "deleted", true);
     }
 
+    /** Parse difensivo di una data ISO (yyyy-MM-dd): ritorna null se assente o malformata,
+     *  loggando la riga incriminata. Evita che una singola pianificata con data corrotta
+     *  (import Android, edit manuale del DB, sync parziale OneDrive) faccia esplodere con
+     *  DateTimeParseException l'intera lista/proiezione. Il chiamante decide come reagire al null. */
+    private LocalDate tryParseDate(Object value, Object schedIdForLog) {
+        if (value == null) return null;
+        try {
+            return LocalDate.parse(value.toString());
+        } catch (Exception e) {
+            System.err.println("Database: data pianificata non valida (id=" + schedIdForLog
+                    + ", valore='" + value + "'): riga saltata — " + e.getMessage());
+            return null;
+        }
+    }
+
     /** Prima occorrenza di una pianificata a partire da `from` (compreso), data la frequenza.
      *  Per "once" ritorna null se la data singola è già passata rispetto a `from`. */
     private LocalDate firstOccurrenceFrom(LocalDate start, String freq, LocalDate from) {
@@ -2493,10 +2526,12 @@ public class Database {
         LocalDate yesterday = today.minusDays(1);
         List<Map<String, Object>> overdue = new ArrayList<>();
         for (var s : scheds) {
-            LocalDate start = LocalDate.parse((String) s.get("start_date"));
+            LocalDate start = tryParseDate(s.get("start_date"), s.get("id"));
+            if (start == null) continue;  // riga con data malformata: saltata (già loggata)
             String freq = (String) s.get("frequency");
             String edStr = (String) s.get("end_date");
-            LocalDate endDate = edStr != null ? LocalDate.parse(edStr) : yesterday;
+            LocalDate endDate = edStr != null ? tryParseDate(edStr, s.get("id")) : yesterday;
+            if (endDate == null) endDate = yesterday;  // end_date corrotto: usa il default
             if (endDate.isAfter(yesterday)) endDate = yesterday;
             LocalDate from = start.isBefore(lookback) ? firstOccurrenceFrom(start, freq, lookback) : start;
             if (from == null || from.isAfter(endDate)) continue;
@@ -2753,9 +2788,11 @@ public class Database {
         LocalDate horizon = today.plusYears(2);
         List<Map<String, Object>> all = new ArrayList<>();
         for (var s : scheds) {
-            LocalDate start = LocalDate.parse((String) s.get("start_date"));
+            LocalDate start = tryParseDate(s.get("start_date"), s.get("id"));
+            if (start == null) continue;  // riga con data malformata: saltata (già loggata)
             String freq = (String) s.get("frequency");
-            LocalDate endDate = s.get("end_date") != null ? LocalDate.parse((String) s.get("end_date")) : horizon;
+            LocalDate endDate = s.get("end_date") != null ? tryParseDate(s.get("end_date"), s.get("id")) : horizon;
+            if (endDate == null) endDate = horizon;
             if (endDate.isAfter(horizon)) endDate = horizon;
             LocalDate cur = firstOccurrenceFrom(start, freq, today);
             if (cur == null) continue;
@@ -2782,9 +2819,11 @@ public class Database {
         LocalDate horizon  = today.plusYears(2);
         List<Map<String, Object>> all = new ArrayList<>();
         for (var s : scheds) {
-            LocalDate start = LocalDate.parse((String) s.get("start_date"));
+            LocalDate start = tryParseDate(s.get("start_date"), s.get("id"));
+            if (start == null) continue;  // riga con data malformata: saltata (già loggata)
             String freq = (String) s.get("frequency");
-            LocalDate endDate = s.get("end_date") != null ? LocalDate.parse((String) s.get("end_date")) : horizon;
+            LocalDate endDate = s.get("end_date") != null ? tryParseDate(s.get("end_date"), s.get("id")) : horizon;
+            if (endDate == null) endDate = horizon;
             if (endDate.isAfter(horizon)) endDate = horizon;
             LocalDate startFrom = start.isBefore(lookback) ? firstOccurrenceFrom(start, freq, lookback) : start;
             if (startFrom == null) continue;
@@ -2849,8 +2888,10 @@ public class Database {
             Integer toAid = s.get("to_account_id") != null ? ((Number) s.get("to_account_id")).intValue() : null;
             if (!filter.isEmpty() && !filter.contains(aid) && (toAid == null || !filter.contains(toAid))) continue;
             String freq = (String) s.get("frequency");
-            LocalDate start = LocalDate.parse((String) s.get("start_date"));
-            LocalDate endDate = s.get("end_date") != null ? LocalDate.parse((String) s.get("end_date")) : to;
+            LocalDate start = tryParseDate(s.get("start_date"), s.get("id"));
+            if (start == null) continue;  // riga con data malformata: saltata (già loggata)
+            LocalDate endDate = s.get("end_date") != null ? tryParseDate(s.get("end_date"), s.get("id")) : to;
+            if (endDate == null) endDate = to;
             if (endDate.isAfter(to)) endDate = to;
             LocalDate cur = firstOccurrenceFrom(start, freq, schedFrom);
             if (cur == null) continue;
@@ -2943,8 +2984,10 @@ public class Database {
             int aid = ((Number) s.get("account_id")).intValue();
             if (!filter.isEmpty() && !filter.contains(aid)) continue;
             String freq = (String) s.get("frequency");
-            LocalDate start = LocalDate.parse((String) s.get("start_date"));
-            LocalDate endDate = s.get("end_date") != null ? LocalDate.parse((String) s.get("end_date")) : to;
+            LocalDate start = tryParseDate(s.get("start_date"), s.get("id"));
+            if (start == null) continue;  // riga con data malformata: saltata (già loggata)
+            LocalDate endDate = s.get("end_date") != null ? tryParseDate(s.get("end_date"), s.get("id")) : to;
+            if (endDate == null) endDate = to;
             if (endDate.isAfter(to)) endDate = to;
             LocalDate cur2 = firstOccurrenceFrom(start, freq, from);
             if (cur2 == null) continue;
@@ -4292,9 +4335,11 @@ public class Database {
         for (var s : schedForward) {
             String freq        = (String) s.get("frequency");
             boolean recurring  = recurringFreqs.contains(freq);
-            LocalDate start    = LocalDate.parse((String) s.get("start_date"));
+            LocalDate start    = tryParseDate(s.get("start_date"), s.get("id"));
+            if (start == null) continue;  // riga con data malformata: saltata (già loggata)
             String edStr       = (String) s.get("end_date");
-            LocalDate endDate  = edStr != null ? LocalDate.parse(edStr) : horizon;
+            LocalDate endDate  = edStr != null ? tryParseDate(edStr, s.get("id")) : horizon;
+            if (endDate == null) endDate = horizon;
             if (endDate.isAfter(horizon)) endDate = horizon;
             double amount = num(s.get("amount"));
             String type   = (String) s.get("type");
@@ -4400,7 +4445,7 @@ public class Database {
             if (!isBond) continue; // equity: valore fermo, nessun evento
 
             String matStr = (String) pos.get("maturity_date");
-            LocalDate maturity = matStr != null && !matStr.isBlank() ? LocalDate.parse(matStr) : null;
+            LocalDate maturity = matStr != null && !matStr.isBlank() ? tryParseDate(matStr, pos.get("id")) : null;
             double faceValue  = pos.get("face_value")  != null ? ((Number) pos.get("face_value")).doubleValue()  : 1.0;
             double couponRate = pos.get("coupon_rate") != null ? ((Number) pos.get("coupon_rate")).doubleValue() : 0.0;
             double couponTax  = pos.get("coupon_tax")  != null ? ((Number) pos.get("coupon_tax")).doubleValue()  : 12.5;

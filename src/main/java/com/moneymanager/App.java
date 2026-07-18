@@ -64,7 +64,61 @@ public class App {
      * Sequenza di avvio dell'app. Tutta la creazione di UI Swing/JCEF avviene
      * sull'Event Dispatch Thread tramite SwingUtilities.
      */
-    public static void main(String[] args) throws Exception {
+    /**
+     * Guardia di avvio: delega a {@link #run} e cattura QUALSIASI errore non gestito.
+     * In produzione (jpackage, niente console) un'eccezione prima che app.log sia agganciato
+     * andrebbe persa sul vero stderr e l'app morirebbe in silenzio. Qui invece la scriviamo
+     * comunque su un crash.log nella cartella dati (che esiste sempre) e la mostriamo a video.
+     */
+    public static void main(String[] args) {
+        try {
+            run(args);
+        } catch (Throwable t) {
+            reportFatal(t);
+            System.exit(1);
+        }
+    }
+
+    /** Scrive l'errore fatale su crash.log nella dataDir (best-effort) e lo mostra in un dialog. */
+    private static void reportFatal(Throwable t) {
+        // 1) Prova a loggare dove System.err è già stato reindirizzato (app.log)
+        try { t.printStackTrace(); } catch (Throwable ignored) {}
+        // 2) crash.log dedicato nella cartella dati: sopravvive anche se il redirect non era ancora attivo
+        try {
+            Path dataDir = Path.of(System.getProperty("user.home"),
+                    "AppData", "Roaming", "LucaMoneyManager");
+            Files.createDirectories(dataDir);
+            try (PrintStream ps = new PrintStream(new java.io.FileOutputStream(
+                    dataDir.resolve("crash.log").toFile(), true),
+                    true, java.nio.charset.StandardCharsets.UTF_8)) {
+                ps.println("\n── CRASH " + LocalDateTime.now()
+                        .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")) + " ──");
+                t.printStackTrace(ps);
+            }
+        } catch (Throwable ignored) { /* niente da fare se nemmeno questo riesce */ }
+        // 3) Avvisa l'utente (in produzione non c'è console: senza dialog non saprebbe nulla)
+        try {
+            JOptionPane.showMessageDialog(null,
+                    "Errore fatale all'avvio:\n" + t + "\n\nDettagli in crash.log (cartella dati).",
+                    "LucaMoneyManager — Errore", JOptionPane.ERROR_MESSAGE);
+        } catch (Throwable ignored) {}
+    }
+
+    /** Reindirizza System.err/System.out in append sul file di log dato, scrivendo l'header
+     *  di sessione "── Avvio ... ──". Può essere chiamato due volte (dataDir → cartella DB). */
+    private static void redirectLog(Path logFile) throws Exception {
+        Files.createDirectories(logFile.getParent());
+        PrintStream logStream = new PrintStream(
+                new java.io.FileOutputStream(logFile.toFile(), true),
+                true, java.nio.charset.StandardCharsets.UTF_8);
+        logStream.println("\n── Avvio " + LocalDateTime.now()
+                .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")) + " ──");
+        System.setErr(logStream);
+        System.setOut(logStream);
+    }
+
+    /** Sequenza di avvio vera e propria (vedi {@link #main} per la guardia anti-crash). */
+    private static void run(String[] args) throws Exception {
         // ── Profiling avvio: 4 timestamp per capire dove vanno i 3-5s a freddo.
         // Stampati in app.log come "[STARTUP]". Togliere/lasciare a piacere.
         long t0 = System.nanoTime();
@@ -74,6 +128,12 @@ public class App {
         Path dataDir = Path.of(System.getProperty("user.home"),
                 "AppData", "Roaming", "LucaMoneyManager");
         Files.createDirectories(dataDir);
+
+        // Redirect stderr/stdout → app.log IL PRIMA POSSIBILE, nella cartella dati (che esiste
+        // sempre). Così tutto ciò che segue (istanza singola, settings, DB, risorse web) è già
+        // tracciato: un errore in questa fase non va più perso sul vero stderr (invisibile in
+        // produzione). Se poi il DB reale è in un'altra cartella, il log viene ri-agganciato lì.
+        redirectLog(dataDir.resolve("app.log"));
 
         // Istanza singola: se un'altra è già in esecuzione, le manda SHOW ed esce
         if (!SingleInstance.tryAcquire(TrayManager::bringToFront)) {
@@ -104,15 +164,12 @@ public class App {
             }
         }
 
-        // Log eccezioni Java → stessa cartella del DB (app.log)
+        // Se il DB reale è in una cartella diversa dalla dataDir, ri-aggancia app.log lì
+        // (comportamento storico: app.log accanto al DB). Se coincide, il redirect iniziale basta.
         Path appLog = Path.of(dbPath).getParent().resolve("app.log");
-        Files.createDirectories(appLog.getParent());
-        PrintStream logStream = new PrintStream(
-                new java.io.FileOutputStream(appLog.toFile(), true),
-                true, java.nio.charset.StandardCharsets.UTF_8);
-        logStream.println("\n── Avvio " + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")) + " ──");
-        System.setErr(logStream);
-        System.setOut(logStream);
+        if (!appLog.equals(dataDir.resolve("app.log"))) {
+            redirectLog(appLog);
+        }
 
         // Rileva percorsi java.exe e JAR per la registrazione autostart
         try {

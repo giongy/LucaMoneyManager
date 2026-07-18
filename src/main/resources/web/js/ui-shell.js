@@ -183,7 +183,9 @@ async function _refreshLogErrors() {
   } catch { /* bridge non pronto: riprova al prossimo tick */ }
 }
 _refreshLogErrors();
-// Ogni 30s (gli errori non sono frequenti) + subito dopo ogni operazione fallita:
-// callJava logga il fallimento in app.log, quindi ri-controlliamo al volo (vedi bridge.js).
-setInterval(_refreshLogErrors, 30000);
+// Ogni 5 minuti (rete di sicurezza: gli errori non sono frequenti e la lettura di app.log
+// da OneDrive è meglio farla di rado) + subito dopo ogni operazione fallita: callJava logga
+// il fallimento in app.log, quindi ri-controlliamo al volo (vedi bridge.js) — è quest'ultimo
+// il canale in tempo reale, il polling copre solo gli errori che non passano da onFailure.
+setInterval(_refreshLogErrors, 300000);
 window.refreshLogErrors = _refreshLogErrors;

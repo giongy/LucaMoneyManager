@@ -74,6 +74,9 @@ titlebar.addEventListener('mousedown', async e => {
 });
 document.addEventListener('mousemove', e => {
   if (!drag) return;
+  // winX/winY sono popolati da getWindowPos() (async): un mousemove che arriva prima
+  // che ritorni li troverebbe undefined → setWindowPos(NaN) → JsonNull lato Java. Attendi.
+  if (winX === undefined || winY === undefined) return;
   api.setWindowPos(winX + (e.screenX - startX), winY + (e.screenY - startY));
 });
 document.addEventListener('mouseup', () => { drag = false; _resizeDir = null; });
@@ -157,3 +160,30 @@ async function _refreshDbStatus() {
 }
 _refreshDbStatus();
 setInterval(_refreshDbStatus, 2000);
+
+/* ─── Badge errori app.log ───────────────────────────────────────────────── */
+// app.log raccoglie le eccezioni Java (vedi Bridge/App): errori che possono capitare
+// in modo "trasparente" (una transazione non registrata, un backup fallito) senza che
+// l'utente se ne accorga sul momento. Questo badge in titlebar resta nascosto finché
+// il log è pulito e diventa rosso col numero di errori appena ne compare uno; il click
+// apre app.log. Il conteggio è sull'intero file: si azzera con "Pulisci log" in Impostazioni.
+const _logErrBtn = document.getElementById('logErrorBtn');
+async function _refreshLogErrors() {
+  try {
+    const { count } = await api.getAppLogErrors();
+    if (count > 0) {
+      _logErrBtn.textContent = '⚠ ' + count;
+      _logErrBtn.title = count === 1
+        ? '1 errore nel log — clicca per aprire app.log'
+        : count + ' errori nel log — clicca per aprire app.log';
+      _logErrBtn.style.display = '';
+    } else {
+      _logErrBtn.style.display = 'none';
+    }
+  } catch { /* bridge non pronto: riprova al prossimo tick */ }
+}
+_refreshLogErrors();
+// Ogni 30s (gli errori non sono frequenti) + subito dopo ogni operazione fallita:
+// callJava logga il fallimento in app.log, quindi ri-controlliamo al volo (vedi bridge.js).
+setInterval(_refreshLogErrors, 30000);
+window.refreshLogErrors = _refreshLogErrors;

@@ -110,7 +110,8 @@ public class Database {
 
     /** True se la connessione è aperta e valida. */
     public boolean isOpen() {
-        try { return conn != null && !conn.isClosed(); } catch (SQLException e) { return false; }
+        try { return conn != null && !conn.isClosed(); }
+        catch (SQLException e) { System.err.println("Database.isOpen: " + e.getMessage()); return false; }
     }
 
     // true quando il DB è stato chiuso ESPLICITAMENTE dall'utente (bottone "Chiudi" nel
@@ -382,7 +383,11 @@ public class Database {
                                 ));
                             }
                             changes = list;
-                        } catch (Exception ignored) {}
+                        } catch (Exception e) {
+                            // Sidecar corrotto: mostra il backup senza le modifiche, ma logga
+                            // (indica un file .json malformato accanto al .db.bak).
+                            System.err.println("Database.listBackups: sidecar illeggibile " + sidecar + ": " + e.getMessage());
+                        }
                     }
                     var entry = new java.util.HashMap<String,Object>();
                     entry.put("name",      name);
@@ -488,8 +493,10 @@ public class Database {
             try (PreparedStatement ps = c.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
                 bind(ps, params);
                 ps.executeUpdate();
-                ResultSet keys = ps.getGeneratedKeys();
-                long id = keys.next() ? keys.getLong(1) : -1;
+                long id;
+                try (ResultSet keys = ps.getGeneratedKeys()) {
+                    id = keys.next() ? keys.getLong(1) : -1;
+                }
                 long ms = (System.nanoTime() - t0) / 1_000_000;
                 if (ms >= SLOW_QUERY_MS)
                     System.err.printf("[SLOW QUERY %dms] %s%n", ms, sql.substring(0, Math.min(120, sql.length())).replaceAll("\\s+", " ").trim());
@@ -845,7 +852,12 @@ public class Database {
         try {
             Map<String, Object> row = queryOne("SELECT value FROM app_settings WHERE key=?", key);
             return row != null ? (String) row.get("value") : def;
-        } catch (Exception e) { return def; }
+        } catch (Exception e) {
+            // Loggato: un fallimento qui fa usare silenziosamente il default (es. backup.dir
+            // "non configurato" quando in realtà è solo la query fallita) — va reso visibile.
+            System.err.println("Database.getAppSetting('" + key + "'): " + e.getMessage());
+            return def;
+        }
     }
 
     /** Tutte le impostazioni applicative come mappa chiave→valore. */
@@ -855,7 +867,10 @@ public class Database {
             Map<String, String> out = new java.util.LinkedHashMap<>();
             for (Map<String, Object> r : rows) out.put((String) r.get("key"), (String) r.get("value"));
             return out;
-        } catch (Exception e) { return Map.of(); }
+        } catch (Exception e) {
+            System.err.println("Database.getAllAppSettings: " + e.getMessage());
+            return Map.of();
+        }
     }
 
     /** Scrive/aggiorna un'impostazione applicativa (upsert su key). */
@@ -889,7 +904,12 @@ public class Database {
         try {
             Map<String, Object> row = queryOne("SELECT id FROM tags WHERE system_key=?", key);
             return row != null ? ((Number) row.get("id")).intValue() : null;
-        } catch (Exception e) { return null; }
+        } catch (Exception e) {
+            // Loggato: il null si propaga in archive/coupon/dividend dove viene gestito, ma la
+            // causa originale (DB rotto) resterebbe altrimenti invisibile.
+            System.err.println("Database.getSystemTagIdByKey('" + key + "'): " + e.getMessage());
+            return null;
+        }
     }
 
     /** Su DB nuovo, popola le categorie di default (entrate/uscite); su DB esistente
@@ -1698,7 +1718,11 @@ public class Database {
                 r.put("to_account_id", o.has("to_account_id") && !o.get("to_account_id").isJsonNull() ? o.get("to_account_id").getAsInt() : null);
                 r.put("description",   o.has("description") && !o.get("description").isJsonNull() ? o.get("description").getAsString() : "");
                 out.add(r);
-            } catch (Exception ignored) { /* riga illeggibile: saltala */ }
+            } catch (Exception e) {
+                // Riga della coda illeggibile: saltala ma logga (import da telefono robusto,
+                // una riga malformata non deve bloccare le altre né sparire in silenzio).
+                System.err.println("Database.readPendingRaw: riga illeggibile saltata: " + e.getMessage());
+            }
         }
         return out;
     }
@@ -3686,9 +3710,12 @@ public class Database {
         var pageCount = queryOne("PRAGMA page_count");
         var pageSize  = queryOne("PRAGMA page_size");
         var freePages = queryOne("PRAGMA freelist_count");
-        long pc = ((Number) pageCount.get("page_count")).longValue();
-        long ps = ((Number) pageSize.get("page_size")).longValue();
-        long fp = ((Number) freePages.get("freelist_count")).longValue();
+        // Null-guard sui PRAGMA (coerente con i conteggi sotto): dbGetInfo è la diagnostica che
+        // si apre proprio quando il DB è malato — un PRAGMA che non torna righe non deve
+        // trasformarsi in un NPE che nasconde lo stato reale del database.
+        long pc = pageCount != null ? ((Number) pageCount.get("page_count")).longValue() : 0;
+        long ps = pageSize  != null ? ((Number) pageSize.get("page_size")).longValue()   : 0;
+        long fp = freePages != null ? ((Number) freePages.get("freelist_count")).longValue() : 0;
         var txCount   = queryOne("SELECT COUNT(*) AS n FROM transactions");
         var accCount  = queryOne("SELECT COUNT(*) AS n FROM accounts");
         var svRow     = queryOne("SELECT version FROM schema_version");

@@ -451,6 +451,8 @@ async function renderSettings() {
           <span class="settings-info-label">Log Java</span>
           <span class="settings-info-value flex-center-8">
             <span style="word-break:break-all">${s['_app_log_path'] || '—'}</span>
+            <!-- Conteggio errori nel file (riempito da _fillLogErrCount dopo il render) -->
+            <span id="logErrCount" class="settings-hint" style="white-space:nowrap">…</span>
             <button class="btn btn-ghost" style="white-space:nowrap;padding:2px 8px;font-size:11px"
                     onclick="api.openAppLog()">Apri ↗</button>
             <button class="btn btn-ghost" style="white-space:nowrap;padding:2px 8px;font-size:11px"
@@ -543,6 +545,26 @@ async function renderSettings() {
     </div>`;
   if (_settingsTab === 'maintenance') setTimeout(() => { maintLoadInfo(); maintLoadLogInfo(); }, 50);
   if (_settingsTab === 'archive')     setTimeout(() => { archiveLoadCategories(); }, 50);
+  if (_settingsTab === 'info')        setTimeout(_fillLogErrCount, 50);
+}
+
+// Riempie il conteggio errori accanto alla riga "Log Java" (tab Informazioni).
+// Stesso dato del badge in titlebar (intero file): verde se pulito, rosso se ci sono errori.
+async function _fillLogErrCount() {
+  const el = document.getElementById('logErrCount');
+  if (!el) return;
+  try {
+    const { count } = await api.getAppLogErrors();
+    if (count > 0) {
+      el.textContent = '⚠ ' + count + (count === 1 ? ' errore' : ' errori');
+      el.style.color = 'var(--expense)';
+    } else {
+      el.textContent = '✓ nessun errore';
+      el.style.color = 'var(--income)';
+    }
+  } catch {
+    el.textContent = '';
+  }
 }
 
 // Cambia la tab attiva delle Impostazioni e carica i dati lazy della tab (manutenzione/perf).
@@ -976,6 +998,9 @@ window._clearAppLog = async () => {
   if (!ok) return;
   await callJava('clearAppLog', {});
   toast('Log Java eliminato', 'success');
+  // Aggiorna sia il conteggio in Impostazioni sia il badge in titlebar (ora a zero)
+  _fillLogErrCount();
+  if (typeof window.refreshLogErrors === 'function') window.refreshLogErrors();
 };
 
 // Elimina dal log le righe più vecchie della data di taglio scelta.

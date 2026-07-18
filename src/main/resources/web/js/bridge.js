@@ -50,7 +50,14 @@ function callJava(method, params = {}) {
       window.cefQuery({
         request: payload,
         onSuccess: r => { try { resolve(finish(_checkError(JSON.parse(_fromB64(r))))); } catch(e) { reject(e); } },
-        onFailure: (_code, msg) => { finish(null); reject(new Error(msg)); }
+        onFailure: (_code, msg) => {
+          finish(null);
+          // Un fallimento qui significa che Bridge ha appena loggato un errore in app.log:
+          // aggiorna subito il badge errori (salvo il metodo del badge stesso, per non ciclare).
+          if (method !== 'getAppLogErrors' && typeof window.refreshLogErrors === 'function')
+            window.refreshLogErrors();
+          reject(new Error(msg));
+        }
       });
     });
   }
@@ -191,6 +198,7 @@ const api = {
   setAttachmentPath:     (tx_id, path)  => callJava('setAttachmentPath', {tx_id, path}),
   openSettingsFile:      ()             => callJava('openSettingsFile', {}),
   openAppLog:            ()             => callJava('openAppLog', {}),
+  getAppLogErrors:       ()             => callJava('getAppLogErrors', {}),
   openUrl:           (url)   => callJava('openUrl', {url}),
   doBackup:        ()         => callJava('doBackup', {}),
   listBackups:     ()         => callJava('listBackups', {}),

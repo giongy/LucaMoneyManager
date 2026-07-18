@@ -1176,6 +1176,20 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
   box-shadow:0 0 5px color-mix(in srgb, var(--income) 70%, transparent);
 }
 
+/* ─── Badge errori app.log ───────────────────────────────────────────────── */
+/* Nascosto quando il log è pulito (display:none inline in index.html); quando ci sono
+   errori mostra "⚠ N" in rosso nella titlebar. Click → apre app.log. */
+.log-error-badge {
+  height:20px; display:flex; align-items:center; gap:3px;
+  padding:0 8px; margin:0 2px; border-radius:10px; cursor:pointer;
+  font-size:11px; font-weight:700; line-height:1; white-space:nowrap;
+  flex-shrink:0; user-select:none;
+  color:#fff; background:var(--expense, #c0392b);
+  box-shadow:0 0 6px color-mix(in srgb, var(--expense, #c0392b) 55%, transparent);
+  transition:filter .15s;
+}
+.log-error-badge:hover { filter:brightness(1.15); }
+
 /* ─── Theme editor panel (floating, draggable) ───────────────────────────── */
 #tePanel {
   position:fixed; top:60px; right:16px; width:360px;

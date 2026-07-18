@@ -79,6 +79,11 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
         callback.success(b64);
     }
 
+    /** True se la chiave esiste, non è null ed è un numero (evita getAsInt() su JsonNull → eccezione). */
+    private static boolean hasNum(JsonObject p, String key) {
+        return p.has(key) && p.get(key).isJsonPrimitive() && p.get(key).getAsJsonPrimitive().isNumber();
+    }
+
     /**
      * Entry point delle chiamate dal JavaScript (window.cefQuery).
      * Decodifica il payload Base64 → JSON, estrae method+params e instrada:
@@ -89,10 +94,12 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
     @Override
     public boolean onQuery(CefBrowser browser, CefFrame frame, long queryId,
                            String request, boolean persistent, CefQueryCallback callback) {
+        // method fuori dal try: serve nel catch per loggare QUALE operazione è fallita
+        String method = "?";
         try {
             String json = new String(Base64.getDecoder().decode(request), StandardCharsets.UTF_8);
             JsonObject req = JsonParser.parseString(json).getAsJsonObject();
-            String method = req.get("method").getAsString();
+            method = req.get("method").getAsString();
             JsonObject params = req.has("params") && req.get("params").isJsonObject()
                     ? req.get("params").getAsJsonObject()
                     : new JsonObject();
@@ -120,6 +127,7 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                     try {
                         succeed(callback, doFetchOnlinePrice(isin));
                     } catch (Exception e) {
+                        System.err.println("[Bridge] fetchOnlinePrice(" + isin + ") fallito: " + e);
                         callback.failure(500, e.getMessage() != null ? e.getMessage() : "Errore fetch prezzo");
                     }
                 });
@@ -141,7 +149,14 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             succeed(callback, result);
 
         } catch (Exception e) {
-            callback.failure(500, e.getMessage() != null ? e.getMessage() : "Errore interno");
+            // Ogni operazione JS→Java passa da qui: è l'unico punto centrale dove loggare
+            // gli errori. Senza questo, le eccezioni (SQLException, NPE, parse, ecc.) andavano
+            // solo al frontend e sparivano da app.log. Per gli NPE getMessage() è null, quindi
+            // in quel caso mandiamo al JS il nome della classe invece del muto "Errore interno".
+            System.err.println("[Bridge] '" + method + "' fallito: " + e);
+            e.printStackTrace();
+            callback.failure(500, e.getMessage() != null ? e.getMessage()
+                                                          : e.getClass().getSimpleName());
         }
         return true;
     }
@@ -157,7 +172,10 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                 if (path == null) { succeed(callback, Map.of("path", "", "cancelled", true)); return; }
                 if ("save".equals(mode) && !path.matches(".*\\.(db|sqlite|sqlite3)$")) path += ".db";
                 succeed(callback, Map.of("path", path, "cancelled", false));
-            } catch (Exception e) { succeed(callback, Map.of("path", "", "cancelled", true)); }
+            } catch (Exception e) {
+                System.err.println("[Bridge] chooseDbFile fallito: " + e);
+                succeed(callback, Map.of("path", "", "cancelled", true));
+            }
         });
     }
 
@@ -168,7 +186,10 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                 String path = winPickFolder("Seleziona cartella backup", cur);
                 if (path == null) succeed(callback, Map.of("path", "", "cancelled", true));
                 else              succeed(callback, Map.of("path", path, "cancelled", false));
-            } catch (Exception e) { succeed(callback, Map.of("path", "", "cancelled", true)); }
+            } catch (Exception e) {
+                System.err.println("[Bridge] chooseBackupDir fallito: " + e);
+                succeed(callback, Map.of("path", "", "cancelled", true));
+            }
         });
     }
 
@@ -179,7 +200,10 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                 String path = winPickFolder("Seleziona cartella allegati", cur);
                 if (path == null) succeed(callback, Map.of("path", "", "cancelled", true));
                 else              succeed(callback, Map.of("path", path, "cancelled", false));
-            } catch (Exception e) { succeed(callback, Map.of("path", "", "cancelled", true)); }
+            } catch (Exception e) {
+                System.err.println("[Bridge] chooseAttachmentsDir fallito: " + e);
+                succeed(callback, Map.of("path", "", "cancelled", true));
+            }
         });
     }
 
@@ -189,7 +213,10 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                 String path = nativePickFile("Seleziona file allegato", java.awt.FileDialog.LOAD, null, null);
                 if (path == null) succeed(callback, Map.of("path", "", "cancelled", true));
                 else              succeed(callback, Map.of("path", path, "cancelled", false));
-            } catch (Exception e) { succeed(callback, Map.of("path", "", "cancelled", true)); }
+            } catch (Exception e) {
+                System.err.println("[Bridge] chooseAttachmentFile fallito: " + e);
+                succeed(callback, Map.of("path", "", "cancelled", true));
+            }
         });
     }
 
@@ -279,6 +306,9 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             case "getDbPath"    -> Map.of("path", db.getDbPath());
             case "getWindowPos" -> Map.of("x", window.getX(), "y", window.getY());
             case "setWindowPos" -> {
+                // Difensivo: durante il drag il JS può inviare x/y null (getWindowPos async non
+                // ancora tornata → NaN → JsonNull). In quel caso ignora il frame invece di lanciare.
+                if (!hasNum(p, "x") || !hasNum(p, "y")) yield Map.of("ok", false, "skipped", true);
                 int x = p.get("x").getAsInt();
                 int y = p.get("y").getAsInt();
                 SwingUtilities.invokeLater(() -> window.setLocation(x, y));
@@ -288,6 +318,9 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                 "x", window.getX(), "y", window.getY(),
                 "w", window.getWidth(), "h", window.getHeight());
             case "setWindowBounds" -> {
+                // Difensivo come setWindowPos: durante il resize il JS può inviare valori null.
+                if (!hasNum(p, "x") || !hasNum(p, "y") || !hasNum(p, "w") || !hasNum(p, "h"))
+                    yield Map.of("ok", false, "skipped", true);
                 int x = p.get("x").getAsInt(), y = p.get("y").getAsInt();
                 int w = p.get("w").getAsInt(), h = p.get("h").getAsInt();
                 Dimension min = window.getMinimumSize();
@@ -570,6 +603,9 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                 yield Map.of("ok", true);
             }
 
+            // Conta gli errori in app.log (per il badge "ci sono errori nel log").
+            case "getAppLogErrors" -> appLogErrors();
+
             case "clearAppLog" -> {
                 String dbPath = settings.get(Settings.DB_PATH);
                 if (dbPath != null) {
@@ -809,5 +845,69 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             props.load(is);
             return props.getProperty("version", "?");
         } catch (Exception e) { return "?"; }
+    }
+
+    /**
+     * Conta gli "eventi di errore" presenti in app.log (per il badge in UI/Impostazioni).
+     * app.log raccoglie stderr/stdout (vedi App.java): contiene sia righe informative
+     * (── Avvio, [STARTUP], [SLOW QUERY], "WebServer avviato"…) sia errori. Contiamo solo
+     * questi ultimi, e una sola volta per evento: le righe di continuazione di uno stacktrace
+     * ("\tat ...", "Caused by", "... N more") NON incrementano il conteggio, così uno
+     * stacktrace da 30 righe conta come 1 errore. Ritorna { count, lastError, lastTime }.
+     */
+    private Map<String, Object> appLogErrors() {
+        String dbPath = settings.get(Settings.DB_PATH);
+        if (dbPath == null || dbPath.isBlank()) return Map.of("count", 0, "lastError", "", "lastTime", "");
+        java.nio.file.Path appLog = java.nio.file.Path.of(dbPath).getParent().resolve("app.log");
+        if (!java.nio.file.Files.exists(appLog)) return Map.of("count", 0, "lastError", "", "lastTime", "");
+
+        int count = 0;
+        String lastError = "";
+        String lastTime  = "";
+        try {
+            java.util.List<String> lines = java.nio.file.Files.readAllLines(
+                    appLog, StandardCharsets.UTF_8);
+            String currentSession = "";  // ultimo header "── Avvio yyyy-MM-dd HH:mm:ss ──" visto
+            for (String raw : lines) {
+                String l = raw.strip();
+                if (l.isEmpty()) continue;
+                // Header di sessione: memorizza il timestamp per associarlo agli errori successivi
+                if (l.startsWith("── Avvio")) {
+                    currentSession = l.replace("── Avvio", "").replace("──", "").strip();
+                    continue;
+                }
+                // Righe informative note (System.out): non sono errori
+                if (l.startsWith("[STARTUP]") || l.startsWith("[SLOW QUERY")
+                        || l.startsWith("WebServer avviato") || l.startsWith("WebServer disabilitato")) {
+                    continue;
+                }
+                // Righe di continuazione di uno stacktrace: fanno parte dell'errore già contato
+                if (raw.startsWith("\t") || l.startsWith("at ")
+                        || l.startsWith("Caused by") || l.startsWith("... ") || l.startsWith("Suppressed:")) {
+                    continue;
+                }
+                // Riga-eccezione "nuda" (es. "java.lang.NullPointerException", "org.sqlite...: ..."):
+                // è l'INTESTAZIONE di uno stacktrace. Con C1 compare sempre subito dopo il println
+                // dell'errore (println + printStackTrace), quindi è lo stesso evento già contato:
+                // non la contiamo di nuovo, altrimenti ogni errore Bridge conterebbe doppio.
+                boolean bareExc = l.matches("^(java|javax|org|com|sun)\\..*(Exception|Error).*")
+                               || l.matches("^\\w+(Exception|Error)(:.*)?$");
+                if (bareExc) continue;
+                // Marcatori di un nuovo evento di errore: i prefissi dei nostri catch ([Bridge], Database.)
+                // e la convenzione italiana dei messaggi System.err ("Errore...", "...fallito...").
+                String low = l.toLowerCase();
+                boolean isError = l.startsWith("[Bridge]") || l.startsWith("Database.")
+                        || low.contains("fallit") || low.startsWith("errore");
+                if (isError) {
+                    count++;
+                    lastError = l.length() > 200 ? l.substring(0, 200) + "…" : l;
+                    lastTime  = currentSession;
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("[Bridge] getAppLogErrors: " + e.getMessage());
+            return Map.of("count", 0, "lastError", "", "lastTime", "", "readError", true);
+        }
+        return Map.of("count", count, "lastError", lastError, "lastTime", lastTime);
     }
 }

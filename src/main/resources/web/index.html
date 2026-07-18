@@ -153,6 +153,10 @@
       </div>
       <div id="themeToggleBtn" title="Cambia tema (Alt+T)">🌙</div>
       <div id="shortcutsBtn" title="Scorciatoie da tastiera (?)">⌨</div>
+      <!-- Badge errori app.log: nascosto se il log è pulito, rosso con conteggio se ci sono
+           errori. Click → apre app.log. Aggiornato in background da ui-shell.js. -->
+      <div id="logErrorBtn" class="log-error-badge" style="display:none"
+           title="Errori nel log" onclick="api.openAppLog()"></div>
       <div id="noticeBtn" title="Nessuna notifica" onclick="replayNotices()">✓</div>
       <div class="titlebar-controls">
         <button class="tb-btn tb-min" id="btnMin" title="Riduci">─</button>

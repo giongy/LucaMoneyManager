@@ -1566,7 +1566,7 @@ public class Database {
                 "tipo:" + str(p,"type"),
                 "importo:" + DbLogger.amt(dbl2(p,"amount")),
                 "conto:" + DbLogger.s(tx != null ? tx.get("account_name") : null),
-                "categoria:" + DbLogger.s(tx != null ? tx.get("category_name") : null),
+                "categoria:" + logCategoria(id, tx),
                 "descrizione:" + DbLogger.s(str(p,"description")));
             return tx;
         });
@@ -1817,7 +1817,7 @@ public class Database {
                 "tipo:" + str(p,"type"),
                 "importo:" + DbLogger.amt(dbl2(p,"amount")),
                 "conto:" + DbLogger.s(tx != null ? tx.get("account_name") : null),
-                "categoria:" + DbLogger.s(tx != null ? tx.get("category_name") : null),
+                "categoria:" + logCategoria(id, tx),
                 "descrizione:" + DbLogger.s(str(p,"description")));
             return tx;
         });
@@ -2089,6 +2089,29 @@ public class Database {
                         s.has("description") && !s.get("description").isJsonNull() ? s.get("description").getAsString() : "");
             }
         }
+    }
+
+    /**
+     * Valore "categoria:" per il log di una transazione. Se la transazione è suddivisa
+     * (category_id null sul record principale) elenca categorie e importi degli split,
+     * es. "[suddivisa] Regali/Donazioni 10,00; Prestiti e anticipi 39,99"; altrimenti il
+     * nome della categoria singola.
+     */
+    private String logCategoria(long id, Map<String, Object> tx) throws SQLException {
+        Object catName = tx != null ? tx.get("category_name") : null;
+        if (catName != null) return DbLogger.s(catName);
+        List<Map<String, Object>> splits = getTransactionSplits((int) id);
+        if (splits.isEmpty()) return DbLogger.s(null);
+        StringBuilder sb = new StringBuilder("[suddivisa] ");
+        for (int i = 0; i < splits.size(); i++) {
+            Map<String, Object> s = splits.get(i);
+            if (i > 0) sb.append("; ");
+            Object name = s.get("category_name");
+            sb.append(name != null ? name : "-")
+              .append(' ')
+              .append(DbLogger.amt(s.get("amount")));
+        }
+        return sb.toString();
     }
 
     /** Righe split di una transazione, con i dati della categoria di ciascuna. */

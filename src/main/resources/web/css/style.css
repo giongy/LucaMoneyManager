@@ -119,129 +119,126 @@
 }
 
 
-/* ─── Chiaro theme (bianco pastello: minimal e pulito, accento lavanda) ─────── */
-/* Tema CHIARO moderno. Sfondo bianco-lavanda tenue (NON bianco puro: aggressivo),
-   card bianche pure che "galleggiano" sopra con ombra morbida → look pulito e arioso.
-   Accenti pastello: lavanda primario + menta secondario. Testo blu-grigio scuro per
-   contrasto morbido. Nessun blur/aurora: piatto, minimale, leggero. Rispetta la
-   gerarchia bg3 < bg < bg2 (card più chiare dello sfondo). */
-/* Toast: i fondi scuri fissi (.toast-info #1a2a3a ecc.) sono illeggibili su tema chiaro.
-   Override con fondi pastello coerenti e testo scuro (come nel tema carta). */
-[data-theme="chiaro"] .toast         { color: var(--txt); }
-[data-theme="chiaro"] .toast-info    { background: #e9e6ff; border-color: var(--accent);  color: #4a3ca8; }
-[data-theme="chiaro"] .toast-success { background: #d9f0e2; border-color: var(--income);  color: #1c6b3c; }
-[data-theme="chiaro"] .toast-error   { background: #fbe0e1; border-color: var(--expense); color: #a82026; }
-[data-theme="chiaro"] .toast-warning { background: #f6ecd4; border-color: var(--warn);    color: #7a5400; }
-/* Bottone azione (Annulla): riempito con l'accento → ben visibile sul fondo chiaro. */
-[data-theme="chiaro"] .toast-action-btn { background: var(--accent) !important; border-color: var(--accent) !important; color: #fff !important; }
-[data-theme="chiaro"] {
-  --bg:       #f2f3f9;
-  --bg2:      #ffffff;
-  --bg3:      #e9eaf3;
-  --bg4:      #e2e3ef;
-  --border:   #e0e1ec;
-  --accent:   #7c6cff;
-  --accent2:  #34c3a8;
-  --income:   #2e9e57;
-  --expense:  #e5484d;
-  --warn:     #c98a12;
-  --purple:   #8b5cf6;
-  --orange:   #ea8a3a;
-  --txt:      #2b2d42;
-  --txt2:     #6b6e87;
-  --txt3:     #9a9db3;
+/* ─── Petrolio theme (teal/petrolio scuro + accento arancio caldo) ─────────── */
+/* Tema SCURO teal/petrolio ispirato a un mockup — fondo verde-petrolio molto
+   scuro, card appena più chiare che emergono per contrasto, accento ARANCIO
+   caldo primario + teal secondario. Testo bianco-ghiaccio.
+   Gerarchia bg3 < bg < bg2 (card più chiare dello sfondo). */
+/* Toast: fondi petrolio saturi + testo chiaro, coerenti con la palette scura. */
+[data-theme="petrolio"] .toast         { color: var(--txt); }
+[data-theme="petrolio"] .toast-info    { background: #123039; border-color: var(--accent);  color: #ffd0a6; }
+[data-theme="petrolio"] .toast-success { background: #123329; border-color: var(--income);  color: #a7e6b8; }
+[data-theme="petrolio"] .toast-error   { background: #35201d; border-color: var(--expense); color: #ffb3ad; }
+[data-theme="petrolio"] .toast-warning { background: #352a17; border-color: var(--warn);    color: #f0d59a; }
+/* Bottone azione (Annulla): riempito con l'accento arancio → ben visibile. */
+[data-theme="petrolio"] .toast-action-btn { background: var(--accent) !important; border-color: var(--accent) !important; color: #1a1108 !important; }
+[data-theme="petrolio"] {
+  --bg:       #0f1e23;
+  --bg2:      #16292f;
+  --bg3:      #1e353c;
+  --bg4:      #1a2f35;
+  --border:   #294349;
+  --accent:   #f0883e;
+  --accent2:  #2fb9a0;
+  --income:   #4ec76a;
+  --expense:  #f4695f;
+  --warn:     #e0a94a;
+  --purple:   #b585ff;
+  --orange:   #f0883e;
+  --txt:      #e7f0f2;
+  --txt2:     #9db3b8;
+  --txt3:     #6a848a;
   --radius:   14px;
-  --shadow:   0 8px 28px rgba(60,60,110,.10);
+  --shadow:   0 8px 32px rgba(0,0,0,.45);
 }
-/* Sfondo: bianco-lavanda pianeggiante con un alito di colore agli angoli per non
-   risultare piatto/asettico (aloni pastello lavanda + menta a bassissima opacità). */
-[data-theme="chiaro"] body,
-[data-theme="chiaro"] .main {
+/* Sfondo: petrolio scuro con un alito di teal/arancio agli angoli per profondità. */
+[data-theme="petrolio"] body,
+[data-theme="petrolio"] .main {
   background:
-    radial-gradient(1200px 850px at  6% -12%, rgba(124,108,255,.07), transparent 60%),
-    radial-gradient(1100px 800px at 96% 108%, rgba(52,195,168,.06), transparent 60%),
-    linear-gradient(160deg, #f4f4fb 0%, #f2f3f9 55%, #f3f2f9 100%);
+    radial-gradient(1200px 850px at  6% -12%, rgba(47,185,160,.08), transparent 60%),
+    radial-gradient(1100px 800px at 96% 108%, rgba(240,136,62,.06), transparent 60%),
+    linear-gradient(160deg, #102026 0%, #0f1e23 55%, #0e1c21 100%);
 }
-[data-theme="chiaro"] .main { background-color: transparent; }
-/* Chrome (sidebar, titlebar): bianco tenue coerente con lo sfondo, bordo leggero. */
-[data-theme="chiaro"] .sidebar,
-[data-theme="chiaro"] .titlebar { background: #fafbff; }
-/* Card: bianco puro che galleggia sopra lo sfondo tinto + ombra morbida diffusa +
-   bordo appena percettibile = superficie pulita e ariosa. */
-[data-theme="chiaro"] .card,
-[data-theme="chiaro"] .stat-card {
-  background: #ffffff;
-  border-color: #ebecf4;
+[data-theme="petrolio"] .main { background-color: transparent; }
+/* Chrome (sidebar, titlebar): petrolio leggermente più profondo dello sfondo. */
+[data-theme="petrolio"] .sidebar,
+[data-theme="petrolio"] .titlebar { background: #0c191d; }
+/* Card: petrolio più chiaro che emerge sul fondo scuro + ombra profonda +
+   bordo teal appena percettibile = superficie ordinata e leggibile. */
+[data-theme="petrolio"] .card,
+[data-theme="petrolio"] .stat-card {
+  background: #16292f;
+  border-color: #274248;
   box-shadow:
-    0 1px 2px rgba(60,60,110,.04),
-    0 8px 24px rgba(60,60,110,.07);
+    0 1px 2px rgba(0,0,0,.30),
+    0 8px 24px rgba(0,0,0,.35);
 }
-[data-theme="chiaro"] .modal {
-  background: #ffffff;
-  border-color: #e6e7f1;
-  box-shadow: 0 24px 60px rgba(40,40,80,.18);
+[data-theme="petrolio"] .modal {
+  background: #16292f;
+  border-color: #2b464c;
+  box-shadow: 0 24px 60px rgba(0,0,0,.55);
 }
-[data-theme="chiaro"] .modal-overlay { background: rgba(40,42,70,.28); }
-[data-theme="chiaro"] .modal-header,
-[data-theme="chiaro"] .modal-footer { border-color: #edeef5; }
-[data-theme="chiaro"] .sidebar { border-right-color: #e8e9f2; }
-[data-theme="chiaro"] .titlebar { border-bottom-color: #e8e9f2; }
-/* Bottone primario: accento lavanda pieno → testo bianco + alone tenue. */
-[data-theme="chiaro"] .btn-primary {
-  color: #ffffff;
-  box-shadow: 0 4px 14px rgba(124,108,255,.25);
+[data-theme="petrolio"] .modal-overlay { background: rgba(6,14,17,.55); }
+[data-theme="petrolio"] .modal-header,
+[data-theme="petrolio"] .modal-footer { border-color: #244045; }
+[data-theme="petrolio"] .sidebar { border-right-color: #1c343a; }
+[data-theme="petrolio"] .titlebar { border-bottom-color: #1c343a; }
+/* Bottone primario: accento arancio pieno → testo scuro + alone caldo. */
+[data-theme="petrolio"] .btn-primary {
+  color: #1a1108;
+  box-shadow: 0 4px 14px rgba(240,136,62,.30);
 }
-[data-theme="chiaro"] .btn-primary:hover { background: #8b7dff; }
-/* Form controls: fondo bianco-tenue leggermente incassato rispetto alle card. */
-[data-theme="chiaro"] .form-control {
-  background: #f6f7fc;
-  border-color: #e2e3ee;
+[data-theme="petrolio"] .btn-primary:hover { background: #f5975a; }
+/* Form controls: petrolio incassato leggermente più scuro delle card. */
+[data-theme="petrolio"] .form-control {
+  background: #102026;
+  border-color: #274248;
 }
-[data-theme="chiaro"] .form-control:hover  { border-color: #c9c8e6; }
-[data-theme="chiaro"] .form-control:focus  {
-  background: #ffffff;
+[data-theme="petrolio"] .form-control:hover  { border-color: #386067; }
+[data-theme="petrolio"] .form-control:focus  {
+  background: #12242a;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(124,108,255,.14);
+  box-shadow: 0 0 0 3px rgba(240,136,62,.18);
 }
-[data-theme="chiaro"] select { background-color: #f6f7fc; }
-[data-theme="chiaro"] select option { background-color: #ffffff; color: var(--txt); }
-/* Popover flottanti: bianchi opachi con ombra morbida. */
-[data-theme="chiaro"] .cat-picker-list,
-[data-theme="chiaro"] .sched-tag-dropdown,
-[data-theme="chiaro"] #dash-tooltip,
-[data-theme="chiaro"] .ctx-menu,
-[data-theme="chiaro"] #portfolio-ctx-menu,
-[data-theme="chiaro"] #sched-ctx-menu,
-[data-theme="chiaro"] #shortcutsPanel,
-[data-theme="chiaro"] .nav-sub-flyout {
-  background: #ffffff !important;
-  border-color: #e6e7f1;
-  box-shadow: 0 12px 32px rgba(40,40,80,.14);
+[data-theme="petrolio"] select { background-color: #102026; }
+[data-theme="petrolio"] select option { background-color: #16292f; color: var(--txt); }
+/* Popover flottanti: petrolio opaco con ombra profonda. */
+[data-theme="petrolio"] .cat-picker-list,
+[data-theme="petrolio"] .sched-tag-dropdown,
+[data-theme="petrolio"] #dash-tooltip,
+[data-theme="petrolio"] .ctx-menu,
+[data-theme="petrolio"] #portfolio-ctx-menu,
+[data-theme="petrolio"] #sched-ctx-menu,
+[data-theme="petrolio"] #shortcutsPanel,
+[data-theme="petrolio"] .nav-sub-flyout {
+  background: #16292f !important;
+  border-color: #2b464c;
+  box-shadow: 0 12px 32px rgba(0,0,0,.5);
 }
-[data-theme="chiaro"] .cat-picker-item:hover,
-[data-theme="chiaro"] .cat-picker-item.active,
-[data-theme="chiaro"] .sched-tag-opt:hover { background: rgba(124,108,255,.10); }
-/* Tabelle: header e celle sticky con fondo tenue (il contenuto scorre dietro). */
-[data-theme="chiaro"] th { background: #eef0f7; color: var(--txt2); }
-[data-theme="chiaro"] td { border-bottom-color: #edeef5; }
-[data-theme="chiaro"] .budget-row-child td  { background: #f7f8fc; }
-[data-theme="chiaro"] .budget-row-parent td { background: #eef0f7; }
-[data-theme="chiaro"] .budget-table thead th,
-[data-theme="chiaro"] .budget-table thead td,
-[data-theme="chiaro"] .budget-cat-th,
-[data-theme="chiaro"] .budget-cat-cell { background: #eef0f7 !important; }
-[data-theme="chiaro"] .budget-total-th { background: #e4e6f2 !important; }
-[data-theme="chiaro"] .budget-row-parent .budget-cat-cell { background: #eef0f7 !important; }
-[data-theme="chiaro"] .budget-row-child  .budget-cat-cell { background: #f7f8fc !important; }
-[data-theme="chiaro"] .analytics-table thead th,
-[data-theme="chiaro"] #txTable thead th { background: #eef0f7 !important; }
-/* Badge budget: colori solidi tenui (in light le trasparenze non rendono → override). */
-[data-theme="chiaro"] .budget-gestione-badge.monthly { background: #e7e3ff; color: #5847c8; border-color: #c9c1f5; }
-[data-theme="chiaro"] .budget-gestione-badge.annual  { background: #d6f2ea; color: #1c7a63; border-color: #a8dfd1; }
-/* Notifiche flottanti: bianche opache con ombra morbida come card/modali. */
-[data-theme="chiaro"] .overdue-notice {
-  background: #ffffff;
-  box-shadow: 0 12px 32px rgba(40,40,80,.14);
+[data-theme="petrolio"] .cat-picker-item:hover,
+[data-theme="petrolio"] .cat-picker-item.active,
+[data-theme="petrolio"] .sched-tag-opt:hover { background: rgba(240,136,62,.14); }
+/* Tabelle: header e celle sticky con fondo petrolio (il contenuto scorre dietro). */
+[data-theme="petrolio"] th { background: #1a333a; color: var(--txt2); }
+[data-theme="petrolio"] td { border-bottom-color: #223d43; }
+[data-theme="petrolio"] .budget-row-child td  { background: #132a30; }
+[data-theme="petrolio"] .budget-row-parent td { background: #1a333a; }
+[data-theme="petrolio"] .budget-table thead th,
+[data-theme="petrolio"] .budget-table thead td,
+[data-theme="petrolio"] .budget-cat-th,
+[data-theme="petrolio"] .budget-cat-cell { background: #1a333a !important; }
+[data-theme="petrolio"] .budget-total-th { background: #204046 !important; }
+[data-theme="petrolio"] .budget-row-parent .budget-cat-cell { background: #1a333a !important; }
+[data-theme="petrolio"] .budget-row-child  .budget-cat-cell { background: #132a30 !important; }
+[data-theme="petrolio"] .analytics-table thead th,
+[data-theme="petrolio"] #txTable thead th { background: #1a333a !important; }
+/* Badge budget: fondi petrolio saturi con testo chiaro (in scuro le trasparenze rendono). */
+[data-theme="petrolio"] .budget-gestione-badge.monthly { background: #35240f; color: #f0a866; border-color: #5a3d1a; }
+[data-theme="petrolio"] .budget-gestione-badge.annual  { background: #123329; color: #6fd6b3; border-color: #1f5a49; }
+/* Notifiche flottanti: petrolio opaco con ombra profonda come card/modali. */
+[data-theme="petrolio"] .overdue-notice {
+  background: #16292f;
+  box-shadow: 0 12px 32px rgba(0,0,0,.5);
 }
 
 /* ─── Glassy theme (scuro morbido con effetto vetro) ─────────────────────── */
@@ -2221,10 +2218,10 @@ tr.tx-selected td { background:rgba(124,124,255,.07); }
 }
 [data-theme="glassy"] .note-editor-quill { background:rgba(0,0,0,.18); }
 
-/* Chiaro: popup Quill bianchi opachi con ombra morbida */
-[data-theme="chiaro"] .ql-snow .ql-picker-options,
-[data-theme="chiaro"] .ql-snow .ql-tooltip {
-  background:#ffffff !important;
-  box-shadow:0 12px 32px rgba(40,40,80,.14);
+/* Chiaro (petrolio): popup Quill petrolio opachi con ombra profonda */
+[data-theme="petrolio"] .ql-snow .ql-picker-options,
+[data-theme="petrolio"] .ql-snow .ql-tooltip {
+  background:#16292f !important;
+  box-shadow:0 12px 32px rgba(0,0,0,.5);
 }
-[data-theme="chiaro"] .note-editor-quill { background:#f6f7fc; }
+[data-theme="petrolio"] .note-editor-quill { background:#102026; }

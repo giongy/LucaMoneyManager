@@ -531,17 +531,23 @@ async function renderSettings() {
       </div>`,
   };
 
+  // Layout a due zone (come Budget/Pianificate/Portfolio): header + barra tab restano
+  // fissi in alto (flex-shrink:0), solo il contenuto della tab scorre (flex:1 + overflow).
   pg.innerHTML = `
-    <div class="page-header">
-      <h1 class="page-title">Impostazioni</h1>
+    <div style="flex-shrink:0;padding:var(--dash-gap) var(--dash-gap) 0;background:var(--bg)">
+      <div class="page-header">
+        <h1 class="page-title">Impostazioni</h1>
+      </div>
+      <div class="settings-tabs">
+        ${tabs.map(t=>`
+          <button class="settings-tab ${_settingsTab===t.id?'settings-tab-active':''}"
+                  onclick="_setSettingsTab('${t.id}')">${t.label}</button>`).join('')}
+      </div>
     </div>
-    <div class="settings-tabs">
-      ${tabs.map(t=>`
-        <button class="settings-tab ${_settingsTab===t.id?'settings-tab-active':''}"
-                onclick="_setSettingsTab('${t.id}')">${t.label}</button>`).join('')}
-    </div>
-    <div class="settings-wrap">
-      ${tabContent[_settingsTab] || ''}
+    <div style="flex:1;overflow-y:auto;padding:0 var(--dash-gap) var(--dash-gap)">
+      <div class="settings-wrap">
+        ${tabContent[_settingsTab] || ''}
+      </div>
     </div>`;
   if (_settingsTab === 'maintenance') setTimeout(() => { maintLoadInfo(); maintLoadLogInfo(); }, 50);
   if (_settingsTab === 'archive')     setTimeout(() => { archiveLoadCategories(); }, 50);

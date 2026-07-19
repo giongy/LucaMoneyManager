@@ -572,6 +572,8 @@ input,select,textarea { font-family:inherit; }
 #pg-budgets.active { display:flex; }
 #pg-portfolio { display:none; flex-direction:column; overflow:hidden; }
 #pg-portfolio.active { display:flex; }
+#pg-settings { display:none; flex-direction:column; overflow:hidden; padding:0; }
+#pg-settings.active { display:flex; }
 
 /* ─── Scroll ─────────────────────────────────────────────────────────────── */
 ::-webkit-scrollbar { width:5px; }

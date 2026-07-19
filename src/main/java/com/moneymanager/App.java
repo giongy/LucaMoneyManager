@@ -105,7 +105,7 @@ public class App {
     }
 
     /** Reindirizza System.err/System.out in append sul file di log dato, scrivendo l'header
-     *  di sessione "── Avvio ... ──". Può essere chiamato due volte (dataDir → cartella DB). */
+     *  di sessione "── Avvio ... ──". Chiamato una sola volta, dopo aver risolto il path del DB. */
     private static void redirectLog(Path logFile) throws Exception {
         Files.createDirectories(logFile.getParent());
         PrintStream logStream = new PrintStream(
@@ -129,11 +129,10 @@ public class App {
                 "AppData", "Roaming", "LucaMoneyManager");
         Files.createDirectories(dataDir);
 
-        // Redirect stderr/stdout → app.log IL PRIMA POSSIBILE, nella cartella dati (che esiste
-        // sempre). Così tutto ciò che segue (istanza singola, settings, DB, risorse web) è già
-        // tracciato: un errore in questa fase non va più perso sul vero stderr (invisibile in
-        // produzione). Se poi il DB reale è in un'altra cartella, il log viene ri-agganciato lì.
-        redirectLog(dataDir.resolve("app.log"));
+        // NB: il redirect di stderr/stdout su app.log avviene più sotto, DOPO aver risolto il
+        // path del DB, così esiste un solo app.log (accanto al DB) e non resta un file "monco"
+        // in dataDir quando il DB è altrove (es. OneDrive). Gli errori di questa fase pre-redirect
+        // sono comunque coperti: main() li cattura e li scrive in crash.log (vedi reportFatal).
 
         // Istanza singola: se un'altra è già in esecuzione, le manda SHOW ed esce
         if (!SingleInstance.tryAcquire(TrayManager::bringToFront)) {
@@ -164,12 +163,9 @@ public class App {
             }
         }
 
-        // Se il DB reale è in una cartella diversa dalla dataDir, ri-aggancia app.log lì
-        // (comportamento storico: app.log accanto al DB). Se coincide, il redirect iniziale basta.
-        Path appLog = Path.of(dbPath).getParent().resolve("app.log");
-        if (!appLog.equals(dataDir.resolve("app.log"))) {
-            redirectLog(appLog);
-        }
+        // Redirect stderr/stdout → app.log, ora che il path del DB è noto: un solo file, accanto
+        // al DB (comportamento storico). Da qui in poi tutto (DB, risorse web, UI) è tracciato.
+        redirectLog(Path.of(dbPath).getParent().resolve("app.log"));
 
         // Rileva percorsi java.exe e JAR per la registrazione autostart
         try {

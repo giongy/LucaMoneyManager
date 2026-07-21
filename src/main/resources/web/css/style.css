@@ -768,14 +768,17 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 /* ─── Cat picker ──────────────────────────────────────────────────────────── */
 .cat-picker { position:relative; }
 .cat-picker-list {
-  position:absolute; left:0; right:0; top:calc(100% + 2px); z-index:9999;
+  position:absolute; right:0; top:calc(100% + 2px); z-index:9999;
   background:var(--bg2); border:1px solid var(--border); border-radius:6px;
   max-height:220px; overflow-y:auto; box-shadow:0 4px 16px rgba(0,0,0,.5);
   display:none;
+  /* Ancorata a destra: si allarga verso sinistra (colonna importo) fino al testo più
+     lungo, senza uscire dalla modale (min = larghezza input, tetto ~larghezza modale) */
+  min-width:100%; width:max-content; max-width:min(520px, 88vw);
 }
 .cat-picker-item {
   padding:7px 12px; cursor:pointer; font-size:var(--font-size,13px); color:var(--txt);
-  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  white-space:nowrap;
 }
 .cat-picker-item:hover, .cat-picker-item.active { background:var(--bg4); }
 .cat-picker-empty { padding:10px 12px; color:var(--txt3); font-size:var(--fs-md,12px); }
@@ -854,6 +857,9 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
   gap:6px 14px; padding:2px 2px 6px; align-content:start;
 }
 .bbar-grid-inc { grid-template-columns:repeat(auto-fill, minmax(130px, 1fr)); }
+/* Griglie compatte attorno al separatore bad/ok: niente padding sul lato che tocca il separatore. */
+.bbar-grid-tight-b { padding-bottom:0; }
+.bbar-grid-tight-t { padding-top:0; }
 
 /* Singola riga-barra: header (icona+nome+%), track, importi. */
 .bbar {
@@ -862,15 +868,19 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
   transition:background .12s;
 }
 .bbar:hover { background:var(--bg3); }
-/* Categoria sforata (o entrata sotto target): la barra mantiene il colore categoria ma
-   riceve un tratteggio rosso in sovrapposizione, come segnale di sforamento. */
-.bbar-over .bbar-fill {
-  background-image:repeating-linear-gradient(
-    45deg,
-    transparent 0, transparent 4px,
-    color-mix(in srgb, var(--expense) 95%, transparent) 4px,
-    color-mix(in srgb, var(--expense) 95%, transparent) 10px
-  );
+/* Categoria sforata (uscita sopra budget) o entrata sotto target: segnale forte —
+   striscia rossa a sinistra + sfondo rosso tenue. Il riempimento barra è già rosso pieno (inline). */
+.bbar-over {
+  box-shadow:inset 2px 0 0 var(--expense);
+  background:color-mix(in srgb, var(--expense) 4%, transparent);
+  padding-left:7px;
+}
+.bbar-over:hover { background:color-mix(in srgb, var(--expense) 9%, var(--bg3)); }
+/* Linea divisoria tra la sezione "bad" (in cima) e le categorie in regola: sottile, senza etichetta. */
+.bbar-sep {
+  height:0;
+  margin:4px 0 6px;
+  border-top:1px solid var(--border);
 }
 .bbar-head { display:flex; align-items:center; gap:6px; min-width:0; }
 .bbar-icon { font-size:14px; line-height:1; flex-shrink:0; }

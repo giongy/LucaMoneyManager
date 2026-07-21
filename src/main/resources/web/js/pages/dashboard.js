@@ -71,8 +71,41 @@ function _renderDashBudgetBubbles(budgetYear) {
   }
   el.style.display = '';
 
-  const expCats = catData.filter(c => c.type === 'expense').sort((a, b) => b.budget - a.budget);
-  const incCats = catData.filter(c => c.type === 'income').sort((a, b) => b.budget - a.budget);
+  // Quota di mese trascorso (0..1). Serve per non segnalare come "sotto target" le entrate
+  // che tipicamente arrivano a fine mese (stipendio, assegni): finché il mese non è quasi
+  // concluso non ha senso mostrarle in rosso.
+  const _daysInMonth = new Date(curYear, curMonth, 0).getDate();
+  const _monthElapsed = (new Date().getDate()) / _daysInMonth;
+  const _MONTH_END = 0.9;   // "quasi fine mese" oltre il 90% dei giorni trascorsi
+
+  // "bad" = situazione da tenere d'occhio: uscita sopra budget (o senza budget ma con spesa),
+  // entrata sotto target ma solo a fine mese. Stessa semantica usata in _barRow per il colore/bordo.
+  const _isBad = c => {
+    if (c.type === 'income')
+      // Entrata sotto target: rilevante solo quando il mese è quasi finito (evita 30 giorni di rosso
+      // per stipendio & simili che vengono incassati verso la fine).
+      return c.budget > 0 && c.actual < c.budget && _monthElapsed >= _MONTH_END;
+    const overNoBudget = c.budget <= 0 && c.actual > 0;                    // uscita senza budget ma spesa
+    return (c.budget > 0 && c.actual > c.budget) || overNoBudget;         // uscita sopra budget
+  };
+  // Severità dello sforamento/scostamento: quanto (in %) ci si discosta dal budget, per ordinare
+  // i "bad" dai più gravi ai meno gravi. Le uscite senza budget ma con spesa vanno in cima.
+  const _severity = c => {
+    if (c.budget <= 0) return c.actual > 0 ? Infinity : 0;
+    return c.type === 'income'
+      ? (c.budget - c.actual) / c.budget      // entrata: quanto manca al target
+      : (c.actual - c.budget) / c.budget;     // uscita: quanto si supera il budget
+  };
+  // Ordina: prima i "bad" (per severità decrescente), poi le categorie in regola (per budget decrescente).
+  const _splitSort = cats => {
+    const bad = cats.filter(_isBad).sort((a, b) => _severity(b) - _severity(a));
+    const ok  = cats.filter(c => !_isBad(c)).sort((a, b) => b.budget - a.budget);
+    return { bad, ok };
+  };
+  const expCats = catData.filter(c => c.type === 'expense');
+  const incCats = catData.filter(c => c.type === 'income');
+  const expSplit = _splitSort(expCats);
+  const incSplit = _splitSort(incCats);
 
   // Totali: actual solo dalle categorie visibili, budget da tutte le foglie
   const totExpBudget = allCatData.filter(c => c.type === 'expense').reduce((s, c) => s + c.budget, 0);
@@ -95,9 +128,9 @@ function _renderDashBudgetBubbles(budgetYear) {
     const fillPct = Math.min(rawPct, 100);
     const pctLbl  = c.budget > 0 ? Math.round(rawPct) : (isExpOverNoBudget ? null : null);
 
-    // "bad" = situazione negativa: uscita sopra budget, oppure entrata sotto target.
-    const bad = isIncome ? (c.budget > 0 && c.actual < c.budget)
-                         : ((c.budget > 0 && c.actual > c.budget) || isExpOverNoBudget);
+    // "bad" = situazione negativa: uscita sopra budget, oppure entrata sotto target (solo a fine mese).
+    // Riusa _isBad per restare coerente con l'ordinamento/split in sezioni.
+    const bad = _isBad(c);
 
     const amtColor = c.budget <= 0
       ? (isExpOverNoBudget ? 'var(--expense)' : 'var(--txt3)')
@@ -106,8 +139,8 @@ function _renderDashBudgetBubbles(budgetYear) {
         : (c.actual < c.budget ? 'var(--income)' : c.actual > c.budget ? 'var(--expense)' : 'var(--txt3)');
 
     const hexColor = c.color?.startsWith('#') ? c.color : null;
-    // Colore di riempimento barra: sempre il colore categoria (o accent) anche se sforato;
-    // lo sforamento è segnalato dal bordo rosso della card, non dal colore della barra.
+    // Colore di riempimento barra: sempre il colore categoria (o accent). Lo sforamento/sotto target
+    // è già segnalato dalla card evidenziata (striscia + sfondo rosso), la barra resta col suo colore.
     const barColor = c.actual > 0 ? (hexColor || 'var(--accent)') : 'transparent';
 
     const catLine   = c.parent_name ? `${c.parent_name} : ${c.name}` : c.name;
@@ -121,7 +154,7 @@ function _renderDashBudgetBubbles(budgetYear) {
       ? `<span class="bbar-pct" style="color:${bad ? 'var(--expense)' : 'var(--txt3)'}">${pctLbl}%</span>`
       : '';
 
-    // Sforato/sotto target: la barra tiene il colore categoria + tratteggio rosso in overlay (classe .bbar-over).
+    // Sforato/sotto target: striscia rossa a sinistra della card + sfondo rosso tenue (classe .bbar-over).
     const badClass = bad ? ' bbar-over' : '';
 
     return `<div class="bbar${badClass}" onclick="_dashBubbleDetail(${c.id})"
@@ -156,20 +189,36 @@ function _renderDashBudgetBubbles(budgetYear) {
 
   const netColor = netActual >= 0 ? 'var(--income)' : 'var(--expense)';
 
+  // Rende una colonna in due sezioni: prima i "bad" (sforati/sotto target), poi un separatore
+  // le categorie ok. Se una delle due è vuota, la relativa sezione/separatore sparisce.
+  // gridClass: classe extra per la griglia (es. bbar-grid-inc per le entrate).
+  const _renderCol = (split, gridClass) => {
+    if (!split.bad.length && !split.ok.length)
+      return `<div style="color:var(--txt3);font-size:12px;padding:8px 0">—</div>`;
+    const grid = (rows, extra = '') => `<div class="bbar-grid ${gridClass} ${extra}">${rows.map(_barRow).join('')}</div>`;
+    let html = '';
+    // Quando ci sono entrambe le sezioni, comprimo il padding verticale attorno al separatore
+    // (griglia bad senza padding-bottom, griglia ok senza padding-top) per tenerle vicine.
+    const both = split.bad.length && split.ok.length;
+    if (split.bad.length) html += grid(split.bad, both ? 'bbar-grid-tight-b' : '');
+    if (split.ok.length) {
+      // Linea divisoria mostrata solo se ci sono anche dei "bad" sopra da separare (senza etichetta).
+      if (both) html += `<div class="bbar-sep"></div>`;
+      html += grid(split.ok, both ? 'bbar-grid-tight-t' : '');
+    }
+    return html;
+  };
+
   el.innerHTML = _budgetHeader + `
     <div style="padding:0 16px 8px;flex:1;display:flex;flex-direction:column;min-height:0">
       <div class="dash-budget-cols">
         <div class="dash-budget-col-exp">
           <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--txt3);margin-bottom:8px">Uscite</div>
-          ${expCats.length
-            ? `<div class="bbar-grid">${expCats.map(_barRow).join('')}</div>`
-            : `<div style="color:var(--txt3);font-size:12px;padding:8px 0">—</div>`}
+          ${_renderCol(expSplit, '')}
         </div>
         <div class="dash-budget-col-inc">
           <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--txt3);margin-bottom:8px">Entrate</div>
-          ${incCats.length
-            ? `<div class="bbar-grid bbar-grid-inc">${incCats.map(_barRow).join('')}</div>`
-            : `<div style="color:var(--txt3);font-size:12px;padding:8px 0">—</div>`}
+          ${_renderCol(incSplit, 'bbar-grid-inc')}
         </div>
       </div>
     </div>

@@ -200,6 +200,7 @@ const api = {
   openAppLog:            ()             => callJava('openAppLog', {}),
   getAppLogErrors:       ()             => callJava('getAppLogErrors', {}),
   openUrl:           (url)   => callJava('openUrl', {url}),
+  exportHtmlReport:  (html, filename) => callJava('exportHtmlReport', {html, filename}),
   doBackup:        ()         => callJava('doBackup', {}),
   listBackups:     ()         => callJava('listBackups', {}),
   restoreBackup:   (path)     => callJava('restoreBackup', {path}),
@@ -225,6 +226,8 @@ const api = {
   // Analytics
   getCategoryMonthTable: (months) => callJava('getCategoryMonthTable', { months }),
   getMonthlyBalance:          (months) => callJava('getMonthlyBalance',         { months }),
+  getCategoryComparison: (fromA, toA, fromB, toB, groupBy) =>
+    callJava('getCategoryComparison', { from_a: fromA, to_a: toA, from_b: fromB, to_b: toB, group_by: groupBy }),
   getOldestTransactionMonth: ()       => callJava('getOldestTransactionMonth',  {}),
   getAccountBalanceHistory: (months) => callJava('getAccountBalanceHistory', { months }),
   getForecastExpenseSplit:(months)    => callJava('getForecastExpenseSplit', {months}),

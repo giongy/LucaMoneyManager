@@ -4563,4 +4563,64 @@ public class Database {
             endQuery();
         }
     }
+
+    /** Confronto categorie/macrocategorie tra due periodi (report "Confronto Periodi").
+     *  Somma per categoria (uscite ed entrate, split inclusi) il totale in [fromA,toA] e in [fromB,toB].
+     *  groupBy = "parent": aggrega alla macrocategoria radice (le figlie confluiscono nel parent,
+     *  i parent senza figlie restano sé stessi); "category": una riga per ciascuna categoria.
+     *  Restituisce righe con { id, name, type, color, icon, parent_name, total_a, total_b }. */
+    public List<Map<String, Object>> getCategoryComparison(
+            String fromA, String toA, String fromB, String toB, String groupBy) throws SQLException {
+        Connection c = beginQuery();  // guardia: l'auto-release non chiude finché non facciamo endQuery()
+        try {
+        // Chiave di raggruppamento: per "parent" usiamo la radice gerarchica (COALESCE(parent_id, id)),
+        // così una categoria figlia viene sommata sotto la sua macrocategoria; per "category" la categoria stessa.
+        boolean byParent = "parent".equals(groupBy);
+        // Espressione periodo: 1 se la data cade in [from,to], 0 altrimenti. Somma condizionale su ABS(amount).
+        String sql = """
+            WITH cat_amounts AS (
+                SELECT t.category_id, t.date, t.amount FROM transactions t
+                WHERE t.category_id IS NOT NULL
+                  AND NOT EXISTS (SELECT 1 FROM transaction_splits ts WHERE ts.transaction_id = t.id)
+                  AND COALESCE((SELECT excluded_from_budget FROM categories WHERE id=t.category_id),0)=0
+                  AND t.type IN ('expense','income')
+                UNION ALL
+                SELECT ts.category_id, t.date, ts.amount FROM transactions t
+                JOIN transaction_splits ts ON ts.transaction_id = t.id
+                WHERE COALESCE((SELECT excluded_from_budget FROM categories WHERE id=ts.category_id),0)=0
+                  AND t.type IN ('expense','income')
+            )
+            SELECT %s AS id, %s AS name, %s AS type, %s AS color, %s AS icon, %s AS parent_name,
+                   SUM(CASE WHEN ca.date >= ? AND ca.date <= ? THEN ABS(ca.amount) ELSE 0 END) AS total_a,
+                   SUM(CASE WHEN ca.date >= ? AND ca.date <= ? THEN ABS(ca.amount) ELSE 0 END) AS total_b
+            FROM cat_amounts ca
+            JOIN categories c ON ca.category_id = c.id
+            LEFT JOIN categories p ON c.parent_id = p.id
+            LEFT JOIN categories root ON COALESCE(c.parent_id, c.id) = root.id
+            WHERE ca.date >= ? AND ca.date <= ?
+            GROUP BY %s
+            HAVING total_a > 0 OR total_b > 0
+            """.formatted(
+                byParent ? "COALESCE(c.parent_id, c.id)"        : "c.id",
+                byParent ? "COALESCE(p.name, c.name)"           : "c.name",
+                byParent ? "COALESCE(root.type, c.type)"        : "c.type",
+                byParent ? "COALESCE(root.color, c.color)"      : "c.color",
+                byParent ? "COALESCE(root.icon, c.icon)"        : "c.icon",
+                byParent ? "NULL"                               : "p.name",
+                byParent ? "COALESCE(c.parent_id, c.id)"        : "c.id");
+        try (PreparedStatement ps = c.prepareStatement(sql)) {
+            // Pre-filtro sull'unione dei due intervalli [min(from), max(to)] per ridurre le righe
+            // prima del GROUP BY (i due periodi possono anche non essere contigui: qualche riga
+            // fuori dai due range può passare il pre-filtro, ma i CASE la contano comunque 0).
+            String minFrom = fromA.compareTo(fromB) <= 0 ? fromA : fromB;
+            String maxTo   = toA.compareTo(toB)     >= 0 ? toA   : toB;
+            ps.setString(1, fromA); ps.setString(2, toA);   // total_a
+            ps.setString(3, fromB); ps.setString(4, toB);   // total_b
+            ps.setString(5, minFrom); ps.setString(6, maxTo);  // pre-filtro grossolano (indice su date)
+            return toList(ps.executeQuery());
+        }
+        } finally {
+            endQuery();
+        }
+    }
 }

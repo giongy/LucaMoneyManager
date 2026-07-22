@@ -1902,6 +1902,31 @@ tr.tx-selected td { background:rgba(124,124,255,.07); }
 .analytics-avg  { font-weight:700; color:var(--accent) !important; }
 .analytics-section-header td { background:var(--bg3); color:var(--txt2); font-size:var(--fs-xs,10px); font-weight:700; text-transform:uppercase; letter-spacing:.06em; padding:5px 10px; }
 .analytics-subtotal td { font-weight:700; background:var(--bg2); border-top:2px solid var(--border); }
+
+/* ─── Prima colonna fissa (sticky) durante lo scroll orizzontale ──────────────
+   Usata da "Categorie / Mese" con molti mesi: la colonna Categoria resta ancorata
+   a sinistra mentre scorrono i mesi. Serve un background OPACO su ogni stato di riga
+   (le celle normali hanno sfondi semitrasparenti che lascerebbero trasparire le colonne). */
+.sticky-first-col thead th:first-child,
+.sticky-first-col tbody td:first-child { position:sticky; left:0; z-index:1; }
+/* Angolo header×colonna: sopra sia allo sticky-top dell'header sia allo sticky-left */
+.sticky-first-col thead th:first-child { z-index:3; background:var(--bg2); }
+/* Righe normali: fondo opaco (dispari = --bg, pari = --bg2 per mantenere lo zebra) */
+.sticky-first-col tbody td:first-child { background:var(--bg); }
+.sticky-first-col tbody tr:nth-child(even) td:first-child { background:var(--bg2); }
+.sticky-first-col tbody tr:hover td:first-child { background:var(--bg3); }
+/* section-header/subtotal: selettore con 3 elementi per battere la regola :nth-child(even) sopra
+   anche quando la riga cade in posizione pari (che altrimenti forzerebbe --bg2) */
+.sticky-first-col tbody tr.analytics-section-header td:first-child { background:var(--bg3); }
+.sticky-first-col tbody tr.analytics-subtotal td:first-child { background:var(--bg2); }
+/* Tema glassy: --bg2/--bg3 sono semitrasparenti (effetto vetro) e lascerebbero trasparire i
+   numeri delle colonne mesi sotto la colonna fissa → override con fondi OPACHI (come fa il budget). */
+[data-theme="glassy"] .sticky-first-col thead th:first-child { background:#1c2230 !important; }
+[data-theme="glassy"] .sticky-first-col tbody td:first-child,
+[data-theme="glassy"] .sticky-first-col tbody tr:nth-child(even) td:first-child,
+[data-theme="glassy"] .sticky-first-col tbody tr.analytics-subtotal td:first-child { background:#1c2230 !important; }
+[data-theme="glassy"] .sticky-first-col tbody tr:hover td:first-child,
+[data-theme="glassy"] .sticky-first-col tbody tr.analytics-section-header td:first-child { background:#232a3a !important; }
 .health-desc { font-size:13px; color:var(--txt3); }
 .score-badge { font-size:11px; font-weight:700; padding:2px 8px; border-radius:20px; border:1px solid currentColor; }
 .card-section { background:var(--bg3); border-radius:12px; padding:16px; }

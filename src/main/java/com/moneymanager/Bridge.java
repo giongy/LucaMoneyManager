@@ -638,6 +638,23 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                 yield Map.of("ok", true);
             }
 
+            // Salva un report HTML in dataDir/reports/<filename> e lo apre col browser predefinito
+            // (es. Edge), così l'utente può tenerlo su un secondo schermo come riferimento.
+            // Il nome file è fisso per report → riscrittura in-place: basta ricaricare la scheda Edge.
+            case "exportHtmlReport" -> {
+                String html     = p.get("html").getAsString();
+                String filename = p.get("filename").getAsString();
+                // Sanitizza il nome file: niente separatori di percorso, solo basename
+                filename = filename.replaceAll("[\\\\/:*?\"<>|]", "_");
+                if (!filename.toLowerCase().endsWith(".html")) filename += ".html";
+                java.nio.file.Path reportsDir = dataDir.resolve("reports");
+                java.nio.file.Files.createDirectories(reportsDir);
+                java.nio.file.Path file = reportsDir.resolve(filename);
+                java.nio.file.Files.writeString(file, html, StandardCharsets.UTF_8);
+                java.awt.Desktop.getDesktop().open(file.toFile());
+                yield Map.of("ok", true, "path", file.toAbsolutePath().toString());
+            }
+
             case "reloadDb" -> {
                 String path = p.get("path").getAsString();
                 settings.set(Settings.DB_PATH, path);
@@ -700,6 +717,10 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                 p.has("months") ? p.get("months").getAsInt() : 12);
             case "getMonthlyBalance"          -> db.getMonthlyBalance(
                 p.has("months") ? p.get("months").getAsInt() : 12);
+            case "getCategoryComparison"      -> db.getCategoryComparison(
+                p.get("from_a").getAsString(), p.get("to_a").getAsString(),
+                p.get("from_b").getAsString(), p.get("to_b").getAsString(),
+                p.has("group_by") ? p.get("group_by").getAsString() : "parent");
             case "getAccountBalanceHistory"   -> db.getAccountBalanceHistory(
                 p.has("months") ? p.get("months").getAsInt() : 24);
             case "getOldestTransactionMonth"  -> db.getOldestTransactionMonth();

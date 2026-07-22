@@ -119,6 +119,9 @@ function _runAnalyticsRender(fn) {
 
 // Dispatcher: renderizza la tab Analytics attiva nel contenitore #analyticsContent.
 function _renderCurrentAnalyticsTab() {
+  // Svuota la toolbar fissa: solo alcune tab (es. Categorie/Mese) la ripopolano
+  const _tb = document.getElementById('analyticsToolbar');
+  if (_tb) _tb.innerHTML = '';
   _runAnalyticsRender(token => {
     if (_analyticsTab === 'balance')     return renderAnalyticsBalance(token);
     else if (_analyticsTab === 'trend')      return renderAnalyticsTrend(token);
@@ -126,6 +129,7 @@ function _renderCurrentAnalyticsTab() {
     else if (_analyticsTab === 'forecast')   return renderAnalyticsForecast(token);
     else if (_analyticsTab === 'accbalance') return renderAnalyticsAccBalance(token);
     else if (_analyticsTab === 'nature')     return renderNatureReport(token);
+    else if (_analyticsTab === 'catcompare') return renderAnalyticsCatCompare(token);
     else return renderAnalyticsCatMonth(token);
   });
 }
@@ -169,14 +173,16 @@ async function renderAnalytics() {
     <div style="padding:16px 24px 0;display:flex;flex-direction:column;height:100%;overflow:hidden;box-sizing:border-box">
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;flex-shrink:0">
         <button class="sched-tab${_analyticsTab==='health'?' active':''}" data-atab="health" onclick="_setAnalyticsTab('health',this)">💚 Salute Finanziaria</button>
-        <button class="sched-tab${_analyticsTab==='catmonth'?' active':''}" data-atab="catmonth" onclick="_setAnalyticsTab('catmonth',this)">🗂️ Categorie / Mese</button>
         <button class="sched-tab${_analyticsTab==='balance'?' active':''}" data-atab="balance" onclick="_setAnalyticsTab('balance',this)">⚖️ Bilancio Mensile</button>
+        <button class="sched-tab${_analyticsTab==='catcompare'?' active':''}" data-atab="catcompare" onclick="_setAnalyticsTab('catcompare',this)">🆚 Confronto Periodi</button>
         <button class="sched-tab${_analyticsTab==='trend'?' active':''}" data-atab="trend" onclick="_setAnalyticsTab('trend',this)">📈 Andamento Categoria</button>
+        <button class="sched-tab${_analyticsTab==='catmonth'?' active':''}" data-atab="catmonth" onclick="_setAnalyticsTab('catmonth',this)">🗂️ Categorie / Mese</button>
         <button class="sched-tab${_analyticsTab==='accbalance'?' active':''}" data-atab="accbalance" onclick="_setAnalyticsTab('accbalance',this)">🏦 Saldo Conti</button>
         <button class="sched-tab${_analyticsTab==='forecast'?' active':''}" data-atab="forecast" onclick="_setAnalyticsTab('forecast',this)">📊 Previsione Saldo</button>
         <button class="sched-tab${_analyticsTab==='nature'?' active':''}" data-atab="nature" onclick="_setAnalyticsTab('nature',this)">🌿 Natura Spese</button>
       </div>
-      <div id="aDateControls" style="${_analyticsTab==='forecast'?'display:none':'display:flex'};gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px;padding:8px 10px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;flex-shrink:0"></div>
+      <div id="aDateControls" style="${(_analyticsTab==='forecast'||_analyticsTab==='catcompare')?'display:none':'display:flex'};gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px;padding:8px 10px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;flex-shrink:0"></div>
+      <div id="analyticsToolbar" style="flex-shrink:0"></div>
       <div id="analyticsContent" style="flex:1;overflow:auto;padding-bottom:16px"></div>
     </div>`;
 
@@ -200,7 +206,8 @@ function _renderAnalyticsControls() {
   // Modalità confronto attiva solo per Bilancio Mensile
   const inCompareMode = _analyticsTab === 'balance' && _analyticsBalanceCompare;
 
-  wrap.style.display = _analyticsTab === 'forecast' ? 'none' : 'flex';
+  wrap.style.display = (_analyticsTab === 'forecast' || _analyticsTab === 'catcompare') ? 'none' : 'flex';
+  if (_analyticsTab === 'catcompare') return;  // questa tab ha controlli propri nel contenuto
 
   // Bottoni "⚖ Confronta" + "📅 YTD" — visibili solo su tab Bilancio Mensile
   // YTD ha senso solo in confronto: nella vista singola il mese corrente è già parziale
@@ -368,6 +375,20 @@ window._setAnalyticsTab = (tab, btn) => {
   _renderCurrentAnalyticsTab();
 };
 
+// Dal Confronto Periodi → tab "Andamento Categoria": apre l'andamento della categoria cliccata,
+// impostando il periodo da inizio Periodo B a fine Periodo A (l'intera finestra confrontata).
+// Usato dal link sul nome categoria nella tabella Confronto Periodi.
+window._catCmpToTrend = (catId) => {
+  _analyticsTrendCatId = catId;
+  // Periodo del trend (granularità mensile): mese di inizio B → mese di fine A
+  _analyticsStartYm = _catCmpB.startDate.slice(0, 7);
+  _analyticsEndYm   = _catCmpA.endDate.slice(0, 7);
+  _analyticsTab = 'trend';
+  document.querySelectorAll('[data-atab]').forEach(b => b.classList.toggle('active', b.dataset.atab === 'trend'));
+  _renderAnalyticsControls();
+  _renderCurrentAnalyticsTab();
+};
+
 // Attiva/disattiva la modalità confronto nel Bilancio: periodo A vs B (default B = A −1 anno).
 window._toggleBalanceCompare = () => {
   _analyticsBalanceCompare = !_analyticsBalanceCompare;
@@ -488,10 +509,17 @@ function _renderAnalyticsCatTable() {
     return html;
   };
 
+  // Toolbar FISSA (fuori dall'area scrollabile) col pulsante export
+  const toolbar = document.getElementById('analyticsToolbar');
+  if (toolbar) toolbar.innerHTML = `
+    <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
+      <button class="btn btn-xs btn-ghost" onclick="_exportCatMonthPdf()" title="Salva la tabella come pagina HTML e aprila nel browser (es. Edge su un secondo schermo). Da lì puoi anche stampare in PDF.">🖥️ Apri in browser</button>
+    </div>`;
+
   el.innerHTML = `
-    <table class="analytics-table">
+    <table class="analytics-table sticky-first-col">
       <thead><tr>
-        <th style="${thStyle}" onclick="_sortAnalyticsCat('name')">Categoria${arrow('name')}</th>
+        <th class="analytics-cat-name" style="${thStyle}" onclick="_sortAnalyticsCat('name')">Categoria${arrow('name')}</th>
         ${monthCols.map((m, i) => `<th class="text-right" style="${thStyle}" onclick="_sortAnalyticsCat(${i})">${m.label}${arrow(i)}</th>`).join('')}
         <th class="text-right analytics-total" style="${thStyle}" onclick="_sortAnalyticsCat('total')">Totale${arrow('total')}</th>
         <th class="text-right analytics-avg" style="${thStyle};color:var(--accent)" onclick="_sortAnalyticsCat('avg')">Media/mese${arrow('avg')}</th>
@@ -499,6 +527,391 @@ function _renderAnalyticsCatTable() {
       <tbody>
         ${renderSection(expenses, 'Uscite')}
         ${renderSection(incomes,  'Entrate')}
+      </tbody>
+    </table>`;
+}
+
+// Esporta la tabella Categorie/Mese come pagina HTML autonoma salvata su disco e aperta nel
+// browser predefinito (es. Edge). Serve come riferimento di sola lettura su un secondo schermo
+// mentre si modificano budget/pianificate nell'app. Rispetta l'ordinamento corrente. Nome file
+// fisso → riscrittura in-place: dopo aver cambiato i dati, ripremi il pulsante e in Edge fai F5.
+// Nessuna dipendenza esterna. (La pagina include un pulsante Stampa → "Salva come PDF".)
+window._exportCatMonthPdf = () => {
+  if (!_analyticsCatCache) return;
+  const { monthCols, catMap } = _analyticsCatCache;
+  const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+  const catTotal = c => monthCols.reduce((s, m) => s + (c.m[m.ym] || 0), 0);
+  // Stesso ordinamento della tabella a schermo
+  const sortCats = arr => {
+    const { col, dir } = _analyticsCatSort;
+    if (col === null) return [...arr].sort((a, b) => {
+      const pa = a.parent_name || a.name, pb = b.parent_name || b.name;
+      return pa.localeCompare(pb) || a.name.localeCompare(b.name);
+    });
+    return [...arr].sort((a, b) => {
+      if (col === 'name') return dir * a.name.localeCompare(b.name);
+      if (col === 'total' || col === 'avg') return dir * (catTotal(a) - catTotal(b));
+      const ym = monthCols[col]?.ym;
+      return dir * ((a.m[ym] || 0) - (b.m[ym] || 0));
+    });
+  };
+  const expenses = sortCats(Object.values(catMap).filter(c => c.type === 'expense'));
+  const incomes  = sortCats(Object.values(catMap).filter(c => c.type === 'income'));
+
+  const money = v => fmt.currency(v);
+  const section = (cats, label) => {
+    if (!cats.length) return '';
+    let h = `<tr class="sec"><td colspan="${monthCols.length + 3}">${label}</td></tr>`;
+    for (const c of cats) {
+      const total = catTotal(c), avg = total / monthCols.length;
+      h += `<tr>
+        <td class="cat">${c.parent_name ? `<span class="par">${esc(c.parent_name)} › </span>` : ''}${esc(c.name)}</td>
+        ${monthCols.map(m => `<td class="num">${c.m[m.ym] ? money(c.m[m.ym]) : '—'}</td>`).join('')}
+        <td class="num tot">${money(total)}</td>
+        <td class="num avg">${money(avg)}</td>
+      </tr>`;
+    }
+    const colTotals = monthCols.map(m => cats.reduce((s, c) => s + (c.m[m.ym] || 0), 0));
+    const grand = colTotals.reduce((a, b) => a + b, 0);
+    h += `<tr class="sub">
+      <td>Totale ${label}</td>
+      ${colTotals.map(t => `<td class="num">${money(t)}</td>`).join('')}
+      <td class="num tot">${money(grand)}</td>
+      <td class="num avg">${money(monthCols.length ? grand / monthCols.length : 0)}</td>
+    </tr>`;
+    return h;
+  };
+
+  const period = monthCols.length ? `${monthCols[0].label} → ${monthCols[monthCols.length-1].label}` : '';
+  const genOn = new Date().toLocaleString('it-IT', { day:'2-digit', month:'long', year:'numeric', hour:'2-digit', minute:'2-digit' });
+
+  // Documento autonomo: leggibile a schermo (secondo monitor) e stampabile in PDF.
+  // Colori neutri, orientamento orizzontale in stampa, intestazione ripetuta a ogni pagina.
+  const doc = `<!doctype html><html lang="it"><head><meta charset="utf-8">
+    <title>Categorie / Mese — ${esc(period)}</title>
+    <style>
+      @page { size: landscape; margin: 12mm; }
+      * { box-sizing: border-box; }
+      body { font-family: 'Segoe UI', system-ui, sans-serif; color:#1a1a1a; margin:0; padding:18px 22px; background:#fafafa; }
+      .top { display:flex;align-items:flex-start;gap:16px;margin-bottom:12px }
+      h1 { font-size:18px; margin:0 0 2px; }
+      .meta { font-size:12px; color:#666; }
+      .actions { margin-left:auto; display:flex; gap:8px; }
+      .actions button { font:inherit; font-size:12px; padding:6px 12px; border:1px solid #bbb; border-radius:6px; background:#fff; cursor:pointer; }
+      .actions button:hover { background:#eee; }
+      .hint { font-size:11px; color:#999; margin:2px 0 0; }
+      table { width:100%; border-collapse:collapse; font-size:11px; background:#fff; }
+      thead th { background:#eee; border-bottom:2px solid #999; padding:5px 7px; text-align:right; white-space:nowrap; position:sticky; top:0; }
+      thead th:first-child { text-align:left; }
+      td { padding:3px 7px; border-bottom:1px solid #ddd; }
+      td.cat { text-align:left; white-space:nowrap; }
+      td.num { text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums; }
+      td.tot { font-weight:700; border-left:1px solid #bbb; }
+      td.avg { font-weight:700; }
+      .par { color:#888; }
+      tr.sec td { background:#ddd; font-weight:700; text-transform:uppercase; font-size:10px; letter-spacing:.04em; padding:5px 7px; }
+      tr.sub td { font-weight:700; background:#f0f0f0; border-top:2px solid #999; }
+      thead { display:table-header-group; }
+      tr { page-break-inside:avoid; }
+      @media print { .actions, .hint { display:none; } body { padding:0; background:#fff; } thead th { position:static; } }
+    </style></head><body>
+    <div class="top">
+      <div>
+        <h1>Categorie / Mese</h1>
+        <div class="meta">Periodo ${esc(period)} · ${monthCols.length} mesi</div>
+        <div class="meta">Generato il ${esc(genOn)}</div>
+        <p class="hint">Riferimento di sola lettura. Dopo aver modificato i dati nell'app, ripremi «Apri in browser» e premi F5 qui per aggiornare.</p>
+      </div>
+      <div class="actions">
+        <button onclick="location.reload()">🔄 Aggiorna (F5)</button>
+        <button onclick="window.print()">🖨️ Stampa / Salva PDF</button>
+      </div>
+    </div>
+    <table>
+      <thead><tr>
+        <th>Categoria</th>
+        ${monthCols.map(m => `<th>${esc(m.label)}</th>`).join('')}
+        <th>Totale</th><th>Media/mese</th>
+      </tr></thead>
+      <tbody>${section(expenses,'Uscite')}${section(incomes,'Entrate')}</tbody>
+    </table>
+  </body></html>`;
+
+  // Salva il file HTML su disco e aprilo col browser predefinito (es. Edge): l'utente lo tiene
+  // su un secondo schermo come riferimento mentre modifica budget/pianificate nell'app.
+  // Nome file fisso → riscrittura in-place: dopo aver cambiato i dati, ripremi Esporta e in Edge fai F5.
+  api.exportHtmlReport(doc, 'categorie-mese.html').then(res => {
+    if (res && res.error) alert('Export non riuscito: ' + res.error);
+  });
+};
+
+/* ─── Analytics: Confronto Periodi (categorie/macrocategorie A vs B) ──────────
+   Confronta lo stesso insieme di categorie (o macrocategorie) fra due intervalli
+   di tempo. L'utente sceglie il Periodo A; il Periodo B viene inizializzato allo
+   stesso periodo dell'anno precedente e resta poi liberamente modificabile.
+   Livello di dettaglio: Macrocategorie (radici) oppure Categorie. */
+
+// Stato dedicato (indipendente dal confronto Bilancio Mensile).
+// A differenza degli altri tab Analytics (granularità mensile), qui i periodi hanno
+// granularità al GIORNO: startDate/endDate sono stringhe "YYYY-MM-DD".
+let _catCmpA       = null;             // { startDate, endDate } — periodo principale
+let _catCmpB       = null;             // { startDate, endDate } — periodo di confronto
+let _catCmpGroupBy = 'parent';         // 'parent' | 'category'
+let _catCmpSort    = { col: 'delta', dir: -1 };  // col: 'name'|'a'|'b'|'delta'|'pct'
+let _catCmpCache   = null;             // ultime righe caricate dal backend
+
+// Sposta una data "YYYY-MM-DD" di N anni tenendo lo stesso giorno/mese.
+// Il 29/02 in un anno non bisestile viene normalizzato al 28/02 (JS Date lo fa da sé
+// se costruito via componenti, ma qui lavoriamo sulle stringhe: gestione esplicita).
+function _shiftDateByYears(dateStr, yearDelta) {
+  const y = parseInt(dateStr.slice(0,4)) + yearDelta;
+  let md = dateStr.slice(5);  // "MM-DD"
+  if (md === '02-29') {
+    const bis = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+    if (!bis) md = '02-28';
+  }
+  return `${y}-${md}`;
+}
+
+// Data odierna "YYYY-MM-DD"
+function _todayIso() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+// Inizializza i due periodi la prima volta: A = dall'inizio dell'anno corrente a oggi,
+// B = stessi giorni dell'anno precedente.
+function _catCmpInitDefaults() {
+  if (!_catCmpA) {
+    const today = _todayIso();
+    const startDate = `${today.slice(0,4)}-01-01`;  // 1° gennaio dell'anno corrente
+    const endDate   = today;
+    _catCmpA = { startDate, endDate };
+    _catCmpB = { startDate: _shiftDateByYears(startDate, -1), endDate: _shiftDateByYears(endDate, -1) };
+  }
+}
+
+// Tab "Confronto Periodi": disegna i controlli (2 periodi con date complete + grado di dettaglio)
+// e la tabella. Le date sono selezionabili al giorno tramite <input type="date">.
+async function renderAnalyticsCatCompare(token) {
+  const el = document.getElementById('analyticsContent');
+  if (!el) return;
+  _catCmpInitDefaults();
+
+  // Limiti dei date picker: dal primo giorno del mese più vecchio in DB a oggi
+  const minDate = _analyticsOldestYm ? `${_analyticsOldestYm}-01` : '';
+  const maxDate = _todayIso();
+  const dateInput = (id, val) => `<input type="date" class="form-control" id="${id}" value="${val}"
+        ${minDate?`min="${minDate}"`:''} max="${maxDate}" style="font-size:12px;padding:3px 6px">`;
+
+  el.innerHTML = `
+    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px;padding:8px 10px;background:var(--bg2);border:1px solid var(--border);border-radius:8px">
+      <div style="display:flex;gap:4px;align-items:center;background:rgba(106,183,255,.10);border:1px solid rgba(106,183,255,.35);padding:4px 8px;border-radius:6px">
+        <span style="font-size:12px;font-weight:600;color:var(--accent)">Periodo A</span>
+        <label style="font-size:12px;color:var(--txt2)">Da</label>
+        ${dateInput('ccAStart', _catCmpA.startDate)}
+        <label style="font-size:12px;color:var(--txt2)">A</label>
+        ${dateInput('ccAEnd', _catCmpA.endDate)}
+      </div>
+      <span style="color:var(--txt3);font-weight:700">vs</span>
+      <div style="display:flex;gap:4px;align-items:center;background:rgba(188,140,255,.10);border:1px solid rgba(188,140,255,.35);padding:4px 8px;border-radius:6px">
+        <span style="font-size:12px;font-weight:600;color:#bc8cff">Periodo B</span>
+        <label style="font-size:12px;color:var(--txt2)">Da</label>
+        ${dateInput('ccBStart', _catCmpB.startDate)}
+        <label style="font-size:12px;color:var(--txt2)">A</label>
+        ${dateInput('ccBEnd', _catCmpB.endDate)}
+      </div>
+      <div style="width:1px;height:20px;background:var(--border)"></div>
+      <div style="display:flex;gap:2px;align-items:center">
+        <span style="font-size:12px;color:var(--txt2);margin-right:4px">Dettaglio:</span>
+        <button class="btn btn-xs ${_catCmpGroupBy==='parent'?'btn-primary':'btn-ghost'}" id="ccGroupParent">Macrocategorie</button>
+        <button class="btn btn-xs ${_catCmpGroupBy==='category'?'btn-primary':'btn-ghost'}" id="ccGroupCat">Categorie</button>
+      </div>
+    </div>
+    <div id="ccTable"><p style="padding:20px;color:var(--txt2)">Caricamento…</p></div>`;
+
+  // Handler dei date picker. isA=true: cambiando il Periodo A si ri-aggancia B agli stessi
+  // giorni dell'anno precedente (comodità richiesta), poi l'utente può modificarlo a mano.
+  const readPeriod = (p) => ({
+    startDate: document.getElementById('cc'+p+'Start').value,
+    endDate:   document.getElementById('cc'+p+'End').value,
+  });
+  const onChange = (isA) => {
+    _catCmpA = readPeriod('A');
+    _catCmpB = readPeriod('B');
+    // Se una data è vuota (input svuotato) o start > end, non ricaricare: aspetta un input valido
+    if (!_catCmpA.startDate || !_catCmpA.endDate || !_catCmpB.startDate || !_catCmpB.endDate) return;
+    if (_catCmpA.endDate < _catCmpA.startDate) _catCmpA.endDate = _catCmpA.startDate;
+    if (_catCmpB.endDate < _catCmpB.startDate) _catCmpB.endDate = _catCmpB.startDate;
+    if (isA) {
+      // Auto-aggancio di B agli stessi giorni, anno precedente
+      _catCmpB = { startDate: _shiftDateByYears(_catCmpA.startDate, -1), endDate: _shiftDateByYears(_catCmpA.endDate, -1) };
+    }
+    // Token fresco via _runAnalyticsRender: annulla eventuali render precedenti ancora in await
+    _runAnalyticsRender(t => renderAnalyticsCatCompare(t));  // ridisegna controlli (B aggiornato) + tabella
+  };
+  ['ccAStart','ccAEnd'].forEach(id => document.getElementById(id).onchange = () => onChange(true));
+  ['ccBStart','ccBEnd'].forEach(id => document.getElementById(id).onchange = () => onChange(false));
+  document.getElementById('ccGroupParent').onclick = () => { _catCmpGroupBy = 'parent';   _runAnalyticsRender(t => renderAnalyticsCatCompare(t)); };
+  document.getElementById('ccGroupCat').onclick    = () => { _catCmpGroupBy = 'category'; _runAnalyticsRender(t => renderAnalyticsCatCompare(t)); };
+
+  // Carica i dati e disegna la tabella (date già in formato YYYY-MM-DD, passate as-is al backend)
+  const rows = await api.getCategoryComparison(
+    _catCmpA.startDate, _catCmpA.endDate,
+    _catCmpB.startDate, _catCmpB.endDate,
+    _catCmpGroupBy);
+  if (_analyticsRenderStale(token)) return;  // periodo/tab/dettaglio cambiato durante l'await: annulla
+  _catCmpCache = rows;
+  _renderCatCmpTable();
+}
+
+// Cambia colonna/direzione di ordinamento della tabella Confronto Periodi e ridisegna.
+window._sortCatCmp = col => {
+  if (_catCmpSort.col === col) _catCmpSort.dir *= -1;
+  else { _catCmpSort.col = col; _catCmpSort.dir = -1; }
+  _renderCatCmpTable();
+};
+
+// Disegna la tabella del Confronto Periodi da _catCmpCache: una sezione Uscite e una Entrate,
+// con Δ valore, Δ %, e la riga più "virtuosa" evidenziata (uscite: max risparmio; entrate: max crescita).
+function _renderCatCmpTable() {
+  const el = document.getElementById('ccTable');
+  if (!el || !_catCmpCache) return;
+
+  const detailLabel = _catCmpGroupBy === 'parent' ? 'Macrocategoria' : 'Categoria';
+  const dPct = (a, b) => b ? ((a - b) / Math.abs(b)) * 100 : null;  // null se base B = 0 (crescita indefinita)
+  // Il link "Andamento Categoria" ha senso solo per singola categoria: quel tab non aggrega le
+  // figlie di una macrocategoria. In modalità Macrocategorie il nome resta testo semplice.
+  const linkable = _catCmpGroupBy === 'category';
+
+  const sortRows = arr => {
+    const { col, dir } = _catCmpSort;
+    return [...arr].sort((x, y) => {
+      if (col === 'name') return dir * String(x.name).localeCompare(String(y.name));
+      if (col === 'a')    return dir * (x.total_a - y.total_a);
+      if (col === 'b')    return dir * (x.total_b - y.total_b);
+      if (col === 'delta')return dir * ((x.total_a - x.total_b) - (y.total_a - y.total_b));
+      if (col === 'pct') {
+        // I null (base zero) finiscono sempre in fondo, indipendentemente dalla direzione
+        const px = dPct(x.total_a, x.total_b), py = dPct(y.total_a, y.total_b);
+        if (px == null && py == null) return 0;
+        if (px == null) return 1;
+        if (py == null) return -1;
+        return dir * (px - py);
+      }
+      return 0;
+    });
+  };
+
+  const arrow = col => {
+    if (_catCmpSort.col !== col) return ' <span style="color:var(--txt3);font-size:10px;user-select:none">⇅</span>';
+    return _catCmpSort.dir === -1 ? ' ↓' : ' ↑';
+  };
+  const thS = 'cursor:pointer;user-select:none';
+
+  // "Virtuosità": per le uscite risparmiare (Δ<0) è virtuoso; per le entrate crescere (Δ>0) lo è.
+  // Individua la riga più virtuosa di ciascuna sezione (deve avere un miglioramento reale).
+  const bestId = (rows, isExpense) => {
+    let best = null, bestVal = 0;
+    for (const r of rows) {
+      const delta = r.total_a - r.total_b;
+      const score = isExpense ? -delta : delta;  // >0 = miglioramento
+      if (score > bestVal) { bestVal = score; best = r.id; }
+    }
+    return best;
+  };
+
+  const renderSection = (rows, label, isExpense) => {
+    if (!rows.length) return '';
+    const sorted = sortRows(rows);
+    const winner = bestId(rows, isExpense);
+    const totA = rows.reduce((s,r)=>s+r.total_a, 0);
+    const totB = rows.reduce((s,r)=>s+r.total_b, 0);
+    const totDelta = totA - totB, totPct = dPct(totA, totB);
+
+    // Scala della barra: max |Δ%| della sezione (come nel tab Scostamenti del budget),
+    // così la barra riempie proporzionalmente. I null (base B=0) non entrano nella scala.
+    const maxPct = Math.max(1, ...rows.map(r => { const p = dPct(r.total_a, r.total_b); return p==null ? 0 : Math.abs(p); }));
+
+    // Cella "Δ %": numero + barra ancorata a destra, verde se virtuoso / rosso altrimenti.
+    const pctCell = (pct, good) => {
+      const col = pct==null ? 'var(--txt3)' : (good ? 'var(--income)' : 'var(--expense)');
+      const barBg = good ? 'rgba(63,185,80,.65)' : 'rgba(248,81,73,.65)';
+      const barW  = pct==null ? 0 : Math.min(100, Math.abs(pct)/maxPct*100).toFixed(1);
+      const pctStr = pct==null ? '—' : (pct>=0?'+':'')+pct.toFixed(1)+'%';
+      return `<td>
+        <div class="flex-center-8">
+          <div style="flex:1;height:14px;background:var(--bg3);border-radius:3px;overflow:hidden;position:relative;min-width:80px">
+            ${pct==null?'':`<div style="position:absolute;right:0;top:0;height:100%;width:${barW}%;background:${barBg};border-radius:3px"></div>`}
+          </div>
+          <span style="font-size:12px;color:${col};min-width:56px;text-align:right;font-weight:600">${pctStr}</span>
+        </div>
+      </td>`;
+    };
+
+    let html = `<tr class="analytics-section-header"><td colspan="5">${label}</td></tr>`;
+    for (const r of sorted) {
+      const delta = r.total_a - r.total_b;
+      const pct = dPct(r.total_a, r.total_b);
+      // Segno del "bene": uscita in calo o entrata in crescita = verde
+      const good = isExpense ? delta <= 0 : delta >= 0;
+      const deltaCol = delta === 0 ? 'var(--txt3)' : (good ? 'var(--income)' : 'var(--expense)');
+      const isWin = r.id === winner;
+      const winStyle = isWin
+        ? 'background:rgba(63,185,80,.14);box-shadow:inset 3px 0 0 var(--income)'
+        : '';
+      html += `<tr style="${winStyle}">
+        <td class="analytics-cat-name">${r.parent_name ? `<span style="color:var(--txt3);font-size:11px">${r.parent_name} ›</span> ` : ''}<span style="color:${r.color}">${r.icon || ''}</span> ${linkable
+          ? `<a href="#" onclick="_catCmpToTrend(${r.id});return false" style="color:inherit;text-decoration:none;border-bottom:1px dashed var(--txt3)" title="Vedi andamento nel periodo (inizio B → fine A)">${r.name}</a>`
+          : r.name}</td>
+        <td class="text-right">${r.total_a ? fmt.currency(r.total_a) : '<span style="color:var(--txt3)">—</span>'}</td>
+        <td class="text-right" style="opacity:.85">${r.total_b ? fmt.currency(r.total_b) : '<span style="color:var(--txt3)">—</span>'}</td>
+        <td class="text-right" style="color:${deltaCol};font-weight:600">${delta>=0?'+':''}${fmt.currency(delta)}</td>
+        ${pctCell(pct, good)}
+      </tr>`;
+    }
+    const gGood = isExpense ? totDelta <= 0 : totDelta >= 0;
+    html += `<tr class="analytics-subtotal">
+      <td>Totale ${label}</td>
+      <td class="text-right">${fmt.currency(totA)}</td>
+      <td class="text-right" style="opacity:.85">${fmt.currency(totB)}</td>
+      <td class="text-right" style="font-weight:700;color:${totDelta===0?'var(--txt3)':(gGood?'var(--income)':'var(--expense)')}">${totDelta>=0?'+':''}${fmt.currency(totDelta)}</td>
+      <td class="text-right" style="font-weight:700;color:${totPct==null?'var(--txt3)':(gGood?'var(--income)':'var(--expense)')}">${totPct==null?'—':(totPct>=0?'+':'')+totPct.toFixed(1)+'%'}</td>
+    </tr>`;
+    return html;
+  };
+
+  const expenses = _catCmpCache.filter(r => r.type === 'expense');
+  const incomes  = _catCmpCache.filter(r => r.type === 'income');
+
+  // Formatta "YYYY-MM-DD" → "gg/mm/aaaa"
+  const fmtDate = d => `${d.slice(8,10)}/${d.slice(5,7)}/${d.slice(0,4)}`;
+  const lblA = `${fmtDate(_catCmpA.startDate)} → ${fmtDate(_catCmpA.endDate)}`;
+  const lblB = `${fmtDate(_catCmpB.startDate)} → ${fmtDate(_catCmpB.endDate)}`;
+
+  if (!expenses.length && !incomes.length) {
+    el.innerHTML = '<p style="padding:20px;color:var(--txt2)">Nessuna transazione nei periodi selezionati.</p>';
+    return;
+  }
+
+  el.innerHTML = `
+    <p style="font-size:12px;color:var(--txt3);margin:0 0 8px">
+      <span style="color:var(--accent);font-weight:600">A</span> = ${lblA} &nbsp;·&nbsp;
+      <span style="color:#bc8cff;font-weight:600">B</span> = ${lblB}
+      &nbsp;·&nbsp; riga evidenziata = più virtuosa (uscita in calo / entrata in crescita)
+    </p>
+    <table class="analytics-table">
+      <thead><tr>
+        <th style="${thS}" onclick="_sortCatCmp('name')">${detailLabel}${arrow('name')}</th>
+        <th class="text-right" style="${thS};color:var(--accent)" onclick="_sortCatCmp('a')">Periodo A${arrow('a')}</th>
+        <th class="text-right" style="${thS};color:#bc8cff" onclick="_sortCatCmp('b')">Periodo B${arrow('b')}</th>
+        <th class="text-right" style="${thS}" onclick="_sortCatCmp('delta')">Δ Valore${arrow('delta')}</th>
+        <th style="${thS};text-align:left;min-width:180px" onclick="_sortCatCmp('pct')">Δ %${arrow('pct')}</th>
+      </tr></thead>
+      <tbody>
+        ${renderSection(expenses, 'Uscite', true)}
+        ${renderSection(incomes,  'Entrate', false)}
       </tbody>
     </table>`;
 }

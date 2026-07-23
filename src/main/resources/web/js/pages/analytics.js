@@ -468,7 +468,11 @@ function _renderAnalyticsCatTable() {
       return pa.localeCompare(pb) || a.name.localeCompare(b.name);
     });
     return [...arr].sort((a, b) => {
-      if (col === 'name') return dir * a.name.localeCompare(b.name);
+      if (col === 'name') {
+        // Ordina prima per macrocategoria, poi per categoria (coerente col default a col===null)
+        const pc = (a.parent_name || '').localeCompare(b.parent_name || '');
+        return dir * (pc || a.name.localeCompare(b.name));
+      }
       if (col === 'total' || col === 'avg') return dir * (catTotal(a) - catTotal(b));
       const ym = monthCols[col]?.ym;
       return dir * ((a.m[ym] || 0) - (b.m[ym] || 0));
@@ -550,7 +554,11 @@ window._exportCatMonthPdf = () => {
       return pa.localeCompare(pb) || a.name.localeCompare(b.name);
     });
     return [...arr].sort((a, b) => {
-      if (col === 'name') return dir * a.name.localeCompare(b.name);
+      if (col === 'name') {
+        // Ordina prima per macrocategoria, poi per categoria (coerente col default a col===null)
+        const pc = (a.parent_name || '').localeCompare(b.parent_name || '');
+        return dir * (pc || a.name.localeCompare(b.name));
+      }
       if (col === 'total' || col === 'avg') return dir * (catTotal(a) - catTotal(b));
       const ym = monthCols[col]?.ym;
       return dir * ((a.m[ym] || 0) - (b.m[ym] || 0));
@@ -788,7 +796,13 @@ function _renderCatCmpTable() {
   const sortRows = arr => {
     const { col, dir } = _catCmpSort;
     return [...arr].sort((x, y) => {
-      if (col === 'name') return dir * String(x.name).localeCompare(String(y.name));
+      if (col === 'name') {
+        // Ordina prima per macrocategoria (parent), poi per categoria a parità di macro.
+        // In modalità Macrocategorie parent_name è assente → si ordina direttamente per nome.
+        const pc = String(x.parent_name || '').localeCompare(String(y.parent_name || ''));
+        if (pc !== 0) return dir * pc;
+        return dir * String(x.name).localeCompare(String(y.name));
+      }
       if (col === 'a')    return dir * (x.total_a - y.total_a);
       if (col === 'b')    return dir * (x.total_b - y.total_b);
       if (col === 'delta')return dir * ((x.total_a - x.total_b) - (y.total_a - y.total_b));

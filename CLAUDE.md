@@ -11,7 +11,7 @@ Due piattaforme: **desktop (primaria)** e **Android (secondaria)**, database SQL
 - **Linguaggio:** Java 25, Maven 3.x
 - **UI:** JCEF v146 (Chromium embedded) + Swing per dialogs/titlebar/splash
 - **Frontend:** Vanilla JS puro (`src/main/resources/web/`, modulare in `js/pages/*.js`), no React/Vue
-- **Versione:** 1.18.0 — output `target/moneymanager-1.18.0.jar` (fat JAR, web/ esclusa)
+- **Versione:** 1.18.1 — output `target/moneymanager-1.18.1.jar` (fat JAR, web/ esclusa)
 - **Web assets:** serviti da filesystem (cartella `web/` accanto al `.exe` in produzione, `target/classes/web/` in IDE)
 - **DB path:** `%APPDATA%\LucaMoneyManager\data.db` (`%APPDATA%` = `...\Roaming`)
 - **Build:** `mvn package` oppure `build.bat`

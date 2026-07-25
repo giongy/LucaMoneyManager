@@ -882,6 +882,23 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
   margin:4px 0 6px;
   border-top:1px solid var(--border);
 }
+/* Riga riepilogo delle categorie minori ("Altre N categorie") + griglia collassata sotto.
+   La griglia parte nascosta e viene mostrata da _dashToggleMinor via classe .open. */
+.bbar-more {
+  display:flex; align-items:baseline; gap:6px;
+  margin-top:4px; padding:4px 5px; border-radius:7px;
+  border-top:1px solid var(--border);
+  cursor:pointer; font-size:11px; color:var(--txt3);
+  transition:background .12s;
+}
+.bbar-more:hover { background:var(--bg3); }
+.bbar-more-caret { font-size:9px; transition:transform .15s; display:inline-block; }
+.bbar-more.open .bbar-more-caret { transform:rotate(90deg); }
+.bbar-more-label { flex:1; font-weight:600; color:var(--txt2); }
+.bbar-more-amt { font-weight:700; color:var(--txt2); }
+.bbar-grid-minor { display:none; }
+.bbar-grid-minor.open { display:grid; }
+
 .bbar-head { display:flex; align-items:center; gap:6px; min-width:0; }
 .bbar-icon { font-size:14px; line-height:1; flex-shrink:0; }
 .bbar-name {

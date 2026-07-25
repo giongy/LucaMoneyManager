@@ -97,18 +97,38 @@ function _renderDashBudgetBubbles(budgetYear) {
       : (c.actual - c.budget) / c.budget;     // uscita: quanto si supera il budget
   };
   // Ordina: prima i "bad" (per severità decrescente), poi le categorie in regola (per budget decrescente).
-  const _splitSort = cats => {
+  // `minorOf`, se passata, sposta parte delle categorie in regola nel gruppo "minor" (riepilogo
+  // collassato): serve alle uscite, che a fine mese sarebbero decine di card tutte in regola.
+  const _splitSort = (cats, minorOf = null) => {
     const bad = cats.filter(_isBad).sort((a, b) => _severity(b) - _severity(a));
-    const ok  = cats.filter(c => !_isBad(c)).sort((a, b) => b.budget - a.budget);
-    return { bad, ok };
+    const okAll = cats.filter(c => !_isBad(c)).sort((a, b) => b.budget - a.budget);
+    if (!minorOf) return { bad, ok: okAll, minor: [] };
+    return { bad, ok: okAll.filter(c => !minorOf(c)), minor: okAll.filter(minorOf) };
   };
   const expCats = catData.filter(c => c.type === 'expense');
   const incCats = catData.filter(c => c.type === 'income');
-  const expSplit = _splitSort(expCats);
-  const incSplit = _splitSort(incCats);
+
+  // Quali uscite in regola meritano una card: quelle su cui c'è ancora qualcosa "in gioco".
+  //  - "peso": il budget vale ≥ 5% del budget uscite totale (Spesa, Fuori...) — categorie che
+  //    muovono il mese, da tenere d'occhio anche quando sono perfettamente in regola;
+  //  - "residuo": resta da spendere almeno 50 €, quindi la categoria può ancora sforare.
+  // Il criterio è volutamente sull'importo e non sulla percentuale: le spese fisse/una-tantum
+  // (Dentista 112/112, TIM 76/76) stanno stabilmente al 100% del loro budget ma sono chiuse,
+  // non c'è nulla da sorvegliare — con una soglia percentuale resterebbero sempre visibili.
+  // Tutte le altre confluiscono nella riga riepilogo espandibile in fondo alla colonna.
+  const _WEIGHT_SHARE = 0.05;   // quota del budget uscite totale sopra cui la categoria è "pesante"
+  const _MIN_LEFT     = 50;     // € ancora da spendere sotto cui la categoria è "chiusa"
+  const _totExpBudgetAll = allCatData.filter(c => c.type === 'expense').reduce((s, c) => s + c.budget, 0);
+  const _isMinorExp = c => {
+    const heavy = _totExpBudgetAll > 0 && c.budget / _totExpBudgetAll >= _WEIGHT_SHARE;
+    const left  = c.budget > 0 && (c.budget - c.actual) >= _MIN_LEFT;
+    return !heavy && !left;
+  };
+  const expSplit = _splitSort(expCats, _isMinorExp);
+  const incSplit = _splitSort(incCats);   // le entrate sono poche: restano tutte visibili
 
   // Totali: actual solo dalle categorie visibili, budget da tutte le foglie
-  const totExpBudget = allCatData.filter(c => c.type === 'expense').reduce((s, c) => s + c.budget, 0);
+  const totExpBudget = _totExpBudgetAll;
   const totExpActual = expCats.reduce((s, c) => s + c.actual, 0);
   const totIncBudget = allCatData.filter(c => c.type === 'income').reduce((s, c) => s + c.budget, 0);
   const totIncActual = incCats.reduce((s, c) => s + c.actual, 0);
@@ -191,9 +211,12 @@ function _renderDashBudgetBubbles(budgetYear) {
 
   // Rende una colonna in due sezioni: prima i "bad" (sforati/sotto target), poi un separatore
   // le categorie ok. Se una delle due è vuota, la relativa sezione/separatore sparisce.
+  // In fondo, se ci sono categorie "minor" (poco rilevanti, filtrate a monte), una riga
+  // riepilogo cliccabile che espande/collassa la loro griglia.
   // gridClass: classe extra per la griglia (es. bbar-grid-inc per le entrate).
   const _renderCol = (split, gridClass) => {
-    if (!split.bad.length && !split.ok.length)
+    const minor = split.minor || [];
+    if (!split.bad.length && !split.ok.length && !minor.length)
       return `<div style="color:var(--txt3);font-size:12px;padding:8px 0">—</div>`;
     const grid = (rows, extra = '') => `<div class="bbar-grid ${gridClass} ${extra}">${rows.map(_barRow).join('')}</div>`;
     let html = '';
@@ -205,6 +228,18 @@ function _renderDashBudgetBubbles(budgetYear) {
       // Linea divisoria mostrata solo se ci sono anche dei "bad" sopra da separare (senza etichetta).
       if (both) html += `<div class="bbar-sep"></div>`;
       html += grid(split.ok, both ? 'bbar-grid-tight-t' : '');
+    }
+    if (minor.length) {
+      const mActual = minor.reduce((s, c) => s + c.actual, 0);
+      const mBudget = minor.reduce((s, c) => s + c.budget, 0);
+      html += `
+        <div class="bbar-more" onclick="_dashToggleMinor(this)">
+          <span class="bbar-more-caret">▸</span>
+          <span class="bbar-more-label">Altre ${minor.length} categorie</span>
+          <span class="bbar-more-amt">${fmt.currency(mActual)}</span>
+          ${mBudget > 0 ? `<span class="bbar-budget">/ ${fmt.currency(mBudget)}</span>` : ''}
+        </div>
+        ${grid(minor, 'bbar-grid-minor')}`;
     }
     return html;
   };
@@ -233,6 +268,19 @@ function _renderDashBudgetBubbles(budgetYear) {
   // Doppio rAF per garantire che il browser registri prima lo stato width:0 (evita il salto istantaneo).
   requestAnimationFrame(() => requestAnimationFrame(() => {
     el.querySelectorAll('.bbar-fill').forEach(f => { f.style.width = (f.dataset.fill || '0') + '%'; });
+  }));
+}
+
+// Espande/collassa la griglia delle categorie "minori" nel widget budget.
+// La griglia è il fratello immediato della riga riepilogo; al primo apri anima anche
+// le barre, che erano rimaste a width:0 perché nascoste (display:none non fa partire la transition).
+function _dashToggleMinor(row) {
+  const grid = row.nextElementSibling;
+  if (!grid) return;
+  const open = row.classList.toggle('open');
+  grid.classList.toggle('open', open);
+  if (open) requestAnimationFrame(() => requestAnimationFrame(() => {
+    grid.querySelectorAll('.bbar-fill').forEach(f => { f.style.width = (f.dataset.fill || '0') + '%'; });
   }));
 }
 

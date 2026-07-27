@@ -4,7 +4,10 @@
 > Metodo: 6 analisi parallele (concorrenza, integrità dati, performance, sicurezza, robustezza, manutenibilità), findings verificati sul codice reale.
 > Predecessore: [AUDIT_ROBUSTEZZA_JAVA.md](AUDIT_ROBUSTEZZA_JAVA.md) (2026-07-18, focus logging/eccezioni).
 
-**52 finding.** Legenda stato: ✅ fatto · ⏳ da fare · ⏭️ valutato e scartato.
+**52 finding.** Legenda stato: ✅ fatto · ⏳ da fare · 🔕 rischio accettato · ⏭️ valutato e scartato.
+
+**Stato al 2026-07-27:** 10 chiusi (concorrenza `a218f2e`, date `b058115`, allegati `S2`) ·
+3 a rischio accettato (S1/S3/S4, sicurezza WebServer) · **39 aperti**.
 
 ---
 
@@ -55,35 +58,42 @@ Tutto in `Database.java` salvo dove indicato. Compila (`mvn compile` OK). **Da p
 
 ---
 
-## Critici — ⏳ S1 S2 S3 S4 D1 D3 da fare · ✅ D2 risolto (dettaglio in fondo alla sezione)
+## Critici — ⏳ D1 D3 da fare · ✅ D2 e S2 risolti · 🔕 S1 S3 S4 rischio accettato
 
-### S1 · WebServer senza autenticazione, attivo di default `WebServer.java:27` `Settings.java:28`
-Bind su `0.0.0.0:7890`, `http.enabled` default `"1"`, zero controlli di identità. Su wifi pubblico
-chiunque legge tutte le finanze e può cancellarle.
-→ Token condiviso (`http.token` bootstrap, header `X-Auth`, confronto con `MessageDigest.isEqual`) + default `"0"`.
+### 🔕 S1, S3, S4 · Sicurezza WebServer — RISCHIO ACCETTATO (decisione utente, 2026-07-27)
+- **S1** — WebServer su `0.0.0.0:7890` senza autenticazione, `http.enabled` default `"1"` · `WebServer.java:27`, `Settings.java:28`
+- **S3** — blocklist invece di allowlist: 17 metodi bloccati su 133, restano esposti `doBackup`, `restoreBackup`, `setSetting`, `reloadDb`, `dbVacuum`, tutte le `delete*` · `WebServer.java:46-57`
+- **S4** — `Access-Control-Allow-Origin: *` con body `text/plain` (simple request) → CSRF e lettura cross-origin · `WebServer.java:103`,`:63`
 
-### S2 · `openAttachment` esegue file arbitrari — RCE dalla LAN `Bridge.java:561`
-`Path.of(attDir).resolve(relPath)` senza `normalize()`/`startsWith()`. `resolve()` **restituisce il
-path se è assoluto** → `\\host\share\payload.exe` bypassa `attDir` e `Desktop.open` lo esegue.
-Non è in blocklist; `setSetting` nemmeno → l'attaccante imposta prima `attachments.dir`.
-Stesso bug in `removeAttachment` (`Bridge.java:585`) → cancellazione di file arbitrari.
-Raggiungibile anche **senza rete**: `attachment_path` arriva dal DB su OneDrive.
-```java
-Path base = Path.of(attDir).toAbsolutePath().normalize();
-Path file = base.resolve(relPath).normalize();
-if (!file.startsWith(base)) yield Map.of("error", "Percorso allegato non valido");
-```
+**Motivazione:** app a uso strettamente personale, accessibile solo dalla LAN domestica, unico
+utente. Il modello di minaccia "altri sulla stessa rete" non si applica.
 
-### S3 · Blocklist WebServer → allowlist `WebServer.java:46-57`
-Blocca 17 metodi su 133 (e `resetJcef` non esiste più: voce morta). Restano esposti `doBackup`,
-`restoreBackup`, `attachFile`, `removeAttachment`, `reloadDb`, `setSetting`, `purgeLog`,
-`clearAppLog`, `dbVacuum`, tutte le `delete*`.
-Esfiltrazione in 3 chiamate: `setSetting backup.dir=<...>/web` → `doBackup` → `GET /*.db.bak`.
+**Quando rivalutare:** se il portatile si collega a una rete non fidata (hotel, coworking, wifi di
+un cliente) il server si espone da solo, senza nessuna azione dell'utente. In quel caso basta
+mettere `http.enabled=0` in `settings.properties` prima di connettersi — non serve toccare codice.
+⚠️ Non riproporre questi tre punti senza che cambi il contesto d'uso.
 
-### S4 · `Access-Control-Allow-Origin: *` `WebServer.java:103`,`:63`
-Il body va come `text/plain` → simple request, nessun preflight: qualsiasi pagina web può fare CSRF
-su `127.0.0.1:7890`, e con ACAO:* **leggere** la risposta.
-→ Rimuovere l'header (il frontend è same-origin) e richiedere il token in header custom.
+### ✅ S2 · Path degli allegati non confinato — RISOLTO 2026-07-27
+`Path.of(attDir).resolve(relPath)` senza `normalize()`/`startsWith()`: `resolve()` **restituisce il
+path tal quale se è assoluto**, quindi `C:\...\x.exe` o `\\host\share\x.exe` ignoravano del tutto
+`attachments.dir`. I chiamanti poi aprivano il risultato con `Desktop.open` (su Windows **esegue**
+.exe/.bat/.lnk) o lo cancellavano.
+
+Non dipende dalla LAN: `attachment_path` sta nel DB condiviso via OneDrive, scrivibile anche
+dall'app Android, e può essere semplicemente **sbagliato** (vecchia cartella allegati, share di
+rete non più esistente, sync parziale).
+
+Fix: nuovo helper `Bridge.resolveAttachment(attDir, relPath)` che normalizza e verifica
+`startsWith(base)`, ritornando null se il percorso esce. Usato nei **3** punti che risolvevano un
+path allegato: `openAttachment` (`:561`), `removeAttachment` (`:585`) e `attachFile` (`:549`,
+cancellazione del vecchio allegato — aveva lo stesso difetto). In `removeAttachment` il
+riferimento viene comunque staccato dalla transazione anche quando il path è respinto: è proprio
+il caso in cui è sbagliato. I `catch (Exception ignored)` sono diventati log su `app.log`.
+
+Verificato: passano i nomi normali e le sottocartelle; respinti path assoluti, UNC, traversal con
+`..` (sia `/` sia `\`), altro volume, stringa vuota, null e nome con NUL. Controllato il DB reale
+in sola lettura: **1 sola transazione con allegato**, formato `355_scontrino benzina...pdf` —
+nessun path assoluto o con `..`, quindi il fix non blocca nulla di esistente.
 
 ### D1 · `importPending` tronca `pending.jsonl` `Database.java:1618`→`:1687`
 Legge N righe, riscrive N righe. Se OneDrive completa il download fra le due, **le transazioni del
@@ -147,7 +157,7 @@ legame perso. Nessun avviso in cancellazione (c'è solo in modifica, `transactio
 | R4 | `winPickFolder`: stderr mai letto (buffer ~4 KB) e stream mai chiusi → **deadlock permanente** del virtual thread + powershell zombie | `Bridge.java:246-266` |
 | R5 | All'avvio, se la cartella del DB non è raggiungibile (OneDrive non ancora montato con autostart), l'app **riscrive `db.path`** e crea un DB vuoto. Stessa dinamica in `reloadDb`, che persiste il path prima di verificarlo | `App.java:158-164`, `Bridge.java:658` |
 | D6 | `migrate()` **timbra v20 su DB con schema più vecchio** senza aggiungere le colonne: ripristinare un backup vecchio produce `no such column` sparsi e permanenti. Serve almeno un log nei due rami anomali | `:919`, nota già nel codice |
-| X1 | **XSS persistente** (nessun escaping, `innerHTML` su `description`) → catena verso `api.openAttachment`. Parte all'avvio senza click via una riga di `pending.jsonl`. *(area JS, fuori dal perimetro Java)* | `init.js:161`,`:215`, `transactions.js:508`,`:518` |
+| X1 | **XSS persistente** (nessun escaping, `innerHTML` su `description`). L'iniezione via LAN non è più nel modello di minaccia (vedi 🔕 S1/S3/S4), ma resta raggiungibile da una riga di `pending.jsonl` scritta da Android. La catena verso l'esecuzione di file è comunque tagliata da ✅ S2. *(area JS, fuori dal perimetro Java)* | `init.js:161`,`:215`, `transactions.js:508`,`:518` |
 
 ---
 

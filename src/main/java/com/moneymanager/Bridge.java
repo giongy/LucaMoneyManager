@@ -85,6 +85,38 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
     }
 
     /**
+     * Risolve il nome di un allegato dentro la cartella allegati, garantendo che il risultato
+     * resti DENTRO quella cartella. Ritorna null se il percorso esce (o non è risolvibile).
+     *
+     * Serve perché {@code Path.resolve(other)} restituisce {@code other} tal quale quando è
+     * assoluto: senza questo controllo un attachment_path come "C:\...\x.exe" o
+     * "\\server\share\x.exe" ignorerebbe completamente attDir, e i chiamanti aprono
+     * (Desktop.open → su Windows ESEGUE .exe/.bat/.lnk) o cancellano il file risultante.
+     * Il valore non arriva solo dalla UI: sta in transactions.attachment_path, cioè nel DB
+     * condiviso via OneDrive e scrivibile anche dall'app Android, e può essere semplicemente
+     * sbagliato (vecchia cartella allegati, share di rete non più esistente, sync parziale).
+     *
+     * normalize() risolve i ".." PRIMA del confronto, così anche "..\..\Windows\x.exe" viene
+     * respinto; toAbsolutePath() sulla base evita che un attDir relativo falsi startsWith().
+     */
+    private static java.nio.file.Path resolveAttachment(String attDir, String relPath) {
+        if (attDir == null || attDir.isBlank() || relPath == null || relPath.isBlank()) return null;
+        try {
+            java.nio.file.Path base = java.nio.file.Path.of(attDir).toAbsolutePath().normalize();
+            java.nio.file.Path file = base.resolve(relPath).normalize();
+            if (!file.startsWith(base)) {
+                System.err.println("[Bridge] allegato fuori dalla cartella consentita: '" + relPath
+                        + "' risolto in '" + file + "' (base: '" + base + "')");
+                return null;
+            }
+            return file;
+        } catch (java.nio.file.InvalidPathException e) {
+            System.err.println("[Bridge] percorso allegato non valido: '" + relPath + "' — " + e.getMessage());
+            return null;
+        }
+    }
+
+    /**
      * Entry point delle chiamate dal JavaScript (window.cefQuery).
      * Decodifica il payload Base64 → JSON, estrae method+params e instrada:
      * i metodi che aprono dialog nativi o fanno I/O di rete partono su virtual thread
@@ -546,8 +578,15 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                 java.nio.file.Files.copy(srcFile.toPath(), dir.resolve(destName),
                         java.nio.file.StandardCopyOption.REPLACE_EXISTING);
                 if (oldRel != null && !oldRel.isBlank() && !oldRel.equals(destName)) {
-                    try { java.nio.file.Files.deleteIfExists(dir.resolve(oldRel)); }
-                    catch (Exception ignored) {}
+                    // Stesso controllo di openAttachment/removeAttachment: oldRel arriva dal DB
+                    // e con un path assoluto cancellerebbe un file fuori dalla cartella allegati.
+                    java.nio.file.Path old = resolveAttachment(attDir, oldRel);
+                    if (old != null) {
+                        try { java.nio.file.Files.deleteIfExists(old); }
+                        catch (Exception e) {
+                            System.err.println("[Bridge] rimozione vecchio allegato fallita: " + old + " — " + e);
+                        }
+                    }
                 }
                 db.setAttachment(txId, destName);
                 yield Map.of("path", destName);
@@ -558,9 +597,12 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                 String relPath = p.get("path").getAsString();
                 if (attDir.isBlank())
                     yield Map.of("error", "Cartella allegati non configurata");
-                java.nio.file.Path file = java.nio.file.Path.of(attDir).resolve(relPath);
-                if (!java.nio.file.Files.exists(file))
-                    yield Map.of("error", "File non trovato: " + file.toAbsolutePath());
+                java.nio.file.Path file = resolveAttachment(attDir, relPath);
+                if (file == null)
+                    yield Map.of("error", "Percorso allegato non valido: '" + relPath
+                            + "'. Deve essere un file dentro la cartella allegati.");
+                if (!java.nio.file.Files.isRegularFile(file))
+                    yield Map.of("error", "File non trovato: " + file);
                 java.awt.Desktop.getDesktop().open(file.toFile());
                 yield Map.of("ok", true);
             }
@@ -583,10 +625,15 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                                  ? p.get("path").getAsString() : null;
                 if (relPath != null && !relPath.isBlank()) {
                     String attDir = db.getAppSetting("attachments.dir", "");
-                    if (!attDir.isBlank()) {
-                        try { java.nio.file.Files.deleteIfExists(
-                                java.nio.file.Path.of(attDir).resolve(relPath)); }
-                        catch (Exception ignored) {}
+                    java.nio.file.Path file = resolveAttachment(attDir, relPath);
+                    // file == null: percorso fuori dalla cartella allegati (già loggato).
+                    // Non cancelliamo nulla, ma stacchiamo comunque il riferimento dalla
+                    // transazione: è esattamente il caso in cui il path è sbagliato.
+                    if (file != null) {
+                        try { java.nio.file.Files.deleteIfExists(file); }
+                        catch (Exception e) {
+                            System.err.println("[Bridge] rimozione allegato fallita: " + file + " — " + e);
+                        }
                     }
                 }
                 db.removeAttachment(txId);

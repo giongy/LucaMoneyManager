@@ -94,6 +94,8 @@ const api = {
   addAccount:         async data  => { api._invalidateAccounts(); return callJava('addAccount',   data); },
   updateAccount:      async data  => { api._invalidateAccounts(); return callJava('updateAccount', data); },
   deleteAccount:      async id    => { api._invalidateAccounts(); return callJava('deleteAccount', {id}); },
+  // Conteggi di cosa si perderebbe eliminando il conto (non tocca la cache: è di sola lettura).
+  getAccountUsage:    async id    => callJava('getAccountUsage', {id}),
   updateAccountOrder: async items => { api._invalidateAccounts(); return callJava('updateAccountOrder', {items}); },
 
   // Categorie (cache in-session: invalidata ad ogni modifica)

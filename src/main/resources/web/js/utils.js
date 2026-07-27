@@ -37,10 +37,15 @@ function loadVendorScript(src) {
 }
 
 /* ─── Account visibility helpers ─────────────────────────────────────────── */
+// Tre stati: aperto (is_closed=0) → chiuso (is_closed=1) → chiuso e nascosto (is_hidden=1).
+// "Nascosto" è un sotto-stato di "chiuso": is_hidden=1 implica sempre is_closed=1 (invariante
+// garantita da Database.updateAccount). Un conto nascosto sparisce da liste, selettori, totali
+// e report; resta raggiungibile solo dal toggle "Mostra nascosti" nella pagina Conti.
+const isAccountHidden  = a => !!a.is_hidden;
 // Dipende da _accFavoritesOnly (let globale dichiarata in app.js).
 const isAccountVisible = a =>
-  _accFavoritesOnly ? (a.is_favorite && !a.is_closed) : true;
-const isAccountActive  = a => !a.is_closed;
+  isAccountHidden(a) ? false : (_accFavoritesOnly ? (a.is_favorite && !a.is_closed) : true);
+const isAccountActive  = a => !a.is_closed && !a.is_hidden;
 
 /* ─── Calculator helper ────────────────────────────────────────────────────── */
 /** Valuta una semplice espressione +/- (es. "40+10.30", "100-49.70").

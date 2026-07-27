@@ -1692,7 +1692,9 @@ async function renderAnalyticsAccBalance(token) {
   catch(e) { el.innerHTML = `<p style="padding:20px;color:var(--expense)">Errore: ${e.message}</p>`; return; }
   if (_analyticsRenderStale(token)) return;  // periodo/tab cambiato durante l'await: annulla
   if (!raw || !raw.accounts) { el.innerHTML = `<p style="padding:20px;color:var(--expense)">Dati non disponibili</p>`; return; }
-  const accounts = raw.accounts;
+  // I conti nascosti non compaiono nemmeno nel selettore: qui i chiusi restano (marcati ✕),
+  // perché il loro storico saldi è ancora interessante, ma i nascosti sono fuori dalla vista.
+  const accounts = raw.accounts.filter(a => !isAccountHidden(a));
 
   // Inizializza selezione: solo conti correnti (checking) non chiusi
   if (!_accBalSel) {

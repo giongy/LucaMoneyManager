@@ -708,7 +708,7 @@ public class Database {
     // ─── Schema ───────────────────────────────────────────────────────────────
 
     /**
-     * Crea in un colpo le 20 tabelle canoniche dello schema v20 (colonne finali + indici).
+     * Crea in un colpo le 20 tabelle canoniche dello schema v21 (colonne finali + indici).
      * Le altre 2 tabelle del DB nascono a runtime altrove: sync_meta in touchSyncMeta() e
      * imported_pending in importPending().
      *
@@ -731,6 +731,7 @@ public class Database {
                 icon            TEXT    DEFAULT '🏦',
                 is_favorite     INTEGER DEFAULT 0,
                 is_closed       INTEGER DEFAULT 0,
+                is_hidden       INTEGER DEFAULT 0,
                 sort_order      INTEGER DEFAULT 0,
                 created_at      TEXT    DEFAULT CURRENT_TIMESTAMP
             );
@@ -950,13 +951,14 @@ public class Database {
         }
     }
 
-    private static final int SCHEMA_VERSION = 20;
+    private static final int SCHEMA_VERSION = 21;
 
     /**
      * Migrazioni incrementali dello schema per DB creati con versioni precedenti.
-     * Lo schema completo fino alla v20 è ora consolidato in {@link #initSchema()};
-     * qui restano solo gli aggiornamenti futuri (v21+). initSchema() marca già i DB
-     * nuovi/completi come SCHEMA_VERSION, quindi il guard sotto li fa uscire subito.
+     * Lo schema completo fino alla v21 è ora consolidato in {@link #initSchema()};
+     * qui restano la v21 (per i DB già esistenti alla v20) e gli aggiornamenti futuri.
+     * initSchema() marca già i DB nuovi/completi come SCHEMA_VERSION, quindi il guard
+     * sotto li fa uscire subito.
      *
      * Nota: un DB con version &lt; 20 arriverebbe in fondo e verrebbe timbrato v20 senza che
      * nessuno abbia aggiunto le colonne mancanti (initSchema crea solo le tabelle assenti, non
@@ -971,8 +973,17 @@ public class Database {
         int currentVersion = vRow == null ? 0 : ((Number) vRow.get("version")).intValue();
         if (currentVersion >= SCHEMA_VERSION) return; // già aggiornato, salta tutto
 
-        // ── v21+: aggiungere qui i blocchi futuri, es.:
-        //   if (currentVersion < 21) { try { executePlain("ALTER TABLE ..."); } catch (SQLException ignored) {} }
+        // ── v21: accounts.is_hidden — sotto-stato di is_closed (un conto nascosto è sempre
+        // anche chiuso). Serve a togliere dalla vista i conti chiusi da tempo senza doverli
+        // eliminare. try/catch: se la colonna c'è già (DB creato da initSchema v21) l'ALTER
+        // fallisce ed è corretto ignorarlo.
+        if (currentVersion < 21) {
+            try { executePlain("ALTER TABLE accounts ADD COLUMN is_hidden INTEGER DEFAULT 0"); }
+            catch (SQLException ignored) {}
+        }
+
+        // ── v22+: aggiungere qui i blocchi futuri, es.:
+        //   if (currentVersion < 22) { try { executePlain("ALTER TABLE ..."); } catch (SQLException ignored) {} }
 
         // Segna il DB come aggiornato all'ultima versione
         executePlain("DELETE FROM schema_version");
@@ -1248,17 +1259,75 @@ public class Database {
 
     /** Aggiorna i campi di un conto e sync_meta. */
     public Map<String, Object> updateAccount(int id, JsonObject p) throws SQLException {
-        execute("UPDATE accounts SET name=?,type=?,currency=?,initial_balance=?,color=?,icon=?,is_favorite=?,is_closed=? WHERE id=?",
+        Integer closedRaw = intVal(p,"is_closed"), hiddenRaw = intVal(p,"is_hidden");
+        int closed = closedRaw != null ? closedRaw : 0;
+        // Invariante: "nascosto" è un sotto-stato di "chiuso" — non esiste un conto nascosto ma
+        // ancora aperto. Chi nasconde chiude implicitamente; chi riapre torna visibile.
+        int hidden = hiddenRaw != null ? hiddenRaw : 0;
+        if (hidden == 1) closed = 1;
+        else if (closed == 0) hidden = 0;
+        execute("UPDATE accounts SET name=?,type=?,currency=?,initial_balance=?,color=?,icon=?,is_favorite=?,is_closed=?,is_hidden=? WHERE id=?",
                 str(p,"name"), str(p,"type"), str(p,"currency") != null ? str(p,"currency") : "EUR",
                 dbl2(p,"initial_balance") != null ? dbl2(p,"initial_balance") : 0.0,
                 str(p,"color"), str(p,"icon"),
                 intVal(p,"is_favorite") != null ? intVal(p,"is_favorite") : 0,
-                intVal(p,"is_closed") != null ? intVal(p,"is_closed") : 0,
+                closed, hidden,
                 id);
         touchSyncMeta();
         logger.log("CONTO MODIFICATO", "id:" + id, "nome:" + str(p,"name"), "tipo:" + str(p,"type"),
-                   "chiuso:" + intVal(p,"is_closed"));
+                   "chiuso:" + closed, "nascosto:" + hidden);
         return queryOne("SELECT * FROM accounts WHERE id=?", id);
+    }
+
+    /**
+     * Conteggi di ciò che verrebbe perso eliminando il conto: transazioni (incluse quelle in cui
+     * è il conto di destinazione di un trasferimento), pianificate, posizioni di portfolio, più
+     * saldo attuale e i trasferimenti in entrata che bloccano l'eliminazione (vedi deleteAccount).
+     * Alimenta il dialog del cestino, che propone "chiudi/nascondi" come alternative.
+     */
+    public Map<String, Object> getAccountUsage(int id) throws SQLException {
+        Map<String, Object> res = new java.util.LinkedHashMap<>();
+        res.put("id", id);
+
+        Map<String, Object> acc = queryOne(
+                "SELECT name, type, is_closed, is_hidden FROM accounts WHERE id=?", id);
+        if (acc == null) throw new SQLException("Conto non trovato (id " + id + ").");
+        res.put("name", acc.get("name"));
+        res.put("type", acc.get("type"));
+        res.put("is_closed", acc.get("is_closed"));
+        res.put("is_hidden", acc.get("is_hidden"));
+
+        res.put("transactions", countOf(
+                "SELECT COUNT(*) AS n FROM transactions WHERE account_id=? OR to_account_id=?", id, id));
+        res.put("scheduled", countOf(
+                "SELECT COUNT(*) AS n FROM scheduled_transactions WHERE account_id=? OR to_account_id=?", id, id));
+        res.put("portfolio", countOf(
+                "SELECT COUNT(*) AS n FROM portfolio WHERE account_id=?", id));
+
+        // Trasferimenti in entrata da ALTRI conti: sono quelli che fanno rifiutare l'eliminazione.
+        Map<String, Object> inb = queryOne(
+                "SELECT COUNT(*) AS n, COALESCE(SUM(amount),0) AS tot FROM transactions " +
+                "WHERE to_account_id=? AND account_id<>?", id, id);
+        res.put("incoming_transfers", inb != null ? ((Number) inb.get("n")).longValue() : 0L);
+        res.put("incoming_amount",    inb != null ? ((Number) inb.get("tot")).doubleValue() : 0.0);
+
+        // Saldo: riuso getAccounts() invece di duplicarne il CASE (bond, trasferimenti, ecc.).
+        double balance = 0;
+        for (Map<String, Object> a : getAccounts()) {
+            if (((Number) a.get("id")).intValue() == id) {
+                Object b = a.get("balance");
+                if (b instanceof Number n) balance = n.doubleValue();
+                break;
+            }
+        }
+        res.put("balance", balance);
+        return res;
+    }
+
+    /** Esegue una COUNT(*) che espone la colonna "n" e ne restituisce il valore. */
+    private long countOf(String sql, Object... params) throws SQLException {
+        Map<String, Object> row = queryOne(sql, params);
+        return row != null && row.get("n") instanceof Number n ? n.longValue() : 0L;
     }
 
     /** Riordina i conti (drag&drop): aggiorna sort_order da una lista {id, sort_order}. */
@@ -4282,6 +4351,7 @@ public class Database {
             m.put("id", a.get("id")); m.put("name", a.get("name"));
             m.put("color", a.get("color")); m.put("icon", a.get("icon"));
             m.put("type", a.get("type")); m.put("is_closed", a.get("is_closed"));
+            m.put("is_hidden", a.get("is_hidden"));
             return m;
         }).collect(Collectors.toList());
 

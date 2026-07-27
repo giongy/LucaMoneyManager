@@ -8,22 +8,36 @@
 // globale → risolta lazy quando renderDashboard viene eseguita.
 
 // Disegna la pagina Conti (intestazione + griglia, popolata da loadAccountCards).
+// I conti nascosti sono esclusi dalla griglia: questo toggle è l'unico modo per rivederli
+// (e quindi riaprirli). Volutamente non persistito: torna OFF ad ogni rientro nella pagina.
+let _accShowHidden = false;
+
 async function renderAccounts() {
   const pg = document.getElementById('pg-accounts');
   pg.innerHTML = `
     <div class="section-header">
       <h2 class="section-title">Conti</h2>
-      <button class="btn btn-primary" id="btnAddAcc">+ Nuovo Conto</button>
+      <div style="display:flex;align-items:center;gap:10px">
+        <label class="acc-check-label" id="lblShowHidden" style="display:none">
+          <input type="checkbox" id="chkShowHidden" ${_accShowHidden ? 'checked' : ''}>
+          🙈 Mostra nascosti
+        </label>
+        <button class="btn btn-primary" id="btnAddAcc">+ Nuovo Conto</button>
+      </div>
     </div>
     <div class="accounts-grid" id="accountsGrid"></div>`;
   document.getElementById('btnAddAcc').onclick = () => showAccountModal(null);
+  document.getElementById('chkShowHidden').onchange = e => {
+    _accShowHidden = e.target.checked;
+    loadAccountCards();
+  };
   loadAccountCards();
 }
 
 // HTML di una card conto: icona, nome, badge (preferito/chiuso), saldo e azioni
 // (per le carte di credito aggiunge "Chiudi mese").
 function _accountCardHtml(a) {
-  const badges = [a.is_favorite ? '⭐' : '', a.is_closed ? '🔒' : ''].filter(Boolean).join(' ');
+  const badges = [a.is_favorite ? '⭐' : '', a.is_closed ? '🔒' : '', a.is_hidden ? '🙈' : ''].filter(Boolean).join(' ');
   return `<div class="account-card${a.is_closed ? ' account-card-closed' : ''}" data-id="${a.id}" data-type="${a.type}" draggable="true" style="--acc-color:${a.color}">
     <span class="acc-drag-handle" title="Trascina per riordinare">⠿</span>
     <div class="account-icon">${a.icon}</div>
@@ -44,9 +58,18 @@ function _accountCardHtml(a) {
 async function loadAccountCards() {
   const grid = document.getElementById('accountsGrid');
   if (!grid) return;
-  const accounts = await api.getAccounts();
+  const all = await api.getAccounts();
+
+  // Il toggle "Mostra nascosti" compare solo se c'è davvero qualcosa di nascosto.
+  const hiddenCount = all.filter(isAccountHidden).length;
+  const lbl = document.getElementById('lblShowHidden');
+  if (lbl) lbl.style.display = hiddenCount ? '' : 'none';
+
+  const accounts = _accShowHidden ? all : all.filter(a => !isAccountHidden(a));
   if (!accounts.length) {
-    grid.innerHTML = '<div class="empty-state"><div class="empty-icon">🏦</div><p>Nessun conto. Creane uno!</p></div>';
+    grid.innerHTML = hiddenCount
+      ? `<div class="empty-state"><div class="empty-icon">🙈</div><p>Tutti i conti sono nascosti. Usa "Mostra nascosti" per rivederli.</p></div>`
+      : '<div class="empty-state"><div class="empty-icon">🏦</div><p>Nessun conto. Creane uno!</p></div>';
     return;
   }
 
@@ -320,6 +343,10 @@ function showAccountModal(account) {
         <input type="checkbox" id="a_closed" ${account?.is_closed ? 'checked' : ''}>
         🔒 Chiuso
       </label>
+      <label class="acc-check-label" title="Un conto nascosto sparisce da liste, selettori, totali e report. Implica 'Chiuso'.">
+        <input type="checkbox" id="a_hidden" ${account?.is_hidden ? 'checked' : ''}>
+        🙈 Nascosto
+      </label>
     </div>`;
 
   openModal(account ? 'Modifica Conto' : 'Nuovo Conto', body, async () => {
@@ -333,6 +360,7 @@ function showAccountModal(account) {
       currency:        'EUR',
       is_favorite:     document.getElementById('a_favorite').checked ? 1 : 0,
       is_closed:       document.getElementById('a_closed').checked   ? 1 : 0,
+      is_hidden:       document.getElementById('a_hidden').checked   ? 1 : 0,
     };
     if (!data.name) { toast('Inserisci un nome per il conto','error'); return; }
     try {
@@ -344,6 +372,13 @@ function showAccountModal(account) {
       loadAccountCards();
     } catch(e) { toast(e.message,'error'); }
   });
+
+  // Invariante "nascosto ⇒ chiuso" riflessa subito nella UI (il backend la applica comunque):
+  // spuntare Nascosto spunta Chiuso; togliere Chiuso toglie Nascosto.
+  const cbClosed = document.getElementById('a_closed');
+  const cbHidden = document.getElementById('a_hidden');
+  cbHidden.onchange = () => { if (cbHidden.checked) cbClosed.checked = true; };
+  cbClosed.onchange = () => { if (!cbClosed.checked) cbHidden.checked = false; };
 }
 
 // Selezione icona/colore nel modale conto (aggiornano l'input nascosto corrispondente).
@@ -362,20 +397,108 @@ window.editAccount = async id => {
   const accounts = await api.getAccounts();
   showAccountModal(accounts.find(a=>a.id===id));
 };
-// Elimina un conto e tutte le sue transazioni previa conferma.
-// Il backend rifiuta se esistono trasferimenti IN ENTRATA da altri conti: quelli non
-// cadono con la cascata e lascerebbero i conti di partenza scalati senza contropartita.
-// In quel caso mostriamo il messaggio del backend, che spiega cosa fare.
+// Cestino del conto: NON elimina subito. Mostra cosa andrebbe perso (transazioni, pianificate,
+// posizioni, saldo) e propone le alternative non distruttive — chiudere o nascondere — lasciando
+// l'eliminazione come terza scelta esplicita. L'eliminazione è definitiva e senza undo: le
+// transazioni cadono in cascata via FK, e con esse split, tag e movimenti di portfolio.
 window.deleteAccount = async id => {
-  const ok = await confirm('Elimina conto','Vuoi eliminare questo conto e tutte le sue transazioni?');
-  if (!ok) return;
+  let u;
   try {
-    await api.deleteAccount(id);
+    u = await api.getAccountUsage(id);
   } catch (e) {
-    toast(e.message || 'Eliminazione non riuscita', 'error');
+    toast(e.message || 'Lettura del conto non riuscita', 'error');
     return;
   }
-  toast('Conto eliminato');
-  updateSidebar();
-  loadAccountCards();
+
+  const rows = [
+    ['Transazioni',           u.transactions],
+    ['Pianificate',           u.scheduled],
+    ['Posizioni portfolio',   u.portfolio],
+  ].filter(([, n]) => n > 0);
+
+  const isEmpty = rows.length === 0;
+  // I trasferimenti in entrata da altri conti fanno rifiutare l'eliminazione lato backend
+  // (lascerebbero i conti di partenza scalati senza contropartita): avvisa prima, non dopo.
+  const blocked = u.incoming_transfers > 0;
+
+  const listHtml = isEmpty
+    ? `<p style="color:var(--txt2);line-height:1.6">Questo conto non ha transazioni, pianificate o posizioni collegate.</p>`
+    : `<p style="color:var(--txt2);line-height:1.6;margin-bottom:10px">Eliminando <b>${u.name}</b> perderai in modo definitivo:</p>
+       <ul style="color:var(--txt2);line-height:1.9;margin:0 0 12px 18px">
+         ${rows.map(([lbl, n]) => `<li><b>${n.toLocaleString('it-IT')}</b> ${lbl.toLowerCase()}</li>`).join('')}
+       </ul>
+       <p style="color:var(--txt2);line-height:1.6">Saldo attuale: <b>${fmt.currency(u.balance)}</b></p>`;
+
+  const warnHtml = blocked
+    ? `<p style="color:var(--expense);line-height:1.6;margin-top:12px">
+         ⛔ Non eliminabile: ci sono <b>${u.incoming_transfers}</b> trasferimenti in entrata da altri
+         conti (${fmt.currency(u.incoming_amount)}). Vanno prima eliminati o riassegnati, altrimenti
+         i conti di partenza resterebbero scalati senza contropartita.
+       </p>`
+    : (isEmpty ? '' :
+      `<p style="color:var(--txt3);line-height:1.6;margin-top:12px">
+         L'operazione non può essere annullata. Se il conto non è più in uso, conviene
+         <b>chiuderlo</b>: la storia resta e i totali restano corretti. Se non vuoi più vederlo
+         da nessuna parte, <b>nascondilo</b>.
+       </p>`);
+
+  const already = u.is_hidden ? 'hidden' : (u.is_closed ? 'closed' : 'open');
+  const btn = (act, label, style) =>
+    `<button type="button" class="btn ${style}" data-act="${act}" style="flex:1;min-width:120px">${label}</button>`;
+
+  const body = `${listHtml}${warnHtml}
+    <div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:18px">
+      ${already === 'open'   ? btn('close',  '🔒 Chiudi',   'btn-primary') : ''}
+      ${already !== 'hidden' ? btn('hide',   '🙈 Nascondi', 'btn-ghost') : ''}
+      ${btn('delete', '🗑️ Elimina definitivamente', 'btn-danger')}
+    </div>`;
+
+  // onConfirm=null → openModal mostra solo "Annulla": le azioni sono i bottoni qui sopra.
+  openModal(`Elimina "${u.name}"`, body, null);
+  document.getElementById('modalCancel').style.display = '';
+  document.getElementById('modalCancel').onclick = closeModal;
+
+  document.querySelectorAll('#modalBody [data-act]').forEach(b => {
+    b.onclick = async () => {
+      const act = b.dataset.act;
+      if (act === 'delete' && blocked) {
+        toast('Elimina o riassegna prima i trasferimenti in entrata', 'error');
+        return;
+      }
+      // Doppio click di sicurezza sull'eliminazione di un conto con dati: il primo click arma
+      // il bottone, il secondo esegue. Evita un secondo modale annidato (confirm() riuserebbe
+      // questo stesso modale, chiudendolo) e rende difficile eliminare per sbaglio.
+      if (act === 'delete' && !isEmpty && b.dataset.armed !== '1') {
+        b.dataset.armed = '1';
+        b.textContent = '⚠️ Clicca di nuovo per eliminare';
+        setTimeout(() => {
+          if (!b.isConnected) return;
+          b.dataset.armed = '0';
+          b.textContent = '🗑️ Elimina definitivamente';
+        }, 4000);
+        return;
+      }
+      try {
+        if (act === 'delete') {
+          await api.deleteAccount(id);
+          toast('Conto eliminato');
+        } else {
+          // Chiudi/nascondi passano da updateAccount: serve il record completo, perché
+          // updateAccount riscrive tutte le colonne (non fa un update parziale).
+          const acc = (await api.getAccounts()).find(a => a.id === id);
+          if (!acc) { toast('Conto non trovato', 'error'); return; }
+          await api.updateAccount({ ...acc,
+            is_closed: 1,
+            is_hidden: act === 'hide' ? 1 : (acc.is_hidden || 0) });
+          toast(act === 'hide' ? 'Conto nascosto' : 'Conto chiuso');
+        }
+      } catch (e) {
+        toast(e.message || 'Operazione non riuscita', 'error');
+        return;
+      }
+      closeModal();
+      updateSidebar();
+      loadAccountCards();
+    };
+  });
 };

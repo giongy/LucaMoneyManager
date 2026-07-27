@@ -374,7 +374,7 @@ esecuzione. È comunque preferibile alla finestra congelata di prima.
 - **`importPending` non ri-marca `applied`** (`:1658`, il javadoc a `:1609` promette il contrario): Android continua a scalare l'importo dal saldo mostrato **per sempre** e la riga non è mai eleggibile per la pulizia a 30 giorni.
 - **`DbLogger.log()` non thread-safe** (`DbLogger.java:99`): chiamato da 4 famiglie di thread; righe intrecciate → operazioni fantasma nel sidecar JSON del backup.
 - **Il purge del log non ricalcola `startOffset`** (`DbLogger.java:135`,`:168`) → `hasModifications()` torna `false` → **il backup automatico non parte e nessuno lo dice**.
-- **`getForecastDetail`** (`:4141`): N+1 (50 query) su `transaction_splits` senza indice su `category_id` → 50 scansioni complete.
+- **`getForecastDetail`** (`:4141`): N+1 (una query per categoria di previsione). ⚠️ Parzialmente attenuato da `5c42ed4`, che ha aggiunto `idx_splits_cat`: le 50 scansioni complete sono ora 50 lookup indicizzati. Resta l'N+1 in sé.
 - **`backup()` e `restoreBackup()` non escludono gli altri thread**: con `journal=DELETE`, copiare durante una transazione produce un **.bak corrotto** che scopri il giorno del ripristino. (`restoreBackup` è ora `synchronized`; `backup()` **no**.)
 - **Salva/ripristina di `autoReleaseEnabled` non rientrante** (`inTx:579`, `withExclusiveAccess:3759`): due sospensioni sovrapposte possono lasciare l'auto-release **spento per il resto della sessione** → lock OneDrive mai rilasciato. → Contatore `autoReleaseSuspend` invece del salva/ripristina. *(Attenuato ma non risolto dal `synchronized` su `inTx`.)*
 - **`fetchOnlinePrice` senza timeout di risposta** (`Bridge.java:851`): `connectTimeout` copre solo l'handshake → la Promise JS non si risolve mai.
@@ -386,7 +386,7 @@ esecuzione. È comunque preferibile alla finestra congelata di prima.
 - **`readAllBytes` senza limite** su POST `/bridge` (`WebServer.java:37`) + nessun timeout → OOM dalla LAN.
 - **`deletePortfolioItem`** (`:3568`) lascia orfane le transazioni di acquisto e le commissioni.
 - **`updateTransaction`** (`:1810`) aggiorna `portfolio_transactions.price` solo per `coupon`/`expense`: correggere l'importo di un acquisto lascia `avg_price` vecchio.
-- **`getProjectionByCategory`** (`:4063`) è l'unica delle 6 copie del loop pianificate che usa `LocalDate.parse` diretto invece di `tryParseDate` → una data corrotta fa esplodere l'intera vista.
+- ✅ ~~`getProjectionByCategory` usa `LocalDate.parse` diretto~~ — **RISOLTO in `b058115`**, allineato a `tryParseDate` come le altre 5 copie.
 - **Divisione per zero** in `buyStock` (`:3206`,`:3213`) con `qty == 0` → `NaN` in `avg_price`. Validato solo lato JS.
 - **`archiveTransactions`** (`:2752`) fa DELETE riga per riga (1000-2000 statement).
 - **`getScheduled()` chiamato 2 volte in `getProjection`** (`:2905`,`:3005`) con filtri divergenti sui trasferimenti.
@@ -396,15 +396,17 @@ esecuzione. È comunque preferibile alla finestra congelata di prima.
 
 ## ⏳ DA FARE — indici e pulizia
 
-**Aggiungere** (ognuno giustificato da query reali):
-```sql
-CREATE INDEX IF NOT EXISTS idx_porttx_portfolio ON portfolio_transactions(portfolio_id, type);
-CREATE INDEX IF NOT EXISTS idx_splits_cat       ON transaction_splits(category_id);
-CREATE INDEX IF NOT EXISTS idx_tx_unreconciled  ON transactions(date) WHERE reconciled = 0;
-```
-**Rimuovere:** `idx_tx_account` (ridondante con `(account_id,date)`), `idx_sched_active` (mai usato: il filtro `is_active` è in Java in 8 punti), `idx_note_tags_tag` (coperto dalla PK).
-**`PRAGMA optimize` in `close()`**: popola `sqlite_stat1`, che serve al join con `OR` di `getAccounts` (`:1092`). `ANALYZE` non gira mai automaticamente.
-**Non** introdurre una cache di `PreparedStatement`: `sqlite3_prepare_v2` costa 10-50 µs contro una soglia slow-query di 50 ms.
+✅ **Indici: FATTI in `5c42ed4`** — aggiunti `idx_porttx_portfolio(portfolio_id, type)` e
+`idx_splits_cat(category_id)`; rimosso `idx_tx_account` (ridondante); `PRAGMA optimize` in
+`close()`. L'indice parziale su `reconciled=0` è stato **provato e scartato**: peggiorava.
+
+⏳ **Restano (valore trascurabile, non prioritari):** `idx_sched_active` e `idx_note_tags_tag`
+non sono usati da nessuna query — verificato: il filtro `is_active` è in Java in 8 punti e
+`note_tags` non è mai filtrata per `tag_id` — ma sono su tabelle minuscole, quindi rimuoverli
+non produce alcun guadagno misurabile.
+
+❌ **Non** introdurre una cache di `PreparedStatement`: `sqlite3_prepare_v2` costa 10-50 µs contro
+una soglia slow-query di 50 ms.
 
 **Codice morto** (verificato: zero `api.<nome>(` in `web/js/`):
 `case "deleteBudget"` + `Database.deleteBudget` · `case "getUpcoming"` + `Database.getUpcoming` (28 righe) · `case "getNote"` (⚠️ `Database.getNote` è **vivo**: lo usano `saveNote` e `setNotePinned`) · `method.equals("resetJcef")` in `WebServer.java:53` · campo `cefApp` in `MainWindow.java:21`,`:31` (write-only).

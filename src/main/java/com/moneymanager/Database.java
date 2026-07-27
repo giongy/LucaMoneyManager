@@ -160,6 +160,18 @@ public class Database {
     public synchronized void close() throws SQLException {
         if (activeQueries > 0) return;
         if (conn != null && !conn.isClosed()) {
+            // PRAGMA optimize prima di chiudere: è la ricetta ufficiale SQLite per mantenere
+            // aggiornate le statistiche in sqlite_stat1, che il query planner usa per scegliere
+            // il piano giusto (serve in particolare al join con OR di getAccounts). Nel progetto
+            // ANALYZE non gira mai da solo: esiste solo dbAnalyze(), da lanciare a mano dalla
+            // Manutenzione. Di norma è un no-op velocissimo: fa lavoro solo se le statistiche
+            // sono davvero stantie. Non deve MAI impedire la chiusura, che è il motivo per cui
+            // siamo qui (rilasciare il lock del file per la sync OneDrive) → catch e si prosegue.
+            try (var st = conn.createStatement()) {
+                st.execute("PRAGMA optimize");
+            } catch (SQLException e) {
+                System.err.println("PRAGMA optimize saltato: " + e.getMessage());
+            }
             conn.close();
             // baseline per rilevare modifiche esterne alla riapertura (mtime + dimensione)
             lastClosedMtime = fileMtime();
@@ -615,6 +627,16 @@ public class Database {
         return p.has(key) && !p.get(key).isJsonNull() ? p.get(key).getAsDouble() : null;
     }
 
+    // Confini di un anno come stringhe ISO, per filtrare le date con un intervallo semiaperto
+    // [inizio, inizioAnnoSuccessivo) invece di strftime('%Y', colonna)=?.
+    // Le date sono TEXT ISO (yyyy-MM-dd), quindi l'ordinamento lessicografico coincide con quello
+    // cronologico: il confronto è equivalente ma resta SARGABLE, cioè può usare l'indice su date.
+    // Applicare una funzione alla colonna lo impedisce e costringe SQLite a leggere tutte le righe.
+    /** Primo giorno dell'anno: "YYYY-01-01". */
+    private static String yearStart(int year) { return year + "-01-01"; }
+    /** Primo giorno dell'anno successivo (estremo ESCLUSO): "YYYY+1-01-01". */
+    private static String yearEnd(int year)   { return (year + 1) + "-01-01"; }
+
     /** Arrotonda a 2 decimali — usato per tutti i valori monetari in €. */
     private static double r2(double v) { return Math.round(v * 100.0) / 100.0; }
 
@@ -882,7 +904,6 @@ public class Database {
 
         // ─── Indici per performance (idempotenti) ─────────────────────────────
         executePlain("CREATE INDEX IF NOT EXISTS idx_tx_date        ON transactions(date)");
-        executePlain("CREATE INDEX IF NOT EXISTS idx_tx_account      ON transactions(account_id)");
         executePlain("CREATE INDEX IF NOT EXISTS idx_tx_to_account   ON transactions(to_account_id)");
         executePlain("CREATE INDEX IF NOT EXISTS idx_tx_category     ON transactions(category_id)");
         executePlain("CREATE INDEX IF NOT EXISTS idx_tx_account_date ON transactions(account_id, date)");
@@ -894,6 +915,28 @@ public class Database {
         executePlain("CREATE INDEX IF NOT EXISTS idx_note_tags_tag   ON note_tags(tag_id)");
         executePlain("CREATE INDEX IF NOT EXISTS idx_splits_tx        ON transaction_splits(transaction_id)");
         executePlain("CREATE INDEX IF NOT EXISTS idx_porttx_tx        ON portfolio_transactions(transaction_id)");
+
+        // portfolio_transactions aveva il solo indice su transaction_id, ma la colonna di join
+        // di getPortfolio (9 subquery correlate), getPortfolioTransactions, getAccountBalanceHistory
+        // e deletePortfolioTransaction è portfolio_id. Composito con type perché tutte quelle
+        // subquery filtrano anche per tipo ('buy'/'sell'/'coupon'/'dividend'/'expense').
+        executePlain("CREATE INDEX IF NOT EXISTS idx_porttx_portfolio ON portfolio_transactions(portfolio_id, type)");
+        // transaction_splits era indicizzata solo per transaction_id: le query che partono dalla
+        // CATEGORIA (getForecastDetail in ciclo, filtro categoria di getTransactions,
+        // getCategoryUsage, reassignCategory) facevano scansione completa.
+        executePlain("CREATE INDEX IF NOT EXISTS idx_splits_cat       ON transaction_splits(category_id)");
+        // Nessun indice su reconciled: misurato, PEGGIORA. Un indice parziale
+        // transactions(date) WHERE reconciled=0 fa scegliere al planner il percorso
+        // indice→tabella, che su questa mole di dati costa più della scansione diretta
+        // (0,29 → 0,37 ms sulla lista "da verificare"). Il costo vero di quella schermata
+        // non è la query ma il numero di righe restituite: manca un limit lato frontend.
+        executePlain("DROP INDEX IF EXISTS idx_tx_unreconciled");
+
+        // idx_tx_account(account_id) è ridondante: account_id è la colonna PIÙ A SINISTRA di
+        // idx_tx_account_date(account_id, date), che serve quindi anche le query sul solo
+        // account_id. Tenerlo significava solo pagarne la manutenzione a ogni scrittura su
+        // transactions (la tabella più movimentata). DROP idempotente, sui DB nuovi è un no-op.
+        executePlain("DROP INDEX IF EXISTS idx_tx_account");
 
         // Tag di sistema (idempotente: INSERT OR IGNORE su system_key)
         ensureSystemTags();
@@ -1559,9 +1602,22 @@ public class Database {
             "                ta.name AS to_account_name,\n" +
             "                GROUP_CONCAT(CASE WHEN tg.id IS NOT NULL\n" +
             "                    THEN tg.id || '\u00A7' || tg.name || '\u00A7' || tg.color END, '||') AS tags_concat,\n" +
-            "                sp.split_count AS split_count,\n" +
-            "                sp.splits_summary AS splits_summary,\n" +
-            "                pt.portfolio_id AS portfolio_id" +
+            // Split e portfolio_id come subquery CORRELATE invece che LEFT JOIN su una derived
+            // table con GROUP BY: quest'ultima non \u00e8 appiattibile, quindi SQLite materializzava
+            // per intero TUTTI gli split e TUTTI i movimenti di portafoglio a ogni chiamata, anche
+            // quando il filtro restituisce 40 righe. Le correlate usano idx_splits_tx/idx_porttx_tx
+            // e vengono valutate solo sulle righe che servono (stesso schema gi\u00e0 usato pi\u00f9 sotto
+            // da filteredSplitCol).
+            // NULLIF(...,0) su split_count per riprodurre esattamente il vecchio comportamento:
+            // col LEFT JOIN una transazione senza split otteneva NULL (nessuna riga in sp), mentre
+            // COUNT(*) di zero righe darebbe 0. GROUP_CONCAT e MIN su zero righe danno gi\u00e0 NULL.
+            "                NULLIF((SELECT COUNT(*) FROM transaction_splits ts\n" +
+            "                         WHERE ts.transaction_id = t.id), 0) AS split_count,\n" +
+            "                (SELECT GROUP_CONCAT(COALESCE(sc.icon,'') || ' ' || COALESCE(sc.name,'?') || ' (' || PRINTF('%.2f', ts.amount) || '\u20ac)', ' \u00b7 ')\n" +
+            "                   FROM transaction_splits ts LEFT JOIN categories sc ON sc.id = ts.category_id\n" +
+            "                  WHERE ts.transaction_id = t.id) AS splits_summary,\n" +
+            "                (SELECT MIN(pt.portfolio_id) FROM portfolio_transactions pt\n" +
+            "                  WHERE pt.transaction_id = t.id) AS portfolio_id" +
             filteredSplitCol + "\n" +
             "            FROM transactions t\n" +
             "            LEFT JOIN categories c  ON t.category_id    = c.id\n" +
@@ -1570,16 +1626,6 @@ public class Database {
             "            LEFT JOIN accounts   ta ON t.to_account_id  = ta.id\n" +
             "            LEFT JOIN transaction_tags tt ON tt.transaction_id = t.id\n" +
             "            LEFT JOIN tags tg ON tg.id = tt.tag_id\n" +
-            "            LEFT JOIN (\n" +
-            "                SELECT ts.transaction_id, COUNT(*) AS split_count,\n" +
-            "                       GROUP_CONCAT(COALESCE(sc.icon,'') || ' ' || COALESCE(sc.name,'?') || ' (' || PRINTF('%.2f', ts.amount) || '\u20ac)', ' \u00b7 ') AS splits_summary\n" +
-            "                FROM transaction_splits ts LEFT JOIN categories sc ON sc.id = ts.category_id\n" +
-            "                GROUP BY ts.transaction_id\n" +
-            "            ) sp ON sp.transaction_id = t.id\n" +
-            "            LEFT JOIN (\n" +
-            "                SELECT transaction_id, MIN(portfolio_id) AS portfolio_id\n" +
-            "                FROM portfolio_transactions GROUP BY transaction_id\n" +
-            "            ) pt ON pt.transaction_id = t.id\n" +
             "            WHERE 1=1\n");
         List<Object> params = new ArrayList<>();
 
@@ -1590,13 +1636,19 @@ public class Database {
             sql.append(" AND t.date <= ?"); params.add(str(f,"date_to"));
         }
         if (!f.has("date_from") && !f.has("date_to")) {
+            // Intervallo semiaperto [inizio, inizioSuccessivo) invece di strftime() sulla colonna:
+            // le date sono TEXT ISO, quindi il confronto lessicografico è equivalente ma resta
+            // sargable e può usare idx_tx_date. Con strftime() SQLite deve leggere ogni riga.
             if (f.has("month") && f.has("year")) {
-                sql.append(" AND strftime('%m',t.date)=? AND strftime('%Y',t.date)=?");
-                params.add(String.format("%02d", f.get("month").getAsInt()));
-                params.add(String.valueOf(f.get("year").getAsInt()));
+                LocalDate from = LocalDate.of(f.get("year").getAsInt(), f.get("month").getAsInt(), 1);
+                sql.append(" AND t.date >= ? AND t.date < ?");
+                params.add(from.toString());
+                params.add(from.plusMonths(1).toString());
             } else if (f.has("year")) {
-                sql.append(" AND strftime('%Y',t.date)=?");
-                params.add(String.valueOf(f.get("year").getAsInt()));
+                LocalDate from = LocalDate.of(f.get("year").getAsInt(), 1, 1);
+                sql.append(" AND t.date >= ? AND t.date < ?");
+                params.add(from.toString());
+                params.add(from.plusYears(1).toString());
             }
         }
         if (f.has("type") && !f.get("type").getAsString().isBlank()) {
@@ -2388,19 +2440,19 @@ public class Database {
                 WHERE t.category_id IS NOT NULL
                   AND NOT EXISTS (SELECT 1 FROM transaction_splits ts WHERE ts.transaction_id = t.id)
                   AND COALESCE((SELECT excluded_from_budget FROM categories WHERE id=t.category_id),0)=0
-                  AND strftime('%Y', t.date)=? AND t.type IN ('expense','income')
+                  AND t.date >= ? AND t.date < ? AND t.type IN ('expense','income')
                 UNION ALL
                 SELECT ts.category_id AS cat_id, t.type,
                        CAST(strftime('%m', t.date) AS INTEGER) AS month, ts.amount
                 FROM transactions t
                 JOIN transaction_splits ts ON ts.transaction_id = t.id
                 WHERE COALESCE((SELECT excluded_from_budget FROM categories WHERE id=ts.category_id),0)=0
-                  AND strftime('%Y', t.date)=? AND t.type IN ('expense','income')
+                  AND t.date >= ? AND t.date < ? AND t.type IN ('expense','income')
             )
             SELECT cat_id AS category_id, month, SUM(amount) AS total
             FROM cat_amounts
             GROUP BY cat_id, month
-        """, String.valueOf(year), String.valueOf(year));
+        """, yearStart(year), yearEnd(year), yearStart(year), yearEnd(year));
         List<Map<String, Object>> categories = queryList("""
             SELECT c.id, c.name, c.icon, c.color, c.type, c.parent_id, p.name AS parent_name
             FROM categories c
@@ -2427,16 +2479,16 @@ public class Database {
                 WHERE t.category_id IS NOT NULL
                   AND NOT EXISTS (SELECT 1 FROM transaction_splits ts WHERE ts.transaction_id = t.id)
                   AND COALESCE((SELECT excluded_from_budget FROM categories WHERE id=t.category_id),0)=0
-                  AND strftime('%Y', t.date)=? AND t.type IN ('expense','income')
+                  AND t.date >= ? AND t.date < ? AND t.type IN ('expense','income')
                 UNION ALL
                 SELECT ts.category_id, t.date, ts.amount FROM transactions t
                 JOIN transaction_splits ts ON ts.transaction_id = t.id
                 WHERE COALESCE((SELECT excluded_from_budget FROM categories WHERE id=ts.category_id),0)=0
-                  AND strftime('%Y', t.date)=? AND t.type IN ('expense','income')
+                  AND t.date >= ? AND t.date < ? AND t.type IN ('expense','income')
             )
             SELECT category_id, CAST(strftime('%m', date) AS INTEGER) AS month, SUM(amount) AS total
             FROM cat_amounts GROUP BY category_id, strftime('%m', date)
-        """, String.valueOf(prevYear), String.valueOf(prevYear));
+        """, yearStart(prevYear), yearEnd(prevYear), yearStart(prevYear), yearEnd(prevYear));
 
         Map<Object, Map<Integer, Double>> map = new HashMap<>();
         for (var a : actuals) {
@@ -3256,37 +3308,42 @@ public class Database {
     public List<Map<String, Object>> getPortfolio() throws SQLException {
         // Aggregati storici per posizione: somme di buy/sell/cedole/dividendi/spese/commissioni
         // I valori principal (qty*price) sono sommati grezzi: JS converte per bond (÷100)
+        // Gli aggregati stanno in una derived table raggruppata per portfolio_id invece che in 9
+        // subquery correlate: quelle venivano rivalutate una volta PER POSIZIONE (9 × N scansioni
+        // di portfolio_transactions), qui portfolio_transactions viene letta UNA volta sola.
+        // COALESCE fuori dal LEFT JOIN perché una posizione senza movimenti non ha riga in agg:
+        // le somme devono restare 0 come prima, non NULL. MIN(CASE...) su first_buy_date resta
+        // NULL se non ci sono buy, esattamente come la subquery originale.
         List<Map<String, Object>> positions = queryList("""
             SELECT p.*, a.name AS account_name, a.icon AS account_icon, a.color AS account_color,
-                   (SELECT MIN(pt.date) FROM portfolio_transactions pt WHERE pt.portfolio_id = p.id AND pt.type = 'buy') AS first_buy_date,
-                   (SELECT COALESCE(SUM(pt.quantity * pt.price), 0)
-                      FROM portfolio_transactions pt
-                      WHERE pt.portfolio_id = p.id AND pt.type = 'buy') AS total_buy_principal,
-                   (SELECT COALESCE(SUM(pt.quantity * pt.price), 0)
-                      FROM portfolio_transactions pt
-                      WHERE pt.portfolio_id = p.id AND pt.type = 'sell') AS total_sell_principal,
-                   (SELECT COALESCE(SUM(pt.quantity), 0)
-                      FROM portfolio_transactions pt
-                      WHERE pt.portfolio_id = p.id AND pt.type = 'sell') AS total_sold_qty,
-                   (SELECT COALESCE(SUM(pt.price), 0)
-                      FROM portfolio_transactions pt
-                      WHERE pt.portfolio_id = p.id AND pt.type = 'coupon') AS total_coupons,
-                   (SELECT COALESCE(SUM(pt.price), 0)
-                      FROM portfolio_transactions pt
-                      WHERE pt.portfolio_id = p.id AND pt.type = 'dividend') AS total_dividends,
-                   (SELECT COALESCE(SUM(pt.price), 0)
-                      FROM portfolio_transactions pt
-                      WHERE pt.portfolio_id = p.id AND pt.type = 'expense') AS total_expenses,
-                   (SELECT COALESCE(SUM(pt.price), 0)
-                      FROM portfolio_transactions pt
-                      WHERE pt.portfolio_id = p.id AND pt.type = 'expense'
-                        AND COALESCE(pt.notes,'') NOT IN ('Commissione','Commissione acquisto')) AS total_other_expenses,
-                   (SELECT COALESCE(SUM(COALESCE(pt.commission,0)), 0)
-                      FROM portfolio_transactions pt
-                      WHERE pt.portfolio_id = p.id AND pt.type = 'expense'
-                        AND pt.notes = 'Commissione') AS total_sell_commissions
+                   agg.first_buy_date                             AS first_buy_date,
+                   COALESCE(agg.total_buy_principal,    0)        AS total_buy_principal,
+                   COALESCE(agg.total_sell_principal,   0)        AS total_sell_principal,
+                   COALESCE(agg.total_sold_qty,         0)        AS total_sold_qty,
+                   COALESCE(agg.total_coupons,          0)        AS total_coupons,
+                   COALESCE(agg.total_dividends,        0)        AS total_dividends,
+                   COALESCE(agg.total_expenses,         0)        AS total_expenses,
+                   COALESCE(agg.total_other_expenses,   0)        AS total_other_expenses,
+                   COALESCE(agg.total_sell_commissions, 0)        AS total_sell_commissions
             FROM portfolio p
             JOIN accounts a ON p.account_id = a.id
+            LEFT JOIN (
+                SELECT pt.portfolio_id,
+                       MIN(CASE WHEN pt.type = 'buy'  THEN pt.date END)                AS first_buy_date,
+                       SUM(CASE WHEN pt.type = 'buy'  THEN pt.quantity * pt.price ELSE 0 END) AS total_buy_principal,
+                       SUM(CASE WHEN pt.type = 'sell' THEN pt.quantity * pt.price ELSE 0 END) AS total_sell_principal,
+                       SUM(CASE WHEN pt.type = 'sell' THEN pt.quantity ELSE 0 END)     AS total_sold_qty,
+                       SUM(CASE WHEN pt.type = 'coupon'   THEN pt.price ELSE 0 END)    AS total_coupons,
+                       SUM(CASE WHEN pt.type = 'dividend' THEN pt.price ELSE 0 END)    AS total_dividends,
+                       SUM(CASE WHEN pt.type = 'expense'  THEN pt.price ELSE 0 END)    AS total_expenses,
+                       SUM(CASE WHEN pt.type = 'expense'
+                                 AND COALESCE(pt.notes,'') NOT IN ('Commissione','Commissione acquisto')
+                                THEN pt.price ELSE 0 END)                              AS total_other_expenses,
+                       SUM(CASE WHEN pt.type = 'expense' AND pt.notes = 'Commissione'
+                                THEN COALESCE(pt.commission,0) ELSE 0 END)             AS total_sell_commissions
+                FROM portfolio_transactions pt
+                GROUP BY pt.portfolio_id
+            ) agg ON agg.portfolio_id = p.id
             ORDER BY a.name, p.ticker
         """);
 
@@ -3850,14 +3907,13 @@ public class Database {
 
     /** Statistiche dashboard per un anno: entrate/uscite/netto, conteggio transazioni e patrimonio totale. */
     public Map<String, Object> getDashboardStats(int year) throws SQLException {
-        String yy = String.valueOf(year);
         Map<String,Object> yearly = queryOne("""
             SELECT COALESCE(SUM(CASE WHEN type='income'  THEN amount ELSE 0 END),0) AS income,
                    COALESCE(SUM(CASE WHEN type='expense' THEN amount ELSE 0 END),0) AS expenses,
                    COUNT(*) AS transaction_count
-            FROM transactions t WHERE strftime('%Y',date)=?
+            FROM transactions t WHERE date >= ? AND date < ?
               AND COALESCE((SELECT excluded_from_budget FROM categories WHERE id=t.category_id),0)=0
-        """, yy);
+        """, yearStart(year), yearEnd(year));
         Map<String,Object> balance = queryOne("""
             SELECT COALESCE(SUM(CASE
                 WHEN a.type = 'investment' THEN
@@ -3928,10 +3984,10 @@ public class Database {
             SELECT CAST(strftime('%m',date) AS INTEGER) AS month,
                 SUM(CASE WHEN type='income'  THEN amount ELSE 0 END) AS income,
                 SUM(CASE WHEN type='expense' THEN amount ELSE 0 END) AS expenses
-            FROM transactions t WHERE strftime('%Y',date)=? AND type IN ('income','expense')
+            FROM transactions t WHERE date >= ? AND date < ? AND type IN ('income','expense')
               AND COALESCE((SELECT excluded_from_budget FROM categories WHERE id=t.category_id),0)=0
             GROUP BY strftime('%m',date) ORDER BY month
-        """, String.valueOf(year));
+        """, yearStart(year), yearEnd(year));
     }
 
     /** Totale per categoria (income o expense) in un anno, split inclusi (grafico a torta). */
@@ -3942,18 +3998,18 @@ public class Database {
                 WHERE t.category_id IS NOT NULL
                   AND NOT EXISTS (SELECT 1 FROM transaction_splits ts WHERE ts.transaction_id = t.id)
                   AND COALESCE((SELECT excluded_from_budget FROM categories WHERE id=t.category_id),0)=0
-                  AND strftime('%Y',t.date)=? AND t.type=?
+                  AND t.date >= ? AND t.date < ? AND t.type=?
                 UNION ALL
                 SELECT ts.category_id, ts.amount FROM transactions t
                 JOIN transaction_splits ts ON ts.transaction_id = t.id
                 WHERE COALESCE((SELECT excluded_from_budget FROM categories WHERE id=ts.category_id),0)=0
-                  AND strftime('%Y',t.date)=? AND t.type=?
+                  AND t.date >= ? AND t.date < ? AND t.type=?
             )
             SELECT c.name, p.name AS parent_name, c.color, c.icon, SUM(ca.amount) AS total
             FROM cat_amounts ca JOIN categories c ON ca.category_id = c.id
             LEFT JOIN categories p ON c.parent_id = p.id
             GROUP BY ca.category_id ORDER BY total DESC
-        """, String.valueOf(year), type, String.valueOf(year), type);
+        """, yearStart(year), yearEnd(year), type, yearStart(year), yearEnd(year), type);
     }
 
     // ─── Manutenzione DB ────────────────────────────────────────────────────────

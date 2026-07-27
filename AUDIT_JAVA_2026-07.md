@@ -6,9 +6,17 @@
 
 **52 finding.** Legenda stato: ✅ fatto · ⏳ da fare · 🔕 rischio accettato · ⏭️ valutato e scartato.
 
-**Stato al 2026-07-27:** 13 chiusi (concorrenza `a218f2e`, date `b058115`, allegati `c12da6f`,
-integrità D4/D5 `b9358bf`, portafoglio D3) · 3 a rischio accettato (S1/S3/S4, sicurezza WebServer) ·
-1 archiviato (D6, non applicabile: nessun backup pre-v20) · **35 aperti**.
+**Stato al 2026-07-27 (fine sessione):** **16 chiusi** · 3 a rischio accettato (S1/S3/S4) ·
+1 archiviato (D6) · **32 aperti**.
+
+| Commit | Contenuto |
+|---|---|
+| `a218f2e` | Concorrenza sulla Connection + 8 commenti fuori sync + CLAUDE.md/ARCHITECTURE.md |
+| `b058115` | D2 · drift delle ricorrenze |
+| `c12da6f` | S2 · path degli allegati confinati |
+| `b9358bf` | D4 · guardia eliminazione conto · D5 · riassegnazione categoria completa |
+| `43e78cf` | D3 · blocco cancellazione transazioni buy/sell |
+| *(non committato)* | P1 · P2 · P3 · indici — nel working tree, verificati, in attesa di decisione |
 
 **Prossimo critico rimasto: D1** (`importPending` tronca `pending.jsonl`).
 
@@ -202,13 +210,97 @@ sposta tutti e 13 gli split (12 → 25) senza creare orfani.
 
 ---
 
+## ✅ FATTO — 2026-07-27 · Performance (P1, P2, P3)
+
+⚠️ **Lezione importante: le stime dell'audit erano sbagliate di un ordine di grandezza.**
+Prevedevano "10× sulla dashboard" partendo da 5000 transazioni. Il DB reale ne ha ~1200 e pesa
+1 MB: **ci sta tutto nella cache SQLite da 16 MB**, quindi una scansione completa costa
+microsecondi e l'I/O che avrebbe giustificato il 10× non avviene mai. Misurato (best of 10,
+su copia del DB reale):
+
+| | prima | dopo | Δ |
+|---|---|---|---|
+| `getPortfolio` | 0,94 ms | 0,77 ms | −19% |
+| `getMonthlyChartData` | 0,67 ms | 0,57 ms | −15% |
+| `getDashboardStats` | 0,93 ms | 0,83 ms | −11% |
+| `getBudgetYear` | 2,27 ms | 2,08 ms | −8% |
+| `getTransactions{mese}` | 1,96 ms | 1,80 ms | −8% |
+| **dashboard completa (5 query)** | **5,09 ms** | **4,6 ms** | **−10%** |
+
+Le modifiche restano valide perché eliminano lavoro che **cresce col volume dei dati** (le
+subquery correlate/materializzate erano O(righe totali), ora sono O(righe restituite)), ma il
+guadagno percepibile oggi è vicino a zero. Da non usare come precedente per stime future non misurate.
+
+- ✅ **P1** — 11 `strftime('%Y'|'%m', colonna)` nel WHERE sostituiti con l'intervallo semiaperto
+  `date >= ? AND date < ?` (helper `yearStart()`/`yearEnd()`). Le date sono TEXT ISO, quindi il
+  confronto lessicografico è equivalente ma resta sargable. Toccati `getTransactions` (filtro
+  mese/anno), `getBudgetYear`, `generateBudget`, `getDashboardStats`, `getMonthlyChartData`,
+  `getCategoryChartData`. Gli `strftime` in SELECT/GROUP BY sono stati **lasciati**: lì non
+  bloccano nulla.
+- ✅ **P2** — le 9 subquery correlate di `getPortfolio` sostituite da una derived table
+  `GROUP BY portfolio_id` con `SUM(CASE WHEN type=…)`: `portfolio_transactions` viene letta una
+  volta sola invece di 9×N. `COALESCE` fuori dal LEFT JOIN per mantenere 0 (non NULL) sulle
+  posizioni senza movimenti; `MIN(CASE…)` mantiene NULL su `first_buy_date` come prima.
+- ✅ **P3** — le due derived table con `GROUP BY` di `getTransactions` (`sp`, `pt`) trasformate in
+  subquery **correlate**. Quelle non erano appiattibili, quindi SQLite materializzava tutti gli
+  split e tutti i movimenti di portafoglio anche per una pagina da 40 righe.
+  `NULLIF(COUNT(*),0)` su `split_count` per riprodurre esattamente il NULL che dava il LEFT JOIN.
+- ✅ **Indici**: aggiunti `idx_porttx_portfolio(portfolio_id, type)` (la colonna di join di
+  `getPortfolio` non era indicizzata) e `idx_splits_cat(category_id)`. Rimosso
+  `idx_tx_account`: ridondante perché `account_id` è la colonna più a sinistra di
+  `idx_tx_account_date`, quindi si pagava solo la manutenzione in scrittura.
+- ✅ **`PRAGMA optimize` in `close()`**, in try/catch che non può impedire la chiusura.
+
+**Non fatto, e perché:**
+- ❌ **indice parziale `idx_tx_unreconciled`** — provato e **rimosso**: PEGGIORAVA
+  (`getTransactions{reconciled=0}` da 0,29 a 0,37 ms, stabile su 3 run). Su questa mole il planner
+  sceglieva il percorso indice→tabella, più costoso della scansione diretta. C'è un
+  `DROP INDEX IF EXISTS` per toglierlo dai DB che l'hanno già preso.
+- ⏳ **`idx_sched_active`, `idx_note_tags_tag`** — l'audit li dava da rimuovere. Verificato che
+  non sono usati da nessuna query (il filtro `is_active` è in Java, `note_tags` non è mai filtrata
+  per `tag_id`), ma sono su tabelle minuscole: rimuoverli non misura niente. Lasciati.
+- ⏳ **P4** — è una riga in `init.js` (manca `limit`), non Java.
+
+**Verifica di non-regressione:** confronto dell'output di **20 query** (dashboard, budget ×2,
+grafici categoria ×3, portafoglio, conti, `getTransactions` con 8 filtri diversi) fra il codice
+pre-modifiche e quello post, su copia del DB reale, con JSON canonicalizzato a chiavi ordinate
+(`Map.of()` ha iterazione randomizzata per esecuzione, quindi il confronto testuale ingenuo dà
+falsi positivi). Risultato: **1.048.798 byte identici**. Verificata anche la migrazione degli
+indici su un DB che aveva già i vecchi.
+
+---
+
+## 📌 Nota — crescita del file DB (falso allarme, 2026-07-27)
+
+Il DB è passato da ~440 KB (backup delle 07:41) a ~1050 KB in giornata, e il VACUUM **non** lo
+riduceva. Diagnosi: nessuna corruzione (`integrity_check = ok`), nessun duplicato di massa
+(3 soli gruppi duplicati in tutto il DB, tutti vecchi), `freelist_count = 0` cioè zero spazio
+sprecato. La causa è **una singola nota** (`notes.id=11`, creata alle 15:34) che contiene uno
+screenshot incollato: l'editor Quill incorpora le immagini come **data URI base64 nel campo
+`content`**, quindi quella nota da sola pesa **612 KB su 719 KB di dati totali** — le 1197
+transazioni ne occupano 80.
+
+Il VACUUM non riduce perché non c'è niente da recuperare: è contenuto reale.
+
+**Se un giorno il DB dovesse gonfiarsi di nuovo, guardare prima qui:**
+```sql
+SELECT id, title, LENGTH(CAST(content AS BLOB)) len FROM notes ORDER BY len DESC LIMIT 5;
+```
+**Possibile miglioramento (feature, non bug):** salvare le immagini delle note come file su disco
+— come già si fa per gli allegati delle transazioni — invece che dentro `content`. Il DB sta su
+OneDrive e viene risincronizzato per intero a ogni modifica, quindi ogni screenshot incollato
+rallenta la sync con Android e gonfia ogni backup.
+
+⚠️ Nota metodologica per il futuro: `getDashboardStats(anno).transaction_count` conta le
+transazioni **di quell'anno**, non le righe della tabella. Confrontarlo con `COUNT(*)` porta a
+concludere erroneamente che i dati siano raddoppiati.
+
+---
+
 ## ⏳ DA FARE — alti
 
 | # | Cosa | Dove |
 |---|---|---|
-| P1 | `strftime('%Y',date)` nel WHERE annulla `idx_tx_date` → **7 scansioni complete per apertura dashboard** (~35.000 righe invece di ~3.500). Sostituire con `date >= ? AND date < ?` (`getCategoryComparison:4612` lo fa già: è il modello) | 10 punti: `:3648 :3721 :3735 :3740 :2215 :2222 :2254 :2259 :1445 :1449` |
-| P2 | `getPortfolio`: 9 subquery correlate × N posizioni e **nessun indice su `portfolio_transactions(portfolio_id)`** → ~270 scansioni per apertura pagina | `:3049` |
-| P3 | `getTransactions`: le subquery `sp`/`pt` hanno `GROUP BY` → **non flattenabili**, materializzate per intero a ogni filtro/ordinamento anche con 40 righe a video | `:1424-1433` |
 | P4 | All'avvio **e a ogni risveglio dal tray** si caricano tutte le transazioni non conciliate senza `limit` (e `buyStock`/`sellStock`/cedole inseriscono sempre `reconciled=0`: crescono senza limite) | `init.js:83`,`:443` |
 | R1 | Backup automatico (copia integrale del DB) **sull'EDT** durante la chiusura → freeze di secondi, minuti se il file è cloud-only | `MainWindow.java:99-110` |
 | R2 | **"Esci" dal tray salta il backup automatico**: `dispose()` emette `windowClosed`, non `windowClosing` | `TrayManager.java:459` |

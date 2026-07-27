@@ -179,11 +179,13 @@ public class App {
         // Database SQLite
         Database db = new Database(dbPath);
 
-        // Chiusura pulita del DB all'uscita. Serve perché i due percorsi di uscita
-        // (X sulla finestra in MainWindow, "Esci" dal menu tray) fanno System.exit(0)
-        // senza chiudere la connessione: il lock sul file resterebbe fino alla morte
-        // del processo, e con una transazione aperta SQLite lascerebbe un <db>-journal
-        // accanto al database che OneDrive sincronizzerebbe insieme al .db.
+        // Rete di sicurezza: chiude il DB all'uscita. La chiusura ordinata avviene già in
+        // MainWindow.windowClosing (che copre sia la X sia "Esci" dal tray), ma questo hook
+        // copre i percorsi che non ci passano — errore fatale, System.exit da altrove,
+        // terminazione richiesta dal sistema. Senza, il lock sul file resterebbe fino alla
+        // morte del processo e con una transazione aperta SQLite lascerebbe un <db>-journal
+        // accanto al database, che OneDrive sincronizzerebbe insieme al .db.
+        // close() è idempotente e synchronized, quindi la doppia chiamata è innocua.
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
             try { db.close(); } catch (Exception ignored) { /* uscita: nulla da salvare */ }
         }, "db-shutdown"));

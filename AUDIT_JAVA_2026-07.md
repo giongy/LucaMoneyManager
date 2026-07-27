@@ -6,8 +6,8 @@
 
 **52 finding.** Legenda stato: ✅ fatto · ⏳ da fare · 🔕 rischio accettato · ⏭️ valutato e scartato.
 
-**Stato al 2026-07-27 (fine sessione):** **16 chiusi** · 3 a rischio accettato (S1/S3/S4) ·
-1 archiviato (D6) · **32 aperti**.
+**Stato al 2026-07-27 (fine sessione):** **18 chiusi** · 3 a rischio accettato (S1/S3/S4) ·
+1 archiviato (D6) · **30 aperti**.
 
 | Commit | Contenuto |
 |---|---|
@@ -16,7 +16,8 @@
 | `c12da6f` | S2 · path degli allegati confinati |
 | `b9358bf` | D4 · guardia eliminazione conto · D5 · riassegnazione categoria completa |
 | `43e78cf` | D3 · blocco cancellazione transazioni buy/sell |
-| *(non committato)* | P1 · P2 · P3 · indici — nel working tree, verificati, in attesa di decisione |
+| `5c42ed4` | P1 · P2 · P3 · indici (guadagno misurato ~10%, non il 10× stimato) |
+| *(ultimo)* | R1 · backup fuori dall'EDT · R2 · "Esci" dal tray non salta più il backup |
 
 **Prossimo critico rimasto: D1** (`importPending` tronca `pending.jsonl`).
 
@@ -297,13 +298,60 @@ concludere erroneamente che i dati siano raddoppiati.
 
 ---
 
+## ✅ FATTO — 2026-07-27 · Chiusura ordinata (R1, R2)
+
+Entrambi i difetti stavano nello stesso percorso e sono stati risolti insieme.
+
+### ✅ R2 · "Esci" dal tray saltava il backup automatico — `TrayManager.java:doExit`
+`doExit` faceva `frame.dispose()` + `System.exit(0)`. `dispose()` emette `windowClosed`, **non**
+`windowClosing`: tutta la logica di chiusura ordinata (backup automatico, `clearSessionState`,
+`db.close()`) vive solo in `windowClosing` e non partiva mai. Scenario reale: chiudi con la X
+(backup fatto, app al tray), continui a inserire transazioni dal browser del telefono, poi esci
+dal tray → **nessun backup delle modifiche successive**, pur avendo "backup alla chiusura" attivo.
+
+Fix: `doExit` invia un `WINDOW_CLOSING` vero con `frame.dispatchEvent(...)`. `disable()` resta
+prima, perché azzera `trayActive` e fa quindi prendere a `windowClosing` il ramo di uscita
+completa invece di quello "nascondi nel tray".
+
+### ✅ R1 · Backup del DB eseguito sull'EDT — `MainWindow.java:windowClosing`
+Il backup è un `Files.copy` dell'intero file `.db`, e girava sull'Event Dispatch Thread: la
+finestra si congelava per tutta la copia (secondi su un DB di decine di MB, minuti se OneDrive
+deve idratare un file cloud-only, fino al timeout SMB se la cartella di backup è su una share
+irraggiungibile). Windows la marcava "Non risponde".
+
+Fix: la finestra viene nascosta **subito** (feedback immediato), poi backup e `db.close()` girano
+su un thread `shutdown-backup` **non-daemon** — necessario perché sull'uscita la JVM deve
+aspettare che la copia finisca, altrimenti si otterrebbe un `.bak` troncato. Il `System.exit`
+finale viene rimandato sull'EDT al termine, insieme al dispose di JCEF.
+
+Aggiunta una **guardia anti-rientranza** (`AtomicBoolean closing`) sul solo lavoro di sfondo:
+una seconda chiusura non lancia un secondo backup in parallelo né una seconda `System.exit`.
+Il nascondimento della finestra resta invece **sempre** eseguito — mettere la guardia più in alto
+avrebbe introdotto il bug "richiudo dal tray mentre il backup è in corso e la finestra non si
+nasconde". La guardia si riarma quando si va al tray, dove l'app resta viva e richiudibile.
+
+Aggiornato anche il commento dello shutdown hook in `App.java`: diceva che i due percorsi di
+uscita non chiudevano il DB, cosa non più vera. Resta come rete di sicurezza per i percorsi che
+non passano da `windowClosing` (errore fatale, terminazione dal sistema); `close()` è idempotente
+e `synchronized`, quindi la doppia chiamata è innocua.
+
+Verificato riproducendo la logica di chiusura su 5 scenari: chiusura con tray attivo (nasconde),
+con tray non attivo (esce), uscita dal tray dopo `disable()`, doppia chiusura durante un backup
+in corso (la finestra si nasconde comunque, il secondo backup viene saltato) e riarmo della
+guardia dopo il ritorno al tray. Backup reale provato su copia: 1,08 MB in 11 ms, sidecar incluso.
+
+⚠️ **Effetto collaterale voluto:** all'uscita la finestra sparisce subito ma il processo resta
+vivo finché il backup non finisce. Su una cartella di backup lenta o irraggiungibile questo può
+durare; se in quel momento si prova a riavviare l'app, `SingleInstance` la considera già in
+esecuzione. È comunque preferibile alla finestra congelata di prima.
+
+---
+
 ## ⏳ DA FARE — alti
 
 | # | Cosa | Dove |
 |---|---|---|
 | P4 | All'avvio **e a ogni risveglio dal tray** si caricano tutte le transazioni non conciliate senza `limit` (e `buyStock`/`sellStock`/cedole inseriscono sempre `reconciled=0`: crescono senza limite) | `init.js:83`,`:443` |
-| R1 | Backup automatico (copia integrale del DB) **sull'EDT** durante la chiusura → freeze di secondi, minuti se il file è cloud-only | `MainWindow.java:99-110` |
-| R2 | **"Esci" dal tray salta il backup automatico**: `dispose()` emette `windowClosed`, non `windowClosing` | `TrayManager.java:459` |
 | R3 | `TrayManager.enable/disable` (Swing + SystemTray) invocati **fuori dall'EDT** da `setSetting` — certamente off-EDT quando arriva dal WebServer | `Bridge.java:511-526` |
 | R4 | `winPickFolder`: stderr mai letto (buffer ~4 KB) e stream mai chiusi → **deadlock permanente** del virtual thread + powershell zombie | `Bridge.java:246-266` |
 | R5 | All'avvio, se la cartella del DB non è raggiungibile (OneDrive non ancora montato con autostart), l'app **riscrive `db.path`** e crea un DB vuoto. Stessa dinamica in `reloadDb`, che persiste il path prima di verificarlo | `App.java:158-164`, `Bridge.java:658` |

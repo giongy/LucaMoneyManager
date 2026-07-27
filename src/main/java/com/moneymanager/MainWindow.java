@@ -23,6 +23,10 @@ public class MainWindow {
     private final Settings settings;
     private final CefClient client;
     private final Bridge bridge;
+    // true mentre backup + chiusura DB sono in corso su "shutdown-backup" (vedi windowClosing).
+    // Riarmata quando si va al tray, dove l'app resta viva e richiudibile.
+    private final java.util.concurrent.atomic.AtomicBoolean closing =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
 
     /** Costruisce la finestra, il client JCEF, il bridge e il browser, registrando
      *  i gestori (router, menu contestuale, zoom, chiusura/backup) e avviando il WebServer. */
@@ -97,32 +101,64 @@ public class MainWindow {
         frame.add(browserUI, BorderLayout.CENTER);
 
         frame.addWindowListener(new WindowAdapter() {
+            /**
+             * Chiusura della finestra: nasconde subito, poi fa backup e chiusura DB FUORI
+             * dall'EDT. Il backup è un Files.copy dell'intero file .db, e girando sull'EDT
+             * congelava la finestra ("Non risponde") per tutta la copia — secondi su un DB
+             * di qualche decina di MB, minuti se OneDrive deve idratare un file cloud-only,
+             * fino al timeout SMB se la cartella di backup è su una share irraggiungibile.
+             *
+             * Riceve anche l'uscita dal menu tray: TrayManager.doExit() invia qui un
+             * WINDOW_CLOSING vero dopo aver chiamato disable(), così il backup automatico
+             * non viene più saltato uscendo dal tray.
+             */
             @Override
             public void windowClosing(WindowEvent e) {
-                // Backup automatico se abilitato e ci sono modifiche (sia al tray che all'uscita)
-                if ("1".equals(db.getAppSetting("backup.enabled", "0")) && db.hasModifications()) {
-                    String bDir = db.getAppSetting("backup.dir", "");
-                    int bMax;
-                    try { bMax = Integer.parseInt(db.getAppSetting("backup.max", "10")); }
-                    catch (NumberFormatException ex) { bMax = 10; }
-                    try { db.backup(bDir, bMax); db.resetModifications(); }
-                    catch (Exception ex) { System.err.println("Backup fallito: " + ex.getMessage()); }
-                }
-                // Se il tray è attivo, pulisci lo stato di sessione, chiudi il DB e nascondi
-                if (TrayManager.isActive()) {
-                    bridge.clearSessionState();
-                    // In background (tray): abilita l'auto-release così eventuali query mentre
-                    // l'app è nascosta non tornano a tenere il lock, e chiudi subito il DB.
-                    db.setAutoRelease(true);
-                    try { db.close(); } catch (Exception ex) {
-                        System.err.println("Errore chiusura DB al tray: " + ex.getMessage());
+                // isActive() va letto ORA, sull'EDT: doExit() lo azzera prima di inviare
+                // l'evento, quindi qui distingue "nascondi nel tray" da "esci davvero".
+                // isActive() va letto ORA, sull'EDT: doExit() lo azzera prima di inviare
+                // l'evento, quindi qui distingue "nascondi nel tray" da "esci davvero".
+                final boolean toTray = TrayManager.isActive();
+                if (toTray) bridge.clearSessionState();
+                // In background (tray o uscita): abilita l'auto-release così eventuali query
+                // mentre l'app è nascosta non tornano a tenere il lock sul file.
+                db.setAutoRelease(true);
+                frame.setVisible(false);   // feedback immediato, e idempotente: sempre eseguito
+
+                // Guardia anti-rientranza sul solo lavoro di sfondo: una seconda chiusura
+                // (riaperta dal tray e richiusa mentre il backup precedente è ancora in corso)
+                // non deve lanciare un secondo backup in parallelo né una seconda System.exit.
+                // Il nascondimento della finestra sopra resta invece sempre eseguito.
+                if (!closing.compareAndSet(false, true)) return;
+
+                // Thread non-daemon: sull'uscita la JVM deve aspettare che il backup finisca
+                // prima di terminare, altrimenti si otterrebbe un .bak troncato.
+                new Thread(() -> {
+                    try {
+                        if ("1".equals(db.getAppSetting("backup.enabled", "0")) && db.hasModifications()) {
+                            String bDir = db.getAppSetting("backup.dir", "");
+                            int bMax;
+                            try { bMax = Integer.parseInt(db.getAppSetting("backup.max", "10")); }
+                            catch (NumberFormatException ex) { bMax = 10; }
+                            try { db.backup(bDir, bMax); db.resetModifications(); }
+                            catch (Exception ex) { System.err.println("Backup fallito: " + ex.getMessage()); }
+                        }
+                        try { db.close(); } catch (Exception ex) {
+                            System.err.println("Errore chiusura DB: " + ex.getMessage());
+                        }
+                    } finally {
+                        // Andando al tray l'app resta viva e richiudibile: riarma la guardia.
+                        // Sull'uscita no, il processo sta per morire.
+                        if (toTray) closing.set(false);
                     }
-                    frame.setVisible(false);
-                    return;
-                }
-                CefApp.getInstance().dispose();
-                frame.dispose();
-                System.exit(0);
+                    if (toTray) return;   // resta in esecuzione, riapribile dal tray
+                    // Uscita definitiva: JCEF va disposto sull'EDT.
+                    SwingUtilities.invokeLater(() -> {
+                        CefApp.getInstance().dispose();
+                        frame.dispose();
+                        System.exit(0);
+                    });
+                }, "shutdown-backup").start();
             }
 
             @Override

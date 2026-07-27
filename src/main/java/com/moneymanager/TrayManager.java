@@ -455,11 +455,20 @@ public class TrayManager {
         }
     }
 
-    /** Uscita completa dall'app dal menu tray: rimuove il tray, rilascia il lock e termina. */
+    /**
+     * Uscita completa dall'app dal menu tray: rimuove il tray, rilascia il lock e termina.
+     *
+     * NON chiude direttamente: delega a windowClosing di MainWindow inviando l'evento vero.
+     * Tutta la sequenza di chiusura ordinata (backup automatico, clearSessionState, db.close(),
+     * dispose di JCEF, System.exit) vive solo lì, e frame.dispose() NON la fa scattare perché
+     * emette windowClosed, non windowClosing: uscendo dal tray il backup automatico veniva
+     * quindi saltato in silenzio, anche con "backup alla chiusura" attivo.
+     * disable() è chiamato PRIMA perché azzera trayActive: così windowClosing prende il ramo
+     * di uscita completa invece di quello "nascondi nel tray".
+     */
     private static void doExit(JFrame frame) {
         disable();
         SingleInstance.release();
-        frame.dispose();
-        System.exit(0);
+        frame.dispatchEvent(new java.awt.event.WindowEvent(frame, java.awt.event.WindowEvent.WINDOW_CLOSING));
     }
 }

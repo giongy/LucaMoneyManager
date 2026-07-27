@@ -2019,8 +2019,35 @@ public class Database {
         return Map.of("balance", balance, "reconciled_balance", reconciledBalance);
     }
 
-    /** Elimina una transazione (tag e split cadono in cascata via FK). */
+    /**
+     * Elimina una transazione (tag e split cadono in cascata via FK).
+     *
+     * Rifiuta le transazioni generate da un acquisto o da una vendita di titoli.
+     * portfolio_transactions.transaction_id è ON DELETE CASCADE, quindi la riga di storico
+     * cadrebbe insieme alla transazione, ma la POSIZIONE resterebbe intatta: portfolio.quantity
+     * e avg_price non vengono ricalcolati da nessuna parte. Il risultato è un portafoglio che
+     * dichiara titoli non più pagati (patrimonio gonfiato) e un costo di carico su cui si basa
+     * tutto il P&L successivo. Non è nemmeno annullabile: l'undo ricrea la transazione con un
+     * id nuovo, quindi il legame con la posizione è perso per sempre.
+     * La strada corretta è annullare l'operazione dalla scheda del titolo, che aggiorna
+     * quantità e prezzo medio insieme allo storico (vedi deletePortfolioTransaction).
+     *
+     * Cedole, dividendi e commissioni ('coupon'/'dividend'/'expense') restano eliminabili:
+     * non toccano quantity/avg_price, quindi la cancellazione non falsa la posizione.
+     */
     public Map<String, Object> deleteTransaction(int id) throws SQLException {
+        Map<String, Object> link = queryOne(
+            "SELECT pt.type, COALESCE(p.ticker, p.name, '?') AS titolo " +
+            "FROM portfolio_transactions pt LEFT JOIN portfolio p ON p.id=pt.portfolio_id " +
+            "WHERE pt.transaction_id=? AND pt.type IN ('buy','sell') LIMIT 1", id);
+        if (link != null) {
+            boolean acquisto = "buy".equals(link.get("type"));
+            throw new SQLException("Questa transazione è " + (acquisto ? "un acquisto" : "una vendita")
+                    + " di " + link.get("titolo") + ": eliminarla lascerebbe la posizione in"
+                    + " portafoglio con quantità e prezzo medio sbagliati."
+                    + " Annulla l'operazione dalla scheda del titolo.");
+        }
+
         Map<String, Object> tx = queryOne(
             "SELECT t.date, t.amount, t.type, t.description, a.name AS account_name " +
             "FROM transactions t LEFT JOIN accounts a ON a.id=t.account_id WHERE t.id=?", id);

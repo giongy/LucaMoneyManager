@@ -6,9 +6,11 @@
 
 **52 finding.** Legenda stato: ✅ fatto · ⏳ da fare · 🔕 rischio accettato · ⏭️ valutato e scartato.
 
-**Stato al 2026-07-27:** 12 chiusi (concorrenza `a218f2e`, date `b058115`, allegati `c12da6f`,
-integrità D4/D5) · 3 a rischio accettato (S1/S3/S4, sicurezza WebServer) ·
-1 archiviato (D6, non applicabile: nessun backup pre-v20) · **36 aperti**.
+**Stato al 2026-07-27:** 13 chiusi (concorrenza `a218f2e`, date `b058115`, allegati `c12da6f`,
+integrità D4/D5 `b9358bf`, portafoglio D3) · 3 a rischio accettato (S1/S3/S4, sicurezza WebServer) ·
+1 archiviato (D6, non applicabile: nessun backup pre-v20) · **35 aperti**.
+
+**Prossimo critico rimasto: D1** (`importPending` tronca `pending.jsonl`).
 
 ---
 
@@ -53,13 +55,13 @@ Tutto in `Database.java` salvo dove indicato. Compila (`mvn compile` OK). **Da p
 - `initSchema`: diceva "tutte le tabelle"; ora precisa che `sync_meta`/`imported_pending` nascono altrove e che `CREATE IF NOT EXISTS` **non aggiunge colonne** a tabelle esistenti.
 - `getDueToday`: prometteva "prossima occorrenza", confronta solo `start_date`.
 - `tryParseDate`: messaggio "data pianificata non valida" usato anche per le scadenze obbligazionarie, con `id` sempre `null` (la SELECT non lo seleziona) → messaggio generico + passa il `ticker`.
-- `migrate()`: aggiunta la nota sul limite noto (vedi ⏳ D1).
+- `migrate()`: nota sul DB pre-v20 riformulata come caso non applicabile (D6 archiviato).
 - **CLAUDE.md**: 22 tabelle (non 21, mancava `imported_pending`), LOC e conteggi reali, 14 moduli JS, `temp_store=MEMORY`, nuova sezione sull'invariante della connessione.
 - **ARCHITECTURE.md**: 11 riferimenti `#Lnnn` marci corretti, 133 case, nota su virtual thread e `activeQueries`.
 
 ---
 
-## Critici — ⏳ D1 D3 da fare · ✅ D2 e S2 risolti · 🔕 S1 S3 S4 rischio accettato
+## Critici — ⏳ D1 da fare · ✅ D2 D3 S2 risolti · 🔕 S1 S3 S4 rischio accettato
 
 ### 🔕 S1, S3, S4 · Sicurezza WebServer — RISCHIO ACCETTATO (decisione utente, 2026-07-27)
 - **S1** — WebServer su `0.0.0.0:7890` senza autenticazione, `http.enabled` default `"1"` · `WebServer.java:27`, `Settings.java:28`
@@ -134,7 +136,27 @@ richiederebbe indovinare se il 28 fosse voluto o residuo di un 31 — va corrett
 Pianificate esposte al momento del fix: id 13, 37, 56, 57, 67, 85, 102, 103 (giorno ≥ 29);
 id 38, 41, 63, 109 (giorno 28, drift forse già avvenuto).
 
-### D3 · Cancellare una transazione di portafoglio `Database.java:1874` + schema `:704`
+### ✅ D3 · Cancellare una transazione di portafoglio — RISOLTO 2026-07-27
+`portfolio_transactions.transaction_id` è `ON DELETE CASCADE`: cancellando la transazione cadeva
+anche la riga di storico, ma la **posizione** restava intatta — `portfolio.quantity` e `avg_price`
+non vengono ricalcolati da nessuna parte. Risultato: portafoglio che dichiara titoli non più
+pagati (patrimonio gonfiato) e costo di carico sbagliato su cui si basa tutto il P&L successivo.
+Non annullabile: l'undo ricrea la transazione con id nuovo, quindi il legame è perso.
+
+Fix: guardia in `deleteTransaction` che rifiuta se esiste un `portfolio_transactions` di tipo
+`buy`/`sell` collegato, indicando il titolo e rimandando alla scheda del titolo (dove
+`deletePortfolioTransaction` aggiorna quantità e prezzo medio insieme allo storico).
+
+**Guardia graduata, non totale:** `coupon`/`dividend`/`expense` (cedole, dividendi, commissioni)
+restano eliminabili perché non toccano `quantity`/`avg_price`. Sul DB reale sono 16 delle 24
+transazioni collegate: bloccarle tutte avrebbe tolto libertà senza motivo.
+
+Il frontend non è stato toccato: `transactions.js:deleteTx` aveva già `try/catch` con toast.
+
+Verificato su una **copia** del DB reale: acquisto (id 1734, IT0005599938) e vendita (id 1672,
+IT0005508921) rifiutati col messaggio corretto; cedola (1703), commissione (1735) e una
+transazione normale eliminate regolarmente. 0 movimenti portfolio orfani preesistenti.
+
 Il CASCADE distrugge la riga `portfolio_transactions` ma `portfolio.quantity`/`avg_price` restano →
 patrimonio gonfiato e P&L successivo su base sbagliata. L'undo ricrea la transazione con id nuovo:
 legame perso. Nessun avviso in cancellazione (c'è solo in modifica, `transactions.js:659`).

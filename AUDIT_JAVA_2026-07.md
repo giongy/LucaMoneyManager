@@ -55,7 +55,7 @@ Tutto in `Database.java` salvo dove indicato. Compila (`mvn compile` OK). **Da p
 
 ---
 
-## ⏳ DA FARE — critici
+## Critici — ⏳ S1 S2 S3 S4 D1 D3 da fare · ✅ D2 risolto (dettaglio in fondo alla sezione)
 
 ### S1 · WebServer senza autenticazione, attivo di default `WebServer.java:27` `Settings.java:28`
 Bind su `0.0.0.0:7890`, `http.enabled` default `"1"`, zero controlli di identità. Su wifi pubblico
@@ -91,14 +91,37 @@ telefono spariscono per sempre**. L'import parte al boot, il momento di massima 
 → Ricontrollare size+mtime prima di `Files.write`; se cambiati, saltare la riscrittura (le
 transazioni sono già nel DB, `imported_pending` garantisce l'idempotenza).
 
-### D2 · Drift delle ricorrenze `Database.java:2532` `:2775-2796` `:2478`
-`plusMonths(1)` clampa il 31 gennaio a 28 febbraio e `advanceScheduled` **lo persiste**: da marzo
-l'affitto è pianificato il 28 per sempre. `original_start_date` esiste per questo ma **non è letta
-da nessuna parte**. Bug gemello in `firstOccurrenceFrom`, che deriva da una data già clampata →
-tutte le proiezioni con date di fine mese cadono nel giorno sbagliato.
-→ In `firstOccurrenceFrom` ricalcolare da `start` (`start.plusMonths(months+1)`, idem yearly/
-bimonthly/quarterly/semiannual); in `advanceScheduled` ancorare a `original_start_date`.
-⚠️ **Modifica il comportamento di pianificate esistenti**: da testare a mano prima di rilasciare.
+### ✅ D2 · Drift delle ricorrenze — RISOLTO 2026-07-27 (solo codice, nessun dato toccato)
+`plusMonths(1)` clampa il 31 gennaio a 28 febbraio, e il clamping **non è reversibile**
+(28 feb +1 mese = 28 mar, non 31 mar). Il codice derivava ogni occorrenza da quella precedente,
+quindi febbraio "contagiava" tutti i mesi successivi; `advanceScheduled` **persisteva** il valore
+clampato in `start_date`, cristallizzando il drift nel DB.
+
+Fix applicato:
+- **`firstOccurrenceFrom`**: ogni occorrenza è ricalcolata dall'àncora `start`
+  (`start.plusMonths(months+1)` invece di `cur.plusMonths(1)`), per monthly/monthly_last/yearly/
+  bimonthly/quarterly/semiannual. Estratto `lastDayOfMonthAfter()` per monthly_last.
+- **Nuovo `nextOccurrence(anchor, freq, cur)`** = `firstOccurrenceFrom(anchor, freq, cur+1g)` con
+  guardia `next > cur`; sostituisce `advanceDate(cur, freq)` nei **6 cicli** di espansione
+  (`getUpcoming`, `getUpcomingAll`, `getProjection` ×2, `getProjectionByCategory`,
+  `getForecastEngine`). La guardia evita anche il **loop infinito** che si sarebbe aperto con una
+  frequenza sconosciuta (dove `advanceDate` ritornava null e `firstOccurrenceFrom` no).
+- **`advanceScheduled`** ancora a `original_start_date`, con fallback a `start_date` per le righe
+  precedenti alla colonna. La colonna era scritta e **mai letta**: ora è collegata.
+- **`advanceDate` rimosso**: rimasto senza chiamanti dopo la sostituzione.
+- **`getProjectionByCategory`**: era l'unica delle 6 copie a usare `LocalDate.parse` diretto invece
+  di `tryParseDate` → una data corrotta faceva esplodere l'intera vista. Allineata alle altre.
+
+Verificato eseguendo la logica nuova sui casi limite: mensile 31/01 → `31 gen, 28 feb, 31 mar,
+30 apr, 31 mag`; annuale 29/02/2024 → ripiega sul 28 e **torna al 29 nel 2028**; trimestrale,
+semestrale, monthly_last, weekly/daily, once e frequenza ignota tutti corretti.
+
+⚠️ **Dati non toccati, per scelta esplicita.** Le 76 pianificate con `original_start_date` a `null`
+usano `start_date` come àncora: se ha già driftato (es. id=63 `noir studio alessandro`, mensile al
+28/08) il fix **impedisce il peggioramento ma non recupera il giorno originale**. Recuperarlo
+richiederebbe indovinare se il 28 fosse voluto o residuo di un 31 — va corretto a mano, se serve.
+Pianificate esposte al momento del fix: id 13, 37, 56, 57, 67, 85, 102, 103 (giorno ≥ 29);
+id 38, 41, 63, 109 (giorno 28, drift forse già avvenuto).
 
 ### D3 · Cancellare una transazione di portafoglio `Database.java:1874` + schema `:704`
 Il CASCADE distrugge la riga `portfolio_transactions` ma `portfolio.quantity`/`avg_price` restano →

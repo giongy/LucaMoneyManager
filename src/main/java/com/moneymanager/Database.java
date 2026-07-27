@@ -2565,8 +2565,24 @@ public class Database {
         }
     }
 
+    /** Ultimo giorno del mese che si ottiene sommando `months` mesi a `start`.
+     *  Usato dalla frequenza "monthly_last" (es. "l'ultimo giorno di ogni mese"). */
+    private static LocalDate lastDayOfMonthAfter(LocalDate start, long months) {
+        LocalDate m = start.plusMonths(months);
+        return m.withDayOfMonth(m.lengthOfMonth());
+    }
+
     /** Prima occorrenza di una pianificata a partire da `from` (compreso), data la frequenza.
-     *  Per "once" ritorna null se la data singola è già passata rispetto a `from`. */
+     *  Per "once" ritorna null se la data singola è già passata rispetto a `from`.
+     *
+     *  Ogni occorrenza è calcolata SEMPRE da `start` (l'àncora), mai dall'occorrenza precedente:
+     *  LocalDate.plusMonths() clampa all'ultimo giorno del mese di arrivo (31 gen +1 mese = 28 feb)
+     *  e il clamping NON è reversibile — 28 feb +1 mese = 28 mar, non 31 mar. Derivare a catena
+     *  farebbe quindi "contagiare" da febbraio tutti i mesi successivi:
+     *    a catena:    31 gen → 28 feb → 28 mar → 28 apr → 28 mag   (sbagliato)
+     *    dall'àncora: 31 gen → 28 feb → 31 mar → 30 apr → 31 mag   (corretto)
+     *  Vale per tutte le frequenze basate sui mesi; weekly/biweekly/daily sono aritmetica su
+     *  giorni e non clampano mai. Vedi anche {@link #nextOccurrence}. */
     private LocalDate firstOccurrenceFrom(LocalDate start, String freq, LocalDate from) {
         LocalDate cur = start;
         if (!cur.isBefore(from)) return cur;
@@ -2574,35 +2590,35 @@ public class Database {
             case "monthly" -> {
                 long months = java.time.temporal.ChronoUnit.MONTHS.between(start, from);
                 cur = start.plusMonths(months);
-                if (cur.isBefore(from)) cur = cur.plusMonths(1);
+                if (cur.isBefore(from)) cur = start.plusMonths(months + 1);
             }
             case "monthly_last" -> {
                 long months = java.time.temporal.ChronoUnit.MONTHS.between(start, from);
-                cur = start.plusMonths(months).withDayOfMonth(start.plusMonths(months).lengthOfMonth());
-                if (cur.isBefore(from)) cur = cur.plusMonths(1).withDayOfMonth(cur.plusMonths(1).lengthOfMonth());
+                cur = lastDayOfMonthAfter(start, months);
+                if (cur.isBefore(from)) cur = lastDayOfMonthAfter(start, months + 1);
             }
             case "yearly" -> {
                 long years = java.time.temporal.ChronoUnit.YEARS.between(start, from);
                 cur = start.plusYears(years);
-                if (cur.isBefore(from)) cur = cur.plusYears(1);
+                if (cur.isBefore(from)) cur = start.plusYears(years + 1);
             }
             case "bimonthly" -> {
                 long months = java.time.temporal.ChronoUnit.MONTHS.between(start, from);
                 long b = months / 2;
                 cur = start.plusMonths(b * 2);
-                if (cur.isBefore(from)) cur = cur.plusMonths(2);
+                if (cur.isBefore(from)) cur = start.plusMonths((b + 1) * 2);
             }
             case "quarterly" -> {
                 long months = java.time.temporal.ChronoUnit.MONTHS.between(start, from);
                 long q = months / 3;
                 cur = start.plusMonths(q * 3);
-                if (cur.isBefore(from)) cur = cur.plusMonths(3);
+                if (cur.isBefore(from)) cur = start.plusMonths((q + 1) * 3);
             }
             case "semiannual" -> {
                 long months = java.time.temporal.ChronoUnit.MONTHS.between(start, from);
                 long s = months / 6;
                 cur = start.plusMonths(s * 6);
-                if (cur.isBefore(from)) cur = cur.plusMonths(6);
+                if (cur.isBefore(from)) cur = start.plusMonths((s + 1) * 6);
             }
             case "weekly" -> {
                 long days = java.time.temporal.ChronoUnit.DAYS.between(start, from);
@@ -2622,20 +2638,20 @@ public class Database {
         return cur;
     }
 
-    /** Data successiva a `d` secondo la frequenza (null se "once"/sconosciuta). */
-    private LocalDate advanceDate(LocalDate d, String freq) {
-        return switch (freq) {
-            case "daily"     -> d.plusDays(1);
-            case "weekly"    -> d.plusWeeks(1);
-            case "biweekly"  -> d.plusWeeks(2);
-             case "monthly"      -> d.plusMonths(1);
-            case "monthly_last" -> { LocalDate n = d.plusMonths(1); yield n.withDayOfMonth(n.lengthOfMonth()); }
-            case "bimonthly"  -> d.plusMonths(2);
-            case "quarterly"  -> d.plusMonths(3);
-            case "semiannual" -> d.plusMonths(6);
-            case "yearly"     -> d.plusYears(1);
-            default          -> null;
-        };
+    /**
+     * Occorrenza successiva a `cur`, calcolata SEMPRE dall'àncora `anchor` (la start_date
+     * originale della pianificata) e mai da `cur`. È l'unico modo corretto di far avanzare i
+     * cicli di espansione delle occorrenze: derivare a catena con un semplice plusMonths(1)
+     * resterebbe bloccato sul giorno clampato dopo ogni mese corto
+     * (31 gen → 28 feb → 28 mar → 28 apr …, invece di 31 gen → 28 feb → 31 mar → 30 apr …).
+     *
+     * Ritorna null quando non c'è una data successiva utile ("once", frequenza sconosciuta,
+     * o comunque un risultato non strettamente maggiore di `cur`): i cicli chiamanti trattano
+     * il null come "basta", quindi la guardia evita anche il rischio di loop infinito.
+     */
+    private LocalDate nextOccurrence(LocalDate anchor, String freq, LocalDate cur) {
+        LocalDate next = firstOccurrenceFrom(anchor, freq, cur.plusDays(1));
+        return (next != null && next.isAfter(cur)) ? next : null;
     }
 
     /** Pianificate attive con almeno un'occorrenza negli ultimi 30 giorni (scadute/da registrare). */
@@ -2867,14 +2883,26 @@ public class Database {
      * Chiamato dopo aver registrato un'occorrenza pianificata: in questo modo
      * le occorrenze passate non vengono più generate e non risultano scadute.
      * Se la frequenza è "once", marca la transazione come inattiva.
+     *
+     * La prossima data è calcolata dall'ÀNCORA (original_start_date) e non dalla data appena
+     * registrata: quest'ultima può essere il risultato di un clamping (31 gen → 28 feb) e
+     * derivarne il passo successivo cristallizzerebbe il giorno sbagliato nel DB per sempre —
+     * un affitto del 31 diventerebbe "il 28 di ogni mese" dopo il primo febbraio.
+     * Fallback su start_date per le righe create prima che original_start_date esistesse:
+     * lì l'àncora originale non è recuperabile, ma almeno il drift non peggiora.
      */
     public void advanceScheduled(int scheduledId, String registeredDate, Integer transactionId) throws SQLException {
         Map<String, Object> s = queryOne(
-                "SELECT frequency, start_date, description, portfolio_id FROM scheduled_transactions WHERE id=?", scheduledId);
+                "SELECT frequency, start_date, original_start_date, description, portfolio_id "
+                + "FROM scheduled_transactions WHERE id=?", scheduledId);
         if (s == null) return;
         String freq      = (String) s.get("frequency");
         LocalDate registered = LocalDate.parse(registeredDate);
-        LocalDate next       = "once".equals(freq) ? null : advanceDate(registered, freq);
+        LocalDate anchor = tryParseDate(s.get("original_start_date"), scheduledId);
+        if (anchor == null) anchor = tryParseDate(s.get("start_date"), scheduledId);
+        if (anchor == null) anchor = registered;   // entrambe illeggibili: comportamento precedente
+        LocalDate next       = "once".equals(freq) ? null
+                             : nextOccurrence(anchor, freq, registered);
 
         inTx(() -> {
             // Se la pianificata è collegata a un titolo e abbiamo il transaction_id, registra nello storico portfolio
@@ -2926,7 +2954,7 @@ public class Database {
                 occ.put("date", cur.toString());
                 all.add(occ);
                 if ("once".equals(freq)) break;
-                cur = advanceDate(cur, freq);
+                cur = nextOccurrence(start, freq, cur);
                 if (cur == null) break;
             }
         }
@@ -2959,7 +2987,7 @@ public class Database {
                 occ.put("overdue", cur.isBefore(today));
                 all.add(occ);
                 if ("once".equals(freq)) break;
-                cur = advanceDate(cur, freq);
+                cur = nextOccurrence(start, freq, cur);
                 if (cur == null) break;
             }
         }
@@ -3036,7 +3064,7 @@ public class Database {
                         allDeltas.get(ds).merge(toAid, amount, Double::sum);
                 }
                 if ("once".equals(freq)) break;
-                cur = advanceDate(cur, freq);
+                cur = nextOccurrence(start, freq, cur);
                 if (cur == null) break;
             }
         }
@@ -3124,7 +3152,7 @@ public class Database {
                 if ("income".equals(type))  cashflow.get(month)[0] += amount;
                 if ("expense".equals(type)) cashflow.get(month)[1] += amount;
                 if ("once".equals(freq)) break;
-                cur2 = advanceDate(cur2, freq);
+                cur2 = nextOccurrence(start, freq, cur2);
                 if (cur2 == null) break;
             }
         }
@@ -4162,8 +4190,10 @@ public class Database {
             int    catKey   = catIdObj != null ? ((Number) catIdObj).intValue() : -1;
             String catName  = s.get("category_name") != null ? (String) s.get("category_name") : "Senza categoria";
             String freq     = (String) s.get("frequency");
-            LocalDate start = LocalDate.parse((String) s.get("start_date"));
-            LocalDate end   = s.get("end_date") != null ? LocalDate.parse((String) s.get("end_date")) : to;
+            LocalDate start = tryParseDate(s.get("start_date"), s.get("id"));
+            if (start == null) continue;  // riga con data malformata: saltata (già loggata)
+            LocalDate end   = s.get("end_date") != null ? tryParseDate(s.get("end_date"), s.get("id")) : to;
+            if (end == null) end = to;
             if (end.isAfter(to)) end = to;
             LocalDate cur   = firstOccurrenceFrom(start, freq, schedFrom);
             if (cur == null) continue;
@@ -4172,7 +4202,7 @@ public class Database {
                 catAmounts.computeIfAbsent(catKey, k -> new double[]{0})[0] += amount;
                 catMeta.put(catKey, new String[]{catName, type});
                 if ("once".equals(freq)) break;
-                cur = advanceDate(cur, freq);
+                cur = nextOccurrence(start, freq, cur);
                 if (cur == null) break;
             }
         }
@@ -4495,8 +4525,8 @@ public class Database {
                     lumpyEvents.add(ev);
                 }
                 if ("once".equals(freq)) break;
-                LocalDate nxt = advanceDate(cur, freq);
-                if (nxt == null || !nxt.isAfter(cur)) break;
+                LocalDate nxt = nextOccurrence(start, freq, cur);
+                if (nxt == null) break;   // nextOccurrence garantisce già nxt > cur
                 cur = nxt;
             }
             if (recurring && any) {

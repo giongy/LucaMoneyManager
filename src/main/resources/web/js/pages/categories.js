@@ -129,9 +129,14 @@ async function deleteCategory(id) {
   const totalTx = (usage.tx_count || 0) + (usage.child_tx_count || 0);
   const hasBudget = (usage.budget_count || 0) > 0;
   const hasChildren = (usage.child_count || 0) > 0;
+  // Split e pianificate contano quanto le transazioni: sono importi veri nei report per
+  // categoria. Senza questi due, una categoria usata SOLO come riga di split risultava
+  // "inutilizzata" e veniva eliminata con la conferma semplice, senza riassegnare nulla.
+  const splitCount = usage.split_count || 0;
+  const schedCount = usage.scheduled_count || 0;
 
   // Nessun uso → semplice conferma
-  if (totalTx === 0 && !hasBudget && !hasChildren) {
+  if (totalTx === 0 && splitCount === 0 && schedCount === 0 && !hasBudget && !hasChildren) {
     openModal('Elimina categoria',
       `<p style="margin:0">Eliminare <b>${cat.icon} ${cat.name}</b>?</p>`,
       async () => {
@@ -143,7 +148,9 @@ async function deleteCategory(id) {
 
   // Ha dipendenze → proponi spostamento
   const descParts = [];
-  if (totalTx > 0) descParts.push(`${totalTx} transazion${totalTx===1?'e':'i'}`);
+  if (totalTx > 0)      descParts.push(`${totalTx} transazion${totalTx===1?'e':'i'}`);
+  if (splitCount > 0)   descParts.push(`${splitCount} voc${splitCount===1?'e':'i'} suddivis${splitCount===1?'a':'e'}`);
+  if (schedCount > 0)   descParts.push(`${schedCount} pianificat${schedCount===1?'a':'e'}`);
   if (hasBudget)   descParts.push(`${usage.budget_count} voc${usage.budget_count===1?'e':'i'} di budget`);
   if (hasChildren) descParts.push(`${usage.child_count} sottocategor${usage.child_count===1?'ia':'ie'}`);
 

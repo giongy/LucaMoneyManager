@@ -6,8 +6,9 @@
 
 **52 finding.** Legenda stato: ✅ fatto · ⏳ da fare · 🔕 rischio accettato · ⏭️ valutato e scartato.
 
-**Stato al 2026-07-27:** 10 chiusi (concorrenza `a218f2e`, date `b058115`, allegati `S2`) ·
-3 a rischio accettato (S1/S3/S4, sicurezza WebServer) · **39 aperti**.
+**Stato al 2026-07-27:** 12 chiusi (concorrenza `a218f2e`, date `b058115`, allegati `c12da6f`,
+integrità D4/D5) · 3 a rischio accettato (S1/S3/S4, sicurezza WebServer) ·
+1 archiviato (D6, non applicabile: nessun backup pre-v20) · **36 aperti**.
 
 ---
 
@@ -141,12 +142,48 @@ legame perso. Nessun avviso in cancellazione (c'è solo in modifica, `transactio
 
 ---
 
+## ✅ FATTO — 2026-07-27 · Integrità: eliminazione conto e riassegnazione categoria
+
+### ✅ D4 · Trasferimenti orfani all'eliminazione di un conto — `Database.java:deleteAccount`
+`account_id` è `ON DELETE CASCADE` ma `to_account_id` è `ON DELETE SET NULL`: i bonifici **in
+entrata** verso il conto eliminato hanno `account_id` su un *altro* conto, quindi sopravvivevano
+con `to_account_id` a NULL. Il `CASE` del saldo continua ad applicare `-amount` al conto sorgente,
+che restava **scalato per sempre senza contropartita**, in modo invisibile.
+
+Fix: guardia in `deleteAccount` che conta i trasferimenti in entrata da altri conti e rifiuta
+l'operazione con un messaggio che riporta numero e importo. Lato UI, `accounts.js:deleteAccount`
+ora intercetta l'errore e lo mostra in un toast (prima l'eccezione non produceva alcun feedback).
+
+### ✅ D5 · `reassignCategory` perdeva split e pianificate — `Database.java:reassignCategory`
+Spostava solo `transactions`; `transaction_splits.category_id` e
+`scheduled_transactions.category_id` sono `ON DELETE SET NULL`, quindi la DELETE finale li
+azzerava. Per gli split significava far **sparire quegli importi da tutti i report per categoria**
+(budget, torta, categorie/mese, confronto periodi) pur restando nel totale annuo della dashboard.
+`getCategoryUsage` inoltre non li contava, quindi il dialogo diceva "0 transazioni" per categorie
+usate solo negli split, e il frontend le eliminava con la **conferma semplice, senza riassegnare**.
+
+Fix: `reassignCategory` sposta anche split e pianificate (predicato "categoria stessa o sua
+figlia", coerente con la CASCADE sui figli), chiama `touchSyncMeta()` e logga i tre conteggi;
+`getCategoryUsage` restituisce `split_count` e `scheduled_count`; `categories.js` li include sia
+nel test "categoria inutilizzata" sia nella descrizione del dialogo. Aggiunto l'helper
+`countRows()` perché `execute()` ritorna la chiave generata, non il numero di righe modificate.
+
+**Nessun dato corrotto preesistente** (verificato in sola lettura sul DB reale: 0 trasferimenti
+orfani, 0 split senza categoria): entrambe le guardie sono preventive. Potenziale evitato: il
+conto "Titoli" da solo avrebbe lasciato 18.211,98 € di bonifici orfani, e riassegnare "Spesa"
+avrebbe perso 13 split per 1.519,26 €.
+
+Collaudato **su una copia** del DB reale: eliminazione di "Titoli" rifiutata col messaggio giusto,
+conto senza entrate eliminato regolarmente, `getCategoryUsage("Spesa")` ora riporta
+`split_count=13, scheduled_count=1` (prima solo `tx_count=104`), e la riassegnazione Spesa→Figli
+sposta tutti e 13 gli split (12 → 25) senza creare orfani.
+
+---
+
 ## ⏳ DA FARE — alti
 
 | # | Cosa | Dove |
 |---|---|---|
-| D4 | Eliminare un conto lascia **trasferimenti orfani che scalano il conto sorgente per sempre** (`to_account_id ON DELETE SET NULL` + il `CASE` del saldo) | schema `:648-649`, `deleteAccount:1141` |
-| D5 | `reassignCategory` non tocca `transaction_splits` né `scheduled_transactions` (`SET NULL`) → quegli importi **escono da tutti i report per categoria**; `getCategoryUsage` non li conta e i `budgets` vecchi vengono cancellati dal CASCADE | `:1357`, `getCategoryUsage:1343` |
 | P1 | `strftime('%Y',date)` nel WHERE annulla `idx_tx_date` → **7 scansioni complete per apertura dashboard** (~35.000 righe invece di ~3.500). Sostituire con `date >= ? AND date < ?` (`getCategoryComparison:4612` lo fa già: è il modello) | 10 punti: `:3648 :3721 :3735 :3740 :2215 :2222 :2254 :2259 :1445 :1449` |
 | P2 | `getPortfolio`: 9 subquery correlate × N posizioni e **nessun indice su `portfolio_transactions(portfolio_id)`** → ~270 scansioni per apertura pagina | `:3049` |
 | P3 | `getTransactions`: le subquery `sp`/`pt` hanno `GROUP BY` → **non flattenabili**, materializzate per intero a ogni filtro/ordinamento anche con 40 righe a video | `:1424-1433` |
@@ -156,7 +193,6 @@ legame perso. Nessun avviso in cancellazione (c'è solo in modifica, `transactio
 | R3 | `TrayManager.enable/disable` (Swing + SystemTray) invocati **fuori dall'EDT** da `setSetting` — certamente off-EDT quando arriva dal WebServer | `Bridge.java:511-526` |
 | R4 | `winPickFolder`: stderr mai letto (buffer ~4 KB) e stream mai chiusi → **deadlock permanente** del virtual thread + powershell zombie | `Bridge.java:246-266` |
 | R5 | All'avvio, se la cartella del DB non è raggiungibile (OneDrive non ancora montato con autostart), l'app **riscrive `db.path`** e crea un DB vuoto. Stessa dinamica in `reloadDb`, che persiste il path prima di verificarlo | `App.java:158-164`, `Bridge.java:658` |
-| D6 | `migrate()` **timbra v20 su DB con schema più vecchio** senza aggiungere le colonne: ripristinare un backup vecchio produce `no such column` sparsi e permanenti. Serve almeno un log nei due rami anomali | `:919`, nota già nel codice |
 | X1 | **XSS persistente** (nessun escaping, `innerHTML` su `description`). L'iniezione via LAN non è più nel modello di minaccia (vedi 🔕 S1/S3/S4), ma resta raggiungibile da una riga di `pending.jsonl` scritta da Android. La catena verso l'esecuzione di file è comunque tagliata da ✅ S2. *(area JS, fuori dal perimetro Java)* | `init.js:161`,`:215`, `transactions.js:508`,`:518` |
 
 ---

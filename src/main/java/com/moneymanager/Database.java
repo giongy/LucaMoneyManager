@@ -692,8 +692,7 @@ public class Database {
      *
      * Idempotente (CREATE ... IF NOT EXISTS): non tocca un DB già popolato alla v20.
      * ATTENZIONE: proprio per questo, su una tabella che ESISTE GIÀ non aggiunge le colonne
-     * mancanti — passare di qui NON basta a portare un DB vecchio allo schema corrente
-     * (vedi la nota in migrate()).
+     * mancanti — passare di qui NON basta a portare un DB pre-v20 allo schema corrente.
      *
      * Le migrazioni storiche v1..v20 sono state consolidate qui; migrate() resta vuota,
      * pronta ad accogliere eventuali aggiornamenti futuri (v21+).
@@ -916,13 +915,11 @@ public class Database {
      * qui restano solo gli aggiornamenti futuri (v21+). initSchema() marca già i DB
      * nuovi/completi come SCHEMA_VERSION, quindi il guard sotto li fa uscire subito.
      *
-     * LIMITE NOTO (da sistemare): un DB con version &lt; 20 arriva in fondo e viene TIMBRATO
-     * v20 senza che nessuno abbia aggiunto le colonne mancanti — initSchema() crea solo le
-     * tabelle assenti, non altera quelle esistenti. Succede ripristinando un backup vecchio
-     * (restoreBackup chiama initSchema+migrate) o aprendo un DB di un altro PC: il risultato
-     * non è un messaggio chiaro ma "no such column" sparsi, e il timbro rende il problema
-     * permanente. Serve almeno un log esplicito nei due rami anomali (version &lt; 20 e
-     * version &gt; 20); dbGetInfo() espone già schema_version e schema_latest per accorgersene.
+     * Nota: un DB con version &lt; 20 arriverebbe in fondo e verrebbe timbrato v20 senza che
+     * nessuno abbia aggiunto le colonne mancanti (initSchema crea solo le tabelle assenti, non
+     * altera quelle esistenti). Non è un caso reale in questo progetto — non esistono backup
+     * anteriori alla v20 — quindi non lo gestiamo. Se un giorno servisse accorgersene,
+     * dbGetInfo() espone già schema_version accanto a schema_latest.
      */
     private void migrate() throws SQLException {
         // Crea tabella versione se non esiste
@@ -1236,6 +1233,25 @@ public class Database {
     /** Elimina un conto (le transazioni collegate cadono in cascata via FK). */
     public Map<String, Object> deleteAccount(int id) throws SQLException {
         Map<String, Object> old = queryOne("SELECT name FROM accounts WHERE id=?", id);
+
+        // Guardia: i trasferimenti IN ENTRATA verso questo conto hanno account_id su un ALTRO
+        // conto, quindi non cadono con la CASCADE su account_id — cadrebbe solo to_account_id,
+        // che è ON DELETE SET NULL. Resterebbero righe type='transfer' con to_account_id NULL:
+        // il CASE di calcolo del saldo (vedi getAccounts) continua ad applicare "-amount" al
+        // conto sorgente, che resterebbe scalato per sempre SENZA contropartita, in modo
+        // invisibile. Meglio fermarsi e far decidere all'utente.
+        Map<String, Object> inb = queryOne(
+                "SELECT COUNT(*) AS n, COALESCE(SUM(amount),0) AS tot FROM transactions " +
+                "WHERE to_account_id=? AND account_id<>?", id, id);
+        long nIn = inb != null ? ((Number) inb.get("n")).longValue() : 0;
+        if (nIn > 0) {
+            double tot = ((Number) inb.get("tot")).doubleValue();
+            throw new SQLException("Impossibile eliminare il conto: ci sono " + nIn
+                    + " trasferimenti in entrata da altri conti (" + fmtEur(tot) + ")."
+                    + " Eliminali o riassegnali prima, altrimenti i conti di partenza"
+                    + " resterebbero scalati senza contropartita.");
+        }
+
         execute("DELETE FROM accounts WHERE id=?", id);
         touchSyncMeta();
         logger.log("CONTO ELIMINATO", "id:" + id, "nome:" + DbLogger.s(old != null ? old.get("name") : null));
@@ -1435,30 +1451,67 @@ public class Database {
         return result;
     }
 
-    /** Conta transazioni, budget e figli associati a questa categoria (e ai suoi figli). */
+    /** Conta transazioni, righe split, pianificate, budget e figli associati a questa categoria
+     *  (e ai suoi figli). Le righe split contano quanto le transazioni: sono importi veri nei
+     *  report per categoria, e ignorarle faceva apparire "0 transazioni" categorie che invece
+     *  erano usate — vedi {@link #reassignCategory}. */
     public Map<String, Object> getCategoryUsage(int id) throws SQLException {
+        String selfOrChild = "(category_id=? OR category_id IN (SELECT id FROM categories WHERE parent_id=?))";
         var tx    = queryOne("SELECT COUNT(*) AS n FROM transactions WHERE category_id=?", id);
+        var sp    = queryOne("SELECT COUNT(*) AS n FROM transaction_splits WHERE " + selfOrChild, id, id);
+        var sc    = queryOne("SELECT COUNT(*) AS n FROM scheduled_transactions WHERE " + selfOrChild, id, id);
         var bg    = queryOne("SELECT COUNT(*) AS n FROM budgets WHERE category_id=?", id);
         var ch    = queryOne("SELECT COUNT(*) AS n FROM categories WHERE parent_id=?", id);
         var chTxR = queryOne("SELECT COUNT(*) AS n FROM transactions WHERE category_id IN (SELECT id FROM categories WHERE parent_id=?)", id);
         return Map.of(
-            "tx_count",       tx    != null ? ((Number) tx.get("n")).longValue()    : 0,
-            "budget_count",   bg    != null ? ((Number) bg.get("n")).longValue()    : 0,
-            "child_count",    ch    != null ? ((Number) ch.get("n")).longValue()    : 0,
-            "child_tx_count", chTxR != null ? ((Number) chTxR.get("n")).longValue() : 0
+            "tx_count",        tx    != null ? ((Number) tx.get("n")).longValue()    : 0,
+            "split_count",     sp    != null ? ((Number) sp.get("n")).longValue()    : 0,
+            "scheduled_count", sc    != null ? ((Number) sc.get("n")).longValue()    : 0,
+            "budget_count",    bg    != null ? ((Number) bg.get("n")).longValue()    : 0,
+            "child_count",     ch    != null ? ((Number) ch.get("n")).longValue()    : 0,
+            "child_tx_count",  chTxR != null ? ((Number) chTxR.get("n")).longValue() : 0
         );
     }
 
-    /** Sposta transazioni (e quelle dei figli) su toId, poi elimina la categoria. */
+    /** Conta le righe di `table` che soddisfano `where`, con fromId bindato due volte
+     *  (il predicato selfOrChild di {@link #reassignCategory} usa due volte lo stesso id). */
+    private long countRows(String table, String where, int fromId) throws SQLException {
+        Map<String, Object> r = queryOne("SELECT COUNT(*) AS n FROM " + table + " WHERE " + where, fromId, fromId);
+        return r != null ? ((Number) r.get("n")).longValue() : 0;
+    }
+
+    /**
+     * Sposta su toId tutto ciò che punta a fromId (e ai suoi figli), poi elimina la categoria.
+     *
+     * Oltre alle transazioni sposta anche le RIGHE SPLIT e le PIANIFICATE: entrambe le colonne
+     * sono ON DELETE SET NULL, quindi senza questi UPDATE la DELETE finale le lasciava a NULL.
+     * Per gli split significava far sparire quegli importi da tutti i report per categoria
+     * (budget, torta, tabella categorie/mese, confronto periodi) pur restando nel totale annuo
+     * della dashboard — una differenza silenziosa e impossibile da spiegare a posteriori.
+     *
+     * I budgets della categoria vecchia cadono invece in CASCADE (scelta esistente, non toccata):
+     * il budget della categoria di destinazione resta quello suo, senza somme automatiche.
+     */
     public void reassignCategory(int fromId, int toId) throws SQLException {
         inTx(() -> {
             Map<String, Object> from = queryOne("SELECT name FROM categories WHERE id=?", fromId);
             Map<String, Object> to   = queryOne("SELECT name FROM categories WHERE id=?", toId);
-            execute("UPDATE transactions SET category_id=? WHERE category_id=?", toId, fromId);
-            execute("UPDATE transactions SET category_id=? WHERE category_id IN (SELECT id FROM categories WHERE parent_id=?)", toId, fromId);
+            // "categoria stessa OPPURE una sua figlia": i figli vengono eliminati dalla CASCADE
+            // sulla DELETE finale, quindi vanno riassegnati anche loro.
+            String selfOrChild = "(category_id=? OR category_id IN (SELECT id FROM categories WHERE parent_id=?))";
+            // Conteggi PRIMA degli UPDATE, per il log: execute() ritorna la chiave generata,
+            // non il numero di righe modificate. Siamo dentro inTx, quindi la fotografia è coerente.
+            long nTx    = countRows("transactions",           selfOrChild, fromId);
+            long nSplit = countRows("transaction_splits",     selfOrChild, fromId);
+            long nSched = countRows("scheduled_transactions", selfOrChild, fromId);
+            execute("UPDATE transactions           SET category_id=? WHERE " + selfOrChild, toId, fromId, fromId);
+            execute("UPDATE transaction_splits     SET category_id=? WHERE " + selfOrChild, toId, fromId, fromId);
+            execute("UPDATE scheduled_transactions SET category_id=? WHERE " + selfOrChild, toId, fromId, fromId);
             execute("DELETE FROM categories WHERE id=?", fromId);
+            touchSyncMeta();
             logger.log("CATEGORIA RIASSEGNATA", "da:" + DbLogger.s(from != null ? from.get("name") : fromId),
-                       "a:" + DbLogger.s(to != null ? to.get("name") : toId));
+                       "a:" + DbLogger.s(to != null ? to.get("name") : toId),
+                       "transazioni:" + nTx, "split:" + nSplit, "pianificate:" + nSched);
             return null;
         });
     }

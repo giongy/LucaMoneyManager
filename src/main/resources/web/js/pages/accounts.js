@@ -363,10 +363,18 @@ window.editAccount = async id => {
   showAccountModal(accounts.find(a=>a.id===id));
 };
 // Elimina un conto e tutte le sue transazioni previa conferma.
+// Il backend rifiuta se esistono trasferimenti IN ENTRATA da altri conti: quelli non
+// cadono con la cascata e lascerebbero i conti di partenza scalati senza contropartita.
+// In quel caso mostriamo il messaggio del backend, che spiega cosa fare.
 window.deleteAccount = async id => {
   const ok = await confirm('Elimina conto','Vuoi eliminare questo conto e tutte le sue transazioni?');
   if (!ok) return;
-  await api.deleteAccount(id);
+  try {
+    await api.deleteAccount(id);
+  } catch (e) {
+    toast(e.message || 'Eliminazione non riuscita', 'error');
+    return;
+  }
   toast('Conto eliminato');
   updateSidebar();
   loadAccountCards();

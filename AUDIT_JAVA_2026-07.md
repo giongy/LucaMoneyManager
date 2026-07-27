@@ -7,7 +7,7 @@
 **52 finding.** Legenda stato: ✅ fatto · ⏳ da fare · 🔕 rischio accettato · ⏭️ valutato e scartato.
 
 **Stato al 2026-07-27 (fine sessione):** **18 chiusi** · 3 a rischio accettato (S1/S3/S4) ·
-1 archiviato (D6) · **30 aperti**.
+2 archiviati (D6 nessun backup pre-v20 · P4 zero non conciliate misurate) · **29 aperti**.
 
 | Commit | Contenuto |
 |---|---|
@@ -17,7 +17,7 @@
 | `b9358bf` | D4 · guardia eliminazione conto · D5 · riassegnazione categoria completa |
 | `43e78cf` | D3 · blocco cancellazione transazioni buy/sell |
 | `5c42ed4` | P1 · P2 · P3 · indici (guadagno misurato ~10%, non il 10× stimato) |
-| *(ultimo)* | R1 · backup fuori dall'EDT · R2 · "Esci" dal tray non salta più il backup |
+| `029571e` | R1 · backup fuori dall'EDT · R2 · "Esci" dal tray non salta più il backup |
 
 **Prossimo critico rimasto: D1** (`importPending` tronca `pending.jsonl`).
 
@@ -260,7 +260,14 @@ guadagno percepibile oggi è vicino a zero. Da non usare come precedente per sti
 - ⏳ **`idx_sched_active`, `idx_note_tags_tag`** — l'audit li dava da rimuovere. Verificato che
   non sono usati da nessuna query (il filtro `is_active` è in Java, `note_tags` non è mai filtrata
   per `tag_id`), ma sono su tabelle minuscole: rimuoverli non misura niente. Lasciati.
-- ⏳ **P4** — è una riga in `init.js` (manca `limit`), non Java.
+- 🗑️ **P4 — ARCHIVIATO, nessun intervento (decisione utente, 2026-07-27).** L'audit lo dava per
+  "cresce senza limite perché buy/sell/cedole inseriscono sempre `reconciled=0`". Misurato sul DB
+  reale: **0 transazioni non conciliate** su 1197, e la query costa **0,27 ms** — la più veloce
+  del benchmark. Il codice le inserisce davvero con `reconciled=0`, ma vengono conciliate: non
+  esiste arretrato. Aggiungere un `limit` non sarebbe nemmeno banale, perché la notice usa la
+  lista in due modi (mostra le prime 4 righe ma conta `list.length` per il titolo e per
+  "+ altre N…"): servirebbe un endpoint di conteggio separato, cioè più codice e più superficie
+  per un problema inesistente. **Riaprire solo se le non conciliate superano qualche centinaio.**
 
 **Verifica di non-regressione:** confronto dell'output di **20 query** (dashboard, budget ×2,
 grafici categoria ×3, portafoglio, conti, `getTransactions` con 8 filtri diversi) fra il codice
@@ -351,7 +358,6 @@ esecuzione. È comunque preferibile alla finestra congelata di prima.
 
 | # | Cosa | Dove |
 |---|---|---|
-| P4 | All'avvio **e a ogni risveglio dal tray** si caricano tutte le transazioni non conciliate senza `limit` (e `buyStock`/`sellStock`/cedole inseriscono sempre `reconciled=0`: crescono senza limite) | `init.js:83`,`:443` |
 | R3 | `TrayManager.enable/disable` (Swing + SystemTray) invocati **fuori dall'EDT** da `setSetting` — certamente off-EDT quando arriva dal WebServer | `Bridge.java:511-526` |
 | R4 | `winPickFolder`: stderr mai letto (buffer ~4 KB) e stream mai chiusi → **deadlock permanente** del virtual thread + powershell zombie | `Bridge.java:246-266` |
 | R5 | All'avvio, se la cartella del DB non è raggiungibile (OneDrive non ancora montato con autostart), l'app **riscrive `db.path`** e crea un DB vuoto. Stessa dinamica in `reloadDb`, che persiste il path prima di verificarlo | `App.java:158-164`, `Bridge.java:658` |

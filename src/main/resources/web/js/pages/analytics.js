@@ -2964,7 +2964,7 @@ const _FC = {
   Z90:        1.645,    // z-score IC 90%
   MAD_SCALE:  1.4826,   // fattore per stimare σ dalla MAD (deviazione assoluta mediana)
   HIST_MIN:   3,        // mesi minimi di storico richiesti
-  HORIZON_MAX: 36,      // mesi massimi di proiezione futura
+  HORIZON_MAX: 120,     // mesi massimi di proiezione futura (10 anni)
 };
 
 // Helper: util mese/anno (riusa _MONTHS_IT, parseYm, fmtYm già usati altrove)
@@ -3043,9 +3043,11 @@ function _fcControlsHtml() {
         <select id="fcHorizM" class="form-control" style="font-size:12px;padding:3px 8px;width:60px">
           ${_buildMonthsForYear(ht.y, curYm, maxHorizonYm, ht.m)}
         </select>
-        <button class="btn btn-xs btn-ghost" id="fcPresetHoriz3"  title="Previsione prossimi 3 mesi">3m</button>
-        <button class="btn btn-xs btn-ghost" id="fcPresetHoriz6"  title="Previsione prossimi 6 mesi">6m</button>
-        <button class="btn btn-xs btn-ghost" id="fcPresetHoriz12" title="Previsione prossimi 12 mesi">12m</button>
+        <button class="btn btn-xs btn-ghost" id="fcPresetHoriz3"   title="Previsione prossimi 3 mesi">3m</button>
+        <button class="btn btn-xs btn-ghost" id="fcPresetHoriz6"   title="Previsione prossimi 6 mesi">6m</button>
+        <button class="btn btn-xs btn-ghost" id="fcPresetHoriz12"  title="Previsione prossimi 12 mesi">12m</button>
+        <button class="btn btn-xs btn-ghost" id="fcPresetHoriz60"  title="Previsione prossimi 5 anni">5a</button>
+        <button class="btn btn-xs btn-ghost" id="fcPresetHoriz120" title="Previsione prossimi 10 anni">10a</button>
         <div style="width:1px;height:20px;background:var(--border);margin:0 10px"></div>
         <button id="fcNetWorth" class="btn btn-xs ${_fcShowNetWorth?'btn-primary':'btn-ghost'}" style="padding:4px 10px"
           title="Includi il valore del portfolio e gli eventi bond (cedole + rimborso a scadenza) nella previsione">💎 Patrimonio netto</button>
@@ -3119,9 +3121,11 @@ function _fcBindControls() {
   document.getElementById('fcPresetHist3').onclick   = () => _applyHistPreset(3);
   document.getElementById('fcPresetHist6').onclick   = () => _applyHistPreset(6);
   document.getElementById('fcPresetHist12').onclick  = () => _applyHistPreset(12);
-  document.getElementById('fcPresetHoriz3').onclick  = () => _applyHorizPreset(3);
-  document.getElementById('fcPresetHoriz6').onclick  = () => _applyHorizPreset(6);
-  document.getElementById('fcPresetHoriz12').onclick = () => _applyHorizPreset(12);
+  document.getElementById('fcPresetHoriz3').onclick   = () => _applyHorizPreset(3);
+  document.getElementById('fcPresetHoriz6').onclick   = () => _applyHorizPreset(6);
+  document.getElementById('fcPresetHoriz12').onclick  = () => _applyHorizPreset(12);
+  document.getElementById('fcPresetHoriz60').onclick  = () => _applyHorizPreset(60);
+  document.getElementById('fcPresetHoriz120').onclick = () => _applyHorizPreset(120);
 }
 
 // Cuore della Previsione Saldo (modello a decomposizione — "pianificate proiettate avanti"):
@@ -3262,9 +3266,17 @@ async function _runForecastSaldo() {
     ? recurring.map(r => fcLine(r.category, '', r.description, Number(r.monthly_amount), '/mese')).join('')
     : `<div style="font-size:12px;color:var(--txt3);padding:2px 0">Nessuna pianificata ricorrente attiva.</div>`;
 
-  // Colonna "Eventi annuali / una-tantum": datati, prefisso con il mese (ym)
+  // Colonna "Eventi annuali / una-tantum": datati, prefisso con il mese (ym).
+  // Su orizzonti lunghi (fino a 10 anni) le occorrenze si moltiplicano: mostra le prime
+  // _FC_LUMPY_MAX in ordine di data e riassumi le restanti (il totale in header resta completo).
+  const _FC_LUMPY_MAX = 60;
+  const _lumpyShown  = lumpyEvents.slice(0, _FC_LUMPY_MAX);
+  const _lumpyHidden = lumpyEvents.length - _lumpyShown.length;
   const lumpyColHtml = lumpyEvents.length
-    ? lumpyEvents.map(e => fcLine(e.category, e.ym, e.description, Number(e.amount), '')).join('')
+    ? _lumpyShown.map(e => fcLine(e.category, e.ym, e.description, Number(e.amount), '')).join('')
+      + (_lumpyHidden > 0
+          ? `<div style="font-size:11px;color:var(--txt3);padding:5px 0;text-align:center">+ altri ${_lumpyHidden} eventi più avanti (inclusi nel totale)</div>`
+          : '')
     : `<div style="font-size:12px;color:var(--txt3);padding:2px 0">Nessun evento annuale/una-tantum nel periodo.</div>`;
 
   // Header di colonna con totale a destra
@@ -3414,6 +3426,9 @@ async function _runForecastSaldo() {
   const _accentCol = _css.getPropertyValue('--accent').trim() || '#4a9eff';
   const _txt2Col   = _css.getPropertyValue('--txt2').trim()   || '#888';
 
+  // Su orizzonti lunghi (fino a 10 anni) i pallini si sovrappongono: rimpiccioliscili/toglili
+  const _pointR = allLabels.length > 90 ? 0 : (allLabels.length > 48 ? 1.5 : 3);
+
   const todayLinePlugin = {
     id: 'fcTodayLine',
     afterDatasetsDraw(chart) {
@@ -3438,13 +3453,13 @@ async function _runForecastSaldo() {
       labels: allLabels,
       datasets: [
         { label: 'Saldo storico', data: dsHist, borderColor: _txt2Col, borderWidth: 2,
-          backgroundColor: 'transparent', pointRadius: 3, tension: 0.3, spanGaps: false, fill: false },
+          backgroundColor: 'transparent', pointRadius: _pointR, pointHitRadius: 8, tension: 0.3, spanGaps: false, fill: false },
         { label: '_ciHigh', data: dsHigh, borderColor: 'transparent',
           backgroundColor: 'rgba(120,180,255,0.28)', pointRadius: 0, tension: 0.3, spanGaps: false, fill: 2 },
         { label: '_ciLow', data: dsLow, borderColor: 'transparent',
           backgroundColor: 'transparent', pointRadius: 0, tension: 0.3, spanGaps: false, fill: false },
         { label: 'Saldo previsto', data: dsProj, borderColor: _accentCol, borderWidth: 2.5,
-          borderDash: [6,4], backgroundColor: 'transparent', pointRadius: 3, tension: 0.3, spanGaps: false, fill: false },
+          borderDash: [6,4], backgroundColor: 'transparent', pointRadius: _pointR, pointHitRadius: 8, tension: 0.3, spanGaps: false, fill: false },
       ],
     },
     options: {

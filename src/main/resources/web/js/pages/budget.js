@@ -20,14 +20,14 @@ async function renderBudgets() {
   if (_budgetAndamentoChart) { _budgetAndamentoChart.destroy(); _budgetAndamentoChart = null; }
   const pg = document.getElementById('pg-budgets');
   pg.innerHTML = `
-    <div style="flex-shrink:0;padding:16px 16px 0;background:var(--bg)">
-      <div class="scheduled-tabs" style="margin-bottom:12px">
+    <div style="flex-shrink:0;padding:12px 16px 0;background:var(--bg)">
+      <div class="scheduled-tabs" style="margin-bottom:10px">
         <button class="sched-tab ${_budgetTab==='grid'?'active':''}"        data-btab="grid"        onclick="_setBudgetTab('grid')">📊 Budget</button>
         <button class="sched-tab ${_budgetTab==='andamento'?'active':''}"   data-btab="andamento"   onclick="_setBudgetTab('andamento')">📈 Andamento</button>
         <button class="sched-tab ${_budgetTab==='scostamenti'?'active':''}" data-btab="scostamenti" onclick="_setBudgetTab('scostamenti')">📉 Scostamenti</button>
         <button class="sched-tab ${_budgetTab==='mese'?'active':''}"        data-btab="mese"        onclick="_setBudgetTab('mese')">🗓 Mese</button>
       </div>
-      <div class="section-header">
+      <div class="section-header" style="margin-bottom:10px">
         <div class="month-nav" style="margin-bottom:0">
           <button id="budgPrev">‹</button>
           <span id="budgYearLabel"></span>
@@ -46,7 +46,7 @@ async function renderBudgets() {
         </div>
       </div>
     </div>
-    <div id="budgetContent" style="flex:1;overflow:hidden;padding:0 8px 12px;display:flex;flex-direction:column">
+    <div id="budgetContent" style="flex:1;overflow:hidden;padding:0 8px 6px;display:flex;flex-direction:column">
       <div id="budgGridWrap" style="display:${_budgetTab==='grid'?'block':'none'};flex:1;overflow:auto;margin-top:14px">
         <table class="budget-table" id="budgetTable">
           <thead id="budgetThead"></thead>
@@ -455,20 +455,24 @@ function renderBudgetAndamento() {
   const deltaProg = realeProg.map((r,i) => r !== null ? r - budgetProg[i] : null);
 
   // ── Render ────────────────────────────────────────────────────────────────
+  // Layout compatto: grafico + tabella devono stare insieme in una schermata senza scroll.
+  // Il grafico usa un'altezza in vh (non le 420px fisse di .proj-chart-wrap) così si adatta
+  // allo schermo, e celle/padding sono ridotti rispetto al resto dell'app.
+  const _cellPad = 'padding:5px 12px';
   el.innerHTML = `
-    <div class="card" style="margin-top:16px;margin-bottom:16px">
-      <div class="proj-chart-wrap"><canvas id="budgAndChart"></canvas></div>
+    <div class="card" style="margin-top:10px;margin-bottom:10px;padding:10px">
+      <div style="position:relative;height:clamp(240px,42vh,460px)"><canvas id="budgAndChart"></canvas></div>
     </div>
-    <div class="card" style="overflow-x:auto">
-      <table id="budgAndTable" style="width:100%;border-collapse:collapse">
+    <div class="card" style="overflow-x:auto;padding:10px">
+      <table id="budgAndTable" style="width:100%;border-collapse:collapse;font-size:12.5px">
         <thead><tr>
-          <th style="text-align:left;padding:7px 12px;border-bottom:2px solid var(--border);color:var(--txt2);font-weight:600">Mese</th>
-          <th data-col="bm" style="text-align:right;padding:7px 12px;border-bottom:2px solid var(--border);border-left:2px solid var(--accent);color:var(--txt2);font-weight:600;cursor:grab">Budget mese (A)</th>
-          <th data-col="rm" style="text-align:right;padding:7px 12px;border-bottom:2px solid var(--border);border-left:1px solid var(--border);color:var(--txt2);font-weight:600;cursor:grab">Reale mese (B)</th>
-          <th data-col="dm" style="text-align:right;padding:7px 12px;border-bottom:2px solid var(--border);border-left:1px solid var(--border);color:var(--txt2);font-weight:600;cursor:grab">Δ mese (B−A)</th>
-          <th data-col="bp" style="text-align:right;padding:7px 12px;border-bottom:2px solid var(--border);border-left:2px solid var(--accent2);color:var(--txt2);font-weight:600;cursor:grab">Budget prog. (AA)</th>
-          <th data-col="rp" style="text-align:right;padding:7px 12px;border-bottom:2px solid var(--border);border-left:1px solid var(--border);color:var(--txt2);font-weight:600;cursor:grab">Reale prog. (BB)</th>
-          <th data-col="dp" style="text-align:right;padding:7px 12px;border-bottom:2px solid var(--border);border-left:1px solid var(--border);color:var(--txt2);font-weight:600;cursor:grab">Δ prog. (BB−AA)</th>
+          <th style="text-align:left;${_cellPad};border-bottom:2px solid var(--border);color:var(--txt2);font-weight:600">Mese</th>
+          <th data-col="bm" style="text-align:right;${_cellPad};border-bottom:2px solid var(--border);border-left:2px solid var(--accent);color:var(--txt2);font-weight:600;cursor:grab">Budget mese (A)</th>
+          <th data-col="rm" style="text-align:right;${_cellPad};border-bottom:2px solid var(--border);border-left:1px solid var(--border);color:var(--txt2);font-weight:600;cursor:grab">Reale mese (B)</th>
+          <th data-col="dm" style="text-align:right;${_cellPad};border-bottom:2px solid var(--border);border-left:1px solid var(--border);color:var(--txt2);font-weight:600;cursor:grab">Δ mese (B−A)</th>
+          <th data-col="bp" style="text-align:right;${_cellPad};border-bottom:2px solid var(--border);border-left:2px solid var(--accent2);color:var(--txt2);font-weight:600;cursor:grab">Budget prog. (AA)</th>
+          <th data-col="rp" style="text-align:right;${_cellPad};border-bottom:2px solid var(--border);border-left:1px solid var(--border);color:var(--txt2);font-weight:600;cursor:grab">Reale prog. (BB)</th>
+          <th data-col="dp" style="text-align:right;${_cellPad};border-bottom:2px solid var(--border);border-left:1px solid var(--border);color:var(--txt2);font-weight:600;cursor:grab">Δ prog. (BB−AA)</th>
         </tr></thead>
         <tbody>${MONTHS_SHORT.map((mName, i) => {
           const bm = budgetMese[i], bp = budgetProg[i];
@@ -479,18 +483,18 @@ function renderBudgetAndamento() {
           const colD  = v => v == null ? '' : v >= 0 ? 'color:var(--income)' : 'color:var(--expense)';
           const sep   = s => s ? `border-left:2px solid ${s};` : '';
           const _cbl  = s => s==='bm'?'border-left:2px solid var(--accent);':s==='bp'?'border-left:2px solid var(--accent2);':s==='rm'||s==='dm'||s==='rp'||s==='dp'?'border-left:1px solid var(--border);':'';
-          const td  = (v, s='') => `<td data-col="${s}" style="text-align:right;padding:7px 12px;border-bottom:1px solid var(--border);${_cbl(s)}">${v!=null?fmt.currency(v):'—'}</td>`;
-          const tdd = (v, s='') => `<td data-col="${s}" style="text-align:right;padding:7px 12px;border-bottom:1px solid var(--border);${_cbl(s)}${colD(v)}">${fmtD(v)}</td>`;
-          const dash = (s='') => `<td data-col="${s}" style="text-align:right;padding:7px 12px;border-bottom:1px solid var(--border);${_cbl(s)}color:var(--txt3)">—</td>`;
+          const td  = (v, s='') => `<td data-col="${s}" style="text-align:right;${_cellPad};border-bottom:1px solid var(--border);${_cbl(s)}">${v!=null?fmt.currency(v):'—'}</td>`;
+          const tdd = (v, s='') => `<td data-col="${s}" style="text-align:right;${_cellPad};border-bottom:1px solid var(--border);${_cbl(s)}${colD(v)}">${fmtD(v)}</td>`;
+          const dash = (s='') => `<td data-col="${s}" style="text-align:right;${_cellPad};border-bottom:1px solid var(--border);${_cbl(s)}color:var(--txt3)">—</td>`;
           const rowBg = past && dm !== null ? (dm > 0 ? 'background:rgba(63,185,80,.04)' : dm < 0 ? 'background:rgba(248,81,73,.04)' : '') : '';
           return `<tr style="${rowBg}">
-            <td style="padding:7px 12px;border-bottom:1px solid var(--border);font-weight:500">${mName} ${budgetYear}</td>
+            <td style="${_cellPad};border-bottom:1px solid var(--border);font-weight:500">${mName} ${budgetYear}</td>
             ${td(bm,'bm')}
             ${past ? td(rm,'rm') : dash('rm')}
-            ${past ? tdd(dm,'dm') : '<td data-col="dm" style="padding:7px 12px;border-bottom:1px solid var(--border);border-left:1px solid var(--border)"></td>'}
+            ${past ? tdd(dm,'dm') : `<td data-col="dm" style="${_cellPad};border-bottom:1px solid var(--border);border-left:1px solid var(--border)"></td>`}
             ${td(bp,'bp')}
             ${past ? td(rp,'rp') : dash('rp')}
-            ${past ? tdd(dp,'dp') : '<td data-col="dp" style="padding:7px 12px;border-bottom:1px solid var(--border);border-left:1px solid var(--border)"></td>'}
+            ${past ? tdd(dp,'dp') : `<td data-col="dp" style="${_cellPad};border-bottom:1px solid var(--border);border-left:1px solid var(--border)"></td>`}
           </tr>`;
         }).join('')}</tbody>
       </table>
@@ -571,9 +575,13 @@ function renderBudgetAndamento() {
     },
     options: {
       responsive: true, maintainAspectRatio: false,
+      // Layout compatto: nessun padding extra e legenda con box piccoli, per lasciare
+      // più altezza possibile all'area del grafico (deve stare a schermo con la tabella).
+      layout: { padding: { top: 0, bottom: 0 } },
       interaction: { mode: 'index', intersect: false },
       plugins: {
-        legend: { labels: { color: chartColors().tick } },
+        legend: { labels: { color: chartColors().tick, boxWidth: 14, boxHeight: 14, padding: 10,
+                            font: { size: 12 } } },
         tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmt.currency(ctx.parsed.y)}` } },
         zoom: zoomOpts()
       },

@@ -546,13 +546,20 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                 if (Settings.BOOTSTRAP_KEYS.contains(key)) settings.set(key, value);
                 else db.setAppSetting(key, value);
                 if (Settings.AUTOSTART_ENABLED.equals(key)) {
-                    if ("1".equals(value)) {
-                        TrayManager.enable(window);
-                        TrayManager.registerAutostart();
-                    } else {
-                        TrayManager.unregisterAutostart();
-                        TrayManager.disable();
-                    }
+                    final boolean on = "1".equals(value);
+                    // enable()/disable() costruiscono e registrano componenti Swing (JPopupMenu,
+                    // JDialog, JLabel/JPanel) e toccano la SystemTray: vanno sull'EDT come tutte
+                    // le altre operazioni su window in questo switch. Qui NON siamo sull'EDT —
+                    // dispatch gira sul thread UI di JCEF, e sui virtual thread del WebServer
+                    // quando la richiesta arriva dal browser del telefono.
+                    SwingUtilities.invokeLater(() -> {
+                        if (on) TrayManager.enable(window);
+                        else    TrayManager.disable();
+                    });
+                    // La chiave di registro invece NON è codice Swing: resta fuori dall'EDT,
+                    // così lo spawn di reg.exe non blocca il thread grafico.
+                    if (on) TrayManager.registerAutostart();
+                    else    TrayManager.unregisterAutostart();
                 }
                 yield Map.of("ok", true);
             }

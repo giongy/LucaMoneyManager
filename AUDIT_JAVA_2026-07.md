@@ -6,8 +6,8 @@
 
 **52 finding.** Legenda stato: ✅ fatto · ⏳ da fare · 🔕 rischio accettato · ⏭️ valutato e scartato.
 
-**Stato al 2026-07-27 (fine sessione):** **18 chiusi** · 3 a rischio accettato (S1/S3/S4) ·
-2 archiviati (D6 nessun backup pre-v20 · P4 zero non conciliate misurate) · **29 aperti**.
+**Stato al 2026-07-27 (fine sessione):** **19 chiusi** · 3 a rischio accettato (S1/S3/S4) ·
+2 archiviati (D6 nessun backup pre-v20 · P4 zero non conciliate misurate) · **28 aperti**.
 
 | Commit | Contenuto |
 |---|---|
@@ -18,6 +18,7 @@
 | `43e78cf` | D3 · blocco cancellazione transazioni buy/sell |
 | `5c42ed4` | P1 · P2 · P3 · indici (guadagno misurato ~10%, non il 10× stimato) |
 | `029571e` | R1 · backup fuori dall'EDT · R2 · "Esci" dal tray non salta più il backup |
+| *(ultimo)* | R3 · Swing sull'EDT in setSetting(autostart) |
 
 **Prossimo critico rimasto: D1** (`importPending` tronca `pending.jsonl`).
 
@@ -354,11 +355,36 @@ esecuzione. È comunque preferibile alla finestra congelata di prima.
 
 ---
 
+## ✅ FATTO — 2026-07-27 · R3 · Swing fuori dall'EDT
+
+`setSetting("autostart.enabled", …)` chiamava `TrayManager.enable()`/`disable()` direttamente dal
+thread di dispatch. `enable()` costruisce un `JPopupMenu`, un `JDialog`, `JLabel`/`JPanel` e
+registra l'icona nella `SystemTray`: è tutto codice Swing, che va eseguito sull'EDT. Nello
+**stesso** `switch`, le altre cinque operazioni su `window` (minimize, maximize, close,
+setWindowPos, setWindowBounds) erano già correttamente avvolte in `invokeLater` — l'incoerenza è
+la prova che si trattava di una dimenticanza, non di una scelta.
+
+Il caso certo non è teorico: attivando "Avvio automatico" **dal browser del telefono** la
+richiesta arriva dal WebServer, che usa un virtual thread per richiesta, quindi l'intera gerarchia
+del menu tray veniva costruita fuori dall'EDT. Sintomi tipici, non deterministici e scollegati
+dalla causa: menu tray che non si apre più al click destro, NPE interne a `BoxLayout`/`JPopupMenu`
+in `app.log`, icona fantasma che resta dopo l'uscita.
+
+Fix: `enable()`/`disable()` dentro `SwingUtilities.invokeLater`. `registerAutostart()`/
+`unregisterAutostart()` restano **fuori** dall'EDT di proposito: scrivono la chiave di registro
+con `ProcessBuilder` e non sono codice Swing — metterle sull'EDT bloccherebbe il thread grafico
+per lo spawn di `reg.exe` (~50-150 ms).
+
+Verificati anche gli altri due chiamanti, entrambi **già corretti**, nessuna modifica necessaria:
+`TrayManager.doExit` parte da un `MouseListener` (quindi è già sull'EDT per costruzione) e
+`App.java:269` gira dentro l'`invokeAndWait` di avvio.
+
+---
+
 ## ⏳ DA FARE — alti
 
 | # | Cosa | Dove |
 |---|---|---|
-| R3 | `TrayManager.enable/disable` (Swing + SystemTray) invocati **fuori dall'EDT** da `setSetting` — certamente off-EDT quando arriva dal WebServer | `Bridge.java:511-526` |
 | R4 | `winPickFolder`: stderr mai letto (buffer ~4 KB) e stream mai chiusi → **deadlock permanente** del virtual thread + powershell zombie | `Bridge.java:246-266` |
 | R5 | All'avvio, se la cartella del DB non è raggiungibile (OneDrive non ancora montato con autostart), l'app **riscrive `db.path`** e crea un DB vuoto. Stessa dinamica in `reloadDb`, che persiste il path prima di verificarlo | `App.java:158-164`, `Bridge.java:658` |
 | X1 | **XSS persistente** (nessun escaping, `innerHTML` su `description`). L'iniezione via LAN non è più nel modello di minaccia (vedi 🔕 S1/S3/S4), ma resta raggiungibile da una riga di `pending.jsonl` scritta da Android. La catena verso l'esecuzione di file è comunque tagliata da ✅ S2. *(area JS, fuori dal perimetro Java)* | `init.js:161`,`:215`, `transactions.js:508`,`:518` |

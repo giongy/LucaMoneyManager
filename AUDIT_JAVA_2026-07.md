@@ -1,0 +1,199 @@
+# Audit codice Java — luglio 2026
+
+> Scope: `src/main/java/com/moneymanager/*.java` (12 file, ~7.400 righe) · Data: 2026-07-26/27
+> Metodo: 6 analisi parallele (concorrenza, integrità dati, performance, sicurezza, robustezza, manutenibilità), findings verificati sul codice reale.
+> Predecessore: [AUDIT_ROBUSTEZZA_JAVA.md](AUDIT_ROBUSTEZZA_JAVA.md) (2026-07-18, focus logging/eccezioni).
+
+**52 finding.** Legenda stato: ✅ fatto · ⏳ da fare · ⏭️ valutato e scartato.
+
+---
+
+## ✅ FATTO — 2026-07-27 · Concorrenza sulla Connection
+
+Tutto in `Database.java` salvo dove indicato. Compila (`mvn compile` OK). **Da provare a mano** (vedi § Test manuali).
+
+- ✅ **`conn` è `volatile`** — letto senza lock da `isOpen()`, che il polling del tray chiama ogni 2s.
+- ✅ **`close()` è l'unico punto di chiusura** e ha la guardia `if (activeQueries > 0) return;`
+  Ci passano ora anche: il TimerTask di auto-release (prima faceva `conn.close()` diretto, quindi
+  **non aggiornava la baseline mtime/size** → il rilevamento "DB modificato esternamente" era muto
+  dopo ogni rilascio idle), `reconnect()` e `restoreBackup()`.
+- ✅ **`restoreBackup` non azzera più `conn`** (`conn = null` era la causa possibile di un NPE nel
+  TimerTask → morte del thread del Timer → tutte le query in errore fino al riavvio). Ora sospende
+  anche l'auto-release per tutta la durata, e azzera la baseline dopo il ripristino.
+- ✅ **`reconnect` azzera la baseline** dopo il cambio file: si riferiva al DB precedente e avrebbe
+  prodotto una falsa "modifica esterna" al primo accesso sul nuovo.
+- ✅ **`synchronized` su tutto ciò che riassegna `conn`**: `reopen`, `reconnect`, `restoreBackup`,
+  `withExclusiveAccess`, `close`, `closeManual`. Senza, `reopen()` (EDT, dal tray) e `ensureOpen()`
+  (thread di una query) potevano aprire **due** connessioni e perderne una: orfana, file handle
+  aperto fino a fine processo → lock su OneDrive mai rilasciato → file di conflitto e divergenza
+  con Android, cioè esattamente ciò che l'auto-release esiste per evitare.
+- ✅ **`inTx` è `synchronized` e usa `beginQuery()/endQuery()`** invece di `ensureOpen()` + campo
+  `conn`: prende la Connection sotto lock e tiene `activeQueries > 0` per **tutta** la transazione
+  (prima tornava a 0 fra uno statement e l'altro, quindi nessuna guardia la vedeva).
+- ✅ **TimerTask: `catch (Throwable)`** invece di `SQLException`, e `idleTimer.schedule` protetto da
+  `IllegalStateException`. Un'eccezione che sfuggiva da `run()` terminava il thread del Timer, e da
+  lì ogni `schedule()` lanciava risalendo fino a `beginQuery()` → **tutte** le query fallivano.
+- ✅ **Shutdown hook** in `App.java`: chiude il DB all'uscita. I due percorsi (X sulla finestra,
+  "Esci" dal tray) facevano `System.exit(0)` senza chiudere → lock trattenuto e possibile
+  `<db>-journal` orfano sincronizzato su OneDrive.
+
+**Invariante risultante** (ora documentata nel javadoc della classe e in CLAUDE.md):
+> `conn` si legge/scrive solo sotto lock · si chiude solo da `close()` · `close()` non chiude se c'è lavoro in volo.
+
+### ✅ Commenti e documentazione allineati
+- javadoc di `Database`: diceva *"è sicuro perché le chiamate arrivano serializzate dal thread UI di JCEF"* — **falso** da quando esiste il WebServer. Sostituito con l'invariante.
+- `activeQueries`: citava `withConnection()`, metodo che non esiste (è `beginQuery()`).
+- `autoReleaseEnabled`: citava "Backup/reconnect" fra chi lo sospende; in realtà sono `inTx`, `restoreBackup`, `withExclusiveAccess`.
+- `ensureSystemTags`: elencava 3 tag su 4 — mancava **RAGGRUPPATE**, su cui poggia lo svecchiamento.
+- `phoneTagId`: diceva "creato in seedDefaultData", è `ensureSystemTags`.
+- `initSchema`: diceva "tutte le tabelle"; ora precisa che `sync_meta`/`imported_pending` nascono altrove e che `CREATE IF NOT EXISTS` **non aggiunge colonne** a tabelle esistenti.
+- `getDueToday`: prometteva "prossima occorrenza", confronta solo `start_date`.
+- `tryParseDate`: messaggio "data pianificata non valida" usato anche per le scadenze obbligazionarie, con `id` sempre `null` (la SELECT non lo seleziona) → messaggio generico + passa il `ticker`.
+- `migrate()`: aggiunta la nota sul limite noto (vedi ⏳ D1).
+- **CLAUDE.md**: 22 tabelle (non 21, mancava `imported_pending`), LOC e conteggi reali, 14 moduli JS, `temp_store=MEMORY`, nuova sezione sull'invariante della connessione.
+- **ARCHITECTURE.md**: 11 riferimenti `#Lnnn` marci corretti, 133 case, nota su virtual thread e `activeQueries`.
+
+---
+
+## ⏳ DA FARE — critici
+
+### S1 · WebServer senza autenticazione, attivo di default `WebServer.java:27` `Settings.java:28`
+Bind su `0.0.0.0:7890`, `http.enabled` default `"1"`, zero controlli di identità. Su wifi pubblico
+chiunque legge tutte le finanze e può cancellarle.
+→ Token condiviso (`http.token` bootstrap, header `X-Auth`, confronto con `MessageDigest.isEqual`) + default `"0"`.
+
+### S2 · `openAttachment` esegue file arbitrari — RCE dalla LAN `Bridge.java:561`
+`Path.of(attDir).resolve(relPath)` senza `normalize()`/`startsWith()`. `resolve()` **restituisce il
+path se è assoluto** → `\\host\share\payload.exe` bypassa `attDir` e `Desktop.open` lo esegue.
+Non è in blocklist; `setSetting` nemmeno → l'attaccante imposta prima `attachments.dir`.
+Stesso bug in `removeAttachment` (`Bridge.java:585`) → cancellazione di file arbitrari.
+Raggiungibile anche **senza rete**: `attachment_path` arriva dal DB su OneDrive.
+```java
+Path base = Path.of(attDir).toAbsolutePath().normalize();
+Path file = base.resolve(relPath).normalize();
+if (!file.startsWith(base)) yield Map.of("error", "Percorso allegato non valido");
+```
+
+### S3 · Blocklist WebServer → allowlist `WebServer.java:46-57`
+Blocca 17 metodi su 133 (e `resetJcef` non esiste più: voce morta). Restano esposti `doBackup`,
+`restoreBackup`, `attachFile`, `removeAttachment`, `reloadDb`, `setSetting`, `purgeLog`,
+`clearAppLog`, `dbVacuum`, tutte le `delete*`.
+Esfiltrazione in 3 chiamate: `setSetting backup.dir=<...>/web` → `doBackup` → `GET /*.db.bak`.
+
+### S4 · `Access-Control-Allow-Origin: *` `WebServer.java:103`,`:63`
+Il body va come `text/plain` → simple request, nessun preflight: qualsiasi pagina web può fare CSRF
+su `127.0.0.1:7890`, e con ACAO:* **leggere** la risposta.
+→ Rimuovere l'header (il frontend è same-origin) e richiedere il token in header custom.
+
+### D1 · `importPending` tronca `pending.jsonl` `Database.java:1618`→`:1687`
+Legge N righe, riscrive N righe. Se OneDrive completa il download fra le due, **le transazioni del
+telefono spariscono per sempre**. L'import parte al boot, il momento di massima attività di sync.
+→ Ricontrollare size+mtime prima di `Files.write`; se cambiati, saltare la riscrittura (le
+transazioni sono già nel DB, `imported_pending` garantisce l'idempotenza).
+
+### D2 · Drift delle ricorrenze `Database.java:2532` `:2775-2796` `:2478`
+`plusMonths(1)` clampa il 31 gennaio a 28 febbraio e `advanceScheduled` **lo persiste**: da marzo
+l'affitto è pianificato il 28 per sempre. `original_start_date` esiste per questo ma **non è letta
+da nessuna parte**. Bug gemello in `firstOccurrenceFrom`, che deriva da una data già clampata →
+tutte le proiezioni con date di fine mese cadono nel giorno sbagliato.
+→ In `firstOccurrenceFrom` ricalcolare da `start` (`start.plusMonths(months+1)`, idem yearly/
+bimonthly/quarterly/semiannual); in `advanceScheduled` ancorare a `original_start_date`.
+⚠️ **Modifica il comportamento di pianificate esistenti**: da testare a mano prima di rilasciare.
+
+### D3 · Cancellare una transazione di portafoglio `Database.java:1874` + schema `:704`
+Il CASCADE distrugge la riga `portfolio_transactions` ma `portfolio.quantity`/`avg_price` restano →
+patrimonio gonfiato e P&L successivo su base sbagliata. L'undo ricrea la transazione con id nuovo:
+legame perso. Nessun avviso in cancellazione (c'è solo in modifica, `transactions.js:659`).
+→ Bloccare la delete se esiste un `portfolio_transactions` collegato.
+
+---
+
+## ⏳ DA FARE — alti
+
+| # | Cosa | Dove |
+|---|---|---|
+| D4 | Eliminare un conto lascia **trasferimenti orfani che scalano il conto sorgente per sempre** (`to_account_id ON DELETE SET NULL` + il `CASE` del saldo) | schema `:648-649`, `deleteAccount:1141` |
+| D5 | `reassignCategory` non tocca `transaction_splits` né `scheduled_transactions` (`SET NULL`) → quegli importi **escono da tutti i report per categoria**; `getCategoryUsage` non li conta e i `budgets` vecchi vengono cancellati dal CASCADE | `:1357`, `getCategoryUsage:1343` |
+| P1 | `strftime('%Y',date)` nel WHERE annulla `idx_tx_date` → **7 scansioni complete per apertura dashboard** (~35.000 righe invece di ~3.500). Sostituire con `date >= ? AND date < ?` (`getCategoryComparison:4612` lo fa già: è il modello) | 10 punti: `:3648 :3721 :3735 :3740 :2215 :2222 :2254 :2259 :1445 :1449` |
+| P2 | `getPortfolio`: 9 subquery correlate × N posizioni e **nessun indice su `portfolio_transactions(portfolio_id)`** → ~270 scansioni per apertura pagina | `:3049` |
+| P3 | `getTransactions`: le subquery `sp`/`pt` hanno `GROUP BY` → **non flattenabili**, materializzate per intero a ogni filtro/ordinamento anche con 40 righe a video | `:1424-1433` |
+| P4 | All'avvio **e a ogni risveglio dal tray** si caricano tutte le transazioni non conciliate senza `limit` (e `buyStock`/`sellStock`/cedole inseriscono sempre `reconciled=0`: crescono senza limite) | `init.js:83`,`:443` |
+| R1 | Backup automatico (copia integrale del DB) **sull'EDT** durante la chiusura → freeze di secondi, minuti se il file è cloud-only | `MainWindow.java:99-110` |
+| R2 | **"Esci" dal tray salta il backup automatico**: `dispose()` emette `windowClosed`, non `windowClosing` | `TrayManager.java:459` |
+| R3 | `TrayManager.enable/disable` (Swing + SystemTray) invocati **fuori dall'EDT** da `setSetting` — certamente off-EDT quando arriva dal WebServer | `Bridge.java:511-526` |
+| R4 | `winPickFolder`: stderr mai letto (buffer ~4 KB) e stream mai chiusi → **deadlock permanente** del virtual thread + powershell zombie | `Bridge.java:246-266` |
+| R5 | All'avvio, se la cartella del DB non è raggiungibile (OneDrive non ancora montato con autostart), l'app **riscrive `db.path`** e crea un DB vuoto. Stessa dinamica in `reloadDb`, che persiste il path prima di verificarlo | `App.java:158-164`, `Bridge.java:658` |
+| D6 | `migrate()` **timbra v20 su DB con schema più vecchio** senza aggiungere le colonne: ripristinare un backup vecchio produce `no such column` sparsi e permanenti. Serve almeno un log nei due rami anomali | `:919`, nota già nel codice |
+| X1 | **XSS persistente** (nessun escaping, `innerHTML` su `description`) → catena verso `api.openAttachment`. Parte all'avvio senza click via una riga di `pending.jsonl`. *(area JS, fuori dal perimetro Java)* | `init.js:161`,`:215`, `transactions.js:508`,`:518` |
+
+---
+
+## ⏳ DA FARE — medi
+
+- **Operazioni multi-scrittura senza `inTx`**: `setBudgetBulk` (`:2331`, 12 commit → mezzo anno aggiornato se crasha), `generateBudget` (`:2244`, ~600 INSERT = **600 commit** con journal create/fsync/delete su OneDrive — sono i secondi del pulsante "Genera budget"), `saveNote` (`:1956`, la nota **perde tutti i tag**), `copyBudgetFromYear`, `deleteBudgetYear`, `addScheduled`/`updateScheduled`, `saveForecast`, `seedDefaultData`.
+- **`touchSyncMeta`** (`:600`): 3 statement di cui un DDL a ogni scrittura (spuntare "conciliata" = 4 commit invece di 1). E **manca** su categorie, tag, pianificate, budget e **tutto il portafoglio** → Android non vede una sessione di trading. → Spostare il `CREATE TABLE` in `initSchema`, fondere i due INSERT.
+- **Nessuna validazione "somma split = importo"** (`saveSplits:2080`): la tolleranza JS è `> 0.01`, quindi 3×33,33 su 100 € passa → dashboard 100,00 vs torta 99,99, per sempre.
+- **`excluded_from_budget` ignorato sulle transazioni suddivise** (`:3644` vs `:3729`): `category_id` è NULL → l'intero importo entra nei totali anche se tutti gli split sono su categorie escluse.
+- **`importPending` non ri-marca `applied`** (`:1658`, il javadoc a `:1609` promette il contrario): Android continua a scalare l'importo dal saldo mostrato **per sempre** e la riga non è mai eleggibile per la pulizia a 30 giorni.
+- **`DbLogger.log()` non thread-safe** (`DbLogger.java:99`): chiamato da 4 famiglie di thread; righe intrecciate → operazioni fantasma nel sidecar JSON del backup.
+- **Il purge del log non ricalcola `startOffset`** (`DbLogger.java:135`,`:168`) → `hasModifications()` torna `false` → **il backup automatico non parte e nessuno lo dice**.
+- **`getForecastDetail`** (`:4141`): N+1 (50 query) su `transaction_splits` senza indice su `category_id` → 50 scansioni complete.
+- **`backup()` e `restoreBackup()` non escludono gli altri thread**: con `journal=DELETE`, copiare durante una transazione produce un **.bak corrotto** che scopri il giorno del ripristino. (`restoreBackup` è ora `synchronized`; `backup()` **no**.)
+- **Salva/ripristina di `autoReleaseEnabled` non rientrante** (`inTx:579`, `withExclusiveAccess:3759`): due sospensioni sovrapposte possono lasciare l'auto-release **spento per il resto della sessione** → lock OneDrive mai rilasciato. → Contatore `autoReleaseSuspend` invece del salva/ripristina. *(Attenuato ma non risolto dal `synchronized` su `inTx`.)*
+- **`fetchOnlinePrice` senza timeout di risposta** (`Bridge.java:851`): `connectTimeout` copre solo l'handshake → la Promise JS non si risolve mai.
+- **`Desktop.open/browse` sul thread di dispatch** (7 punti in `Bridge.java`) → 2-4 s di UI congelata.
+- **Registrazione pianificata non atomica** (`dashboard.js:963`): se `advanceScheduled` fallisce dopo il commit di `addTransaction` → **doppia registrazione** al secondo tentativo.
+- **`reopen()` sull'EDT** (`MainWindow.java:211`,`:242`, `TrayManager.java:285`): apertura di un file OneDrive de-idratato blocca l'intera UI Swing.
+- **Porta 47291 occupata** → l'app **esce in silenzio assoluto** e non parte più (`SingleInstance.java:22`, `App.java:138`). → Se il "SHOW" fallisce, `return true`.
+- **`Integer.parseInt(backup.max)` senza fallback** (`Bridge.java:670`,`:705`; protetto invece in `MainWindow.java:106`): un campo svuotato rompe il backup pre-svecchiamento, che è irreversibile.
+- **`readAllBytes` senza limite** su POST `/bridge` (`WebServer.java:37`) + nessun timeout → OOM dalla LAN.
+- **`deletePortfolioItem`** (`:3568`) lascia orfane le transazioni di acquisto e le commissioni.
+- **`updateTransaction`** (`:1810`) aggiorna `portfolio_transactions.price` solo per `coupon`/`expense`: correggere l'importo di un acquisto lascia `avg_price` vecchio.
+- **`getProjectionByCategory`** (`:4063`) è l'unica delle 6 copie del loop pianificate che usa `LocalDate.parse` diretto invece di `tryParseDate` → una data corrotta fa esplodere l'intera vista.
+- **Divisione per zero** in `buyStock` (`:3206`,`:3213`) con `qty == 0` → `NaN` in `avg_price`. Validato solo lato JS.
+- **`archiveTransactions`** (`:2752`) fa DELETE riga per riga (1000-2000 statement).
+- **`getScheduled()` chiamato 2 volte in `getProjection`** (`:2905`,`:3005`) con filtri divergenti sui trasferimenti.
+- **WebServer: ramo `/` senza catch e nessun logging** in entrambi i rami *(resto di C3 del audit precedente)*.
+
+---
+
+## ⏳ DA FARE — indici e pulizia
+
+**Aggiungere** (ognuno giustificato da query reali):
+```sql
+CREATE INDEX IF NOT EXISTS idx_porttx_portfolio ON portfolio_transactions(portfolio_id, type);
+CREATE INDEX IF NOT EXISTS idx_splits_cat       ON transaction_splits(category_id);
+CREATE INDEX IF NOT EXISTS idx_tx_unreconciled  ON transactions(date) WHERE reconciled = 0;
+```
+**Rimuovere:** `idx_tx_account` (ridondante con `(account_id,date)`), `idx_sched_active` (mai usato: il filtro `is_active` è in Java in 8 punti), `idx_note_tags_tag` (coperto dalla PK).
+**`PRAGMA optimize` in `close()`**: popola `sqlite_stat1`, che serve al join con `OR` di `getAccounts` (`:1092`). `ANALYZE` non gira mai automaticamente.
+**Non** introdurre una cache di `PreparedStatement`: `sqlite3_prepare_v2` costa 10-50 µs contro una soglia slow-query di 50 ms.
+
+**Codice morto** (verificato: zero `api.<nome>(` in `web/js/`):
+`case "deleteBudget"` + `Database.deleteBudget` · `case "getUpcoming"` + `Database.getUpcoming` (28 righe) · `case "getNote"` (⚠️ `Database.getNote` è **vivo**: lo usano `saveNote` e `setNotePinned`) · `method.equals("resetJcef")` in `WebServer.java:53` · campo `cefApp` in `MainWindow.java:21`,`:31` (write-only).
+
+**Duplicazione con divergenza già presente:** `ABS(amount)` vs `amount` nelle 5 copie di "somma income/expense" (coincidono solo perché oggi gli importi sono tutti positivi) · CTE `cat_amounts` ×5 e filtro `excluded_from_budget` ×19 · valorizzazione bond/equity ×8 SQL + ×2 Java con **3 trattamenti diversi** dei conti investment · cascata "categoria commissioni" identica in `buyStock`/`sellStock` · costante `12.5` (aliquota cedole) in 4 punti.
+
+**Organizzazione:** 100 righe di helper delle transazioni (`saveTags`, `saveSplits`, `getTransactionById`, `parseTags`…) stanno sotto il separatore `─── Resoconti ───`; `readLog` sotto `─── Allegati ───`; `getCategoryMonthTable`/`getCategoryComparison` in coda al file invece che in Analytics.
+
+**Errori invisibili:** 4 case restituiscono `Map.of("error", …)` invece di lanciare (`Bridge.java:537`,`:560`,`:563`,`:709`) → non passano dal catch centrale, **non finiscono in app.log e non incrementano il badge errori**. Fra questi il fallimento del backup pre-svecchiamento.
+
+---
+
+## Test manuali consigliati dopo le modifiche del 2026-07-27
+
+1. Avvio normale → dashboard, transazioni, portafoglio, budget.
+2. **Minimizza mentre salvi** una transazione con split (ideale: salvataggio dal browser LAN e minimize sul desktop insieme) → la transazione deve risultare completa o assente, mai a metà.
+3. Tray: chiudi al tray, aspetta >20 s, riapri → i dati si ricaricano e non compare un falso "DB modificato esternamente".
+4. Tray: "Chiudi connessione DB" → "Riapri connessione DB" ripetuto qualche volta, poi verifica con Process Explorer che ci sia **un solo** handle su `luca.db`.
+5. Cambio file DB da Impostazioni e ripristino di un backup → nessun falso refresh, nessun errore al primo accesso.
+6. Uscita dall'app (X e "Esci" dal tray) → nessun file `luca.db-journal` residuo nella cartella OneDrive.
+
+---
+
+## ⏭️ Valutato e scartato
+
+- **Cache di `PreparedStatement`** — guadagno non misurabile, rischio di leak (vedi sopra).
+- **Pool di connessioni** — incompatibile con l'auto-release del lock, che è il vincolo di progetto.
+- **Spezzare `Database.java` in più classi** — fuori dalle convenzioni del progetto (nessun refactoring non richiesto).
+- **Cambiare `journal=DELETE`/`synchronous=FULL`** — scelta deliberata per la sync OneDrive. La leva giusta è ridurre il **numero** di commit, non indebolire la durabilità.

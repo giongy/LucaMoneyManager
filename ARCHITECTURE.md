@@ -93,7 +93,7 @@ Java 25  +  JCEF v146 (Chromium embedded)  +  SQLite (JDBC)
 |------|-------------|
 | Splash mostrata prima di JCEF | Al primo avvio JCEF scarica ~200MB di Chromium: senza splash sembra che l'app non sia partita. |
 | `setErr/setOut` su `app.log` | Le eccezioni di JCEF/SQLite/Swing non andrebbero altrimenti da nessuna parte (l'app non ha console in modalità windowed). |
-| `uiReady` callback invece di `onLoadEnd` | Con la GPU attiva il primo composite arriva ~500ms DOPO `onLoadEnd` → senza questo trigger si vede un flash nero dietro la splash che svanisce. Il JS chiama `api.uiReady()` dopo un double-`requestAnimationFrame` per avere certezza che un frame sia stato dipinto. Vedi [init.js:324](src/main/resources/web/js/init.js#L324) e [Bridge.java:260](src/main/java/com/moneymanager/Bridge.java#L260). |
+| `uiReady` callback invece di `onLoadEnd` | Con la GPU attiva il primo composite arriva ~500ms DOPO `onLoadEnd` → senza questo trigger si vede un flash nero dietro la splash che svanisce. Il JS chiama `api.uiReady()` dopo un double-`requestAnimationFrame` per avere certezza che un frame sia stato dipinto. Vedi [init.js:324](src/main/resources/web/js/init.js#L324) e [Bridge.java:302](src/main/java/com/moneymanager/Bridge.java#L302). |
 | `SwingUtilities.invokeAndWait` per MainWindow | JCEF richiede che `createBrowser` venga chiamato sull'EDT; `invokeAndWait` blocca `main()` finché la finestra è costruita, così le successive operazioni di tray/autostart trovano il frame valido. |
 
 ---
@@ -127,15 +127,15 @@ Tutto il dialogo tra frontend e backend passa da **un'unica funzione**: `cefQuer
 
 ### Perché base64?
 JCEF tronca le stringhe per byte e non per carattere: un emoji a 4 byte (es. 🏦) sfasa l'offset → `MalformedJsonException` lato Gson.
-Encoding base64 in ASCII puro elimina il problema. Vedi [bridge.js:11](src/main/resources/web/js/bridge.js#L11) e [Bridge.java:75](src/main/java/com/moneymanager/Bridge.java#L75).
+Encoding base64 in ASCII puro elimina il problema. Vedi [bridge.js:11](src/main/resources/web/js/bridge.js#L11) e [Bridge.java:100](src/main/java/com/moneymanager/Bridge.java#L100).
 
 ### Operazioni async-friendly (escono dal dispatch)
 Vengono trattate a parte perché aprono UI bloccante o fanno HTTP esterno:
 - `chooseDbFile`, `chooseBackupDir`, `chooseAttachmentsDir`, `chooseAttachmentFile` → `Thread.ofVirtual()` + dialog nativi Win32
-- `fetchOnlinePrice` → HTTP a Borsa Italiana (scraping HTML, vedi [Bridge.java:715](src/main/java/com/moneymanager/Bridge.java#L715))
+- `fetchOnlinePrice` → HTTP a Borsa Italiana (scraping HTML, vedi [Bridge.java:802](src/main/java/com/moneymanager/Bridge.java#L802))
 
 ### Tutto il resto: `dispatch(method, params, browser)`
-Switch gigante in [Bridge.java:233](src/main/java/com/moneymanager/Bridge.java#L233). ~120 case raggruppati per dominio:
+Switch gigante in [Bridge.java:274](src/main/java/com/moneymanager/Bridge.java#L274). 133 case raggruppati per dominio:
 
 | Sezione | Esempi di method | Delega a |
 |---------|------------------|----------|
@@ -218,7 +218,7 @@ init() async
 L'`init()` viene chiamata appena `window.cefQuery` è disponibile. In modalità JCEF è iniettato sincronamente dopo `onLoadEnd`; il polling `setInterval(50ms)` è un fallback.
 
 ### `onTrayRestore()`
-Chiamato da Java quando si fa "Apri" dal tray ([MainWindow.java:148](src/main/java/com/moneymanager/MainWindow.java#L148)). Invalida le cache JS di accounts/categories/tags (il DB potrebbe essere stato sincronizzato da Android via OneDrive) e ri-renderizza la pagina corrente.
+Chiamato da Java quando si fa "Apri" dal tray ([MainWindow.java:242](src/main/java/com/moneymanager/MainWindow.java#L242)). Invalida le cache JS di accounts/categories/tags (il DB potrebbe essere stato sincronizzato da Android via OneDrive) e ri-renderizza la pagina corrente.
 
 ---
 
@@ -268,7 +268,7 @@ Le pagine **non sono moduli ES**: tutte le funzioni e variabili `let/const` ai l
 ## 6. Database — schema, migrazioni, seed
 
 ### Apertura connessione
-[Database.java:32](src/main/java/com/moneymanager/Database.java#L32)
+[Database.java:28](src/main/java/com/moneymanager/Database.java#L28)
 
 ```java
 SQLiteConfig:
@@ -344,7 +344,7 @@ TrayManager.bringToFront() (dal tray o da SingleInstance.SHOW):
 ```
 
 ### Autostart Windows
-[TrayManager.registerAutostart()](src/main/java/com/moneymanager/TrayManager.java#L70) scrive una chiave in `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` con `"<java.exe>" -jar "<jar>"`. Si attiva da Impostazioni → `setSetting("autostart.enabled", "1")`.
+[TrayManager.registerAutostart()](src/main/java/com/moneymanager/TrayManager.java#L424) scrive una chiave in `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` con `"<java.exe>" -jar "<jar>"`. Si attiva da Impostazioni → `setSetting("autostart.enabled", "1")`.
 
 ### Single instance
 [SingleInstance.java](src/main/java/com/moneymanager/SingleInstance.java) usa un `ServerSocket` sulla porta 47291 (loopback). Se l'app è già in esecuzione il secondo processo si connette, manda "SHOW", e `bringToFrontAction` riapre la finestra.
@@ -353,7 +353,7 @@ TrayManager.bringToFront() (dal tray o da SingleInstance.SHOW):
 
 ## 8. WebServer LAN (accesso da browser remoto)
 
-Avviato da [MainWindow.java:56](src/main/java/com/moneymanager/MainWindow.java#L56) su virtual thread, default porta 7890.
+Avviato da [MainWindow.java:85](src/main/java/com/moneymanager/MainWindow.java#L85) su virtual thread, default porta 7890.
 
 ```
 http://<IP-PC>:7890/                   →   serve file da webDir (index.html, css, js)
@@ -409,8 +409,8 @@ In **IDE**: `web/` viene letta da `target/classes/web/` (con resource filtering 
 | Una pagina (es. Budget) | [js/pages/budget.js](src/main/resources/web/js/pages/budget.js) | Funzione `renderBudgets()` è l'entry point |
 | Sidebar / menu | [index.html](src/main/resources/web/index.html) + [js/sidebar.js](src/main/resources/web/js/sidebar.js) | Aggiungi `<a data-page="X">` + handler in [router.js](src/main/resources/web/js/router.js) |
 | Query SQL | [Database.java](src/main/java/com/moneymanager/Database.java) | Text blocks `"""..."""`, sempre PreparedStatement |
-| Esporre un metodo nuovo al JS | [Bridge.java:dispatch](src/main/java/com/moneymanager/Bridge.java#L233) + [bridge.js:api{}](src/main/resources/web/js/bridge.js#L61) | Aggiungere `case "x" -> ...` e wrapper `api.x` |
-| Schema DB | [Database.initSchema](src/main/java/com/moneymanager/Database.java#L359) + nuova migrazione `migrate(N→N+1)` | Non modificare migrazioni vecchie già rilasciate |
+| Esporre un metodo nuovo al JS | [Bridge.java:dispatch](src/main/java/com/moneymanager/Bridge.java#L274) + [bridge.js:api{}](src/main/resources/web/js/bridge.js#L61) | Aggiungere `case "x" -> ...` e wrapper `api.x` |
+| Schema DB | [Database.initSchema](src/main/java/com/moneymanager/Database.java#L701) + nuova migrazione `migrate(N→N+1)` | Non modificare migrazioni vecchie già rilasciate |
 | Splash | [SplashWindow.java](src/main/java/com/moneymanager/SplashWindow.java) | `paintComponent` Swing puro |
 | Icona app | [IconFactory.java](src/main/java/com/moneymanager/IconFactory.java) | Generata a `prepare-package` |
 | Impostazioni nuove | Default lato JS in [init.js](src/main/resources/web/js/init.js); persistite tramite `api.setSetting(key, value)` → DB | Solo le 4 chiavi bootstrap restano in `settings.properties` |
@@ -424,8 +424,9 @@ In **IDE**: `web/` viene letta da `target/classes/web/` (con resource filtering 
 
 - **JCEF** — Java Chromium Embedded Framework: bindings Java per CEF (Chromium senza barra URL/menu). [`jcefmaven`](pom.xml#L23) gestisce il download dei binari nativi.
 - **EDT** — Event Dispatch Thread (Swing). Tutto ciò che tocca `JFrame` deve girare lì → `SwingUtilities.invokeLater/invokeAndWait`.
-- **`cefQuery`** — funzione JS iniettata da JCEF per chiamare Java. Configurata in [MainWindow.java:40](src/main/java/com/moneymanager/MainWindow.java#L40).
-- **virtual thread** — `Thread.ofVirtual().start(...)`, leggero. Usato per dialog nativi, HTTP esterno, WebServer.
+- **`cefQuery`** — funzione JS iniettata da JCEF per chiamare Java. Configurata in [MainWindow.java:46](src/main/java/com/moneymanager/MainWindow.java#L46).
+- **virtual thread** — `Thread.ofVirtual().start(...)`, leggero. Usato per dialog nativi, HTTP esterno, WebServer. ⚠️ Il `WebServer` ne usa uno **per richiesta**, quindi `Bridge.dispatch` e `Database` girano davvero in parallelo: vedi l'invariante sulla connessione in [CLAUDE.md](CLAUDE.md#connessione-db--invariante-da-rispettare).
+- **`activeQueries`** — contatore delle query in volo in `Database`. Le query girano fuori dal lock per non serializzarle, quindi il `synchronized` da solo non basta a sapere se il DB è in uso: chi vuole chiudere la connessione deve controllare questo contatore.
 - **bootstrap key** — chiave di impostazione necessaria PRIMA che il DB sia aperto (db.path, http.*, autostart.*). Vivono in `settings.properties`. Tutto il resto sta in `app_settings`.
 - **`uiReady`** — segnale JS→Java che il primo frame è stato dipinto; sblocca il fade della splash.
 

@@ -20,12 +20,22 @@ import java.util.stream.Collectors;
  * Gestisce inoltre creazione schema ({@link #initSchema}), migrazioni ({@link #migrate})
  * e dati di default ({@link #seedDefaultData}).
  *
- * Nota: usa una singola {@link Connection} non thread-safe. È sicuro perché le chiamate
- * arrivano serializzate dal thread UI di JCEF (vedi {@link Bridge#onQuery}).
+ * Nota: usa una singola {@link Connection} non thread-safe, condivisa da più thread —
+ * il thread UI di JCEF ({@link Bridge#onQuery}), i virtual thread del {@link WebServer},
+ * l'EDT Swing (tray/iconify/backup) e il thread del timer di auto-release. La sicurezza
+ * NON deriva quindi dalla serializzazione delle chiamate, ma da questa invariante:
+ *
+ *   1. {@code conn} si legge e si scrive SOLO sotto il lock di questa istanza;
+ *   2. la connessione si chiude SOLO da {@link #close()} (unico punto);
+ *   3. {@link #close()} non chiude se c'è lavoro in volo ({@link #activeQueries} &gt; 0).
+ *
+ * Le query vere e proprie girano invece FUORI dal lock (vedi {@link #beginQuery()}), per
+ * non serializzarle: è per questo che serve il contatore oltre al {@code synchronized}.
  */
 public class Database {
 
-    private Connection conn;
+    // volatile: letto senza lock da isOpen(), che il polling del tray chiama ogni 2s
+    private volatile Connection conn;
     private String currentDbPath;
     private final DbLogger logger;
 
@@ -43,16 +53,22 @@ public class Database {
     // > 0 l'auto-release NON deve chiudere la connessione, altrimenti la query in volo esplode
     // con "database connection closed". Le query girano fuori dal lock synchronized (per non
     // serializzarle), quindi il timer non può escluderle col solo synchronized: si coordina
-    // con questo contatore. Incrementato in withConnection() prima della query, decrementato
-    // nel finally; il timer richiude solo quando torna a 0 (o si riprogramma se ancora in uso).
+    // con questo contatore. Incrementato in beginQuery() prima della query, decrementato in
+    // endQuery() nel finally; il timer richiude solo quando torna a 0 (o si riprogramma se
+    // ancora in uso). Lo controlla anche close(): la chiusura manuale (tray/iconify/"Chiudi"
+    // dal web) passa dallo stesso punto e non deve poter troncare una query o una transazione.
+    // Nota: inTx() tiene il contatore alzato per TUTTA la transazione, non solo per i singoli
+    // statement, altrimenti fra uno statement e l'altro tornerebbe a 0 e la guardia non
+    // vedrebbe la transazione aperta.
     private int activeQueries = 0;
     private java.util.TimerTask pendingRelease;
     // Default false: mentre l'app è aperta in foreground sei l'unico a scrivere (il telefono
     // accoda su pending.jsonl, non tocca il DB), quindi tenere il lock non crea conflitti e il
     // rilascio idle a metà lavoro causava refresh a sorpresa. L'auto-release si abilita solo
     // quando la finestra va in background (minimizzata/tray, vedi MainWindow.windowIconified/
-    // windowClosing) e si ridisabilita al ritorno in foreground. Backup/reconnect lo
-    // disabilitano/riabilitano temporaneamente salvando il valore precedente.
+    // windowClosing) e si ridisabilita al ritorno in foreground. inTx(), restoreBackup() e
+    // withExclusiveAccess() (VACUUM/REINDEX) lo sospendono temporaneamente salvando il valore
+    // precedente: durante quelle operazioni il file non deve essere chiuso a metà.
     private volatile boolean autoReleaseEnabled = false;
 
     // Rilevamento modifiche esterne: quando la connessione viene chiusa (idle/tray/iconify)
@@ -96,10 +112,16 @@ public class Database {
         return DriverManager.getConnection("jdbc:sqlite:" + dbPath, config.toProperties());
     }
 
-    /** Chiude il DB corrente e ne apre un altro (cambio file DB da Impostazioni). */
-    public void reconnect(String dbPath) throws SQLException {
-        conn.close();
+    /** Chiude il DB corrente e ne apre un altro (cambio file DB da Impostazioni).
+     *  synchronized: riassegna conn, non deve incrociarsi con ensureOpen()/reopen(). */
+    public synchronized void reconnect(String dbPath) throws SQLException {
+        close();                 // punto unico di chiusura (null-safe, aggiorna la baseline)
         currentDbPath = dbPath;
+        // La baseline mtime/size appena scritta da close() si riferisce al DB PRECEDENTE:
+        // azzerala, altrimenti il confronto in ensureOpen() sul nuovo file segnalerebbe
+        // una falsa "modifica esterna" al primo accesso.
+        lastClosedMtime = -1;
+        lastClosedSize  = -1;
         logger.setDbPath(dbPath);
         conn = openConnection(dbPath);
         initSchema();
@@ -120,9 +142,23 @@ public class Database {
     // Serve al frontend web per non mostrare il bottone "Apri" quando è solo idle.
     private volatile boolean manuallyClosed = false;
 
-    /** Chiude la connessione (es. al tray/iconify) così OneDrive può sincronizzare il file.
-     *  Chiusura "temporanea": la prossima query riapre automaticamente (ensureOpen). */
-    public void close() throws SQLException {
+    /**
+     * UNICO punto di chiusura della connessione: ci passano la chiusura al tray/iconify,
+     * quella esplicita dell'utente, l'auto-release idle, reconnect e restoreBackup. Così
+     * la baseline mtime/size per il rilevamento delle modifiche esterne viene aggiornata
+     * sempre, e la guardia qui sotto vale per tutti.
+     *
+     * Non chiude se c'è lavoro in volo: chiudere sotto una query la fa esplodere con
+     * "database connection closed", e chiudere sotto una transazione è peggio — SQLite
+     * la rollbacka, ma gli statement successivi riaprono da soli (ensureOpen) in
+     * autocommit e vengono scritti davvero, lasciando il record a metà. Se c'è lavoro in
+     * volo non facciamo nulla: ci penserà l'auto-release, che endQuery() riprogramma alla
+     * fine dell'ultima query (quindi al massimo IDLE_RELEASE_MS più tardi).
+     *
+     * Chiusura "temporanea": la prossima query riapre automaticamente (ensureOpen).
+     */
+    public synchronized void close() throws SQLException {
+        if (activeQueries > 0) return;
         if (conn != null && !conn.isClosed()) {
             conn.close();
             // baseline per rilevare modifiche esterne alla riapertura (mtime + dimensione)
@@ -133,7 +169,7 @@ public class Database {
 
     /** Chiusura ESPLICITA dell'utente (bottone "Chiudi" web / tray): il DB resta chiuso e
      *  l'auto-release resta ininfluente finché non si riapre a mano ({@link #reopen}). */
-    public void closeManual() throws SQLException {
+    public synchronized void closeManual() throws SQLException {
         manuallyClosed = true;
         close();
     }
@@ -141,8 +177,12 @@ public class Database {
     /** True se il DB è chiuso perché l'utente l'ha chiuso a mano (non per idle/iconify). */
     public boolean isManuallyClosed() { return manuallyClosed && !isOpen(); }
 
-    /** Riapre il DB dopo una chiusura esplicita (es. nascosto al tray per OneDrive). */
-    public void reopen() throws SQLException {
+    /** Riapre il DB dopo una chiusura esplicita (es. nascosto al tray per OneDrive).
+     *  synchronized: senza lock può incrociarsi con ensureOpen() (che gira sui thread delle
+     *  query) e aprire una SECONDA connessione; quella persa resterebbe orfana con il file
+     *  handle aperto fino alla fine del processo, tenendo il lock su OneDrive per sempre e
+     *  vanificando tutto l'auto-release. */
+    public synchronized void reopen() throws SQLException {
         manuallyClosed = false;
         if (!isOpen()) conn = openConnection(currentDbPath);
     }
@@ -237,19 +277,31 @@ public class Database {
                 synchronized (Database.this) {
                     // Non chiudere se una query è in volo: la chiuderebbe a metà ("database
                     // connection closed"). endQuery() riprogrammerà l'auto-release al termine.
+                    // (close() ricontrolla comunque la stessa condizione: qui usciamo prima
+                    // solo per non loggare un rilascio che non è avvenuto.)
                     if (activeQueries > 0) return;
                     try {
                         if (autoReleaseEnabled && isOpen()) {
-                            conn.close();
+                            close();  // punto unico di chiusura: aggiorna anche la baseline
                             logger.log("DB IDLE-RELEASE", "lock rilasciato per sync OneDrive");
                         }
-                    } catch (SQLException ex) {
-                        System.err.println("Errore auto-release DB: " + ex.getMessage());
+                    } catch (Throwable ex) {
+                        // Throwable e non SQLException: qualsiasi eccezione che sfugge da run()
+                        // TERMINA il thread del Timer, e da lì ogni schedule() successivo lancia
+                        // IllegalStateException risalendo fino a beginQuery() → tutte le query
+                        // dell'app fallirebbero fino al riavvio.
+                        System.err.println("Errore auto-release DB: " + ex);
                     }
                 }
             }
         };
-        idleTimer.schedule(pendingRelease, IDLE_RELEASE_MS);
+        try {
+            idleTimer.schedule(pendingRelease, IDLE_RELEASE_MS);
+        } catch (IllegalStateException ex) {
+            // Timer già terminato: non deve impedire l'esecuzione della query in corso.
+            pendingRelease = null;
+            System.err.println("Auto-release non riprogrammabile: " + ex.getMessage());
+        }
     }
 
     /**
@@ -409,7 +461,7 @@ public class Database {
      * copia il backup al suo posto e riapre la connessione. In caso di errore fa
      * rollback automatico ripristinando il DB originale.
      */
-    public Map<String, Object> restoreBackup(String backupPath, String backupDir) throws Exception {
+    public synchronized Map<String, Object> restoreBackup(String backupPath, String backupDir) throws Exception {
         Path bak = Path.of(backupPath);
         if (!Files.exists(bak)) throw new IOException("File backup non trovato: " + backupPath);
 
@@ -417,44 +469,56 @@ public class Database {
         String baseName = src.getFileName().toString().replaceAll("\\.[^.]+$", "");
         String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss"));
 
-        // Chiudi connessione prima di spostare il file
-        try { conn.close(); } catch (SQLException ignored) {}
-        conn = null;
-
-        // Sposta il db corrente nella cartella backup con nome che evidenzia che era il "vero" db
-        Path archiveDir = (backupDir != null && !backupDir.isBlank()) ? Path.of(backupDir) : src.getParent();
-        Files.createDirectories(archiveDir);
-        String archiveName = baseName + "_PRIMA-RIPRISTINO_" + timestamp + ".db.bak";
-        Path archive = archiveDir.resolve(archiveName);
-        Files.move(src, archive, StandardCopyOption.REPLACE_EXISTING);
-
+        // Chiudi connessione prima di spostare il file. Niente auto-release per tutta
+        // l'operazione: il file deve restare sotto il nostro controllo mentre lo spostiamo.
+        boolean prevAutoRelease = autoReleaseEnabled;
+        setAutoRelease(false);
         try {
-            // Copia il backup al posto del db corrente
-            Files.copy(bak, src, StandardCopyOption.REPLACE_EXISTING);
+            close();   // NB: non azzeriamo conn — una Connection chiusa fa già isOpen()==false,
+                       // mentre conn=null farebbe esplodere con NPE chi la legge (es. il timer).
 
-            // Riapri la connessione
-            conn = openConnection(currentDbPath);
-            initSchema();
-            migrate();
-        } catch (Exception e) {
-            // Rollback: ripristina il db originale
+            // Sposta il db corrente nella cartella backup con nome che evidenzia che era il "vero" db
+            Path archiveDir = (backupDir != null && !backupDir.isBlank()) ? Path.of(backupDir) : src.getParent();
+            Files.createDirectories(archiveDir);
+            String archiveName = baseName + "_PRIMA-RIPRISTINO_" + timestamp + ".db.bak";
+            Path archive = archiveDir.resolve(archiveName);
+            Files.move(src, archive, StandardCopyOption.REPLACE_EXISTING);
+
             try {
-                if (Files.exists(src)) Files.delete(src);
-                Files.move(archive, src, StandardCopyOption.REPLACE_EXISTING);
+                // Copia il backup al posto del db corrente
+                Files.copy(bak, src, StandardCopyOption.REPLACE_EXISTING);
+
+                // Riapri la connessione
                 conn = openConnection(currentDbPath);
-            } catch (Exception rollbackEx) {
-                throw new IOException("Ripristino fallito e rollback non riuscito. " +
-                    "Il database originale è in: " + archive.toAbsolutePath(), rollbackEx);
+                initSchema();
+                migrate();
+            } catch (Exception e) {
+                // Rollback: ripristina il db originale
+                try {
+                    if (Files.exists(src)) Files.delete(src);
+                    Files.move(archive, src, StandardCopyOption.REPLACE_EXISTING);
+                    conn = openConnection(currentDbPath);
+                } catch (Exception rollbackEx) {
+                    throw new IOException("Ripristino fallito e rollback non riuscito. " +
+                        "Il database originale è in: " + archive.toAbsolutePath(), rollbackEx);
+                }
+                throw new IOException("Ripristino fallito: " + e.getMessage() +
+                    ". Database originale ripristinato automaticamente.", e);
             }
-            throw new IOException("Ripristino fallito: " + e.getMessage() +
-                ". Database originale ripristinato automaticamente.", e);
+
+            // Il file è cambiato sotto di noi: azzera la baseline scritta da close(), altrimenti
+            // il primo ensureOpen() sul DB ripristinato segnalerebbe una falsa modifica esterna.
+            lastClosedMtime = -1;
+            lastClosedSize  = -1;
+
+            logger.log("RIPRISTINO BACKUP",
+                    "sorgente:" + backupPath,
+                    "db-archiviato:" + archive.toAbsolutePath());
+
+            return Map.of("ok", true, "archived", archive.toAbsolutePath().toString());
+        } finally {
+            setAutoRelease(prevAutoRelease);
         }
-
-        logger.log("RIPRISTINO BACKUP",
-                "sorgente:" + backupPath,
-                "db-archiviato:" + archive.toAbsolutePath());
-
-        return Map.of("ok", true, "archived", archive.toAbsolutePath().toString());
     }
 
     // ─── Helpers JDBC ─────────────────────────────────────────────────────────
@@ -570,25 +634,40 @@ public class Database {
     @FunctionalInterface
     private interface SqlSupplier<T> { T get() throws SQLException; }
 
-    /** Esegue fn in un'unica transazione SQLite: commit se va bene, rollback se lancia
-     *  (anche su RuntimeException — senza rollback il finally setAutoCommit(true) committerebbe
-     *  silenziosamente la transazione parziale). */
-    private <T> T inTx(SqlSupplier<T> fn) throws SQLException {
+    /**
+     * Esegue fn in un'unica transazione SQLite: commit se va bene, rollback se lancia
+     * (anche su RuntimeException — senza rollback il finally setAutoCommit(true) committerebbe
+     * silenziosamente la transazione parziale).
+     *
+     * synchronized: setAutoCommit/commit/rollback agiscono su stato condiviso della singola
+     * Connection. Due transazioni concorrenti (es. thread UI + richiesta dal WebServer) si
+     * incrocerebbero: il commit dell'una chiude anche la transazione parziale dell'altra, che
+     * poi prosegue in autocommit e scrive a metà. Il lock è rientrante, quindi le execute()
+     * interne continuano a passare da beginQuery() senza bloccarsi.
+     *
+     * Usa beginQuery()/endQuery() (e non ensureOpen() + campo conn) per due motivi: prende la
+     * Connection sotto lock, e tiene activeQueries > 0 per TUTTA la transazione — così né il
+     * timer di auto-release né una close() manuale possono troncarla a metà.
+     */
+    private synchronized <T> T inTx(SqlSupplier<T> fn) throws SQLException {
         // Sospendi l'auto-release: il lock non deve essere rilasciato a metà transazione,
         // altrimenti conn verrebbe chiusa tra un'operazione e l'altra invalidandola.
         boolean prevAutoRelease = autoReleaseEnabled;
         setAutoRelease(false);
-        ensureOpen();  // garantisce conn valida prima di setAutoCommit (potrebbe essere stata rilasciata)
-        conn.setAutoCommit(false);
+        Connection c = beginQuery();
+        c.setAutoCommit(false);
         try {
             T result = fn.get();
-            conn.commit();
+            c.commit();
             return result;
         } catch (Exception e) {
-            try { conn.rollback(); } catch (SQLException re) { e.addSuppressed(re); }
+            try { c.rollback(); } catch (SQLException re) { e.addSuppressed(re); }
             throw e;
         } finally {
-            conn.setAutoCommit(true);
+            try { c.setAutoCommit(true); } catch (SQLException ignored) {
+                // connessione già chiusa (es. errore fatale): niente da ripristinare
+            }
+            endQuery();
             setAutoRelease(prevAutoRelease);  // riarma il timer solo alla fine della transazione
         }
     }
@@ -607,8 +686,15 @@ public class Database {
     // ─── Schema ───────────────────────────────────────────────────────────────
 
     /**
-     * Crea l'intero schema v20 in un colpo (tutte le tabelle con le colonne finali + indici).
+     * Crea in un colpo le 20 tabelle canoniche dello schema v20 (colonne finali + indici).
+     * Le altre 2 tabelle del DB nascono a runtime altrove: sync_meta in touchSyncMeta() e
+     * imported_pending in importPending().
+     *
      * Idempotente (CREATE ... IF NOT EXISTS): non tocca un DB già popolato alla v20.
+     * ATTENZIONE: proprio per questo, su una tabella che ESISTE GIÀ non aggiunge le colonne
+     * mancanti — passare di qui NON basta a portare un DB vecchio allo schema corrente
+     * (vedi la nota in migrate()).
+     *
      * Le migrazioni storiche v1..v20 sono state consolidate qui; migrate() resta vuota,
      * pronta ad accogliere eventuali aggiornamenti futuri (v21+).
      */
@@ -829,6 +915,14 @@ public class Database {
      * Lo schema completo fino alla v20 è ora consolidato in {@link #initSchema()};
      * qui restano solo gli aggiornamenti futuri (v21+). initSchema() marca già i DB
      * nuovi/completi come SCHEMA_VERSION, quindi il guard sotto li fa uscire subito.
+     *
+     * LIMITE NOTO (da sistemare): un DB con version &lt; 20 arriva in fondo e viene TIMBRATO
+     * v20 senza che nessuno abbia aggiunto le colonne mancanti — initSchema() crea solo le
+     * tabelle assenti, non altera quelle esistenti. Succede ripristinando un backup vecchio
+     * (restoreBackup chiama initSchema+migrate) o aprendo un DB di un altro PC: il risultato
+     * non è un messaggio chiaro ma "no such column" sparsi, e il timbro rende il problema
+     * permanente. Serve almeno un log esplicito nei due rami anomali (version &lt; 20 e
+     * version &gt; 20); dbGetInfo() espone già schema_version e schema_latest per accorgersene.
      */
     private void migrate() throws SQLException {
         // Crea tabella versione se non esiste
@@ -882,7 +976,9 @@ public class Database {
         }
     }
 
-    /** Garantisce l'esistenza dei tag di sistema (Da Telefono, Da Budget, Investimenti). */
+    /** Garantisce l'esistenza dei tag di sistema: Da Telefono, Da Budget, Investimenti e
+     *  RAGGRUPPATE (quest'ultimo marca le transazioni-somma create dallo svecchiamento,
+     *  vedi {@link #archiveTransactions}: non è un tag utente e non va eliminato). */
     private void ensureSystemTags() throws SQLException {
         // {system_key, default_name, default_color}
         String[][] sys = {
@@ -1753,7 +1849,7 @@ public class Database {
         }
     }
 
-    /** Id del tag di sistema "phone" (creato in seedDefaultData). */
+    /** Id del tag di sistema "phone" (creato da {@link #ensureSystemTags}, chiamato da initSchema). */
     private int phoneTagId() throws SQLException {
         Map<String, Object> r = queryOne("SELECT id FROM tags WHERE system_key='phone' LIMIT 1");
         return r != null ? ((Number) r.get("id")).intValue() : 0;
@@ -2452,15 +2548,18 @@ public class Database {
     }
 
     /** Parse difensivo di una data ISO (yyyy-MM-dd): ritorna null se assente o malformata,
-     *  loggando la riga incriminata. Evita che una singola pianificata con data corrotta
-     *  (import Android, edit manuale del DB, sync parziale OneDrive) faccia esplodere con
-     *  DateTimeParseException l'intera lista/proiezione. Il chiamante decide come reagire al null. */
-    private LocalDate tryParseDate(Object value, Object schedIdForLog) {
+     *  loggando la riga incriminata. Evita che una singola riga con data corrotta (import
+     *  Android, edit manuale del DB, sync parziale OneDrive) faccia esplodere con
+     *  DateTimeParseException l'intera lista/proiezione. Il chiamante decide come reagire al null.
+     *  `ctx` identifica la riga nel log: è l'id della pianificata nella maggior parte dei casi,
+     *  ma il metodo è usato anche per le scadenze obbligazionarie (getForecastPortfolioEvents),
+     *  quindi il messaggio resta volutamente generico. */
+    private LocalDate tryParseDate(Object value, Object ctx) {
         if (value == null) return null;
         try {
             return LocalDate.parse(value.toString());
         } catch (Exception e) {
-            System.err.println("Database: data pianificata non valida (id=" + schedIdForLog
+            System.err.println("Database: data non valida (rif=" + ctx
                     + ", valore='" + value + "'): riga saltata — " + e.getMessage());
             return null;
         }
@@ -2529,7 +2628,7 @@ public class Database {
             case "daily"     -> d.plusDays(1);
             case "weekly"    -> d.plusWeeks(1);
             case "biweekly"  -> d.plusWeeks(2);
-            case "monthly"      -> d.plusMonths(1);
+             case "monthly"      -> d.plusMonths(1);
             case "monthly_last" -> { LocalDate n = d.plusMonths(1); yield n.withDayOfMonth(n.lengthOfMonth()); }
             case "bimonthly"  -> d.plusMonths(2);
             case "quarterly"  -> d.plusMonths(3);
@@ -2566,7 +2665,10 @@ public class Database {
         return overdue;
     }
 
-    /** Pianificate attive la cui prossima occorrenza è oggi. */
+    /** Pianificate attive con start_date = oggi. Dopo {@link #advanceScheduled} start_date è
+     *  la prossima occorrenza, quindi per le pianificate registrate puntualmente coincide con
+     *  "prossima occorrenza oggi"; quelle mai registrate restano indietro e sono coperte da
+     *  {@link #getOverdue}. */
     public List<Map<String, Object>> getDueToday() throws SQLException {
         String today = LocalDate.now().toString();
         return getScheduled().stream()
@@ -3753,7 +3855,7 @@ public class Database {
     @FunctionalInterface
     private interface DbOp { void run(Connection c) throws SQLException; }
 
-    private void withExclusiveAccess(DbOp op) throws SQLException {
+    private synchronized void withExclusiveAccess(DbOp op) throws SQLException {
         // Sospendi l'auto-release: il file va tenuto sotto il nostro controllo per tutta
         // l'operazione esclusiva, senza che il timer chiuda/riapra conn a metà.
         boolean prevAutoRelease = autoReleaseEnabled;
@@ -4468,7 +4570,7 @@ public class Database {
             if (!isBond) continue; // equity: valore fermo, nessun evento
 
             String matStr = (String) pos.get("maturity_date");
-            LocalDate maturity = matStr != null && !matStr.isBlank() ? tryParseDate(matStr, pos.get("id")) : null;
+            LocalDate maturity = matStr != null && !matStr.isBlank() ? tryParseDate(matStr, pos.get("ticker")) : null;
             double faceValue  = pos.get("face_value")  != null ? ((Number) pos.get("face_value")).doubleValue()  : 1.0;
             double couponRate = pos.get("coupon_rate") != null ? ((Number) pos.get("coupon_rate")).doubleValue() : 0.0;
             double couponTax  = pos.get("coupon_tax")  != null ? ((Number) pos.get("coupon_tax")).doubleValue()  : 12.5;

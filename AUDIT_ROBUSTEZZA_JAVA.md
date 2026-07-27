@@ -13,7 +13,14 @@
 - ✅ **I6** — null-guard sui PRAGMA di dbGetInfo
 - ✅ **I8** — ResultSet di execute() in try-with-resources
 - ➕ extra — fix bug drag/resize titlebar (coordinate NaN→JsonNull) lato JS + hasNum lato Java
-- ⏭️ **C3** — scartato (uso singolo, niente concorrenza LAN reale)
+- ✅ **C3 (parte concorrenza)** — **riaperto e risolto il 2026-07-27**. Era stato scartato con la
+  motivazione *"uso singolo, niente concorrenza LAN reale"*: la motivazione **era incompleta**.
+  La concorrenza sulla `Connection` non richiede due dispositivi LAN — basta l'uso normale a
+  singolo utente, perché `close()`/`reopen()` vengono chiamate dall'**EDT** (minimize, tray,
+  backup alla chiusura) mentre una query o una `inTx` è in volo su un altro thread, e i dialog
+  async del Bridge girano già su virtual thread. Vedi [AUDIT_JAVA_2026-07.md](AUDIT_JAVA_2026-07.md) C3/C4.
+- ⏳ **C3 (parte logging WebServer)** — ancora aperta: il ramo statico `/` resta senza catch e
+  nessuno dei due rami logga. Vedi AUDIT_JAVA_2026-07.md § robustezza.
 - ⏭️ **I5/I7** — opzionali/già a posto (vedi sotto); **I4** rimane da valutare
 
 ---

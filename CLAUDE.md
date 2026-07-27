@@ -28,22 +28,34 @@ Due piattaforme: **desktop (primaria)** e **Android (secondaria)**, database SQL
 ## Architettura desktop
 
 ```
-JS Frontend (js/pages/*.js, ~10 moduli)
-    ↓  cefQuery (payload JSON in Base64)
-Bridge.java (~820 LOC) — dispatch ~120 operazioni
+JS Frontend (js/pages/*.js, 14 moduli)
+    ↓  cefQuery (payload JSON in Base64)      ↑ stessa API anche via HTTP LAN (WebServer)
+Bridge.java (~935 LOC) — dispatch 133 operazioni
     ↓
-Database.java (~4530 LOC) — tutte le query JDBC
+Database.java (~4730 LOC) — tutte le query JDBC
     ↓
 SQLite
 ```
 
 **Classi Java:** `App` (entry point), `MainWindow` (Swing + JCEF), `Bridge` (dispatch JS↔Java), `Database` (JDBC), `Settings` (preferenze utente), `IconFactory` (generazione .ico), `SplashWindow` (splash Swing 700ms), `TrayManager` (system tray), `SingleInstance` (lock istanza unica), `WebServer` (serve web/ da filesystem), `DbLogger` (logging query), `ContextMenuHandler` (menu tasto destro nativo: ricarica/zoom/devtools)
 
-**Moduli JS pagine** (LOC indicativi): `analytics` (3010), `portfolio` (2020), `budget` (1960), `settings` (1680), `transactions` (1310), `scheduled` (1050), `dashboard` (790), `accounts` (370), `notes` (350), `categories` (270), `forecasts` (235), `logviewer` (190), `ranges` (195), `tags` (105)
+**Moduli JS pagine** (LOC indicativi): `analytics` (3480), `portfolio` (2020), `budget` (1960), `settings` (1765), `transactions` (1350), `scheduled` (1005), `dashboard` (970), `accounts` (375), `notes` (350), `categories` (270), `forecasts` (235), `logviewer` (205), `ranges` (195), `tags` (105)
+
+### Connessione DB — invariante da rispettare
+
+`Database` usa **una sola `Connection`**, condivisa da più thread: thread UI di JCEF, virtual thread del `WebServer` e dei dialog async, EDT Swing (tray/iconify/backup), thread del timer di auto-release. **Non** c'è nulla che serializzi le chiamate. Le tre regole che tengono in piedi il tutto:
+
+1. `conn` si legge e si scrive **solo** sotto il lock di `Database` (`synchronized`);
+2. la connessione si chiude **solo** da `close()` — unico punto, che aggiorna anche la baseline mtime/size per il rilevamento delle modifiche esterne;
+3. `close()` **non chiude** se `activeQueries > 0`; ci penserà l'auto-release, riprogrammato da `endQuery()`.
+
+Le query girano deliberatamente **fuori** dal lock (per non serializzarle): è per questo che serve il contatore `activeQueries` oltre al `synchronized`. `inTx()` lo tiene alzato per tutta la transazione, non solo per i singoli statement.
+
+⚠️ Aggiungendo un metodo che tocca `conn`, rispetta le tre regole: violarle produce corruzione dati silenziosa (transazione committata a metà) o una connessione orfana che tiene il lock su OneDrive per sempre.
 
 ---
 
-## Schema DB (v20, 21 tabelle)
+## Schema DB (v20, 22 tabelle)
 
 - **Core:** `accounts`, `categories` (gerarchiche, `expense_nature`), `transactions` (`reconciled`, `attachment_path`, `color`), `transaction_splits`, `transaction_tags`, `tags` (`is_system`, `system_key`)
 - **Budget:** `budgets`, `budget_config` (master_amount mensile/annuale)
@@ -51,11 +63,12 @@ SQLite
 - **Portfolio:** `portfolio` (equity/bond: `asset_type`, `face_value`, `maturity_date`, `coupon_*`, `country`), `portfolio_transactions`
 - **Previsioni:** `forecasts` (archived), `forecast_categories` — snapshot "Salva previsione" in Pianificate
 - **Note:** `notes` (`pinned`, `color`, editor Quill), `note_tags`
-- **Sistema:** `reports`, `range_presets`, `app_settings`, `sync_meta`, `schema_version`
+- **Sistema:** `reports`, `range_presets`, `app_settings`, `schema_version`
+- **Sync Android:** `sync_meta` (marcatori `last_modified`/`last_modified_by`), `imported_pending` (id delle righe di `pending.jsonl` già importate → idempotenza dell'import). ⚠️ Queste 2 tabelle **non** sono in `initSchema`: nascono a runtime in `touchSyncMeta()` e `importPending()`. Le altre 20 sì.
 
 **Indici (oltre alle PK):** su `transactions(date, account_id, category_id, to_account_id)` + composito `(account_id, date)`; su `transaction_splits(transaction_id)` e `portfolio_transactions(transaction_id)` (FK non indicizzate da SQLite); su `categories(parent_id)`, `budgets(year)`, `scheduled_transactions(is_active)`, `transaction_tags(tag_id)`, `note_tags(tag_id)`, `portfolio(account_id)`
 
-**SQLite config:** journal=DELETE, synchronous=FULL, cache=16MB, FK abilitati
+**SQLite config:** journal=DELETE, synchronous=FULL, cache=16MB, temp_store=MEMORY, FK abilitati
 
 ---
 

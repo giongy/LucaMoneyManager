@@ -179,6 +179,15 @@ public class App {
         // Database SQLite
         Database db = new Database(dbPath);
 
+        // Chiusura pulita del DB all'uscita. Serve perché i due percorsi di uscita
+        // (X sulla finestra in MainWindow, "Esci" dal menu tray) fanno System.exit(0)
+        // senza chiudere la connessione: il lock sul file resterebbe fino alla morte
+        // del processo, e con una transazione aperta SQLite lascerebbe un <db>-journal
+        // accanto al database che OneDrive sincronizzerebbe insieme al .db.
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            try { db.close(); } catch (Exception ignored) { /* uscita: nulla da salvare */ }
+        }, "db-shutdown"));
+
         // Risorse web (HTML/CSS/JS): cartella web/ accanto all'eseguibile (produzione)
         // o src/main/resources/web/ (modalità IDE)
         Path webDir   = findWebDir();

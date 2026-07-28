@@ -67,9 +67,19 @@ public class Database {
     // rilascio idle a metà lavoro causava refresh a sorpresa. L'auto-release si abilita solo
     // quando la finestra va in background (minimizzata/tray, vedi MainWindow.windowIconified/
     // windowClosing) e si ridisabilita al ritorno in foreground. inTx(), restoreBackup() e
-    // withExclusiveAccess() (VACUUM/REINDEX) lo sospendono temporaneamente salvando il valore
-    // precedente: durante quelle operazioni il file non deve essere chiuso a metà.
+    // withExclusiveAccess() (VACUUM/REINDEX) lo sospendono temporaneamente.
+    //
+    // Tre variabili invece di una, per tenere separate due cose che prima si sovrascrivevano:
+    //   - autoReleaseWanted  = la PREFERENZA (finestra in foreground/background), da setAutoRelease
+    //   - autoReleaseSuspend = quante sospensioni temporanee sono in corso (inTx, backup,
+    //     restoreBackup, withExclusiveAccess), via suspend/resumeAutoRelease
+    //   - autoReleaseEnabled = lo stato EFFETTIVO letto dal timer = wanted && suspend == 0
+    // Il contatore sostituisce il vecchio "salva e ripristina il valore precedente", che non era
+    // rientrante: due sospensioni sovrapposte lasciavano l'auto-release spento per il resto della
+    // sessione, e il lock su OneDrive non veniva più rilasciato.
     private volatile boolean autoReleaseEnabled = false;
+    private boolean autoReleaseWanted  = false;
+    private int     autoReleaseSuspend = 0;
 
     // Rilevamento modifiche esterne: quando la connessione viene chiusa (idle/tray/iconify)
     // salviamo mtime + dimensione del file. Alla riapertura via ensureOpen() li confrontiamo:
@@ -323,8 +333,44 @@ public class Database {
      * l'operazione. Disabilitando si annulla anche l'eventuale task già pianificato.
      */
     public synchronized void setAutoRelease(boolean enabled) {
-        autoReleaseEnabled = enabled;
-        if (!enabled && pendingRelease != null) { pendingRelease.cancel(); pendingRelease = null; }
+        autoReleaseWanted = enabled;
+        applyAutoRelease();
+    }
+
+    /**
+     * Sospende temporaneamente l'auto-release (backup, ripristino, transazione, VACUUM).
+     *
+     * Sostituisce il vecchio schema "salva il valore precedente e ripristinalo", che NON era
+     * rientrante: con due sospensioni annidate o sovrapposte, l'interna salvava il `false`
+     * scritto dall'esterna e alla fine lo ripristinava, lasciando l'auto-release **spento per
+     * il resto della sessione** → il lock su OneDrive non veniva più rilasciato, cioè
+     * esattamente il problema che l'auto-release esiste per evitare.
+     *
+     * Con il contatore, l'auto-release riparte solo quando l'ULTIMA sospensione è finita, e la
+     * preferenza dell'utente resta in una variabile separata che le sospensioni non toccano:
+     * se nel frattempo la finestra è andata in background, al termine si applica quel valore
+     * (nuovo) e non quello fotografato all'inizio.
+     *
+     * Da usare sempre in coppia, con resume in un {@code finally}.
+     */
+    private synchronized void suspendAutoRelease() {
+        autoReleaseSuspend++;
+        applyAutoRelease();
+    }
+
+    /** Fine di una sospensione: riabilita solo se non ne restano altre in corso. */
+    private synchronized void resumeAutoRelease() {
+        if (autoReleaseSuspend > 0) autoReleaseSuspend--;
+        applyAutoRelease();
+    }
+
+    /** Stato effettivo = preferenza dell'utente AND nessuna sospensione in corso. */
+    private synchronized void applyAutoRelease() {
+        autoReleaseEnabled = autoReleaseWanted && autoReleaseSuspend == 0;
+        if (!autoReleaseEnabled && pendingRelease != null) {
+            pendingRelease.cancel();
+            pendingRelease = null;
+        }
     }
 
     public String getDbPath() { return currentDbPath; }
@@ -369,8 +415,7 @@ public class Database {
 
         // Auto-release sospeso per tutta la copia: il timer non deve chiudere/riaprire il file
         // mentre lo stiamo leggendo. Ripristinato nel finally, come fanno inTx/withExclusiveAccess.
-        boolean prevAutoRelease = autoReleaseEnabled;
-        setAutoRelease(false);
+        suspendAutoRelease();
         try {
             // Il lock esclude le scritture APPLICATIVE (tutte passano da inTx, synchronized),
             // ma se un -journal fosse ancora presente vorrebbe dire che ci sono dati non
@@ -403,7 +448,7 @@ public class Database {
 
             Files.copy(src, dest, StandardCopyOption.REPLACE_EXISTING);
         } finally {
-            setAutoRelease(prevAutoRelease);
+            resumeAutoRelease();
         }
         logger.log("BACKUP ESEGUITO", "dest:" + dest);
 
@@ -520,8 +565,7 @@ public class Database {
 
         // Chiudi connessione prima di spostare il file. Niente auto-release per tutta
         // l'operazione: il file deve restare sotto il nostro controllo mentre lo spostiamo.
-        boolean prevAutoRelease = autoReleaseEnabled;
-        setAutoRelease(false);
+        suspendAutoRelease();
         try {
             close();   // NB: non azzeriamo conn — una Connection chiusa fa già isOpen()==false,
                        // mentre conn=null farebbe esplodere con NPE chi la legge (es. il timer).
@@ -566,7 +610,7 @@ public class Database {
 
             return Map.of("ok", true, "archived", archive.toAbsolutePath().toString());
         } finally {
-            setAutoRelease(prevAutoRelease);
+            resumeAutoRelease();
         }
     }
 
@@ -711,10 +755,19 @@ public class Database {
     private synchronized <T> T inTx(SqlSupplier<T> fn) throws SQLException {
         // Sospendi l'auto-release: il lock non deve essere rilasciato a metà transazione,
         // altrimenti conn verrebbe chiusa tra un'operazione e l'altra invalidandola.
-        boolean prevAutoRelease = autoReleaseEnabled;
-        setAutoRelease(false);
-        Connection c = beginQuery();
-        c.setAutoCommit(false);
+        suspendAutoRelease();
+        Connection c;
+        try {
+            // beginQuery() e setAutoCommit stanno DENTRO il try: se uno dei due lancia (DB non
+            // raggiungibile, connessione già chiusa) la sospensione va comunque annullata,
+            // altrimenti resterebbe appesa per sempre — proprio la perdita che il contatore
+            // deve impedire.
+            c = beginQuery();
+            c.setAutoCommit(false);
+        } catch (RuntimeException | SQLException e) {
+            resumeAutoRelease();
+            throw e;
+        }
         try {
             T result = fn.get();
             c.commit();
@@ -727,7 +780,7 @@ public class Database {
                 // connessione già chiusa (es. errore fatale): niente da ripristinare
             }
             endQuery();
-            setAutoRelease(prevAutoRelease);  // riarma il timer solo alla fine della transazione
+            resumeAutoRelease();  // riarma il timer solo alla fine della transazione
         }
     }
 
@@ -4154,8 +4207,7 @@ public class Database {
     private synchronized void withExclusiveAccess(DbOp op) throws SQLException {
         // Sospendi l'auto-release: il file va tenuto sotto il nostro controllo per tutta
         // l'operazione esclusiva, senza che il timer chiuda/riapra conn a metà.
-        boolean prevAutoRelease = autoReleaseEnabled;
-        setAutoRelease(false);
+        suspendAutoRelease();
         try {
             close();
             try (Connection plain = DriverManager.getConnection("jdbc:sqlite:" + currentDbPath)) {
@@ -4164,7 +4216,7 @@ public class Database {
                 conn = openConnection(currentDbPath);
             }
         } finally {
-            setAutoRelease(prevAutoRelease);
+            resumeAutoRelease();
         }
     }
 

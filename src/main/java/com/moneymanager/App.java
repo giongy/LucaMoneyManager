@@ -304,16 +304,20 @@ public class App {
                 // Stato/controllo connessione DB dal menu tray (indicatore + chiudi/riapri)
                 TrayManager.dbStatusSupplier = db::isOpen;
                 TrayManager.dbManuallyClosedSupplier = db::isManuallyClosed;
-                TrayManager.closeDbAction = () -> {
+                // Le due azioni del tray girano sull'EDT (partono da un listener del menu):
+                // chiudere/riaprire un file su OneDrive de-idratato può bloccare per secondi,
+                // e lì bloccherebbe l'intera UI Swing — tray compreso, cioè il menu da cui
+                // l'utente ha appena cliccato. Entrambe vanno quindi su un virtual thread.
+                TrayManager.closeDbAction = () -> Thread.ofVirtual().start(() -> {
                     try { db.closeManual(); } catch (Exception ex) {
                         System.err.println("Errore chiusura DB dal tray: " + ex.getMessage());
                     }
-                };
-                TrayManager.openDbAction = () -> {
+                });
+                TrayManager.openDbAction = () -> Thread.ofVirtual().start(() -> {
                     try { db.reopen(); } catch (Exception ex) {
                         System.err.println("Errore riapertura DB dal tray: " + ex.getMessage());
                     }
-                };
+                });
                 // Attiva tray se l'autostart era già abilitato da una sessione precedente
                 if ("1".equals(settings.get(Settings.AUTOSTART_ENABLED))) {
                     TrayManager.enable(window.getFrame());

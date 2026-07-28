@@ -248,9 +248,11 @@ public class MainWindow {
         // Tornati in foreground dal tray: il lock resta preso finché l'utente lavora
         // (niente auto-release idle a metà lavoro). Speculare a windowDeiconified.
         db.setAutoRelease(false);
-        try { db.reopen(); } catch (Exception e) {
-            System.err.println("Errore riapertura DB dal tray: " + e.getMessage());
-        }
+
+        // La finestra si mostra SUBITO, senza aspettare il DB: reopen() apre un file che può
+        // stare su OneDrive de-idratato, quindi può bloccare per secondi. Girando sull'EDT
+        // congelava tutta la UI Swing proprio nel momento in cui l'utente ha appena cliccato
+        // sul tray e si aspetta di rivedere la finestra.
         frame.setVisible(true);
         if ((frame.getExtendedState() & JFrame.ICONIFIED) != 0)
             frame.setExtendedState(frame.getExtendedState() & ~JFrame.ICONIFIED);
@@ -259,7 +261,16 @@ public class MainWindow {
         frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
         frame.toFront();
         frame.requestFocus();
-        browser.executeJavaScript("if(typeof onTrayRestore==='function') onTrayRestore();", "", 0);
+
+        // Riapertura fuori dall'EDT; il refresh del frontend torna sull'EDT al termine, così
+        // onTrayRestore() gira quando il DB è davvero pronto a rispondere alle query.
+        Thread.ofVirtual().start(() -> {
+            try { db.reopen(); } catch (Exception e) {
+                System.err.println("Errore riapertura DB dal tray: " + e.getMessage());
+            }
+            SwingUtilities.invokeLater(() ->
+                browser.executeJavaScript("if(typeof onTrayRestore==='function') onTrayRestore();", "", 0));
+        });
     }
 
     /** Innesca nel frontend l'invalidazione cache + refresh, quando il DB è stato modificato
@@ -277,9 +288,14 @@ public class MainWindow {
     /** Ricarica la UI web (e riapre il DB se era stato chiuso dal tray). Usato dal menu tray. */
     public void reload() {
         db.setAutoRelease(false);  // ricarica = torniamo attivi in foreground: niente auto-release idle
-        try { db.reopen(); } catch (Exception e) {
-            System.err.println("Errore riapertura DB dal tray (ricarica): " + e.getMessage());
-        }
-        browser.reload();
+        // reopen() fuori dall'EDT (vedi bringToFront): su un file OneDrive de-idratato bloccava
+        // la UI Swing. La reload del browser torna sull'EDT quando il DB è pronto, altrimenti
+        // la pagina ripartirebbe facendo query su una connessione non ancora aperta.
+        Thread.ofVirtual().start(() -> {
+            try { db.reopen(); } catch (Exception e) {
+                System.err.println("Errore riapertura DB dal tray (ricarica): " + e.getMessage());
+            }
+            SwingUtilities.invokeLater(browser::reload);
+        });
     }
 }

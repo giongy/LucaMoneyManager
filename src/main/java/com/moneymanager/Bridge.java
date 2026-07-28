@@ -322,6 +322,32 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
     }
 
     /**
+     * Apre un file/URL con l'applicazione predefinita, FUORI dal thread di dispatch.
+     *
+     * {@code Desktop.open}/{@code browse} bloccano finché Windows non ha risolto
+     * l'associazione e avviato il programma: 2-4 secondi tipici, molti di più se il file sta su
+     * OneDrive de-idratato o se l'app predefinita è lenta a partire. Eseguirli sul thread di
+     * dispatch congelava l'interfaccia per tutto quel tempo.
+     *
+     * Il chiamante ha già fatto le sue verifiche (esistenza, path confinato), quindi qui non si
+     * decide più nulla: si lancia e si risponde subito al JS. Un fallimento successivo (nessuna
+     * app associata, file rimosso nel frattempo) finisce in app.log, che è dove si guarda —
+     * non può più tornare al JS perché la risposta è già partita.
+     */
+    private void openAsync(String what, ThrowingRunnable action) {
+        Thread.ofVirtual().start(() -> {
+            try {
+                action.run();
+            } catch (Exception e) {
+                System.err.println("[Bridge] apertura fallita (" + what + "): " + e);
+            }
+        });
+    }
+
+    @FunctionalInterface
+    private interface ThrowingRunnable { void run() throws Exception; }
+
+    /**
      * Router centrale JS↔Java: a ogni "method" associa la chiamata corrispondente
      * (per lo più una query su {@link Database}) e restituisce l'oggetto da serializzare
      * in JSON per il JS. Organizzato per dominio funzionale (Finestra, Conti, Categorie,
@@ -590,7 +616,8 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             }
 
             case "openSettingsFile" -> {
-                java.awt.Desktop.getDesktop().open(settings.getPath().toFile());
+                openAsync("settings.properties", () ->
+                        java.awt.Desktop.getDesktop().open(settings.getPath().toFile()));
                 yield Map.of("ok", true);
             }
 
@@ -636,7 +663,12 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                             + "'. Deve essere un file dentro la cartella allegati.");
                 if (!java.nio.file.Files.isRegularFile(file))
                     throw new java.io.FileNotFoundException("File non trovato: " + file);
-                java.awt.Desktop.getDesktop().open(file.toFile());
+                // I controlli (path confinato + file esistente) sono già stati fatti qui sopra
+                // e restano sincroni, così un allegato sbagliato dà ancora errore al JS.
+                // Solo l'apertura, che è la parte lenta, va su un altro thread.
+                final java.nio.file.Path toOpen = file;
+                openAsync("allegato " + toOpen, () ->
+                        java.awt.Desktop.getDesktop().open(toOpen.toFile()));
                 yield Map.of("ok", true);
             }
 
@@ -678,7 +710,7 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                 if (dbPath != null) {
                     java.nio.file.Path appLog = java.nio.file.Path.of(dbPath).getParent().resolve("app.log");
                     if (java.nio.file.Files.exists(appLog))
-                        java.awt.Desktop.getDesktop().open(appLog.toFile());
+                        openAsync("app.log", () -> java.awt.Desktop.getDesktop().open(appLog.toFile()));
                 }
                 yield Map.of("ok", true);
             }
@@ -703,18 +735,21 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                 if (logFile != null) {
                     java.nio.file.Path dir = logFile.getParent();
                     if (dir != null && java.nio.file.Files.exists(dir))
-                        java.awt.Desktop.getDesktop().open(dir.toFile());
+                        openAsync("cartella log", () -> java.awt.Desktop.getDesktop().open(dir.toFile()));
                 }
                 yield Map.of("ok", true);
             }
 
             case "openUrl" -> {
-                java.awt.Desktop.getDesktop().browse(new java.net.URI(p.get("url").getAsString()));
+                // URI costruito (e validato) sul thread di dispatch: un URL malformato deve
+                // ancora tornare come errore al JS, non finire silenzioso in app.log.
+                java.net.URI uri = new java.net.URI(p.get("url").getAsString());
+                openAsync("url " + uri, () -> java.awt.Desktop.getDesktop().browse(uri));
                 yield Map.of("ok", true);
             }
 
             case "openDataDir" -> {
-                java.awt.Desktop.getDesktop().open(dataDir.toFile());
+                openAsync("cartella dati", () -> java.awt.Desktop.getDesktop().open(dataDir.toFile()));
                 yield Map.of("ok", true);
             }
 
@@ -730,8 +765,10 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                 java.nio.file.Path reportsDir = dataDir.resolve("reports");
                 java.nio.file.Files.createDirectories(reportsDir);
                 java.nio.file.Path file = reportsDir.resolve(filename);
+                // La scrittura resta sincrona: se fallisce l'utente deve saperlo subito.
+                // Solo l'apertura del browser, che è la parte lenta, va su un altro thread.
                 java.nio.file.Files.writeString(file, html, StandardCharsets.UTF_8);
-                java.awt.Desktop.getDesktop().open(file.toFile());
+                openAsync("report " + filename, () -> java.awt.Desktop.getDesktop().open(file.toFile()));
                 yield Map.of("ok", true, "path", file.toAbsolutePath().toString());
             }
 
@@ -949,6 +986,12 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                 .uri(URI.create(url))
                 .header("User-Agent", HTTP_UA)
                 .header("Accept-Language", "it-IT,it;q=0.9")
+                // timeout sulla RISPOSTA: connectTimeout copre solo l'handshake, quindi un server
+                // che accetta la connessione e poi non risponde (portale captive del wifi, sito
+                // in manutenzione, rete che sparisce a metà scaricamento) teneva send() bloccata
+                // per sempre → la Promise lato JS non si risolveva mai e la rotella girava
+                // all'infinito, senza errore né possibilità di riprovare.
+                .timeout(Duration.ofSeconds(20))
                 .GET().build();
         return HTTP_CLIENT.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8)).body();
     }

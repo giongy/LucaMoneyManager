@@ -1006,10 +1006,16 @@ public class Database {
         executePlain("CREATE INDEX IF NOT EXISTS idx_tx_account_date ON transactions(account_id, date)");
         executePlain("CREATE INDEX IF NOT EXISTS idx_cat_parent      ON categories(parent_id)");
         executePlain("CREATE INDEX IF NOT EXISTS idx_budgets_year    ON budgets(year)");
-        executePlain("CREATE INDEX IF NOT EXISTS idx_sched_active    ON scheduled_transactions(is_active)");
         executePlain("CREATE INDEX IF NOT EXISTS idx_tx_tags_tag     ON transaction_tags(tag_id)");
         executePlain("CREATE INDEX IF NOT EXISTS idx_portfolio_acc   ON portfolio(account_id)");
+        // idx_note_tags_tag: TENUTO. Oggi non risulta usato solo perché note_tags è vuota, ma
+        // EXPLAIN QUERY PLAN mostra che appena ci sono righe serve davvero
+        // ("SEARCH note_tags USING INDEX idx_note_tags_tag") per le note filtrate per tag.
         executePlain("CREATE INDEX IF NOT EXISTS idx_note_tags_tag   ON note_tags(tag_id)");
+        // idx_sched_active RIMOSSO: inutile e verificato con EXPLAIN QUERY PLAN. Anche una
+        // WHERE is_active=1 esplicita fa SCAN (81 righe: il planner ignora l'indice), e l'app
+        // filtra comunque in Java. Si pagava solo la manutenzione in scrittura.
+        executePlain("DROP INDEX IF EXISTS idx_sched_active");
         executePlain("CREATE INDEX IF NOT EXISTS idx_splits_tx        ON transaction_splits(transaction_id)");
         executePlain("CREATE INDEX IF NOT EXISTS idx_porttx_tx        ON portfolio_transactions(transaction_id)");
 
@@ -2781,17 +2787,6 @@ public class Database {
         return queryOne("SELECT * FROM budgets WHERE category_id=? AND month=? AND year=?", catId, month, year);
     }
 
-    /** Elimina un singolo budget (cella categoria+mese+anno) per id. */
-    public Map<String, Object> deleteBudget(int id) throws SQLException {
-        Map<String, Object> old = queryOne(
-            "SELECT b.month, b.year, c.name AS cat_name FROM budgets b " +
-            "JOIN categories c ON c.id=b.category_id WHERE b.id=?", id);
-        execute("DELETE FROM budgets WHERE id=?", id);
-        logger.log("BUDGET ELIMINATO", "id:" + id,
-            "categoria:" + DbLogger.s(old != null ? old.get("cat_name") : null),
-            "periodo:" + (old != null ? old.get("month") + "/" + old.get("year") : "-"));
-        return Map.of("id", id, "deleted", true);
-    }
 
     /** Restituisce budget e consuntivo per tutte le categorie in un anno. */
     public Map<String, Object> getBudgetYear(int year) throws SQLException {
@@ -3479,36 +3474,6 @@ public class Database {
                        "descrizione:" + DbLogger.s(s.get("description")),
                        "registrata:" + registeredDate, "prossima:" + plan.next());
         }
-    }
-
-    /** Prossime N occorrenze future tra tutte le pianificate attive (orizzonte 2 anni). */
-    public List<Map<String, Object>> getUpcoming(int limit) throws SQLException {
-        var scheds = getScheduled().stream()
-            .filter(s -> Integer.valueOf(1).equals(s.get("is_active")))
-            .toList();
-        LocalDate today = LocalDate.now();
-        LocalDate horizon = today.plusYears(2);
-        List<Map<String, Object>> all = new ArrayList<>();
-        for (var s : scheds) {
-            LocalDate start = tryParseDate(s.get("start_date"), s.get("id"));
-            if (start == null) continue;  // riga con data malformata: saltata (già loggata)
-            String freq = (String) s.get("frequency");
-            LocalDate endDate = s.get("end_date") != null ? tryParseDate(s.get("end_date"), s.get("id")) : horizon;
-            if (endDate == null) endDate = horizon;
-            if (endDate.isAfter(horizon)) endDate = horizon;
-            LocalDate cur = firstOccurrenceFrom(start, freq, today);
-            if (cur == null) continue;
-            while (!cur.isAfter(endDate)) {
-                Map<String, Object> occ = new HashMap<>(s);
-                occ.put("date", cur.toString());
-                all.add(occ);
-                if ("once".equals(freq)) break;
-                cur = nextOccurrence(start, freq, cur);
-                if (cur == null) break;
-            }
-        }
-        all.sort(Comparator.comparing(o -> (String) o.get("date")));
-        return all.stream().limit(limit).collect(Collectors.toList());
     }
 
     /** Occorrenze degli ultimi 30 giorni + prossime N future, ciascuna con flag overdue. */

@@ -162,7 +162,6 @@ const api = {
 
   // Budget
   setBudget:   data         => callJava('setBudget',  data),
-  deleteBudget:id           => callJava('deleteBudget',{id}),
   getBudgetYear: y          => callJava('getBudgetYear', {year:y}),
   setBudgetBulk: data       => callJava('setBudgetBulk', data),
   deleteBudgetMonth: data      => callJava('deleteBudgetMonth', data),
@@ -218,7 +217,6 @@ const api = {
   addScheduled:    data  => callJava('addScheduled', data),
   updateScheduled: data  => callJava('updateScheduled', data),
   deleteScheduled: id    => callJava('deleteScheduled', {id}),
-  getUpcoming:     (n)   => callJava('getUpcoming',    {limit: n||15}),
   getUpcomingAll:  (n)   => callJava('getUpcomingAll', {limit: n||15}),
   getOverdue:      ()    => callJava('getOverdue'),
   getDueToday:     ()    => callJava('getDueToday'),

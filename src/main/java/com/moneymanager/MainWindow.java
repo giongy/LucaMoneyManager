@@ -18,7 +18,6 @@ public class MainWindow {
 
     private final JFrame frame;
     private final CefBrowser browser;
-    private final CefApp cefApp;
     private final Database db;
     private final Settings settings;
     private final CefClient client;
@@ -32,7 +31,8 @@ public class MainWindow {
      *  i gestori (router, menu contestuale, zoom, chiusura/backup) e avviando il WebServer. */
     public MainWindow(CefApp cefApp, Database db, Settings settings, String htmlUrl,
                       java.nio.file.Path dataDir, java.nio.file.Path webDir) {
-        this.cefApp = cefApp;
+        // NB: cefApp resta un PARAMETRO (serve per createClient() qui sotto) ma non viene più
+        // salvato in un campo: il campo era assegnato e mai letto.
         this.db = db;
         this.settings = settings;
 

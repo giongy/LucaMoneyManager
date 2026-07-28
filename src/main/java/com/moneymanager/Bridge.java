@@ -454,7 +454,6 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
 
             // ─── Budget ────────────────────────────────────────────────────
             case "setBudget"    -> db.setBudget(p);
-            case "deleteBudget" -> db.deleteBudget(p.get("id").getAsInt());
             case "getBudgetYear" -> db.getBudgetYear(p.get("year").getAsInt());
             case "setBudgetBulk" -> {
                 db.setBudgetBulk(p.get("category_id").getAsInt(), p.get("year").getAsInt(),
@@ -490,7 +489,6 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             case "addScheduled"     -> db.addScheduled(p);
             case "updateScheduled"  -> db.updateScheduled(p.get("id").getAsInt(), p);
             case "deleteScheduled"  -> db.deleteScheduled(p.get("id").getAsInt());
-            case "getUpcoming"      -> db.getUpcoming(p.has("limit") ? p.get("limit").getAsInt() : 15);
             case "getUpcomingAll"   -> db.getUpcomingAll(p.has("limit") ? p.get("limit").getAsInt() : 15);
             case "getOverdue"            -> db.getOverdue();
             case "getDueToday"           -> db.getDueToday();

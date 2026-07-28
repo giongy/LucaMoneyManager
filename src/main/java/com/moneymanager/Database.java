@@ -60,6 +60,27 @@ public class Database {
      * in initSchema: quella è SQL, non può leggere questa costante e va tenuta allineata a mano.
      */
     private static final double DEFAULT_COUPON_TAX = 12.5;
+
+    /**
+     * Valore di mercato di una posizione, come espressione SQL sulla tabella `portfolio p`.
+     *
+     * Prezzo usato: `current_price` se valorizzato, altrimenti `avg_price` (NULLIF(...,0)
+     * tratta lo 0 come "non impostato"). Le OBBLIGAZIONI quotano in percentuale del nominale,
+     * quindi si divide per 100; azioni ed ETF quotano per unità e si moltiplicano soltanto.
+     *
+     * Era ripetuta letterale in 4 query (saldo dei conti, riepilogo del singolo conto,
+     * statistiche dashboard ×2). Con 4 copie, correggere la formula in una sola avrebbe fatto
+     * divergere il saldo di un conto investimenti dal patrimonio totale mostrato in dashboard:
+     * due numeri diversi per lo stesso portafoglio, senza alcun segnale.
+     *
+     * ⚠️ Restano volutamente distinte le altre due espressioni simili, che NON calcolano la
+     * stessa cosa: `bond THEN quantity ELSE 0` (nominale obbligazioni) e
+     * `bond THEN …/100 ELSE 0` (valore di mercato delle sole obbligazioni).
+     */
+    private static final String SQL_POSITION_MARKET_VALUE =
+            "CASE WHEN p.asset_type='bond' " +
+            "     THEN p.quantity * COALESCE(NULLIF(p.current_price,0), p.avg_price) / 100.0 " +
+            "     ELSE p.quantity * COALESCE(NULLIF(p.current_price,0), p.avg_price) END";
     private final java.util.Timer idleTimer = new java.util.Timer("db-idle-release", true);
     // Numero di query attualmente in esecuzione (executeQuery/executeUpdate in volo). Finché è
     // > 0 l'auto-release NON deve chiudere la connessione, altrimenti la query in volo esplode
@@ -1362,10 +1383,8 @@ public class Database {
         return queryList("""
             SELECT a.*,
                 CASE WHEN a.type = 'investment' THEN
-                    COALESCE((SELECT SUM(CASE WHEN p.asset_type='bond'
-                              THEN p.quantity * COALESCE(NULLIF(p.current_price,0), p.avg_price) / 100.0
-                              ELSE p.quantity * COALESCE(NULLIF(p.current_price,0), p.avg_price) END)
-                              FROM portfolio p WHERE p.account_id = a.id), 0)
+                    COALESCE((SELECT SUM(""" + SQL_POSITION_MARKET_VALUE + """
+                              ) FROM portfolio p WHERE p.account_id = a.id), 0)
                 ELSE
                     a.initial_balance + COALESCE(SUM(CASE
                         WHEN t.type='income'   THEN  t.amount
@@ -2385,12 +2404,9 @@ public class Database {
         Map<String, Object> acc = queryOne("SELECT initial_balance, type FROM accounts WHERE id=?", accountId);
         // Per i conti investment il saldo è il valore di mercato del portfolio, non le transazioni
         if (acc != null && "investment".equals(acc.get("type"))) {
-            Map<String, Object> portVal = queryOne("""
-                SELECT COALESCE(SUM(CASE WHEN p.asset_type='bond'
-                                   THEN p.quantity * COALESCE(NULLIF(p.current_price,0), p.avg_price) / 100.0
-                                   ELSE p.quantity * COALESCE(NULLIF(p.current_price,0), p.avg_price) END), 0) AS val
-                FROM portfolio p WHERE p.account_id=?
-            """, accountId);
+            Map<String, Object> portVal = queryOne(
+                "SELECT COALESCE(SUM(" + SQL_POSITION_MARKET_VALUE + "), 0) AS val " +
+                "FROM portfolio p WHERE p.account_id=?", accountId);
             double val = portVal != null ? ((Number) portVal.get("val")).doubleValue() : 0.0;
             return Map.of("balance", val, "reconciled_balance", val);
         }
@@ -4397,10 +4413,8 @@ public class Database {
         Map<String,Object> balance = queryOne("""
             SELECT COALESCE(SUM(CASE
                 WHEN a.type = 'investment' THEN
-                    COALESCE((SELECT SUM(CASE WHEN p.asset_type='bond'
-                              THEN p.quantity * COALESCE(NULLIF(p.current_price,0), p.avg_price) / 100.0
-                              ELSE p.quantity * COALESCE(NULLIF(p.current_price,0), p.avg_price) END)
-                              FROM portfolio p WHERE p.account_id = a.id), 0)
+                    COALESCE((SELECT SUM(""" + SQL_POSITION_MARKET_VALUE + """
+                              ) FROM portfolio p WHERE p.account_id = a.id), 0)
                 ELSE
                     a.initial_balance + COALESCE((
                         SELECT SUM(CASE WHEN t.type='income'                             THEN  t.amount
@@ -4422,10 +4436,8 @@ public class Database {
                               FROM portfolio p WHERE p.account_id = a.id), 0)
                     ELSE 0 END), 0) AS bond_market_total,
                 COALESCE(SUM(CASE WHEN a.type='investment' THEN
-                    COALESCE((SELECT SUM(CASE WHEN p.asset_type='bond'
-                              THEN p.quantity * COALESCE(NULLIF(p.current_price,0), p.avg_price) / 100.0
-                              ELSE p.quantity * COALESCE(NULLIF(p.current_price,0), p.avg_price) END)
-                              FROM portfolio p WHERE p.account_id = a.id), 0)
+                    COALESCE((SELECT SUM(""" + SQL_POSITION_MARKET_VALUE + """
+                              ) FROM portfolio p WHERE p.account_id = a.id), 0)
                     ELSE 0 END), 0) AS invest_market_total
             FROM accounts a
         """);

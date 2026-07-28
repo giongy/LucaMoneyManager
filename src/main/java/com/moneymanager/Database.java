@@ -48,6 +48,18 @@ public class Database {
     // query (vedi ensureOpen()). Così la finestra in cui il lock è attivo si riduce
     // ai pochi secondi attorno a ogni operazione, invece di durare tutta la sessione.
     private static final long IDLE_RELEASE_MS = 20_000;  // 20s senza query → chiudi il lock
+
+    /**
+     * Aliquota fiscale di default sulle cedole obbligazionarie (%), usata quando la posizione
+     * non ne specifica una propria. 12,5% è l'aliquota italiana sui titoli di Stato e
+     * equiparati; per gli altri bond va impostata a mano sulla posizione (di norma 26%).
+     *
+     * Era ripetuta letterale in 3 punti Java: cambiarla richiedeva di trovarli tutti, e uno
+     * dimenticato avrebbe prodotto cedole nette diverse a seconda del percorso di calcolo.
+     * ⚠️ Esiste una QUARTA occorrenza, il `DEFAULT 12.5` della colonna `portfolio.coupon_tax`
+     * in initSchema: quella è SQL, non può leggere questa costante e va tenuta allineata a mano.
+     */
+    private static final double DEFAULT_COUPON_TAX = 12.5;
     private final java.util.Timer idleTimer = new java.util.Timer("db-idle-release", true);
     // Numero di query attualmente in esecuzione (executeQuery/executeUpdate in volo). Finché è
     // > 0 l'auto-release NON deve chiudere la connessione, altrimenti la query in volo esplode
@@ -3795,6 +3807,26 @@ public class Database {
         return positions;
     }
 
+    /**
+     * Categoria di spesa in cui registrare le commissioni di compravendita.
+     *
+     * Cascata a 4 livelli, dalla più specifica alla più generica: "Commissioni" →
+     * "Spese/Tasse" (o qualsiasi "…tasse…") → "Investimenti" → la prima categoria di spesa
+     * per id. Ritorna null solo se non esiste NESSUNA categoria di spesa.
+     *
+     * Era duplicata identica in {@code buyStock} e {@code sellStock}: due copie della stessa
+     * cascata significavano che una modifica applicata a una sola avrebbe fatto finire le
+     * commissioni di acquisto e quelle di vendita in categorie diverse, falsando i report per
+     * categoria senza che nulla lo segnalasse.
+     */
+    private Integer commissionCategoryId() throws SQLException {
+        var cat = queryOne("SELECT id FROM categories WHERE type='expense' AND LOWER(name) LIKE '%commission%' ORDER BY id LIMIT 1");
+        if (cat == null) cat = queryOne("SELECT id FROM categories WHERE type='expense' AND (LOWER(name) LIKE '%spese/tasse%' OR LOWER(name) LIKE '%tasse%') ORDER BY id LIMIT 1");
+        if (cat == null) cat = queryOne("SELECT id FROM categories WHERE type='expense' AND LOWER(name) LIKE '%nvestiment%' ORDER BY id LIMIT 1");
+        if (cat == null) cat = queryOne("SELECT id FROM categories WHERE type='expense' ORDER BY id LIMIT 1");
+        return cat != null ? ((Number) cat.get("id")).intValue() : null;
+    }
+
     /** Storico movimenti (buy/sell/cedole/dividendi/spese) di una posizione. */
     public List<Map<String, Object>> getPortfolioTransactions(int portfolioId) throws SQLException {
         return queryList("""
@@ -3827,7 +3859,7 @@ public class Database {
         String maturityDate  = p.has("maturity_date") && !p.get("maturity_date").isJsonNull() ? p.get("maturity_date").getAsString() : null;
         double couponRate    = p.has("coupon_rate") && !p.get("coupon_rate").isJsonNull() ? p.get("coupon_rate").getAsDouble() : 0.0;
         String couponFreq    = p.has("coupon_frequency") && !p.get("coupon_frequency").isJsonNull() ? p.get("coupon_frequency").getAsString() : null;
-        double couponTax     = p.has("coupon_tax") && !p.get("coupon_tax").isJsonNull() ? p.get("coupon_tax").getAsDouble() : 12.5;
+        double couponTax     = p.has("coupon_tax") && !p.get("coupon_tax").isJsonNull() ? p.get("coupon_tax").getAsDouble() : DEFAULT_COUPON_TAX;
         double commissions   = r2(p.has("commissions") && !p.get("commissions").isJsonNull() ? p.get("commissions").getAsDouble() : 0.0);
         boolean isBond       = "bond".equals(assetType);
         double pureAmount    = r2(isBond ? qty * price / 100.0 : qty * price);
@@ -3885,12 +3917,7 @@ public class Database {
             """, portfolioId, "buy", qty, price, date, txId, notes, commissions);
 
             if (commissions > 0) {
-                // Cerca categoria expense per commissioni: prima "Commissioni", poi "Spese/Tasse", poi "Investimenti", infine fallback ordinato
-                var expCat = queryOne("SELECT id FROM categories WHERE type='expense' AND LOWER(name) LIKE '%commission%' ORDER BY id LIMIT 1");
-                if (expCat == null) expCat = queryOne("SELECT id FROM categories WHERE type='expense' AND (LOWER(name) LIKE '%spese/tasse%' OR LOWER(name) LIKE '%tasse%') ORDER BY id LIMIT 1");
-                if (expCat == null) expCat = queryOne("SELECT id FROM categories WHERE type='expense' AND LOWER(name) LIKE '%nvestiment%' ORDER BY id LIMIT 1");
-                if (expCat == null) expCat = queryOne("SELECT id FROM categories WHERE type='expense' ORDER BY id LIMIT 1");
-                Integer expCatId = expCat != null ? ((Number)expCat.get("id")).intValue() : null;
+                Integer expCatId = commissionCategoryId();
                 long commTxId = execute("""
                     INSERT INTO transactions(date,amount,type,category_id,account_id,description,reconciled)
                     VALUES(?,?,?,?,?,?,0)
@@ -3955,12 +3982,7 @@ public class Database {
             """, portfolioId, "sell", qty, price, date, txId, notes);
 
             if (commission > 0) {
-                // Cerca categoria expense per commissioni: prima "Commissioni", poi "Spese/Tasse", poi "Investimenti", infine fallback ordinato
-                var expCat = queryOne("SELECT id FROM categories WHERE type='expense' AND LOWER(name) LIKE '%commission%' ORDER BY id LIMIT 1");
-                if (expCat == null) expCat = queryOne("SELECT id FROM categories WHERE type='expense' AND (LOWER(name) LIKE '%spese/tasse%' OR LOWER(name) LIKE '%tasse%') ORDER BY id LIMIT 1");
-                if (expCat == null) expCat = queryOne("SELECT id FROM categories WHERE type='expense' AND LOWER(name) LIKE '%nvestiment%' ORDER BY id LIMIT 1");
-                if (expCat == null) expCat = queryOne("SELECT id FROM categories WHERE type='expense' ORDER BY id LIMIT 1");
-                Integer expCatId = expCat != null ? ((Number)expCat.get("id")).intValue() : null;
+                Integer expCatId = commissionCategoryId();
                 long commTxId = execute("""
                     INSERT INTO transactions(date,amount,type,category_id,account_id,description,reconciled)
                     VALUES(?,?,?,?,?,?,0)
@@ -4086,7 +4108,7 @@ public class Database {
         String couponFreq    = p.has("coupon_frequency") && !p.get("coupon_frequency").isJsonNull()
                                ? p.get("coupon_frequency").getAsString() : null;
         double couponTax     = p.has("coupon_tax") && !p.get("coupon_tax").isJsonNull()
-                               ? p.get("coupon_tax").getAsDouble() : 12.5;
+                               ? p.get("coupon_tax").getAsDouble() : DEFAULT_COUPON_TAX;
         String notes         = p.has("notes") && !p.get("notes").isJsonNull()
                                ? p.get("notes").getAsString() : null;
         String country       = p.has("country") && !p.get("country").isJsonNull()
@@ -5252,7 +5274,7 @@ public class Database {
             LocalDate maturity = matStr != null && !matStr.isBlank() ? tryParseDate(matStr, pos.get("ticker")) : null;
             double faceValue  = pos.get("face_value")  != null ? ((Number) pos.get("face_value")).doubleValue()  : 1.0;
             double couponRate = pos.get("coupon_rate") != null ? ((Number) pos.get("coupon_rate")).doubleValue() : 0.0;
-            double couponTax  = pos.get("coupon_tax")  != null ? ((Number) pos.get("coupon_tax")).doubleValue()  : 12.5;
+            double couponTax  = pos.get("coupon_tax")  != null ? ((Number) pos.get("coupon_tax")).doubleValue()  : DEFAULT_COUPON_TAX;
             String couponFreq = (String) pos.get("coupon_frequency");
             String name = pos.get("name") != null ? (String) pos.get("name") : (String) pos.get("ticker");
 

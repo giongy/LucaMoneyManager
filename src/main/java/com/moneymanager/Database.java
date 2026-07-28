@@ -1188,6 +1188,17 @@ public class Database {
             ensureTransferCategory();
             return;
         }
+        // Solo il ramo "DB nuovo" va in transazione: sono 19 INSERT che devono valere tutte o
+        // nessuna. Interrotte a metà lascerebbero un DB con metà delle categorie di default e
+        // nessun modo di accorgersene, perché il controllo qui sopra è "categorie > 0" — al
+        // riavvio il seed non ripartirebbe e le mancanti resterebbero mancanti per sempre.
+        // Chiamato dal costruttore e da reconnect(), entrambi fuori da una transazione:
+        // nessun rischio di annidamento (inTx non è rientrante).
+        inTx(() -> { seedDefaultCategories(); return null; });
+    }
+
+    /** Le 19 INSERT del seed iniziale. Da chiamare dentro una transazione (vedi seedDefaultData). */
+    private void seedDefaultCategories() throws SQLException {
 
         String[][] expense = {
             {"Alimentari","🛒","#3fb950"}, {"Casa & Utenze","🏠","#58a6ff"},
@@ -2474,33 +2485,42 @@ public class Database {
         return n;
     }
 
-    /** Crea o aggiorna una nota (in base alla presenza di id) e ne sostituisce i tag. */
+    /**
+     * Crea o aggiorna una nota (in base alla presenza di id) e ne sostituisce i tag.
+     *
+     * Tutto in un'unica transazione: la sostituzione dei tag è un DELETE seguito da N INSERT, e
+     * senza transazione un errore fra i due (o una chiusura a metà) lasciava la nota **senza
+     * alcun tag** — cancellati e mai riscritti. Silenzioso e irrecuperabile, perché il DELETE era
+     * già committato.
+     */
     public Map<String, Object> saveNote(JsonObject p) throws SQLException {
-        Integer id  = intVal(p, "id");
-        String title   = str(p, "title")   != null ? str(p, "title")   : "";
-        String content = str(p, "content") != null ? str(p, "content") : "";
-        String color   = str(p, "color")   != null ? str(p, "color")   : "";
-        int pinned     = intVal(p, "pinned") != null ? intVal(p, "pinned") : 0;
-        String now = java.time.Instant.now().toString();
-        long newId;
-        if (id != null) {
-            execute("UPDATE notes SET title=?, content=?, color=?, pinned=?, updated_at=? WHERE id=?",
-                    title, content, color, pinned, now, id);
-            newId = id;
-            logger.log("NOTA MODIFICATA", "id:" + id, "titolo:" + DbLogger.s(title));
-        } else {
-            newId = execute("INSERT INTO notes(title,content,color,pinned,updated_at) VALUES(?,?,?,?,?)",
-                    title, content, color, pinned, now);
-            logger.log("NOTA AGGIUNTA", "id:" + newId, "titolo:" + DbLogger.s(title));
-        }
-        // Tag (sostituisce tutti)
-        if (p.has("tag_ids") && p.get("tag_ids").isJsonArray()) {
-            execute("DELETE FROM note_tags WHERE note_id=?", newId);
-            for (var el : p.get("tag_ids").getAsJsonArray())
-                execute("INSERT OR IGNORE INTO note_tags(note_id,tag_id) VALUES(?,?)", newId, el.getAsInt());
-        }
-        touchSyncMeta();
-        return getNote((int) newId);
+        return inTx(() -> {
+            Integer id  = intVal(p, "id");
+            String title   = str(p, "title")   != null ? str(p, "title")   : "";
+            String content = str(p, "content") != null ? str(p, "content") : "";
+            String color   = str(p, "color")   != null ? str(p, "color")   : "";
+            int pinned     = intVal(p, "pinned") != null ? intVal(p, "pinned") : 0;
+            String now = java.time.Instant.now().toString();
+            long newId;
+            if (id != null) {
+                execute("UPDATE notes SET title=?, content=?, color=?, pinned=?, updated_at=? WHERE id=?",
+                        title, content, color, pinned, now, id);
+                newId = id;
+                logger.log("NOTA MODIFICATA", "id:" + id, "titolo:" + DbLogger.s(title));
+            } else {
+                newId = execute("INSERT INTO notes(title,content,color,pinned,updated_at) VALUES(?,?,?,?,?)",
+                        title, content, color, pinned, now);
+                logger.log("NOTA AGGIUNTA", "id:" + newId, "titolo:" + DbLogger.s(title));
+            }
+            // Tag (sostituisce tutti)
+            if (p.has("tag_ids") && p.get("tag_ids").isJsonArray()) {
+                execute("DELETE FROM note_tags WHERE note_id=?", newId);
+                for (var el : p.get("tag_ids").getAsJsonArray())
+                    execute("INSERT OR IGNORE INTO note_tags(note_id,tag_id) VALUES(?,?)", newId, el.getAsInt());
+            }
+            touchSyncMeta();
+            return getNote((int) newId);
+        });
     }
 
     /** Elimina una nota (tag collegati in cascata via FK). */
@@ -2835,23 +2855,29 @@ public class Database {
         logger.log("BUDGET GENERATO", "anno:" + year, "da_storico:" + prevYear);
     }
 
-    /** Copia il budget (budgets + budget_config) da sourceYear a year. */
+    /** Copia il budget (budgets + budget_config) da sourceYear a year.
+     *  In transazione: le due INSERT sono due facce della stessa copia — con solo la prima
+     *  committata l'anno avrebbe i valori mensili ma non la configurazione mensile/annuale,
+     *  cioè un budget che si comporta in modo diverso da quello copiato. */
     public void copyBudgetFromYear(int year, int sourceYear) throws SQLException {
-        // Copia i valori mensili
-        execute("""
-            INSERT INTO budgets(category_id, amount, month, year)
-            SELECT category_id, amount, month, ?
-            FROM budgets WHERE year=?
-            ON CONFLICT(category_id, month, year) DO UPDATE SET amount=excluded.amount
-        """, year, sourceYear);
-        // Copia la configurazione (mode, master_amount)
-        execute("""
-            INSERT INTO budget_config(category_id, year, mode, master_amount)
-            SELECT category_id, ?, mode, master_amount
-            FROM budget_config WHERE year=?
-            ON CONFLICT(category_id, year) DO UPDATE SET mode=excluded.mode, master_amount=excluded.master_amount
-        """, year, sourceYear);
-        logger.log("BUDGET COPIATO", "anno:" + year, "da_anno:" + sourceYear);
+        inTx(() -> {
+            // Copia i valori mensili
+            execute("""
+                INSERT INTO budgets(category_id, amount, month, year)
+                SELECT category_id, amount, month, ?
+                FROM budgets WHERE year=?
+                ON CONFLICT(category_id, month, year) DO UPDATE SET amount=excluded.amount
+            """, year, sourceYear);
+            // Copia la configurazione (mode, master_amount)
+            execute("""
+                INSERT INTO budget_config(category_id, year, mode, master_amount)
+                SELECT category_id, ?, mode, master_amount
+                FROM budget_config WHERE year=?
+                ON CONFLICT(category_id, year) DO UPDATE SET mode=excluded.mode, master_amount=excluded.master_amount
+            """, year, sourceYear);
+            logger.log("BUDGET COPIATO", "anno:" + year, "da_anno:" + sourceYear);
+            return null;
+        });
     }
 
     /** Restituisce gli anni per cui esiste almeno una riga in budgets o budget_config. */
@@ -2876,31 +2902,42 @@ public class Database {
                    "anno:" + year, "modalita:" + mode, "importo:" + DbLogger.amt(masterAmount));
     }
 
-    /** Imposta i 12 valori mensili per una categoria in un anno (0/null = rimuove). */
+    /** Imposta i 12 valori mensili per una categoria in un anno (0/null = rimuove).
+     *  In transazione: erano 12 commit separati, quindi un errore a metà lasciava mezzo anno
+     *  aggiornato e mezzo no — con il risultato che i totali del budget non tornavano e non
+     *  c'era modo di sapere quali mesi fossero stati scritti. Ora è tutto o niente
+     *  (e in più è un solo commit invece di 12 su OneDrive). */
     public void setBudgetBulk(int categoryId, int year, com.google.gson.JsonArray amounts) throws SQLException {
-        for (int m = 1; m <= 12; m++) {
-            var el = amounts.get(m - 1);
-            if (el.isJsonNull() || el.getAsDouble() <= 0) {
-                execute("DELETE FROM budgets WHERE category_id=? AND year=? AND month=?",
-                        categoryId, year, m);
-            } else {
-                execute("""
-                    INSERT INTO budgets(category_id,amount,month,year) VALUES(?,?,?,?)
-                    ON CONFLICT(category_id,month,year) DO UPDATE SET amount=excluded.amount
-                """, categoryId, r2(el.getAsDouble()), m, year);
+        inTx(() -> {
+            for (int m = 1; m <= 12; m++) {
+                var el = amounts.get(m - 1);
+                if (el.isJsonNull() || el.getAsDouble() <= 0) {
+                    execute("DELETE FROM budgets WHERE category_id=? AND year=? AND month=?",
+                            categoryId, year, m);
+                } else {
+                    execute("""
+                        INSERT INTO budgets(category_id,amount,month,year) VALUES(?,?,?,?)
+                        ON CONFLICT(category_id,month,year) DO UPDATE SET amount=excluded.amount
+                    """, categoryId, r2(el.getAsDouble()), m, year);
+                }
             }
-        }
-        Map<String, Object> cat = queryOne("SELECT name FROM categories WHERE id=?", categoryId);
-        logger.log("BUDGET BULK", "categoria:" + DbLogger.s(cat != null ? cat.get("name") : categoryId),
-                   "anno:" + year);
+            Map<String, Object> cat = queryOne("SELECT name FROM categories WHERE id=?", categoryId);
+            logger.log("BUDGET BULK", "categoria:" + DbLogger.s(cat != null ? cat.get("name") : categoryId),
+                       "anno:" + year);
+            return null;
+        });
     }
 
-    /** Rimuove tutti i budget e configurazioni per un intero anno. */
+    /** Rimuove tutti i budget e configurazioni per un intero anno.
+     *  In transazione: con solo la prima DELETE committata resterebbero le `budget_config`
+     *  orfane, cioè un anno "eliminato" che però ricompare configurato. */
     public Map<String, Object> deleteBudgetYear(int year) throws SQLException {
-        execute("DELETE FROM budgets WHERE year=?", year);
-        execute("DELETE FROM budget_config WHERE year=?", year);
-        logger.log("BUDGET ANNO ELIMINATO", "anno:" + year);
-        return Map.of("year", year, "deleted", true);
+        return inTx(() -> {
+            execute("DELETE FROM budgets WHERE year=?", year);
+            execute("DELETE FROM budget_config WHERE year=?", year);
+            logger.log("BUDGET ANNO ELIMINATO", "anno:" + year);
+            return Map.of("year", year, "deleted", true);
+        });
     }
 
     /** Rimuove il budget per una singola cella (categoria + mese + anno). */
@@ -2945,8 +2982,14 @@ public class Database {
         }
     }
 
-    /** Crea una transazione pianificata (ricorrente) con i suoi tag. */
+    /** Crea una transazione pianificata (ricorrente) con i suoi tag.
+     *  In transazione: senza, un errore su saveSchedTags lasciava la pianificata creata ma
+     *  senza tag, e i tag sulle pianificate servono a ritrovarle e a filtrarle. */
     public Map<String, Object> addScheduled(JsonObject p) throws SQLException {
+        return inTx(() -> addScheduledNoTx(p));
+    }
+
+    private Map<String, Object> addScheduledNoTx(JsonObject p) throws SQLException {
         long id = execute("""
             INSERT INTO scheduled_transactions
                 (description,amount,type,category_id,account_id,to_account_id,
@@ -2968,8 +3011,14 @@ public class Database {
         return queryOne("SELECT * FROM scheduled_transactions WHERE id=?", id);
     }
 
-    /** Aggiorna una pianificata e i suoi tag (non tocca original_start_date). */
+    /** Aggiorna una pianificata e i suoi tag (non tocca original_start_date).
+     *  In transazione: saveSchedTags cancella e riscrive i tag, quindi un errore fra i due
+     *  passaggi lasciava la pianificata senza tag (stesso difetto di saveNote). */
     public Map<String, Object> updateScheduled(int id, JsonObject p) throws SQLException {
+        return inTx(() -> updateScheduledNoTx(id, p));
+    }
+
+    private Map<String, Object> updateScheduledNoTx(int id, JsonObject p) throws SQLException {
         execute("""
             UPDATE scheduled_transactions SET
                 description=?,amount=?,type=?,category_id=?,account_id=?,to_account_id=?,
@@ -4811,23 +4860,28 @@ public class Database {
         return result;
     }
 
-    /** Salva una previsione (saldo proiettato a una data) con le sue categorie previste. */
+    /** Salva una previsione (saldo proiettato a una data) con le sue categorie previste.
+     *  In transazione: la previsione senza le sue categorie è uno snapshot vuoto, che è proprio
+     *  il contenuto per cui la si salva. In più `last_insert_rowid()` va letto nella stessa
+     *  transazione dell'INSERT che lo produce. */
     public int saveForecast(String forecastDate, double projectedBalance, JsonArray categories) throws SQLException {
-        execute("INSERT INTO forecasts (forecast_date, projected_balance) VALUES (?,?)",
-                forecastDate, r2(projectedBalance));
-        var r  = queryOne("SELECT last_insert_rowid() AS id");
-        int id = ((Number) r.get("id")).intValue();
-        for (var el : categories) {
-            var cat = el.getAsJsonObject();
-            execute("INSERT INTO forecast_categories (forecast_id, category_id, category_name, category_type, projected_amount) VALUES (?,?,?,?,?)",
-                    id,
-                    cat.has("category_id") && !cat.get("category_id").isJsonNull() ? cat.get("category_id").getAsInt() : null,
-                    cat.get("category_name").getAsString(),
-                    cat.get("type").getAsString(),
-                    r2(cat.get("projected_amount").getAsDouble()));
-        }
-        logger.log("PREVISIONE SALVATA", "data:" + forecastDate, "saldo:" + DbLogger.amt(projectedBalance));
-        return id;
+        return inTx(() -> {
+            execute("INSERT INTO forecasts (forecast_date, projected_balance) VALUES (?,?)",
+                    forecastDate, r2(projectedBalance));
+            var r  = queryOne("SELECT last_insert_rowid() AS id");
+            int id = ((Number) r.get("id")).intValue();
+            for (var el : categories) {
+                var cat = el.getAsJsonObject();
+                execute("INSERT INTO forecast_categories (forecast_id, category_id, category_name, category_type, projected_amount) VALUES (?,?,?,?,?)",
+                        id,
+                        cat.has("category_id") && !cat.get("category_id").isJsonNull() ? cat.get("category_id").getAsInt() : null,
+                        cat.get("category_name").getAsString(),
+                        cat.get("type").getAsString(),
+                        r2(cat.get("projected_amount").getAsDouble()));
+            }
+            logger.log("PREVISIONE SALVATA", "data:" + forecastDate, "saldo:" + DbLogger.amt(projectedBalance));
+            return id;
+        });
     }
 
     /** Elenco previsioni salvate, con flag is_ready (data raggiunta) e numero categorie. */

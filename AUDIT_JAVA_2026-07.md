@@ -6,10 +6,10 @@
 
 **52 finding.** Legenda stato: ✅ fatto · ⏳ da fare · 🔕 rischio accettato · ⏭️ valutato e scartato.
 
-**Stato al 2026-07-28:** **40 chiusi** · 3 a rischio accettato (S1/S3/S4) ·
+**Stato al 2026-07-28:** **41 chiusi** · 3 a rischio accettato (S1/S3/S4) ·
 6 archiviati (D6 nessun backup pre-v20 · P4 zero non conciliate misurate ·
 `generateBudget` lentezza accettata · `touchSyncMeta` Android non legge il portafoglio ·
-`archiveTransactions` e `getScheduled()` ×2 non influenti) · **3 aperti**.
+`archiveTransactions` e `getScheduled()` ×2 non influenti) · **2 aperti**.
 
 | Commit | Contenuto |
 |---|---|
@@ -782,9 +782,39 @@ con spazi, che prima lanciava, ora funziona.
 
 ---
 
+## ✅ FATTO — 2026-07-28 · Le 8 operazioni multi-scrittura ora in `inTx`
+
+| metodo | cosa lasciava a metà |
+|---|---|
+| `saveNote` | i tag sono DELETE + N INSERT: un errore fra i due lasciava la nota **senza alcun tag** |
+| `setBudgetBulk` | 12 commit separati → mezzo anno aggiornato e mezzo no (ora **1 commit** invece di 12) |
+| `copyBudgetFromYear` | valori mensili copiati ma configurazione no → budget che si comporta diversamente dall'originale |
+| `deleteBudgetYear` | `budgets` cancellati e `budget_config` no → anno "eliminato" che ricompare configurato |
+| `addScheduled` | pianificata creata ma senza tag |
+| `updateScheduled` | idem: `saveSchedTags` cancella e riscrive |
+| `saveForecast` | previsione senza le sue categorie, cioè lo snapshot vuoto |
+| `seedDefaultData` | metà delle 19 categorie di default, e il seed **non ripartirebbe** (la guardia è "categorie > 0") |
+
+`addScheduled`/`updateScheduled` hanno richiesto l'estrazione di `addScheduledNoTx`/
+`updateScheduledNoTx`, e `seedDefaultData` di `seedDefaultCategories`, perché **`inTx` non è
+rientrante**. Verificato che nessuno degli 8 finisca annidato in un'altra transazione: i due
+chiamanti di `seedDefaultData` (costruttore e `reconnect`) sono fuori da `inTx`, e `importPending`
+resta com'era — apre una transazione **per riga** di proposito, così una voce malformata non
+annulla le altre.
+
+Verificato su copia del DB reale simulando il fallimento a metà:
+
+| scenario | vecchio | nuovo |
+|---|---|---|
+| `saveNote`, errore dopo il DELETE dei tag | **3 tag → 0**, persi in silenzio | 3 intatti |
+| `setBudgetBulk`, errore al 7° mese | **6 mesi scritti** su 12 | 0, tutto o niente |
+| `deleteBudgetYear`, errore fra le due DELETE | config orfana | `budgets` e `config` coerenti |
+
+---
+
 ## ⏳ DA FARE — medi
 
-- **Operazioni multi-scrittura senza `inTx`**: `setBudgetBulk` (`:2331`, 12 commit → mezzo anno aggiornato se crasha), `saveNote` (`:1956`, la nota **perde tutti i tag**), `copyBudgetFromYear`, `deleteBudgetYear`, `addScheduled`/`updateScheduled`, `saveForecast`, `seedDefaultData`. 🗑️ **`generateBudget` escluso** (vedi sotto).
+- ✅ ~~**Operazioni multi-scrittura senza `inTx`**~~ — **RISOLTO 2026-07-28**, tutte e 8 ora transazionali. Vedi § dedicato. 🗑️ **`generateBudget` escluso** (vedi sotto).
 - 🗑️ **`generateBudget` senza `inTx` — ARCHIVIATO, nessun intervento (decisione utente, 2026-07-28).** ~600 INSERT = ~600 commit con journal create/fsync/delete su OneDrive: sono i secondi del pulsante "Genera budget". La lentezza è nota e accettata, l'operazione è manuale, rara e ripetibile (se va a metà si rigenera). **Riaprire solo se** diventa abbastanza lenta da dare fastidio o se si scopre che un'interruzione a metà lascia un budget incoerente e non evidente.
 - 🗑️ **`touchSyncMeta` — ARCHIVIATO, nessun intervento (decisione utente, 2026-07-28).** Restano veri i due difetti — 3 statement di cui un DDL a ogni scrittura (spuntare "conciliata" = 4 commit invece di 1) e marcatore assente su categorie, tag, pianificate, budget e portafoglio — ma **Android non legge il portafoglio titoli**, che era la motivazione principale del finding: l'app mobile mostra conti e transazioni, non le posizioni. Il costo dei commit in più non è percepibile. **Riaprire solo se** l'app Android verrà estesa a leggere portafoglio/budget, o se compare una divergenza di sync attribuibile al marcatore mancante.
 - **Nessuna validazione "somma split = importo"** (`saveSplits:2080`): la tolleranza JS è `> 0.01`, quindi 3×33,33 su 100 € passa → dashboard 100,00 vs torta 99,99, per sempre.

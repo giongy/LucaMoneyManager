@@ -116,8 +116,6 @@ public class MainWindow {
             public void windowClosing(WindowEvent e) {
                 // isActive() va letto ORA, sull'EDT: doExit() lo azzera prima di inviare
                 // l'evento, quindi qui distingue "nascondi nel tray" da "esci davvero".
-                // isActive() va letto ORA, sull'EDT: doExit() lo azzera prima di inviare
-                // l'evento, quindi qui distingue "nascondi nel tray" da "esci davvero".
                 final boolean toTray = TrayManager.isActive();
                 if (toTray) bridge.clearSessionState();
                 // In background (tray o uscita): abilita l'auto-release così eventuali query

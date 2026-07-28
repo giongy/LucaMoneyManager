@@ -464,8 +464,18 @@ public class Database {
             // La prossima query riapre da sola via ensureOpen().
             //
             // close() però NON chiude se activeQueries > 0 (una lettura in volo su un altro
-            // thread), quindi si concede una breve attesa invece di fallire subito: sono query
-            // da millisecondi e il backup di chiusura non deve saltare per così poco.
+            // thread).
+            //
+            // ⚠️ Il retry qui sotto NON è un'attesa cooperativa, anche se lo sembra: questo
+            // metodo è synchronized e Thread.sleep NON rilascia il monitor, mentre endQuery()
+            // — l'unico che decrementa activeQueries — è a sua volta synchronized. Durante i
+            // 10 tentativi il contatore quindi non può scendere: si dorme 1s e si fallisce.
+            // Il ciclo serve solo per il caso in cui il journal sparisca da sé (transazione
+            // chiusa da SQLite). Difetto noto e ACCETTATO (audit 2026-07-28): la finestra
+            // richiede un journal orfano da una transazione interrotta PIÙ una query in volo,
+            // e l'esito è dal lato sicuro — si rifiuta un .bak incoerente e resetModifications()
+            // non viene eseguito, quindi il backup si ritenta alla chiusura successiva.
+            // Per renderlo una vera attesa servirebbe far dormire il retry FUORI dal monitor.
             Path journal = src.resolveSibling(src.getFileName() + "-journal");
             for (int attempt = 0; attempt < 10 && Files.exists(journal); attempt++) {
                 try {

@@ -29,8 +29,14 @@
 | *(2026-07-28)* | Concorrenza/UI: contatore auto-release · `openAsync` ×7 · `reopen()` fuori dall'EDT · timeout HTTP |
 | *(2026-07-28)* | Integrità: qty/price in buy-sellStock · guardia update acquisto · tracciabilità delete posizione · registrazione pianificata atomica |
 
-**Nessun critico rimasto.** Il prossimo per gravità è il purge del log che non ricalcola
-`startOffset` (§ medi): il backup automatico non parte e non lo segnala nessuno.
+**Nessun critico rimasto.**
+
+**Rilettura indipendente del 2026-07-28** (4 revisori paralleli, § "Verifica indipendente" in fondo):
+confermato che i 43 fix reggono — nessuna corruzione dati, nessuna regressione nei numeri. Trovati
+**6 nuovi difetti minori**, tutti rinviati per decisione utente perché nessuno è urgente: 2 con
+radice comune (`close()` best-effort trattato come garantito da `backup`/`withExclusiveAccess`),
+1 regressione di sola visualizzazione (`transaction_count`), 1 NPE sul percorso non fidato,
+1 processo fantasma improbabile, 1 toast duplicato.
 
 ---
 
@@ -948,6 +954,86 @@ vede lato Java. Tipi scelti per aderenza: `IllegalStateException` (non configura
 4. Tray: "Chiudi connessione DB" → "Riapri connessione DB" ripetuto qualche volta, poi verifica con Process Explorer che ci sia **un solo** handle su `luca.db`.
 5. Cambio file DB da Impostazioni e ripristino di un backup → nessun falso refresh, nessun errore al primo accesso.
 6. Uscita dall'app (X e "Esci" dal tray) → nessun file `luca.db-journal` residuo nella cartella OneDrive.
+
+---
+
+## 🔁 Verifica indipendente — 2026-07-28 (4 revisori paralleli)
+
+Rilettura del Java **dopo** la chiusura dei 52 finding, su 4 assi: concorrenza/ciclo di vita,
+integrità dati/SQL, robustezza/fallimenti silenziosi, review dei diff degli ultimi 20 commit.
+Ogni finding riportato qui è stato **riverificato sul codice** prima di essere accettato; diversi
+sono stati scartati (vedi in fondo).
+
+**Esito: nessuna corruzione dati silenziosa, nessuna regressione nei numeri.** L'invariante della
+Connection regge, `inTx` non è mai annidato (tutti i call site verificati), begin/end bilanciati
+11/11 in `finally`, `DbLogger` sincronizzato senza buchi, le estrazioni di metodo (`insertTransactionNoTx`,
+`planAdvance`/`applyAdvance`, `addScheduledNoTx`…) sono fedeli all'originale, verificate contro git.
+
+### 🔕 La radice comune — `close()` è best-effort, 3 chiamanti lo trattano come garantito
+
+`backup`, `restoreBackup` e `withExclusiveAccess` chiamano `close()` senza controllarne l'esito,
+ma `close()` esce senza chiudere se `activeQueries > 0`. Si vede solo leggendo `close()` **insieme**
+ai suoi chiamanti — è il motivo per cui è sopravvissuto all'audit precedente.
+
+- **`withExclusiveAccess` orfana la connessione** — `Database.java:4543-4547`. `close()` non chiude,
+  poi `conn` viene riassegnata **incondizionatamente**: la vecchia diventa irraggiungibile, file
+  handle aperto fino a fine processo → lock su OneDrive mai più rilasciato. Violazione letterale
+  della regola #2. Percorso: VACUUM/REINDEX da Manutenzione con una query in volo dall'altro canale.
+- **L'attesa in `backup()` non può riuscire** — `Database.java:470-479`. Il metodo è `synchronized`,
+  `Thread.sleep` non rilascia il monitor e `endQuery()` è a sua volta `synchronized`: durante i 10
+  tentativi `activeQueries` **non può scendere**. Commento corretto in loco (2026-07-28) per non
+  lasciare documentata un'attesa cooperativa che il codice non realizza.
+
+**Rinviati, decisione utente 2026-07-28.** Entrambi falliscono **dal lato sicuro**: `backup()`
+rifiuta un `.bak` incoerente e non azzera il marcatore (si ritenta alla chiusura dopo);
+`withExclusiveAccess` richiede di colpire una finestra stretta, con unico utente, e si risolve
+riavviando l'app. ⚠️ La finestra di `backup()` è più stretta di quanto sembri: `inTx` è anch'esso
+`synchronized` e le letture sono in autocommit (non creano journal), quindi serve un journal
+**orfano da una transazione interrotta** PIÙ una query in volo — non è "il backup salta ogni volta
+col telefono in LAN".
+
+**Riaprire se:** compare "Backup annullato: transazione in corso" più di una volta ogni tanto,
+oppure il `.db` resta lockato per OneDrive dopo aver usato la Manutenzione. Il fix è unico per
+entrambi: far sì che `close()` comunichi se ha chiuso davvero e i tre chiamanti abortiscano invece
+di proseguire (per `backup()`, in alternativa, far dormire il retry **fuori** dal monitor).
+
+### ⏳ Difetti indipendenti, non urgenti
+
+- **`transaction_count` conta le suddivise interamente escluse** — `Database.java:4405-4409`.
+  ⚠️ **Regressione introdotta da `3c83738`**: il ramo `EXISTS` conta ogni transazione suddivisa
+  senza guardare se le sue voci siano escluse — lo stesso errore logico che quel commit correggeva
+  negli **importi**, sopravvissuto nel **contatore**. Verificato su SQLite reale: con 1 suddivisa
+  la cui unica voce è su categoria esclusa, `expenses` è corretto ma il conteggio la include.
+  Stessa radice: a `cat_amounts` vuota il conteggio dà 1 invece di 0. **Solo visualizzazione** —
+  `income`/`expenses`/`net`/`balance` restano corretti.
+- **NPE nella validazione degli split** — `Database.java:2703`. `r2(dbl2(p,"amount"))` fa unboxing
+  di un `Double` nullable: con `amount` assente o null → NPE invece dell'`SQLException` parlante che
+  il fix voleva. Il modale manda sempre `amount`, ma quella guardia esiste **proprio** per i percorsi
+  che non passano dal modale (LAN, `pending.jsonl`), cioè la superficie non fidata. Una riga.
+- **Processo fantasma uscendo dal tray durante un backup** — `MainWindow.java:132`. `toTray` è
+  catturata all'evento: se esci dal tray mentre un backup precedente è ancora in corso, `closing`
+  è già `true` → si ritorna e `System.exit(0)` non arriva mai. Finestra nascosta, tray già
+  disabilitato: processo chiudibile solo da Task Manager. Improbabile (serve una cartella di backup
+  lenta) ma l'esito è totale; lo shutdown hook non aiuta, perché nessuno termina la JVM.
+- **Toast duplicato** — `dashboard.js:966`. `showTxModal` emette già il suo toast a
+  `transactions.js:917` prima di invocare `onAfterSave`. `scheduled.js:786-789` è stato ripulito,
+  dashboard no: stessa asimmetria a due punti che il commit dichiarava di aver evitato.
+- **Documentazione stale**: `CLAUDE.md` dice versione 1.18.1, `pom.xml` è a **1.20.0**; LOC di
+  `Database.java`/`Bridge.java` e dei moduli JS sfalsati; numero di case (133 → 134). Gli anchor
+  `#Lnnn` di `ARCHITECTURE.md` puntano ora a codice non correlato → **conviene passare ai nomi dei
+  metodi**, altrimenti si rompono a ogni modifica non banale.
+
+### ⏭️ Scartati in verifica (segnalati dai revisori, respinti sul codice)
+
+- `DbLogger.removedBytesBeforeOffset` che assume `\r\n`: sbaglia **dal lato innocuo** (offset troppo
+  basso → un backup di troppo, mai uno mancato). Le due reti di sicurezza esistenti coprono l'altra direzione.
+- `resetModifications()` non chiamato sul backup manuale/pre-svecchiamento: stessa direzione sicura
+  (un `.bak` in più, non uno in meno).
+- Doppia `close()` del response body nel WebServer: idempotente, non è un bug.
+- Motore delle previsioni che tratta le suddivise come non categorizzate (`getForecastEngine`,
+  `getForecastDetail`): coerente al suo interno, comportamento preesistente e difendibile — non questo finding.
+- Il commento di `DbLogger` che documenta la motivazione poi confutata (righe intrecciate): impreciso
+  ma la ragione vera è comunque documentata subito sotto.
 
 ---
 

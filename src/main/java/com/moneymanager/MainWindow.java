@@ -137,10 +137,9 @@ public class MainWindow {
                     try {
                         if ("1".equals(db.getAppSetting("backup.enabled", "0")) && db.hasModifications()) {
                             String bDir = db.getAppSetting("backup.dir", "");
-                            int bMax;
-                            try { bMax = Integer.parseInt(db.getAppSetting("backup.max", "10")); }
-                            catch (NumberFormatException ex) { bMax = 10; }
-                            try { db.backup(bDir, bMax); db.resetModifications(); }
+                            // Lettura tollerante centralizzata in Database.getBackupMax:
+                            // era l'unico dei 3 punti già protetto, ora la protezione è una sola.
+                            try { db.backup(bDir, db.getBackupMax()); db.resetModifications(); }
                             catch (Exception ex) { System.err.println("Backup fallito: " + ex.getMessage()); }
                         }
                         try { db.close(); } catch (Exception ex) {

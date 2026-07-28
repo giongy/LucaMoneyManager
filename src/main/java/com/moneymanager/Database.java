@@ -1101,6 +1101,30 @@ public class Database {
         }
     }
 
+    /**
+     * Numero massimo di backup da conservare, letto da `backup.max` in modo tollerante.
+     *
+     * Il valore arriva da un campo di testo in Impostazioni: svuotarlo (o scriverci qualsiasi
+     * cosa) lo salvava come stringa non numerica e ogni `Integer.parseInt` successivo lanciava.
+     * In `doBackup` questo significava solo un backup manuale fallito, ma nel backup
+     * pre-svecchiamento faceva fallire il backup che protegge un'operazione **irreversibile**:
+     * si perdeva la rete di sicurezza proprio dove serve di più.
+     *
+     * Qui si ripiega sul default (10) invece di lanciare, e lo si segnala in app.log. Valori
+     * ≤ 0 sono ammessi e significano "nessun limite": è la convenzione che backup() già usa
+     * (`if (maxBackups > 0)` per la pulizia dei vecchi).
+     */
+    public int getBackupMax() {
+        String raw = getAppSetting("backup.max", "10");
+        try {
+            return Integer.parseInt(raw.trim());   // NPE inclusa nel catch: il valore può essere NULL
+        } catch (RuntimeException e) {
+            System.err.println("Database.getBackupMax: valore backup.max non valido ('" + raw
+                    + "'), uso il default 10");
+            return 10;
+        }
+    }
+
     /** Tutte le impostazioni applicative come mappa chiave→valore. */
     public Map<String, String> getAllAppSettings() {
         try {

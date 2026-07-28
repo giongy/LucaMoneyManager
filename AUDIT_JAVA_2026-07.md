@@ -6,10 +6,10 @@
 
 **52 finding.** Legenda stato: ✅ fatto · ⏳ da fare · 🔕 rischio accettato · ⏭️ valutato e scartato.
 
-**Stato al 2026-07-28:** **38 chiusi** · 3 a rischio accettato (S1/S3/S4) ·
+**Stato al 2026-07-28:** **40 chiusi** · 3 a rischio accettato (S1/S3/S4) ·
 6 archiviati (D6 nessun backup pre-v20 · P4 zero non conciliate misurate ·
 `generateBudget` lentezza accettata · `touchSyncMeta` Android non legge il portafoglio ·
-`archiveTransactions` e `getScheduled()` ×2 non influenti) · **5 aperti**.
+`archiveTransactions` e `getScheduled()` ×2 non influenti) · **3 aperti**.
 
 | Commit | Contenuto |
 |---|---|
@@ -739,6 +739,49 @@ strettamente unidirezionale (`Database` → `DbLogger`).
 
 ---
 
+## ✅ FATTO — 2026-07-28 · Avvio: porta occupata e `backup.max`
+
+### ✅ Porta 47291 occupata → avvio impossibile e muto — `SingleInstance.java`
+Se la porta era occupata, `tryAcquire` provava a mandare SHOW e — qualunque cosa succedesse —
+ritornava `false`: l'errore di invio finiva in un `catch (IOException ignored)` e `App` faceva
+`System.exit(0)`. Con la porta tenuta da **un altro programma** (o da un socket rimasto appeso
+dopo un crash) l'app **non partiva più**: niente finestra, niente messaggio, niente in `app.log`.
+Guasto totale e completamente silenzioso.
+
+Fix: si esce **solo se risponde davvero la nostra istanza**. Il listener ora replica `LMM-OK` a un
+SHOW valido e il mittente esce soltanto ricevendo quell'ACK; in ogni altro caso logga e parte lo
+stesso. Restare senza lock di istanza singola è un inconveniente minore (al più due finestre),
+non poter avviare l'app è un guasto. Aggiunto `setSoTimeout(2000)` su entrambi i lati: senza,
+un programma che accetta la connessione e non risponde avrebbe bloccato l'avvio per sempre —
+sostituendo un guasto con un altro.
+
+Verificato su 5 scenari (porta di prova, non la 47291 reale):
+
+| scenario | esito |
+|---|---|
+| porta libera | parte ✓ |
+| nostra istanza in ascolto | esce ✓ **e** la prima riceve SHOW |
+| estraneo che accetta e tace | parte dopo 2 s ✓ (non si blocca) |
+| estraneo che risponde altro | parte ✓ |
+| **vecchio codice, stesso caso** | **non parte** ✗ — il difetto |
+
+### ✅ `Integer.parseInt(backup.max)` senza fallback — `Database.getBackupMax()`
+Il valore arriva da un campo di testo in Impostazioni: svuotarlo lo salvava come stringa non
+numerica e ogni `parseInt` successivo lanciava. In `doBackup` era un backup manuale fallito, ma
+nel **backup pre-svecchiamento** faceva fallire il backup che protegge un'operazione
+**irreversibile** — si perdeva la rete di sicurezza proprio dove serve di più.
+
+Fix: helper unico `Database.getBackupMax()` che ripiega su 10 e lo segnala in `app.log`. I **3**
+punti (2 in `Bridge`, 1 in `MainWindow`) ora lo usano: prima `MainWindow` aveva la sua guardia
+duplicata e i due in `Bridge` non ne avevano nessuna. Valori ≤ 0 restano tali, perché `backup()`
+li tratta già come "nessun limite".
+
+Verificato su 11 valori: quelli validi (incluso `0`/`-1`) passano invariati; campo vuoto, spazi,
+testo, decimali, notazione esponenziale e null ripiegano su 10 invece di lanciare. Anche `' 7 '`
+con spazi, che prima lanciava, ora funziona.
+
+---
+
 ## ⏳ DA FARE — medi
 
 - **Operazioni multi-scrittura senza `inTx`**: `setBudgetBulk` (`:2331`, 12 commit → mezzo anno aggiornato se crasha), `saveNote` (`:1956`, la nota **perde tutti i tag**), `copyBudgetFromYear`, `deleteBudgetYear`, `addScheduled`/`updateScheduled`, `saveForecast`, `seedDefaultData`. 🗑️ **`generateBudget` escluso** (vedi sotto).
@@ -756,8 +799,8 @@ strettamente unidirezionale (`Database` → `DbLogger`).
 - ✅ ~~**`Desktop.open/browse` sul thread di dispatch** (7 punti)~~ — **RISOLTO 2026-07-28** (helper `openAsync`), vedi § dedicato.
 - ✅ ~~**Registrazione pianificata non atomica** (`dashboard.js:963`)~~ — **RISOLTO 2026-07-28** (una sola transazione SQL; corretto anche `scheduled.js:registerSched`), vedi § dedicato.
 - ✅ ~~**`reopen()` sull'EDT**~~ — **RISOLTO 2026-07-28** (`MainWindow.bringToFront`/`reload` + le due azioni DB del tray in `App.java`), vedi § dedicato.
-- **Porta 47291 occupata** → l'app **esce in silenzio assoluto** e non parte più (`SingleInstance.java:22`, `App.java:138`). → Se il "SHOW" fallisce, `return true`.
-- **`Integer.parseInt(backup.max)` senza fallback** (`Bridge.java:670`,`:705`; protetto invece in `MainWindow.java:106`): un campo svuotato rompe il backup pre-svecchiamento, che è irreversibile.
+- ✅ ~~**Porta 47291 occupata** → l'app esce in silenzio assoluto~~ — **RISOLTO 2026-07-28**, vedi § dedicato.
+- ✅ ~~**`Integer.parseInt(backup.max)` senza fallback**~~ — **RISOLTO 2026-07-28** (helper `Database.getBackupMax()`), vedi § dedicato.
 - **`readAllBytes` senza limite** su POST `/bridge` (`WebServer.java:37`) + nessun timeout → OOM dalla LAN.
 - ✅ ~~**`deletePortfolioItem`** lascia orfane le transazioni di acquisto e le commissioni~~ — **CHIUSO 2026-07-28**: ⚠️ finding mal posto, le transazioni devono restare (movimenti di denaro reali). Risolta la tracciabilità. Vedi § dedicato.
 - ✅ ~~**`updateTransaction`** aggiorna `portfolio_transactions.price` solo per `coupon`/`expense`~~ — **RISOLTO 2026-07-28** (guardia graduata sull'importo), vedi § dedicato.

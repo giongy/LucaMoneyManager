@@ -799,8 +799,7 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
 
             case "doBackup" -> {
                 String bDir = db.getAppSetting("backup.dir", "");
-                int bMax = Integer.parseInt(db.getAppSetting("backup.max", "10"));
-                String dest = db.backup(bDir, bMax);
+                String dest = db.backup(bDir, db.getBackupMax());
                 yield Map.of("ok", true, "path", dest);
             }
 
@@ -834,8 +833,7 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                 String bDir = db.getAppSetting("backup.dir", "");
                 String backupPath = null;
                 try {
-                    int bMax = Integer.parseInt(db.getAppSetting("backup.max", "10"));
-                    backupPath = db.backup(bDir, bMax);
+                    backupPath = db.backup(bDir, db.getBackupMax());
                 } catch (Exception backupErr) {
                     // Se il backup fallisce non procediamo: l'operazione è irreversibile.
                     // Si LANCIA invece di restituire Map.of("error",…): così l'errore passa dal

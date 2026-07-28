@@ -2039,7 +2039,13 @@ public class Database {
     /**
      * Importa le transazioni della coda pending.jsonl non ancora applicate.
      * Ritorna la lista delle transazioni importate ora (vuota se nessuna o file assente).
-     * Idempotente: le righe con id già importato vengono saltate e ri-marcate applied.
+     *
+     * Idempotente: le righe con id già presente in `imported_pending` non vengono reimportate,
+     * ma vengono comunque **ri-marcate `applied`** nel file. Quest'ultima parte era promessa dal
+     * javadoc e non fatta: senza, una riga importata in una sessione precedente la cui
+     * riscrittura non era mai arrivata al telefono restava `applied:false` per sempre — Android
+     * continuava a scalarne l'importo dal saldo mostrato e la riga non diventava mai eleggibile
+     * per la pulizia dei 30 giorni.
      */
     public List<Map<String, Object>> importPending() throws SQLException {
         Path queue = pendingQueuePath();
@@ -2140,6 +2146,25 @@ public class Database {
                     logger.log("IMPORT CODA — RIGA SALTATA", "id:" + id, "err:" + e.getMessage());
                     // riga conservata invariata sotto (rewritten.add) per ritentare in futuro
                 }
+            } else if (!applied && id != null) {
+                // Riga GIÀ IMPORTATA in una sessione precedente ma ancora `applied:false` nel file:
+                // succede quando il DB è stato aggiornato e sincronizzato mentre la riscrittura
+                // della coda non è mai arrivata al telefono (errore di scrittura, oppure la
+                // riscrittura saltata dalla guardia size+mtime poco più sotto).
+                //
+                // Prima non veniva ri-marcata: il ramo sopra è l'unico che scriveva `applied` ed
+                // è escluso da alreadyImported(). Conseguenze, entrambe permanenti:
+                //   - Android considera la riga ancora pendente e continua a scalarne l'importo
+                //     dal saldo mostrato PER SEMPRE, mentre nel DB la transazione c'è già → saldo
+                //     del telefono sbagliato in modo stabile;
+                //   - restando `applied:false` non diventa mai eleggibile per la pulizia dei 30
+                //     giorni, quindi la coda cresce senza limite.
+                // Nessun rischio di doppio import: l'id è in imported_pending, quindi la
+                // transazione non viene ricreata — qui si allinea solo il marcatore nel file.
+                o.addProperty("applied", true);
+                fileChanged = true;
+                logger.log("CODA — RIGA RI-MARCATA APPLIED", "id:" + id,
+                           "motivo:già importata in una sessione precedente");
             }
             rewritten.add(o.toString());
         }

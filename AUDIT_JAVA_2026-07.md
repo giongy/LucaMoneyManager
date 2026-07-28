@@ -6,10 +6,10 @@
 
 **52 finding.** Legenda stato: ✅ fatto · ⏳ da fare · 🔕 rischio accettato · ⏭️ valutato e scartato.
 
-**Stato al 2026-07-28:** **41 chiusi** · 3 a rischio accettato (S1/S3/S4) ·
+**Stato al 2026-07-28:** **42 chiusi** · 3 a rischio accettato (S1/S3/S4) ·
 6 archiviati (D6 nessun backup pre-v20 · P4 zero non conciliate misurate ·
 `generateBudget` lentezza accettata · `touchSyncMeta` Android non legge il portafoglio ·
-`archiveTransactions` e `getScheduled()` ×2 non influenti) · **2 aperti**.
+`archiveTransactions` e `getScheduled()` ×2 non influenti) · **1 aperto**.
 
 | Commit | Contenuto |
 |---|---|
@@ -812,6 +812,35 @@ Verificato su copia del DB reale simulando il fallimento a metà:
 
 ---
 
+## ✅ FATTO — 2026-07-28 · `importPending` ri-marca `applied`
+
+Il javadoc prometteva che le righe con id già importato venissero "saltate **e ri-marcate
+applied**", ma l'unico punto che scriveva `applied` stava dentro il ramo
+`!applied && !alreadyImported(id)` — cioè proprio quello escluso per le righe già importate.
+
+Scenario reale: la transazione viene importata e il DB sincronizzato, ma la riscrittura della
+coda non arriva al telefono (errore di scrittura, oppure riscrittura saltata dalla guardia
+size+mtime aggiunta con ✅ D1). La riga resta `applied:false` **per sempre**, con due conseguenze
+permanenti:
+- Android la considera ancora pendente e continua a **scalarne l'importo dal saldo mostrato**,
+  mentre nel DB la transazione c'è già → saldo del telefono sbagliato in modo stabile;
+- non diventando mai `applied`, non è mai eleggibile per la pulizia dei 30 giorni → la coda
+  cresce senza limite.
+
+Fix: nuovo ramo `else if (!applied && id != null)` che allinea il marcatore nel file e logga
+`CODA — RIGA RI-MARCATA APPLIED`. Nessun rischio di doppio import: l'id è in `imported_pending`,
+quindi la transazione non viene ricreata — si allinea **solo** il marcatore. Javadoc corretto.
+
+Verificato con un porting della logica su 3 sessioni:
+
+| | vecchio | nuovo |
+|---|---|---|
+| dopo la 2ª sessione | Android scala ancora **35,50 €** | saldo scalato **0,00** ✓ |
+| dopo la pulizia 30 gg | 2 righe **bloccate in coda** | coda svuotata ✓ |
+| doppio import | — | `xyz` importata **1** sola volta ✓ |
+
+---
+
 ## ⏳ DA FARE — medi
 
 - ✅ ~~**Operazioni multi-scrittura senza `inTx`**~~ — **RISOLTO 2026-07-28**, tutte e 8 ora transazionali. Vedi § dedicato. 🗑️ **`generateBudget` escluso** (vedi sotto).
@@ -819,7 +848,7 @@ Verificato su copia del DB reale simulando il fallimento a metà:
 - 🗑️ **`touchSyncMeta` — ARCHIVIATO, nessun intervento (decisione utente, 2026-07-28).** Restano veri i due difetti — 3 statement di cui un DDL a ogni scrittura (spuntare "conciliata" = 4 commit invece di 1) e marcatore assente su categorie, tag, pianificate, budget e portafoglio — ma **Android non legge il portafoglio titoli**, che era la motivazione principale del finding: l'app mobile mostra conti e transazioni, non le posizioni. Il costo dei commit in più non è percepibile. **Riaprire solo se** l'app Android verrà estesa a leggere portafoglio/budget, o se compare una divergenza di sync attribuibile al marcatore mancante.
 - **Nessuna validazione "somma split = importo"** (`saveSplits:2080`): la tolleranza JS è `> 0.01`, quindi 3×33,33 su 100 € passa → dashboard 100,00 vs torta 99,99, per sempre.
 - ✅ ~~**`excluded_from_budget` ignorato sulle transazioni suddivise**~~ — **RISOLTO 2026-07-28**, vedi § dedicato.
-- **`importPending` non ri-marca `applied`** (il javadoc promette il contrario): Android continua a scalare l'importo dal saldo mostrato **per sempre** e la riga non è mai eleggibile per la pulizia a 30 giorni. ⚠️ Distinto da ✅ D1 e **non** risolto da esso: riguarda le righe già presenti in `imported_pending`, che il ramo `!applied && !alreadyImported` salta del tutto.
+- ✅ ~~**`importPending` non ri-marca `applied`**~~ — **RISOLTO 2026-07-28**, vedi § dedicato.
 - ✅ ~~**`DbLogger.log()` non thread-safe**~~ — **RISOLTO 2026-07-28**, vedi § dedicato. ⚠️ Il rischio vero non erano le righe intrecciate (l'append è atomico per write) ma lo **stato condiviso**.
 - ✅ ~~**Il purge del log non ricalcola `startOffset`**~~ — **RISOLTO 2026-07-28**, vedi § dedicato.
 - **`getForecastDetail`** (`:4141`): N+1 (una query per categoria di previsione). ⚠️ Parzialmente attenuato da `5c42ed4`, che ha aggiunto `idx_splits_cat`: le 50 scansioni complete sono ora 50 lookup indicizzati. Resta l'N+1 in sé.

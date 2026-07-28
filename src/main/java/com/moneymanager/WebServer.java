@@ -59,35 +59,61 @@ public class WebServer {
                 Object result = bridge.dispatch(method, params, null);
                 respond(ex, result);
             } catch (Exception e) {
-                ex.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
-                ex.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
-                byte[] err = gson.toJson(Map.of("error", e.getMessage() != null ? e.getMessage() : "Errore interno"))
-                        .getBytes(StandardCharsets.UTF_8);
-                ex.sendResponseHeaders(500, err.length);
-                ex.getResponseBody().write(err);
-                ex.getResponseBody().close();
+                // Log esplicito: una richiesta dalla LAN che fallisce qui non passa dal catch
+                // centrale di Bridge.onQuery (quello copre solo il percorso JCEF), quindi senza
+                // questa riga l'errore spariva — nessuna traccia in app.log, nessun badge.
+                System.err.println("[WebServer] /bridge fallito: " + e);
+                e.printStackTrace();
+                try {
+                    ex.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
+                    ex.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
+                    byte[] err = gson.toJson(Map.of("error", e.getMessage() != null ? e.getMessage()
+                                    : e.getClass().getSimpleName()))
+                            .getBytes(StandardCharsets.UTF_8);
+                    ex.sendResponseHeaders(500, err.length);
+                    ex.getResponseBody().write(err);
+                } catch (IOException io) {
+                    // Client sparito a metà risposta: non c'è più niente da dirgli.
+                    System.err.println("[WebServer] invio errore fallito: " + io);
+                }
+            } finally {
+                ex.close();   // rilascia sempre la connessione, anche se sendResponseHeaders è saltato
             }
         });
 
         // GET /* — serve file statici dalla cartella web estratta
         server.createContext("/", ex -> {
-            if (!ex.getRequestMethod().equalsIgnoreCase("GET")) {
-                ex.sendResponseHeaders(405, -1);
-                return;
+            // try/catch su TUTTO il ramo: prima non c'era. Un'eccezione qui (file cancellato fra
+            // isRegularFile e readAllBytes, cartella web su OneDrive non idratata, permessi,
+            // URI malformato) risaliva al gestore di default di HttpServer, che chiude la
+            // connessione senza risposta: il browser mostrava una pagina bianca e in app.log
+            // non restava NULLA. Ora l'errore si vede e il client riceve un 500 vero.
+            try {
+                if (!ex.getRequestMethod().equalsIgnoreCase("GET")) {
+                    ex.sendResponseHeaders(405, -1);
+                    return;
+                }
+                String uriPath = ex.getRequestURI().getPath();
+                if (uriPath.equals("/")) uriPath = "/index.html";
+                Path file = webDir.resolve(uriPath.substring(1)).normalize();
+                if (!file.startsWith(webDir) || !Files.isRegularFile(file)) {
+                    ex.sendResponseHeaders(404, -1);
+                    return;
+                }
+                String mime = mimeType(file.getFileName().toString());
+                byte[] data = Files.readAllBytes(file);
+                ex.getResponseHeaders().set("Content-Type", mime);
+                ex.sendResponseHeaders(200, data.length);
+                ex.getResponseBody().write(data);
+            } catch (Exception e) {
+                System.err.println("[WebServer] GET " + ex.getRequestURI().getPath()
+                        + " fallito: " + e);
+                e.printStackTrace();
+                try { ex.sendResponseHeaders(500, -1); }
+                catch (IOException io) { /* risposta già iniziata o client sparito */ }
+            } finally {
+                ex.close();
             }
-            String uriPath = ex.getRequestURI().getPath();
-            if (uriPath.equals("/")) uriPath = "/index.html";
-            Path file = webDir.resolve(uriPath.substring(1)).normalize();
-            if (!file.startsWith(webDir) || !Files.isRegularFile(file)) {
-                ex.sendResponseHeaders(404, -1);
-                return;
-            }
-            String mime = mimeType(file.getFileName().toString());
-            byte[] data = Files.readAllBytes(file);
-            ex.getResponseHeaders().set("Content-Type", mime);
-            ex.sendResponseHeaders(200, data.length);
-            ex.getResponseBody().write(data);
-            ex.getResponseBody().close();
         });
 
         server.start();

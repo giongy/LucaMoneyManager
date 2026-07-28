@@ -598,7 +598,8 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             case "attachFile" -> {
                 String attDir = db.getAppSetting("attachments.dir", "");
                 if (attDir == null || attDir.isBlank())
-                    yield Map.of("error", "Cartella allegati non configurata. Configurala in Impostazioni > Preferenze.");
+                    throw new IllegalStateException(
+                            "Cartella allegati non configurata. Configurala in Impostazioni > Preferenze.");
                 int txId       = p.get("tx_id").getAsInt();
                 String srcPath = p.get("source_path").getAsString();
                 String oldRel  = p.has("old_path") && !p.get("old_path").isJsonNull()
@@ -628,13 +629,13 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                 String attDir = db.getAppSetting("attachments.dir", "");
                 String relPath = p.get("path").getAsString();
                 if (attDir.isBlank())
-                    yield Map.of("error", "Cartella allegati non configurata");
+                    throw new IllegalStateException("Cartella allegati non configurata");
                 java.nio.file.Path file = resolveAttachment(attDir, relPath);
                 if (file == null)
-                    yield Map.of("error", "Percorso allegato non valido: '" + relPath
+                    throw new IllegalArgumentException("Percorso allegato non valido: '" + relPath
                             + "'. Deve essere un file dentro la cartella allegati.");
                 if (!java.nio.file.Files.isRegularFile(file))
-                    yield Map.of("error", "File non trovato: " + file);
+                    throw new java.io.FileNotFoundException("File non trovato: " + file);
                 java.awt.Desktop.getDesktop().open(file.toFile());
                 yield Map.of("ok", true);
             }
@@ -794,8 +795,14 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                     int bMax = Integer.parseInt(db.getAppSetting("backup.max", "10"));
                     backupPath = db.backup(bDir, bMax);
                 } catch (Exception backupErr) {
-                    // Se il backup fallisce non procediamo: l'operazione è irreversibile
-                    yield Map.of("error", "Backup pre-operazione fallito: " + backupErr.getMessage());
+                    // Se il backup fallisce non procediamo: l'operazione è irreversibile.
+                    // Si LANCIA invece di restituire Map.of("error",…): così l'errore passa dal
+                    // catch centrale di onQuery, finisce in app.log e incrementa il badge errori.
+                    // Il frontend vede la stessa cosa di prima (_checkError in bridge.js
+                    // trasformava già il campo "error" in un throw), ma qui resta una traccia.
+                    // La causa è concatenata per non perdere lo stack del fallimento vero.
+                    throw new IllegalStateException(
+                            "Backup pre-operazione fallito: " + backupErr.getMessage(), backupErr);
                 }
                 Map<String, Object> res = db.archiveTransactions(ids);
                 yield Map.of("created", res.get("created"), "deleted", res.get("deleted"), "backup", backupPath);

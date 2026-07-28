@@ -895,9 +895,15 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
       if (_splitActive) {
         if (!splits.length) { toast('Aggiungi almeno una voce', 'error'); return false; }
         if (splits.some(s => !s.category_id)) { toast('Seleziona la categoria per ogni voce', 'error'); return false; }
-        const splitTotal = splits.reduce((s,sp) => s + sp.amount, 0);
-        if (Math.abs(splitTotal - data.amount) > 0.01) {
-          toast(`Le voci (${fmt.currency(splitTotal)}) non corrispondono al totale (${fmt.currency(data.amount)})`, 'error'); return false;
+        // Soglia allineata a quella lato Java (saveSplits): mezzo centesimo sugli importi
+        // arrotondati a 2 decimali. Con `> 0.01` sui valori grezzi la somma in virgola mobile
+        // decideva l'esito per differenze invisibili all'utente; arrotondando prima, il
+        // confronto è sui centesimi che vede davvero, e il modale non può piu' accettare
+        // qualcosa che il server rifiuta subito dopo.
+        const splitTotal = Math.round(splits.reduce((s,sp) => s + sp.amount, 0) * 100) / 100;
+        const txTotal    = Math.round(data.amount * 100) / 100;
+        if (Math.abs(splitTotal - txTotal) >= 0.005) {
+          toast(`Le voci (${fmt.currency(splitTotal)}) non corrispondono al totale (${fmt.currency(txTotal)})`, 'error'); return false;
         }
       } else {
         if (!data.category_id) { _markErr('f_cat_input', 'Seleziona una categoria'); return false; }

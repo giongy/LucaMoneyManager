@@ -2554,11 +2554,38 @@ public class Database {
         }
     }
 
-    /** Sostituisce tutte le righe split di una transazione con quelle in p.splits. */
+    /**
+     * Sostituisce tutte le righe split di una transazione con quelle in p.splits.
+     *
+     * Valida che la somma delle voci coincida con l'importo della transazione. Il controllo
+     * esisteva SOLO lato JS (transactions.js, nel modale), quindi ogni percorso che non passa da
+     * lì — riga di `pending.jsonl` scritta da Android, chiamata via HTTP dalla LAN — poteva
+     * scrivere split che non quadrano. Una volta dentro il DB la differenza è permanente e
+     * silenziosa: i totali complessivi usano `transactions.amount`, i report per categoria
+     * sommano le righe split, quindi le due viste divergono per sempre senza che nulla lo segnali.
+     *
+     * Tolleranza di mezzo centesimo (0,005): gli importi sono già arrotondati a 2 decimali da
+     * r2(), quindi qualunque scarto reale è ≥ 0,01 mentre quel che resta è solo rumore binario
+     * della somma in virgola mobile.
+     */
     private void saveSplits(long txId, JsonObject p) throws SQLException {
         execute("DELETE FROM transaction_splits WHERE transaction_id=?", txId);
         if (p.has("splits") && p.get("splits").isJsonArray()) {
-            for (var el : p.get("splits").getAsJsonArray()) {
+            var splits = p.get("splits").getAsJsonArray();
+            if (splits.isEmpty()) return;
+
+            double somma = 0;
+            for (var el : splits) somma += r2(el.getAsJsonObject().get("amount").getAsDouble());
+            somma = r2(somma);
+            double totale = r2(dbl2(p, "amount"));
+            if (Math.abs(somma - totale) >= 0.005) {
+                throw new SQLException(String.format(
+                        "Le voci della suddivisione (%.2f) non corrispondono all'importo della"
+                        + " transazione (%.2f): differenza di %.2f.",
+                        somma, totale, totale - somma));
+            }
+
+            for (var el : splits) {
                 JsonObject s = el.getAsJsonObject();
                 execute("INSERT INTO transaction_splits(transaction_id,category_id,amount,description) VALUES(?,?,?,?)",
                         txId,

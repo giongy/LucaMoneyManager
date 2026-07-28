@@ -1883,6 +1883,19 @@ public class Database {
         ensurePendingQueueExists();   // garantisce che il file esista per la selezione da Android
         if (!Files.exists(queue)) return List.of();
 
+        // Impronta (size+mtime) PRIMA della lettura: la riscrittura in fondo sostituisce il file
+        // con le sole righe lette qui, quindi va saltata se nel frattempo OneDrive ha portato
+        // altre righe dal telefono — riscrivere le cancellerebbe DEFINITIVAMENTE, e l'import
+        // parte al boot, cioè nel momento di massima attività di sync.
+        long sizeBefore, mtimeBefore;
+        try {
+            sizeBefore  = Files.size(queue);
+            mtimeBefore = Files.getLastModifiedTime(queue).toMillis();
+        } catch (IOException e) {
+            logger.log("IMPORT CODA — ERRORE LETTURA", "file:" + queue, "err:" + e.getMessage());
+            return List.of();
+        }
+
         List<String> lines;
         try {
             lines = Files.readAllLines(queue, java.nio.charset.StandardCharsets.UTF_8);
@@ -1954,7 +1967,20 @@ public class Database {
 
         if (fileChanged) {
             try {
-                Files.write(queue, rewritten, java.nio.charset.StandardCharsets.UTF_8);
+                // Rileggi l'impronta: se il file è cambiato durante l'import (OneDrive che
+                // completa il download di righe nuove, o il telefono che accoda mentre siamo
+                // qui), `rewritten` NON le contiene e la Files.write le distruggerebbe.
+                // Saltare è sicuro: le transazioni lette sono già nel DB e i loro id sono in
+                // imported_pending, quindi il prossimo import non le duplica e ri-marca applied.
+                long sizeNow  = Files.size(queue);
+                long mtimeNow = Files.getLastModifiedTime(queue).toMillis();
+                if (sizeNow != sizeBefore || mtimeNow != mtimeBefore) {
+                    logger.log("IMPORT CODA — RISCRITTURA SALTATA (file modificato)", "file:" + queue,
+                               "size:" + sizeBefore + "→" + sizeNow,
+                               "mtime:" + mtimeBefore + "→" + mtimeNow);
+                } else {
+                    Files.write(queue, rewritten, java.nio.charset.StandardCharsets.UTF_8);
+                }
             } catch (IOException e) {
                 // La scrittura del file "applied" è best-effort: le transazioni sono già nel DB e
                 // registrate in imported_pending, quindi anche se qui fallisce non c'è doppio import.

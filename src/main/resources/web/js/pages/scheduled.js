@@ -783,11 +783,14 @@ window.registerSched = async id => {
     reconciled:    s.reconciled    ?? 1,
     tag_ids: tagIds
   };
-  showTxModal(prefilled, cats, accs, s.type, tags, async (txResult) => {
-    await api.advanceScheduled(id, s._next, txResult?.id);
+  showTxModal(prefilled, cats, accs, s.type, tags, () => {
+    // Avanzamento già fatto dentro la stessa transazione SQL del salvataggio (saveOverride).
     _resolveOverdue(id);
     renderSchedLista();
-  });
+  },
+  // Salvataggio + avanzamento atomici: come in dashboard.js, due chiamate separate potevano
+  // lasciare la transazione registrata e la pianificata ferma → doppia registrazione.
+  data => api.addTransactionForScheduled(data, id, s._next));
 };
 
 // Modale crea/modifica pianificata: tipo, importo (espressioni), categoria (cat-picker),

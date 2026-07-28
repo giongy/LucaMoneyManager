@@ -66,8 +66,7 @@ public class Database {
     // accoda su pending.jsonl, non tocca il DB), quindi tenere il lock non crea conflitti e il
     // rilascio idle a metà lavoro causava refresh a sorpresa. L'auto-release si abilita solo
     // quando la finestra va in background (minimizzata/tray, vedi MainWindow.windowIconified/
-    // windowClosing) e si ridisabilita al ritorno in foreground. inTx(), restoreBackup() e
-    // withExclusiveAccess() (VACUUM/REINDEX) lo sospendono temporaneamente.
+    // windowClosing) e si ridisabilita al ritorno in foreground.
     //
     // Tre variabili invece di una, per tenere separate due cose che prima si sovrascrivevano:
     //   - autoReleaseWanted  = la PREFERENZA (finestra in foreground/background), da setAutoRelease
@@ -327,10 +326,10 @@ public class Database {
     }
 
     /**
-     * Abilita/disabilita l'auto-release idle del lock. Va disabilitato durante
-     * operazioni che devono tenere il file stabile e aperto per più passaggi
-     * (backup, ripristino, cambio DB): in quei casi la chiusura a metà romperebbe
-     * l'operazione. Disabilitando si annulla anche l'eventuale task già pianificato.
+     * Abilita/disabilita l'auto-release idle del lock — è la PREFERENZA dell'utente/finestra
+     * (foreground ⇒ off, background/tray ⇒ on), non una sospensione temporanea.
+     * Per quelle si usa {@link #suspendAutoRelease()}/{@link #resumeAutoRelease()}.
+     * Disabilitando si annulla anche l'eventuale task già pianificato.
      */
     public synchronized void setAutoRelease(boolean enabled) {
         autoReleaseWanted = enabled;
@@ -396,6 +395,13 @@ public class Database {
      * Copia il DB nella cartella di backup come nomedb_YYYY-MM-DD_HH-mm-ss.db.bak,
      * con un sidecar .json delle modifiche di sessione. Mantiene al massimo
      * maxBackups file, eliminando i più vecchi (con relativo sidecar).
+     *
+     * <p><b>synchronized</b> come {@code restoreBackup}: con journal=DELETE una transazione in
+     * corso tiene un file {@code <db>-journal} accanto al database e alcune pagine non sono
+     * ancora nel .db. Copiare in quel momento produce un <b>.bak corrotto</b> — o comunque
+     * incoerente — che però sembra a posto e lo si scopre solo il giorno del ripristino.
+     * Il lock esclude le scritture applicative (tutte passano da {@code inTx}, anch'esso
+     * synchronized) per la durata della copia.</p>
      */
     public synchronized String backup(String backupDir, int maxBackups) throws IOException {
         if (backupDir == null || backupDir.isBlank())
@@ -1905,29 +1911,61 @@ public class Database {
 
     /** Inserisce una transazione con eventuali tag e split, in un'unica transazione SQL. */
     public Map<String, Object> addTransaction(JsonObject p) throws SQLException {
+        return inTx(() -> insertTransactionNoTx(p));
+    }
+
+    /**
+     * Corpo di {@link #addTransaction} SENZA aprire una transazione SQL.
+     * Estratto perché {@code inTx} non è rientrante: chi è già dentro una transazione
+     * (vedi {@link #addTransactionAndAdvanceScheduled}) deve poter inserire senza annidare.
+     * Non chiamarlo fuori da un {@code inTx}.
+     */
+    private Map<String, Object> insertTransactionNoTx(JsonObject p) throws SQLException {
+        int reconciled = p.has("reconciled") && !p.get("reconciled").isJsonNull()
+                ? p.get("reconciled").getAsInt() : 0;
+        long id = execute("""
+            INSERT INTO transactions(date,amount,type,category_id,account_id,to_account_id,description,color,reconciled)
+            VALUES(?,?,?,?,?,?,?,?,?)
+        """, str(p,"date"), dbl2(p,"amount"), str(p,"type"),
+                intVal(p,"category_id"), p.get("account_id").getAsInt(),
+                intVal(p,"to_account_id"),
+                str(p,"description") != null ? str(p,"description") : "",
+                str(p,"color"), reconciled);
+        saveTags(id, p);
+        saveSplits(id, p);
+        touchSyncMeta();
+        Map<String, Object> tx = getTransactionById(id);
+        logger.log("TRANSAZIONE AGGIUNTA",
+            "id:" + id,
+            "data:" + str(p,"date"),
+            "tipo:" + str(p,"type"),
+            "importo:" + DbLogger.amt(dbl2(p,"amount")),
+            "conto:" + DbLogger.s(tx != null ? tx.get("account_name") : null),
+            "categoria:" + logCategoria(id, tx),
+            "descrizione:" + DbLogger.s(str(p,"description")));
+        return tx;
+    }
+
+    /**
+     * "Esegui ora" una pianificata: inserisce la transazione E avanza la pianificata
+     * in un'UNICA transazione SQL.
+     *
+     * Prima il frontend faceva due chiamate separate (addTransaction, poi advanceScheduled):
+     * se la seconda falliva — o se l'app si chiudeva nel mezzo — la transazione era già
+     * committata ma la pianificata restava alla stessa data. Al tentativo successivo l'utente
+     * la ritrovava da registrare e la registrava di nuovo: **doppia registrazione**, con un
+     * movimento in più nei saldi e nei report, e niente che segnalasse l'accaduto.
+     * Essendo tutto in una sola transazione, ora o valgono entrambe o nessuna delle due.
+     */
+    public Map<String, Object> addTransactionAndAdvanceScheduled(
+            JsonObject p, int scheduledId, String registeredDate) throws SQLException {
+        // Calcolo della prossima occorrenza fuori dalla transazione (sola lettura + date)
+        AdvancePlan plan = planAdvance(scheduledId, registeredDate);
         return inTx(() -> {
-            int reconciled = p.has("reconciled") && !p.get("reconciled").isJsonNull()
-                    ? p.get("reconciled").getAsInt() : 0;
-            long id = execute("""
-                INSERT INTO transactions(date,amount,type,category_id,account_id,to_account_id,description,color,reconciled)
-                VALUES(?,?,?,?,?,?,?,?,?)
-            """, str(p,"date"), dbl2(p,"amount"), str(p,"type"),
-                    intVal(p,"category_id"), p.get("account_id").getAsInt(),
-                    intVal(p,"to_account_id"),
-                    str(p,"description") != null ? str(p,"description") : "",
-                    str(p,"color"), reconciled);
-            saveTags(id, p);
-            saveSplits(id, p);
-            touchSyncMeta();
-            Map<String, Object> tx = getTransactionById(id);
-            logger.log("TRANSAZIONE AGGIUNTA",
-                "id:" + id,
-                "data:" + str(p,"date"),
-                "tipo:" + str(p,"type"),
-                "importo:" + DbLogger.amt(dbl2(p,"amount")),
-                "conto:" + DbLogger.s(tx != null ? tx.get("account_name") : null),
-                "categoria:" + logCategoria(id, tx),
-                "descrizione:" + DbLogger.s(str(p,"description")));
+            Map<String, Object> tx = insertTransactionNoTx(p);
+            Integer txId = tx != null && tx.get("id") != null
+                    ? ((Number) tx.get("id")).intValue() : null;
+            applyAdvance(plan, txId, registeredDate);
             return tx;
         });
     }
@@ -2179,6 +2217,33 @@ public class Database {
 
     /** Aggiorna una transazione (tag, split, e prezzo dello storico portfolio se collegato). */
     public Map<String, Object> updateTransaction(int id, JsonObject p) throws SQLException {
+        // Guardia speculare a quella di deleteTransaction (D3), per la stessa ragione.
+        // L'UPDATE più sotto allinea portfolio_transactions.price SOLO per 'coupon'/'expense':
+        // per un acquisto o una vendita, cambiare l'importo lasciava lo storico e soprattutto
+        // portfolio.avg_price fermi al valore vecchio, perché non c'è nulla che li ricalcoli
+        // (lo fa solo deletePortfolioTransaction). Risultato: costo di carico sbagliato su cui
+        // si basa tutto il P&L successivo, senza alcun segnale.
+        //
+        // Guardia GRADUATA, come per la delete: si blocca solo se cambia davvero un campo che
+        // sposta la posizione (importo). Data, descrizione, colore, tag, categoria e stato di
+        // riconciliazione restano modificabili: non toccano quantity/avg_price.
+        Map<String, Object> ptLink = queryOne(
+            "SELECT pt.type, COALESCE(p2.ticker, p2.name, '?') AS titolo, t.amount AS old_amount " +
+            "FROM portfolio_transactions pt " +
+            "LEFT JOIN portfolio p2 ON p2.id = pt.portfolio_id " +
+            "JOIN transactions t ON t.id = pt.transaction_id " +
+            "WHERE pt.transaction_id=? AND pt.type IN ('buy','sell') LIMIT 1", id);
+        if (ptLink != null) {
+            double oldAmount = ((Number) ptLink.get("old_amount")).doubleValue();
+            double newAmount = dbl2(p, "amount");
+            if (Math.abs(oldAmount - newAmount) > 0.005) {
+                boolean acquisto = "buy".equals(ptLink.get("type"));
+                throw new SQLException("Questa transazione è " + (acquisto ? "un acquisto" : "una vendita")
+                        + " di " + ptLink.get("titolo") + ": cambiarne l'importo lascerebbe la posizione"
+                        + " in portafoglio con prezzo medio sbagliato."
+                        + " Correggi l'operazione dalla scheda del titolo.");
+            }
+        }
         return inTx(() -> {
             int reconciled = p.has("reconciled") && !p.get("reconciled").isJsonNull()
                     ? p.get("reconciled").getAsInt() : 0;
@@ -3209,44 +3274,66 @@ public class Database {
      * lì l'àncora originale non è recuperabile, ma almeno il drift non peggiora.
      */
     public void advanceScheduled(int scheduledId, String registeredDate, Integer transactionId) throws SQLException {
+        AdvancePlan plan = planAdvance(scheduledId, registeredDate);
+        if (plan == null) return;
+        inTx(() -> {
+            applyAdvance(plan, transactionId, registeredDate);
+            return null;
+        });
+    }
+
+    /** Cosa fare per avanzare una pianificata: la riga letta + la prossima occorrenza calcolata.
+     *  Separato dalla scrittura per poter riusare l'applicazione dentro una transazione altrui
+     *  (inTx non è rientrante) — vedi {@link #addTransactionAndAdvanceScheduled}. */
+    private record AdvancePlan(int scheduledId, Map<String, Object> row, String freq, LocalDate next) {}
+
+    /** Parte in sola lettura di {@link #advanceScheduled}: legge la pianificata e calcola la
+     *  prossima occorrenza. Ritorna null se la pianificata non esiste. */
+    private AdvancePlan planAdvance(int scheduledId, String registeredDate) throws SQLException {
         Map<String, Object> s = queryOne(
                 "SELECT frequency, start_date, original_start_date, description, portfolio_id "
                 + "FROM scheduled_transactions WHERE id=?", scheduledId);
-        if (s == null) return;
-        String freq      = (String) s.get("frequency");
+        if (s == null) return null;
+        String freq = (String) s.get("frequency");
         LocalDate registered = LocalDate.parse(registeredDate);
         LocalDate anchor = tryParseDate(s.get("original_start_date"), scheduledId);
         if (anchor == null) anchor = tryParseDate(s.get("start_date"), scheduledId);
         if (anchor == null) anchor = registered;   // entrambe illeggibili: comportamento precedente
-        LocalDate next       = "once".equals(freq) ? null
-                             : nextOccurrence(anchor, freq, registered);
+        LocalDate next = "once".equals(freq) ? null : nextOccurrence(anchor, freq, registered);
+        return new AdvancePlan(scheduledId, s, freq, next);
+    }
 
-        inTx(() -> {
-            // Se la pianificata è collegata a un titolo e abbiamo il transaction_id, registra nello storico portfolio
-            if (transactionId != null && s.get("portfolio_id") != null) {
-                int portfolioId = ((Number) s.get("portfolio_id")).intValue();
-                var tx = queryOne("SELECT amount, date FROM transactions WHERE id=?", transactionId);
-                if (tx != null) {
-                    execute("""
-                        INSERT INTO portfolio_transactions(portfolio_id,type,quantity,price,date,transaction_id,notes)
-                        VALUES(?,?,?,?,?,?,?)
-                    """, portfolioId, "coupon", 0, tx.get("amount"), tx.get("date"), transactionId,
-                            DbLogger.s(s.get("description")));
-                }
-            }
+    /** Parte in scrittura di {@link #advanceScheduled}. DEVE girare dentro un inTx. */
+    private void applyAdvance(AdvancePlan plan, Integer transactionId, String registeredDate)
+            throws SQLException {
+        if (plan == null) return;
+        Map<String, Object> s = plan.row();
+        int scheduledId = plan.scheduledId();
 
-            if ("once".equals(freq)) {
-                execute("UPDATE scheduled_transactions SET is_active=0 WHERE id=?", scheduledId);
-                logger.log("PIANIFICATA COMPLETATA", "id:" + scheduledId,
-                           "descrizione:" + DbLogger.s(s.get("description")));
-            } else if (next != null) {
-                execute("UPDATE scheduled_transactions SET start_date=? WHERE id=?", next.toString(), scheduledId);
-                logger.log("PIANIFICATA AVANZATA", "id:" + scheduledId,
-                           "descrizione:" + DbLogger.s(s.get("description")),
-                           "registrata:" + registeredDate, "prossima:" + next);
+        // Se la pianificata è collegata a un titolo e abbiamo il transaction_id, registra nello storico portfolio
+        if (transactionId != null && s.get("portfolio_id") != null) {
+            int portfolioId = ((Number) s.get("portfolio_id")).intValue();
+            var tx = queryOne("SELECT amount, date FROM transactions WHERE id=?", transactionId);
+            if (tx != null) {
+                execute("""
+                    INSERT INTO portfolio_transactions(portfolio_id,type,quantity,price,date,transaction_id,notes)
+                    VALUES(?,?,?,?,?,?,?)
+                """, portfolioId, "coupon", 0, tx.get("amount"), tx.get("date"), transactionId,
+                        DbLogger.s(s.get("description")));
             }
-            return null;
-        });
+        }
+
+        if ("once".equals(plan.freq())) {
+            execute("UPDATE scheduled_transactions SET is_active=0 WHERE id=?", scheduledId);
+            logger.log("PIANIFICATA COMPLETATA", "id:" + scheduledId,
+                       "descrizione:" + DbLogger.s(s.get("description")));
+        } else if (plan.next() != null) {
+            execute("UPDATE scheduled_transactions SET start_date=? WHERE id=?",
+                    plan.next().toString(), scheduledId);
+            logger.log("PIANIFICATA AVANZATA", "id:" + scheduledId,
+                       "descrizione:" + DbLogger.s(s.get("description")),
+                       "registrata:" + registeredDate, "prossima:" + plan.next());
+        }
     }
 
     /** Prossime N occorrenze future tra tutte le pianificate attive (orizzonte 2 anni). */
@@ -3635,6 +3722,16 @@ public class Database {
         boolean isBond       = "bond".equals(assetType);
         double pureAmount    = r2(isBond ? qty * price / 100.0 : qty * price);
 
+        // Validazione lato server: qty==0 finiva a denominatore nel calcolo del prezzo medio
+        // (sia sul ramo "posizione esistente" sia su quello nuovo) producendo NaN o Infinity in
+        // avg_price. Da lì in poi ogni P&L, valorizzazione e totale del portafoglio diventa NaN,
+        // e il valore resta nel DB: non c'è nulla che lo ricalcoli. Prima era validato solo lato
+        // JS, quindi bastava una chiamata dal browser del telefono o una API diretta per passarci.
+        if (!(qty > 0))
+            throw new SQLException("Quantità non valida (" + qty + "): deve essere maggiore di zero.");
+        if (!(price > 0))
+            throw new SQLException("Prezzo non valido (" + price + "): deve essere maggiore di zero.");
+
         return inTx(() -> {
             var cat = queryOne("SELECT id FROM categories WHERE type='transfer' LIMIT 1");
             Integer catId = cat != null ? ((Number)cat.get("id")).intValue() : null;
@@ -3721,6 +3818,10 @@ public class Database {
         double existQty     = ((Number)position.get("quantity")).doubleValue();
         int investAccountId = ((Number)position.get("account_id")).intValue();
         String ticker       = (String)position.get("ticker");
+        // Limite inferiore oltre a quello superiore: una qty negativa AUMENTEREBBE la posizione
+        // (quantity - (-n)), registrando una vendita che crea titoli dal nulla.
+        if (!(qty > 0))
+            throw new SQLException("Quantità non valida (" + qty + "): deve essere maggiore di zero.");
         if (qty > existQty + 0.00001)
             throw new SQLException("Quantità venduta (" + qty + ") superiore alla disponibile (" + existQty + ")");
 
@@ -4016,14 +4117,54 @@ public class Database {
         });
     }
 
-    /** Elimina un'intera posizione di portafoglio (i movimenti cadono in cascata via FK). */
+    /**
+     * Elimina un'intera posizione di portafoglio. I movimenti (`portfolio_transactions`) cadono
+     * in cascata via FK, mentre le TRANSAZIONI collegate restano — deliberatamente.
+     *
+     * Non è una dimenticanza: quelle transazioni sono movimenti di denaro veri fra i tuoi conti
+     * (il bonifico di acquisto, quello di vendita, le cedole incassate, le commissioni pagate).
+     * Cancellarle insieme alla posizione cambierebbe i saldi dei conti e farebbe sparire dai
+     * report entrate e uscite realmente avvenute. Il dialogo di conferma lo dice esplicitamente
+     * ("Le transazioni collegate resteranno").
+     *
+     * Quello che mancava era la TRACCIABILITÀ: l'operazione non lasciava scritto da nessuna parte
+     * quante transazioni restavano scollegate, quindi a posteriori non c'era modo di ritrovarle.
+     * Ora il conteggio e gli importi finiscono nel log, e vengono restituiti al frontend.
+     */
     public Map<String, Object> deletePortfolioItem(int id) throws SQLException {
-        Map<String, Object> old = queryOne("SELECT ticker, name FROM portfolio WHERE id=?", id);
-        execute("DELETE FROM portfolio WHERE id=?", id);
-        logger.log("TITOLO ELIMINATO", "id:" + id,
-                   "ticker:" + DbLogger.s(old != null ? old.get("ticker") : null),
-                   "nome:" + DbLogger.s(old != null ? old.get("name") : null));
-        return Map.of("id", id, "deleted", true);
+        return inTx(() -> {
+            Map<String, Object> old = queryOne("SELECT ticker, name FROM portfolio WHERE id=?", id);
+            if (old == null) throw new SQLException("Posizione non trovata (id:" + id + ")");
+
+            // Fotografia PRIMA della DELETE: dopo la cascata il legame non è più ricostruibile.
+            var linked = queryList("""
+                SELECT t.type AS tx_type, COUNT(*) AS n, COALESCE(SUM(t.amount),0) AS tot
+                  FROM portfolio_transactions pt
+                  JOIN transactions t ON t.id = pt.transaction_id
+                 WHERE pt.portfolio_id = ?
+                 GROUP BY t.type
+            """, id);
+            long orphanCount = 0;
+            StringBuilder detail = new StringBuilder();
+            for (var row : linked) {
+                long n = ((Number) row.get("n")).longValue();
+                orphanCount += n;
+                if (detail.length() > 0) detail.append(", ");
+                detail.append(row.get("tx_type")).append(":").append(n)
+                      .append(" (").append(DbLogger.amt(row.get("tot"))).append(")");
+            }
+
+            execute("DELETE FROM portfolio WHERE id=?", id);
+            touchSyncMeta();
+            logger.log("TITOLO ELIMINATO", "id:" + id,
+                       "ticker:" + DbLogger.s(old.get("ticker")),
+                       "nome:" + DbLogger.s(old.get("name")),
+                       "transazioni-scollegate:" + orphanCount,
+                       "dettaglio:" + (detail.length() > 0 ? detail.toString() : "-"));
+            return Map.of("id", id, "deleted", true,
+                          "unlinked_transactions", orphanCount,
+                          "unlinked_detail", detail.toString());
+        });
     }
 
     // ─── Log ──────────────────────────────────────────────────────────────────

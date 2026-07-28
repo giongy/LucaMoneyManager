@@ -2014,10 +2014,23 @@ window.updateStockPrice = async (id, val) => {
   catch(e) { toast(e.message,'error'); }
 };
 // Elimina un'intera posizione previa conferma (i movimenti cadono in cascata lato DB).
+// Le transazioni collegate (bonifici di acquisto/vendita, cedole, commissioni) NON vengono
+// toccate: sono movimenti di denaro veri fra i conti, cancellarli falserebbe i saldi. Qui le
+// contiamo prima, così la conferma dice quante ne resteranno invece di una frase generica.
 window.deleteStock = async id => {
-  const ok = await confirm('Elimina posizione', 'Eliminare questa posizione dal portafoglio? Le transazioni collegate resteranno.');
+  let avviso = 'Le transazioni collegate resteranno.';
+  try {
+    const movs = await api.getPortfolioTransactions(id);
+    const n = (movs || []).filter(m => m.transaction_id != null).length;
+    if (n > 0) avviso = `Resteranno <b>${n}</b> transazion${n === 1 ? 'e' : 'i'} collegat${n === 1 ? 'a' : 'e'} `
+                      + '(bonifici, cedole, commissioni): sono movimenti di denaro reali fra i conti '
+                      + 'e cancellarli falserebbe i saldi.';
+  } catch (e) { /* conteggio best-effort: se fallisce si mostra la frase generica */ }
+  const ok = await confirm('Elimina posizione', `Eliminare questa posizione dal portafoglio?<br>${avviso}`);
   if (!ok) return;
-  await api.deletePortfolioItem(id);
-  toast('Posizione eliminata');
+  const res = await api.deletePortfolioItem(id);
+  toast(res && res.unlinked_transactions > 0
+    ? `Posizione eliminata — ${res.unlinked_transactions} transazioni scollegate`
+    : 'Posizione eliminata');
   renderPortfolio();
 };

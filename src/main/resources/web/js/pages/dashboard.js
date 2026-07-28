@@ -960,9 +960,14 @@ window._dashExecSched = async id => {
     color: u.color || null,
     reconciled: u.reconciled ?? 1,
     tag_ids: tagIds,
-  }, cats, accs, u.type, tags, async (txResult) => {
-    await api.advanceScheduled(id, nextDate, txResult?.id);
+  }, cats, accs, u.type, tags, () => {
+    // L'avanzamento è già avvenuto dentro la stessa transazione SQL del salvataggio
+    // (saveOverride qui sotto): qui resta solo il feedback e il refresh.
     toast('Pianificata eseguita e avanzata');
     renderDashboard();
-  });
+  },
+  // Salvataggio + avanzamento atomici: prima erano due chiamate separate e un errore sulla
+  // seconda lasciava la transazione registrata con la pianificata ferma alla stessa data,
+  // quindi al tentativo successivo veniva registrata una SECONDA volta.
+  data => api.addTransactionForScheduled(data, id, nextDate));
 };

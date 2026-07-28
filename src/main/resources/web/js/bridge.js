@@ -145,6 +145,12 @@ const api = {
   getTransactionSplits:        id   => callJava('getTransactionSplits',        {id}),
   getTopDescriptions:          opts => callJava('getTopDescriptions', opts || {}),
   addTransaction:              async data  => { api._invalidateAccounts(); return callJava('addTransaction',    data); },
+  // Inserisce la transazione E avanza la pianificata in un'unica transazione SQL lato Java:
+  // o valgono entrambe o nessuna (niente doppia registrazione se la seconda parte fallisce).
+  addTransactionForScheduled:  async (data, scheduledId, scheduledDate) => {
+    api._invalidateAccounts();
+    return callJava('addTransactionForScheduled', {...data, scheduled_id: scheduledId, scheduled_date: scheduledDate});
+  },
   updateTransaction:           async data  => { api._invalidateAccounts(); return callJava('updateTransaction', data); },
   deleteTransaction:           async id    => { api._invalidateAccounts(); return callJava('deleteTransaction', {id}); },
   updateTransactionReconciled: (id, reconciled) => callJava('updateTransactionReconciled', {id, reconciled}),

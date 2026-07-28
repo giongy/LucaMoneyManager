@@ -439,6 +439,11 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             // ─── Transazioni ───────────────────────────────────────────────
             case "getTransactions"      -> db.getTransactions(p);
             case "addTransaction"       -> db.addTransaction(p);
+            // "Esegui ora" una pianificata: inserimento + avanzamento in UNA sola transazione,
+            // per non lasciare la transazione registrata e la pianificata ferma (doppia
+            // registrazione al tentativo successivo). Vedi Database.addTransactionAndAdvanceScheduled.
+            case "addTransactionForScheduled" -> db.addTransactionAndAdvanceScheduled(
+                    p, p.get("scheduled_id").getAsInt(), p.get("scheduled_date").getAsString());
             case "updateTransaction"    -> db.updateTransaction(p.get("id").getAsInt(), p);
             case "deleteTransaction"    -> db.deleteTransaction(p.get("id").getAsInt());
             case "getTransactionSplits" -> db.getTransactionSplits(p.get("id").getAsInt());

@@ -650,7 +650,11 @@ function initCatPicker(inputId, hiddenId, listId) {
 // Modale crea/modifica transazione (il più complesso dell'app): tipo, importo con espressioni,
 // categoria (cat-picker) o split multi-categoria, conti, data, tag, colore, allegato e stato
 // di conciliazione. tx=null → nuova; onAfterSave callback opzionale dopo il salvataggio.
-function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [], onAfterSave = null) {
+// saveOverride: se passato, sostituisce api.addTransaction sul ramo "nuova transazione".
+// Serve a "Esegui ora" di una pianificata, che deve salvare e avanzare in un'unica operazione
+// lato Java invece di due chiamate separate (altrimenti un errore fra le due lascia la
+// transazione registrata e la pianificata ferma → doppia registrazione al tentativo dopo).
+function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [], onAfterSave = null, saveOverride = null) {
   const isEdit = tx != null && tx.id != null;
   const initType = tx?.type || defaultType;
   const expCats = categories.filter(c=>c.type==='expense');
@@ -901,7 +905,9 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
     }
 
     try {
-      const txResult = isEdit ? await api.updateTransaction(data) : await api.addTransaction(data);
+      const txResult = isEdit ? await api.updateTransaction(data)
+                     : saveOverride ? await saveOverride(data)
+                     : await api.addTransaction(data);
       closeModal();
       toast(isEdit ? 'Transazione aggiornata' : 'Transazione aggiunta');
       refreshAfterTxChange();

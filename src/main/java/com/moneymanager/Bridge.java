@@ -290,11 +290,35 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
         ProcessBuilder pb = new ProcessBuilder(
                 "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
                 "-STA", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", ps);
-        pb.redirectErrorStream(false);
+        // stderr FUSO su stdout invece di lasciato scollegato: il buffer della pipe di stderr è
+        // di pochi KB e nessuno lo leggeva, quindi un powershell che scriveva un errore lungo
+        // (assembly WinForms mancante, criteri di esecuzione) si bloccava sulla scrittura e non
+        // usciva mai → waitFor() eterno sul virtual thread + processo zombie a ogni tentativo.
+        // Fondendo i due flussi, l'unica readAllBytes() sotto svuota entrambi.
+        pb.redirectErrorStream(true);
         Process proc = pb.start();
-        String out = new String(proc.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
-        proc.waitFor();
-        return out.isBlank() ? null : out;
+        String out;
+        try (java.io.InputStream in = proc.getInputStream()) {
+            out = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        } finally {
+            // waitFor() sempre, anche se la lettura è fallita, per non lasciare il processo
+            // in giro; destroy() se l'utente non chiude mai il dialogo entro il limite.
+            if (!proc.waitFor(5, java.util.concurrent.TimeUnit.MINUTES)) {
+                proc.destroyForcibly();
+                throw new java.io.IOException("winPickFolder: timeout, dialogo cartella non chiuso");
+            }
+        }
+        // Con i flussi fusi l'output può contenere righe di errore prima del path: il
+        // FolderBrowserDialog emette il path come ultima riga non vuota.
+        String path = out.lines().map(String::trim).filter(s -> !s.isEmpty())
+                         .reduce((a, b) -> b).orElse("");
+        // Un exit code non-zero significa che il path non è affidabile: meglio "annullato".
+        if (proc.exitValue() != 0) {
+            System.err.println("[Bridge] winPickFolder: powershell exit=" + proc.exitValue()
+                    + " out=" + path);
+            return null;
+        }
+        return path.isBlank() ? null : path;
     }
 
     /**

@@ -104,6 +104,50 @@ public class App {
         } catch (Throwable ignored) {}
     }
 
+    /** Quanto si attende che la cartella del DB compaia, prima di rinunciare (vedi waitForDbFolder). */
+    private static final int DB_FOLDER_WAIT_SECONDS = 30;
+
+    /**
+     * Attende che la cartella del DB diventi raggiungibile, fino a {@value #DB_FOLDER_WAIT_SECONDS}s.
+     *
+     * Serve al percorso di autostart: all'accesso a Windows l'app parte insieme a OneDrive, che
+     * però può metterci qualche secondo a montare la cartella sincronizzata. Prima qui si ripiegava
+     * subito sul DB di default, con l'effetto di aprire un database VUOTO e riscrivere db.path.
+     *
+     * @return true se la cartella è comparsa entro il limite, false se il tempo è scaduto.
+     */
+    private static boolean waitForDbFolder(Path dbParent) {
+        System.err.println("Cartella DB non raggiungibile (" + dbParent
+                + "): attendo fino a " + DB_FOLDER_WAIT_SECONDS + "s che sia montata…");
+        for (int i = 0; i < DB_FOLDER_WAIT_SECONDS; i++) {
+            try {
+                Thread.sleep(1000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return Files.exists(dbParent);
+            }
+            if (Files.exists(dbParent)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Avvisa che la cartella del DB non è comparsa e che l'avvio si ferma qui.
+     * Deliberatamente NON tocca db.path: al prossimo avvio, con OneDrive pronto, l'app riparte
+     * da sola senza che l'utente debba riconfigurare nulla.
+     */
+    private static void reportDbFolderMissing(String dbPath, Path dbParent) {
+        System.err.println("Avvio interrotto: cartella del DB non raggiungibile: " + dbParent);
+        try {
+            JOptionPane.showMessageDialog(null,
+                    "La cartella del database non è raggiungibile:\n" + dbParent
+                    + "\n\nDatabase configurato:\n" + dbPath
+                    + "\n\nSe è su OneDrive, attendi che la sincronizzazione sia attiva e riprova.\n"
+                    + "Il percorso configurato non è stato modificato.",
+                    "LucaMoneyManager — Database non raggiungibile", JOptionPane.ERROR_MESSAGE);
+        } catch (Throwable ignored) { /* in assenza di display resta il messaggio su stderr */ }
+    }
+
     /** Reindirizza System.err/System.out in append sul file di log dato, scrivendo l'header
      *  di sessione "── Avvio ... ──". Chiamato una sola volta, dopo aver risolto il path del DB. */
     private static void redirectLog(Path logFile) throws Exception {
@@ -156,10 +200,16 @@ public class App {
             dbPath = dataDir.resolve("data.db").toString();
             settings.set(Settings.DB_PATH, dbPath);
         } else {
+            // Cartella del DB non raggiungibile: NON si ripiega più sul default riscrivendo
+            // db.path. Con l'autostart l'app parte prima che OneDrive abbia montato la cartella,
+            // quindi il ripiego silenzioso creava un DB VUOTO e — peggio — perdeva il percorso
+            // di quello vero, che l'utente doveva ritrovare a mano. Si attende invece che la
+            // cartella compaia; solo se non arriva si esce con un messaggio, lasciando db.path
+            // intatto perché al prossimo avvio (con OneDrive pronto) funzioni da solo.
             Path dbParent = Path.of(dbPath).getParent();
-            if (dbParent == null || !Files.exists(dbParent)) {
-                dbPath = dataDir.resolve("data.db").toString();
-                settings.set(Settings.DB_PATH, dbPath);
+            if (dbParent != null && !Files.exists(dbParent) && !waitForDbFolder(dbParent)) {
+                reportDbFolderMissing(dbPath, dbParent);
+                System.exit(2);
             }
         }
 

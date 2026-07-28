@@ -734,10 +734,20 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                 yield Map.of("ok", true, "path", file.toAbsolutePath().toString());
             }
 
+            // Ordine voluto: PRIMA si verifica la cartella, POI si riconnette, e solo se la
+            // riconnessione è riuscita si persiste db.path. Prima il path veniva salvato per
+            // primo: se poi reconnect falliva (cartella OneDrive non montata, chiavetta staccata)
+            // restava scritto in settings.properties un percorso inutilizzabile, e al riavvio
+            // l'app apriva un DB vuoto lì invece del database vero.
             case "reloadDb" -> {
                 String path = p.get("path").getAsString();
-                settings.set(Settings.DB_PATH, path);
+                java.nio.file.Path parent = java.nio.file.Path.of(path).getParent();
+                if (parent == null || !java.nio.file.Files.isDirectory(parent))
+                    throw new IllegalArgumentException(
+                            "Cartella del database non raggiungibile: " + parent
+                            + " — impostazione non modificata.");
                 db.reconnect(path);
+                settings.set(Settings.DB_PATH, path);
                 yield Map.of("ok", true);
             }
 

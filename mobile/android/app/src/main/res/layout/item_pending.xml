@@ -51,6 +51,20 @@
             android:textSize="16sp"
             android:textStyle="bold"/>
 
+        <!-- Annulla la pendente (inserimento sbagliato dal telefono). Area di tocco 48dp,
+             il minimo raccomandato, cosi' non si preme per sbaglio accanto all'importo. -->
+        <TextView
+            android:id="@+id/btnCancel"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_marginStart="4dp"
+            android:gravity="center"
+            android:text="✕"
+            android:textSize="18sp"
+            android:textColor="?attr/colorOnSurfaceVariant"
+            android:contentDescription="Annulla transazione in coda"
+            android:background="?attr/selectableItemBackgroundBorderless"/>
+
     </LinearLayout>
 
 </com.google.android.material.card.MaterialCardView>

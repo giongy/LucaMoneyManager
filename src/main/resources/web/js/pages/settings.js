@@ -1588,17 +1588,25 @@ async function settingsShowPendingQueue() {
     // Non applicate prima (le vere "da importare"), poi le già importate; entro il gruppo per data desc.
     rows.sort((a, b) => (a.applied - b.applied) || String(b.date).localeCompare(String(a.date)));
 
-    const pending = rows.filter(r => !r.applied).length;
+    const pending   = rows.filter(r => !r.applied).length;
+    const cancelled = rows.filter(r => r.cancelled).length;
     const body = rows.map(r => {
       const conto = accName[r.account_id] || `#${r.account_id ?? '?'}`;
       const dest  = r.to_account_id != null ? ` → ${accName[r.to_account_id] || '#'+r.to_account_id}` : '';
       const catg  = r.type === 'transfer' ? 'Trasferimento' : (catName[r.category_id] || '—');
       const desc  = r.description || catg;
-      return `<tr style="border-bottom:1px solid var(--border)">
-        <td style="padding:6px 8px;white-space:nowrap">${r.applied ? '✅' : '⏳'}</td>
+      // Le annullate dal telefono sono applied come le importate ma per il motivo opposto:
+      // icona e barratura le distinguono, altrimenti sembrerebbero regolarmente importate.
+      const icona = r.cancelled ? '🚫' : (r.applied ? '✅' : '⏳');
+      const stile = r.cancelled ? 'text-decoration:line-through;opacity:.6' : '';
+      // esc(): descrizione, conto e categoria arrivano da pending.jsonl (scritto da Android)
+      // e finiscono in innerHTML — stessa esposizione gia' chiusa altrove con X1.
+      return `<tr style="border-bottom:1px solid var(--border);${stile}"
+                  ${r.cancelled ? 'title="Annullata dal telefono: non verrà importata"' : ''}>
+        <td style="padding:6px 8px;white-space:nowrap">${icona}</td>
         <td style="padding:6px 8px;white-space:nowrap;color:var(--txt2)">${fmt.date(r.date)}</td>
-        <td style="padding:6px 8px">${desc}</td>
-        <td style="padding:6px 8px;color:var(--txt2)">${conto}${dest} · ${catg}</td>
+        <td style="padding:6px 8px">${esc(desc)}</td>
+        <td style="padding:6px 8px;color:var(--txt2)">${esc(conto)}${esc(dest)} · ${esc(catg)}</td>
         <td style="padding:6px 8px;white-space:nowrap;text-align:right;font-weight:600"
             class="amount-${r.type}">${typeSign[r.type]||''}${fmt.currency(r.amount)}</td>
       </tr>`;
@@ -1606,7 +1614,7 @@ async function settingsShowPendingQueue() {
 
     view.innerHTML = `
       <div style="font-size:12px;color:var(--txt3);margin-bottom:6px">
-        ${rows.length} rig${rows.length===1?'a':'he'} · ${pending} da importare · ${rows.length-pending} già importate
+        ${rows.length} rig${rows.length===1?'a':'he'} · ${pending} da importare · ${rows.length-pending-cancelled} già importate${cancelled ? ` · ${cancelled} annullate dal telefono` : ''}
       </div>
       <div style="max-height:340px;overflow:auto;border:1px solid var(--border);border-radius:8px">
         <table style="width:100%;border-collapse:collapse;font-size:13px">

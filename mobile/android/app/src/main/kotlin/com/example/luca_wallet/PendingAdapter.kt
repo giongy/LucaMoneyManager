@@ -8,7 +8,9 @@ import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 
 class PendingAdapter(
-    private val items: List<Row>
+    private val items: List<Row>,
+    /** Invocato al tocco della ✕ su una riga: l'Activity chiede conferma e annulla. */
+    private val onCancel: ((Row) -> Unit)? = null
 ) : RecyclerView.Adapter<PendingAdapter.VH>() {
 
     data class Row(
@@ -16,7 +18,9 @@ class PendingAdapter(
         val amount: Double,
         val date: String,
         val description: String,
-        val accountName: String
+        val accountName: String,
+        /** id della riga in pending.jsonl, serve per annullarla. */
+        val id: String = ""
     )
 
     class VH(view: View) : RecyclerView.ViewHolder(view) {
@@ -24,6 +28,7 @@ class PendingAdapter(
         val description: TextView = view.findViewById(R.id.tvDescription)
         val date:        TextView = view.findViewById(R.id.tvDate)
         val amount:      TextView = view.findViewById(R.id.tvAmount)
+        val cancel:      TextView = view.findViewById(R.id.btnCancel)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int) =
@@ -49,5 +54,14 @@ class PendingAdapter(
             "expense" -> Color.parseColor("#f85149")
             else      -> Color.parseColor("#58a6ff")
         })
+
+        // La ✕ compare solo se l'Activity ha passato un handler e la riga ha un id utilizzabile
+        if (onCancel != null && r.id.isNotBlank()) {
+            holder.cancel.visibility = View.VISIBLE
+            holder.cancel.setOnClickListener { onCancel.invoke(r) }
+        } else {
+            holder.cancel.visibility = View.GONE
+            holder.cancel.setOnClickListener(null)
+        }
     }
 }

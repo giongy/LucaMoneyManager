@@ -41,7 +41,9 @@ object PendingQueue {
         val toAccountId: Int?,
         val description: String,
         val applied: Boolean,
-        val created: String
+        val created: String,
+        /** true se annullata dal telefono prima dell'import (vedi [cancel]). */
+        val cancelled: Boolean = false
     )
 
     // ── Preferenze: URI del file coda ────────────────────────────────────────────
@@ -219,9 +221,79 @@ object PendingQueue {
             toAccountId = if (o.isNull("to_account_id")) null else o.getInt("to_account_id"),
             description = o.optString("description", ""),
             applied     = o.optBoolean("applied", false),
-            created     = o.optString("created", "")
+            created     = o.optString("created", ""),
+            cancelled   = o.optBoolean("cancelled", false)
         )
     } catch (_: Exception) { null }
+
+    // ── Annullamento di una pendente ─────────────────────────────────────────────
+
+    /**
+     * Annulla una transazione ancora in coda (inserimento sbagliato dal telefono).
+     *
+     * NON cancella fisicamente la riga, di proposito. Due motivi, entrambi seri:
+     *
+     * 1. [writeAll] apre il documento in modalità "w" SENZA truncate — scelta obbligata perché
+     *    con OneDrive la modalità "wt" non fa mai partire l'upload. È sicura solo finché il file
+     *    non si accorcia: rimuovendo una riga, la coda diventerebbe più corta del contenuto
+     *    precedente e in fondo resterebbero i byte vecchi, cioè una riga JSON troncata a metà.
+     * 2. La riga potrebbe essere già stata scaricata dal desktop mentre la si annulla; una riga
+     *    sparita e poi ri-sincronizzata da OneDrive potrebbe riapparire e venire importata.
+     *
+     * Si marca invece la riga come `applied:true` + `cancelled:true`. `applied` è ciò che il
+     * desktop già guarda per saltare le righe (nessuna modifica lato desktop necessaria perché
+     * l'annullamento funzioni), `cancelled` distingue "annullata dall'utente" da "importata" nei
+     * log e nella UI. La riga resta nel file finché la pulizia dei 30 giorni del desktop non la
+     * rimuove insieme alle altre già applicate.
+     *
+     * Il file cresce di ~20 byte per annullamento, quindi l'invariante "da Android non si
+     * accorcia mai" resta intatta.
+     *
+     * @return true se la riga è stata trovata e marcata, false se non esiste o era già applicata.
+     * @throws Exception se la coda non è configurata o non è leggibile (mai riscrivere alla cieca).
+     */
+    fun cancel(context: Context, entryId: String): Boolean {
+        val uri = queueUri(context)
+            ?: throw Exception("File coda non configurato: impossibile annullare")
+
+        // Lettura strict come in append(): se non riusciamo a leggere non riscriviamo nulla,
+        // altrimenti sovrascriveremmo la coda perdendo le righe che non abbiamo visto.
+        val existing = context.contentResolver.openInputStream(uri)
+            ?.use { it.readBytes().toString(Charsets.UTF_8) }
+            ?: throw Exception("File coda non leggibile")
+
+        var found = false
+        val out = StringBuilder(existing.length + 32)
+        for (line in existing.lineSequence()) {
+            val trimmed = line.trim()
+            if (trimmed.isEmpty()) continue
+            var toWrite = trimmed
+            if (!found) {
+                try {
+                    val o = JSONObject(trimmed)
+                    // Solo le righe non ancora applicate sono annullabili: se il desktop l'ha
+                    // già importata, la transazione va eliminata da lì, non dalla coda.
+                    if (o.optString("id") == entryId && !o.optBoolean("applied", false)) {
+                        o.put("applied", true)
+                        o.put("cancelled", true)
+                        o.put("cancelled_at", Instant.now().toString())
+                        toWrite = o.toString()
+                        found = true
+                    }
+                } catch (_: Exception) {
+                    // riga illeggibile: si conserva identica, non si perde nulla
+                }
+            }
+            out.append(toWrite).append('\n')
+        }
+
+        if (!found) return false
+        writeAll(context, uri, out.toString())
+        // Sollecita subito l'upload: l'annullamento deve arrivare al desktop almeno quanto
+        // l'inserimento, altrimenti la riga verrebbe importata prima che il marker si sincronizzi.
+        kickUpload(context)
+        return true
+    }
 
     // ── Delta saldo ──────────────────────────────────────────────────────────────
 

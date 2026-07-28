@@ -2060,6 +2060,22 @@ public class Database {
             boolean applied = o.has("applied") && o.get("applied").getAsBoolean();
             String id = o.has("id") && !o.get("id").isJsonNull() ? o.get("id").getAsString() : null;
 
+            // Riga ANNULLATA dal telefono (✕ in PendingActivity): Android la marca
+            // applied:true + cancelled:true invece di cancellarla fisicamente, perché il file
+            // coda non può accorciarsi dal lato Android (scrittura SAF senza truncate).
+            // Il ramo di import qui sotto la salta già grazie ad applied; la logghiamo una volta
+            // sola, la prima volta che la vediamo, così resta traccia di perché non è mai arrivata.
+            boolean cancelled = o.has("cancelled") && !o.get("cancelled").isJsonNull()
+                                && o.get("cancelled").getAsBoolean();
+            if (cancelled && id != null && !alreadyImported(id)) {
+                execute("INSERT OR IGNORE INTO imported_pending(id,imported_at) VALUES(?,?)",
+                        id, LocalDateTime.now().toString());
+                logger.log("CODA — RIGA ANNULLATA DAL TELEFONO", "id:" + id,
+                           "data:" + DbLogger.s(o.has("date") ? o.get("date").getAsString() : null),
+                           "importo:" + DbLogger.s(o.has("amount") ? o.get("amount").getAsString() : null),
+                           "descrizione:" + DbLogger.s(o.has("description") ? o.get("description").getAsString() : null));
+            }
+
             // Pulizia: riga già applicata e abbastanza vecchia → non riscriverla (rimossa dal file).
             if (applied && isOlderThan(o, cleanupBefore)) {
                 fileChanged = true;
@@ -2145,6 +2161,10 @@ public class Database {
                 r.put("id",            o.has("id") && !o.get("id").isJsonNull() ? o.get("id").getAsString() : null);
                 r.put("created",       o.has("created") && !o.get("created").isJsonNull() ? o.get("created").getAsString() : null);
                 r.put("applied",       o.has("applied") && o.get("applied").getAsBoolean());
+                // Annullata dal telefono: è applied come le importate, ma per motivi opposti —
+                // il frontend la distingue così invece di mostrarla come "già importata".
+                r.put("cancelled",     o.has("cancelled") && !o.get("cancelled").isJsonNull()
+                                       && o.get("cancelled").getAsBoolean());
                 r.put("date",          o.has("date") ? o.get("date").getAsString() : null);
                 r.put("amount",        o.has("amount") ? o.get("amount").getAsDouble() : 0.0);
                 r.put("type",          o.has("type") ? o.get("type").getAsString() : null);

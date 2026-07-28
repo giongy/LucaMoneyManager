@@ -6,10 +6,10 @@
 
 **52 finding.** Legenda stato: ✅ fatto · ⏳ da fare · 🔕 rischio accettato · ⏭️ valutato e scartato.
 
-**Stato al 2026-07-28:** **36 chiusi** · 3 a rischio accettato (S1/S3/S4) ·
+**Stato al 2026-07-28:** **38 chiusi** · 3 a rischio accettato (S1/S3/S4) ·
 6 archiviati (D6 nessun backup pre-v20 · P4 zero non conciliate misurate ·
 `generateBudget` lentezza accettata · `touchSyncMeta` Android non legge il portafoglio ·
-`archiveTransactions` e `getScheduled()` ×2 non influenti) · **7 aperti**.
+`archiveTransactions` e `getScheduled()` ×2 non influenti) · **5 aperti**.
 
 | Commit | Contenuto |
 |---|---|
@@ -712,6 +712,33 @@ una categoria esclusa — comportamento diverso e preesistente, non questo findi
 
 ---
 
+## ✅ FATTO — 2026-07-28 · `DbLogger` thread-safe
+
+`DbLogger` è usata da **quattro** famiglie di thread — UI di JCEF, virtual thread del WebServer,
+EDT Swing (tray/iconify/chiusura), thread del Timer di auto-release — senza alcun lock. Ora tutti
+i metodi che toccano `logFile`/`startOffset` sono `synchronized` sull'istanza.
+
+⚠️ **Il finding era mal caratterizzato, verificato sperimentalmente.** L'audit parlava di "righe
+intrecciate → operazioni fantasma nel sidecar". Provato con 4 e 8 thread per 1.200 e 3.200 righe:
+**zero righe rotte anche senza lock**, perché su Windows una `Files.writeString` in APPEND è una
+singola write atomica a livello di OS. Quel sintomo non è riproducibile.
+
+Il difetto **reale** è lo stato condiviso, ed è più grave: `getSessionEntries()` fa
+`Files.size()` e poi `readFully()` sulla finestra `[startOffset, size)`. Se un purge accorcia il
+file fra le due chiamate, la lettura va oltre la fine del file. Riprodotto in modo deterministico
+(purge concorrente a letture e append): **3 run su 3 falliscono con `EOFException`** senza lock,
+**0 errori su 3 run** con il lock.
+
+Perché conta davvero: nel codice vero quell'eccezione è inghiottita da
+`catch (IOException e) { return List.of(); }`, quindi `hasChanges()` risponde "nessuna modifica"
+e **il backup automatico non parte** — lo stesso fallimento silenzioso già chiuso lato
+`startOffset`, raggiunto per un'altra strada.
+
+Nessun rischio di deadlock: `DbLogger` non richiama mai `Database`, quindi l'ordine dei lock è
+strettamente unidirezionale (`Database` → `DbLogger`).
+
+---
+
 ## ⏳ DA FARE — medi
 
 - **Operazioni multi-scrittura senza `inTx`**: `setBudgetBulk` (`:2331`, 12 commit → mezzo anno aggiornato se crasha), `saveNote` (`:1956`, la nota **perde tutti i tag**), `copyBudgetFromYear`, `deleteBudgetYear`, `addScheduled`/`updateScheduled`, `saveForecast`, `seedDefaultData`. 🗑️ **`generateBudget` escluso** (vedi sotto).
@@ -720,7 +747,7 @@ una categoria esclusa — comportamento diverso e preesistente, non questo findi
 - **Nessuna validazione "somma split = importo"** (`saveSplits:2080`): la tolleranza JS è `> 0.01`, quindi 3×33,33 su 100 € passa → dashboard 100,00 vs torta 99,99, per sempre.
 - ✅ ~~**`excluded_from_budget` ignorato sulle transazioni suddivise**~~ — **RISOLTO 2026-07-28**, vedi § dedicato.
 - **`importPending` non ri-marca `applied`** (il javadoc promette il contrario): Android continua a scalare l'importo dal saldo mostrato **per sempre** e la riga non è mai eleggibile per la pulizia a 30 giorni. ⚠️ Distinto da ✅ D1 e **non** risolto da esso: riguarda le righe già presenti in `imported_pending`, che il ramo `!applied && !alreadyImported` salta del tutto.
-- **`DbLogger.log()` non thread-safe** (`DbLogger.java:99`): chiamato da 4 famiglie di thread; righe intrecciate → operazioni fantasma nel sidecar JSON del backup.
+- ✅ ~~**`DbLogger.log()` non thread-safe**~~ — **RISOLTO 2026-07-28**, vedi § dedicato. ⚠️ Il rischio vero non erano le righe intrecciate (l'append è atomico per write) ma lo **stato condiviso**.
 - ✅ ~~**Il purge del log non ricalcola `startOffset`**~~ — **RISOLTO 2026-07-28**, vedi § dedicato.
 - **`getForecastDetail`** (`:4141`): N+1 (una query per categoria di previsione). ⚠️ Parzialmente attenuato da `5c42ed4`, che ha aggiunto `idx_splits_cat`: le 50 scansioni complete sono ora 50 lookup indicizzati. Resta l'N+1 in sé.
 - ✅ ~~**`backup()` non esclude gli altri thread**~~ — **RISOLTO 2026-07-28**, vedi § dedicato (`backup()` ora `synchronized` + guardia sul journal).

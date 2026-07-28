@@ -26,6 +26,21 @@ public class DbLogger {
     private static final int POS_ACTION = 22;
     private static final int POS_FIELDS = 57; // 22 + 35
 
+    // ── Thread-safety ────────────────────────────────────────────────────────────
+    // Questa classe è usata da QUATTRO famiglie di thread: il thread UI di JCEF, i virtual
+    // thread del WebServer (una richiesta = un thread), l'EDT Swing (tray, iconify, chiusura) e
+    // il thread del Timer di auto-release. Senza lock:
+    //   - due log() concorrenti potevano INTRECCIARE le righe nel file (ogni chiamata è una
+    //     writeString in APPEND separata), producendo voci illeggibili o mezze righe che poi
+    //     finiscono nel sidecar JSON del backup come "operazioni fantasma";
+    //   - `logFile` e `startOffset` sono stato mutabile condiviso: un setDbPath (cambio DB) o un
+    //     purge concorrente a un log()/getSessionEntries() poteva far leggere un path vecchio con
+    //     un offset nuovo, cioè una finestra di sessione senza senso — e da quella finestra
+    //     dipende hasChanges(), cioè se il backup automatico parte.
+    // Tutti i metodi pubblici e i privati che toccano questi campi sono quindi `synchronized`
+    // sullo stesso monitor (l'istanza). Il costo è irrilevante: le scritture sono poche righe di
+    // testo e la contesa reale è vicina a zero, mentre il rischio evitato è la perdita silenziosa
+    // del backup automatico.
     private Path logFile;
     private long startOffset; // byte nel log all'avvio della sessione (Files.size, istantaneo)
 
@@ -34,10 +49,10 @@ public class DbLogger {
     }
 
     /** Aggiorna il percorso del log file quando si cambia DB. */
-    public void setDbPath(String dbPath) { initPath(dbPath); }
+    public synchronized void setDbPath(String dbPath) { initPath(dbPath); }
 
     /** Calcola il path del .log accanto al DB e fissa l'offset di inizio sessione. */
-    private void initPath(String dbPath) {
+    private synchronized void initPath(String dbPath) {
         if (dbPath == null || dbPath.isBlank()) { logFile = null; startOffset = 0; return; }
         Path db = Path.of(dbPath);
         String base = db.getFileName().toString().replaceAll("\\.[^.]+$", "");
@@ -47,14 +62,14 @@ public class DbLogger {
     }
 
     /** True se in questa sessione sono state eseguite operazioni di scrittura sui dati. */
-    public boolean hasChanges() {
+    public synchronized boolean hasChanges() {
         return !getSessionEntries().isEmpty();
     }
 
     /** Azzera la finestra di sessione al byte corrente del file di log.
      *  Va chiamato dopo un backup per evitare che le stesse modifiche
      *  vengano considerate "non backuppate" alla prossima chiusura. */
-    public void resetSession() {
+    public synchronized void resetSession() {
         if (logFile == null) return;
         try { startOffset = Files.exists(logFile) ? Files.size(logFile) : 0; }
         catch (IOException e) { startOffset = 0; }
@@ -77,7 +92,7 @@ public class DbLogger {
      *
      * @param removedBeforeOffset byte eliminati che si trovavano prima di startOffset
      */
-    private void shiftSessionOffset(long removedBeforeOffset) {
+    private synchronized void shiftSessionOffset(long removedBeforeOffset) {
         if (logFile == null) return;
         startOffset = Math.max(0, startOffset - removedBeforeOffset);
         try {   // tetto di sicurezza: mai oltre la fine del file
@@ -91,7 +106,7 @@ public class DbLogger {
      * Si ricostruisce scorrendo le righe originali e sommando la lunghezza (contenuto +
      * terminatore) di quelle scartate, fermandosi quando si supera l'offset di sessione.
      */
-    private long removedBytesBeforeOffset(List<String> all,
+    private synchronized long removedBytesBeforeOffset(List<String> all,
                                           java.util.function.Predicate<String> isKept) {
         long pos = 0, removed = 0;
         int eol = System.lineSeparator().length();
@@ -109,7 +124,7 @@ public class DbLogger {
      * Legge solo i byte aggiunti dopo l'avvio, non l'intero file.
      * Ogni voce: {time, op, desc}
      */
-    public List<Map<String, Object>> getSessionEntries() {
+    public synchronized List<Map<String, Object>> getSessionEntries() {
         if (logFile == null || !Files.exists(logFile)) return List.of();
         try {
             long size = Files.size(logFile);
@@ -138,14 +153,14 @@ public class DbLogger {
         } catch (IOException e) { return List.of(); }
     }
 
-    public Path getLogFile() { return logFile; }
+    public synchronized Path getLogFile() { return logFile; }
 
     /**
      * Scrive una riga di log.
      * @param action  etichetta azione (es. "TRANSAZIONE AGGIUNTA")
      * @param fields  coppie "chiave:valore" da aggiungere separati da  |
      */
-    public void log(String action, String... fields) {
+    public synchronized void log(String action, String... fields) {
         if (logFile == null) return;
         try {
             LocalDateTime now = LocalDateTime.now();
@@ -163,7 +178,7 @@ public class DbLogger {
     }
 
     /** Prima/ultima data e totale righe nel file di log. */
-    public Map<String, Object> getLogDateRange() {
+    public synchronized Map<String, Object> getLogDateRange() {
         if (logFile == null || !Files.exists(logFile)) return Map.of("empty", true);
         try {
             List<String> dated = Files.readAllLines(logFile, java.nio.charset.StandardCharsets.UTF_8)
@@ -181,7 +196,7 @@ public class DbLogger {
      * Elimina dal file di log tutte le righe con data < cutoffDate (formato yyyy-MM-dd).
      * Restituisce il numero di righe eliminate e quelle rimaste.
      */
-    public Map<String, Object> purgeLogBefore(String cutoffDate) {
+    public synchronized Map<String, Object> purgeLogBefore(String cutoffDate) {
         if (logFile == null || !Files.exists(logFile)) return Map.of("deleted", 0, "remaining", 0);
         try {
             List<String> all  = Files.readAllLines(logFile, java.nio.charset.StandardCharsets.UTF_8);
@@ -219,7 +234,7 @@ public class DbLogger {
      * (AVVIO, DB CAMBIATO, BACKUP ESEGUITO, RIPRISTINO BACKUP, MANUTENZIONE, DB IDLE-RELEASE).
      * Restituisce il numero di righe eliminate e quelle rimaste.
      */
-    public Map<String, Object> purgeSystemEntries() {
+    public synchronized Map<String, Object> purgeSystemEntries() {
         if (logFile == null || !Files.exists(logFile)) return Map.of("deleted", 0, "remaining", 0);
         try {
             List<String> all  = Files.readAllLines(logFile, java.nio.charset.StandardCharsets.UTF_8);

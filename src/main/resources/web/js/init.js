@@ -212,7 +212,7 @@ function showDaTelefonoNotice(list, save=true) {
     <div class="overdue-notice-body">
       ${list.slice(0,4).map(t=>`<div class="overdue-row">
         <span>${fmt.date(t.date)}</span>
-        <span class="td-main">${t.description||'-'}</span>
+        <span class="td-main">${esc(t.description||'-')}</span>
         <span class="amount-${t.type}">${t.type==='expense'?'-':''}${fmt.currency(t.amount)}</span>
       </div>`).join('')}
       ${list.length>4?`<div class="overdue-more">+ altre ${list.length-4}…</div>`:''}
@@ -256,7 +256,7 @@ function showOverdueNotice(list, save=true) {
     <div class="overdue-notice-body">
       ${list.slice(0,4).map(u=>`<div class="overdue-row">
         <span>${fmt.date(u.date)}</span>
-        <span class="td-main">${u.description||'-'}</span>
+        <span class="td-main">${esc(u.description||'-')}</span>
         <span class="amount-${u.type}">${u.type==='expense'?'-':''}${fmt.currency(u.amount)}</span>
       </div>`).join('')}
       ${list.length>4?`<div class="overdue-more">+ altri ${list.length-4}…</div>`:''}
@@ -274,7 +274,7 @@ function showDueTodayNotice(list, save=true) {
     </div>
     <div class="overdue-notice-body">
       ${list.slice(0,4).map(u=>`<div class="overdue-row">
-        <span class="td-main">${u.description||'-'}</span>
+        <span class="td-main">${esc(u.description||'-')}</span>
         <span class="amount-${u.type}">${u.type==='expense'?'-':''}${fmt.currency(u.amount)}</span>
       </div>`).join('')}
       ${list.length>4?`<div class="overdue-more">+ altre ${list.length-4}…</div>`:''}
@@ -293,7 +293,7 @@ function showUnverifiedNotice(list, save=true) {
     <div class="overdue-notice-body">
       ${list.slice(0,4).map(t=>`<div class="overdue-row">
         <span>${fmt.date(t.date)}</span>
-        <span class="td-main">${t.description||'-'}</span>
+        <span class="td-main">${esc(t.description||'-')}</span>
         <span class="amount-${t.type}">${t.type==='expense'?'-':''}${fmt.currency(t.amount)}</span>
       </div>`).join('')}
       ${list.length>4?`<div class="overdue-more">+ altre ${list.length-4}…</div>`:''}

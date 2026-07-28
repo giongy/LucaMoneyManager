@@ -481,10 +481,12 @@ function renderTxBodyAndHeaders() {
   const showBalance = txFilters.account_id && String(txFilters.account_id).trim() !== '';
   const sorted = txCache;  // backend già ordinato via sort_col/sort_dir
   const colCount = (showBalance ? 11 : 10) + 1;  // +1 per checkbox column
-  // Nome categoria filtrata (per mostrare la voce giusta negli split filtrati)
-  const filterCatLabel = txFilters.category_id
+  // Nome categoria filtrata (per mostrare la voce giusta negli split filtrati).
+  // esc() perché viene da textContent (già decodificato) e torna dentro innerHTML: senza,
+  // un nome categoria con < o & verrebbe re-interpretato come markup.
+  const filterCatLabel = esc(txFilters.category_id
     ? document.querySelector(`#txCategory option[value="${txFilters.category_id}"]`)?.textContent?.trim() || ''
-    : '';
+    : '');
   tbody.innerHTML = sorted.length ? sorted.map(t => {
     const isRec = t.reconciled == 1;
     const isSel = t.id === _selectedTxId;
@@ -505,17 +507,17 @@ function renderTxBodyAndHeaders() {
           ${isRec ? '✅' : '🔲'}
         </button>
       </td>
-      <td class="td-attach">${t.attachment_path ? `<span class="tx-attach-badge" title="${t.attachment_path}" data-path="${encodeURIComponent(t.attachment_path)}" onclick="event.stopPropagation();openTxAttachment(this)">📎</span>` : ''}</td>
-      <td>${t.account_name||'-'}${t.to_account_name?` → ${t.to_account_name}`:''}</td>
+      <td class="td-attach">${t.attachment_path ? `<span class="tx-attach-badge" title="${esc(t.attachment_path)}" data-path="${encodeURIComponent(t.attachment_path)}" onclick="event.stopPropagation();openTxAttachment(this)">📎</span>` : ''}</td>
+      <td>${esc(t.account_name||'-')}${t.to_account_name?` → ${esc(t.to_account_name)}`:''}</td>
       <td><span class="badge badge-${t.type}">${t.type==='income'?'Entrata':t.type==='expense'?'Uscita':'Trasferimento'}</span></td>
-      <td class="td-tags">${(t.tags&&t.tags.length)?t.tags.map(tg=>`<span class="tag-inline" style="--tc:${tg.color}">${tg.name}</span>`).join(''):''}</td>
+      <td class="td-tags">${(t.tags&&t.tags.length)?t.tags.map(tg=>`<span class="tag-inline" style="--tc:${esc(tg.color)}">${esc(tg.name)}</span>`).join(''):''}</td>
       <td>${isSplitFiltered
-        ? `<span class="cat-chip" style="opacity:.8;font-size:11px" title="${t.splits_summary||''}">${filterCatLabel} <span style="opacity:.6;font-size:10px">(÷ split)</span></span>`
+        ? `<span class="cat-chip" style="opacity:.8;font-size:11px" title="${esc(t.splits_summary||'')}">${filterCatLabel} <span style="opacity:.6;font-size:10px">(÷ split)</span></span>`
         : t.split_count > 0
-          ? `<span class="cat-chip" style="opacity:.8;font-size:11px" title="${t.splits_summary||''}">÷ ${t.splits_summary||`${t.split_count} voci`}</span>`
-          : `${t.category_icon||''} ${t.parent_category_name ? t.parent_category_name + ' : ' + t.category_name : (t.category_name||'-')}`
+          ? `<span class="cat-chip" style="opacity:.8;font-size:11px" title="${esc(t.splits_summary||'')}">÷ ${esc(t.splits_summary||`${t.split_count} voci`)}</span>`
+          : `${esc(t.category_icon||'')} ${esc(t.parent_category_name ? t.parent_category_name + ' : ' + t.category_name : (t.category_name||'-'))}`
       }</td>
-      <td class="td-main"><div class="td-main-clip">${t.description||''}${isSplitFiltered ? ` <span style="font-size:10px;opacity:.5" title="Totale transazione: ${fmt.currency(t.amount)}">(tot. ${fmt.currency(t.amount)})</span>` : ''}</div></td>
+      <td class="td-main"><div class="td-main-clip">${esc(t.description||'')}${isSplitFiltered ? ` <span style="font-size:10px;opacity:.5" title="Totale transazione: ${fmt.currency(t.amount)}">(tot. ${fmt.currency(t.amount)})</span>` : ''}</div></td>
       <td class="text-right amount-${t.type}">${t.type==='expense'?'-':''}${fmt.currency(displayAmt)}</td>
       ${balCell}
       <td class="td-actions">

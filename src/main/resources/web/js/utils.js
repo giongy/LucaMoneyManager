@@ -105,6 +105,15 @@ const fmt = {
   },
 };
 
+// Escape dei caratteri attivi in HTML, per interpolare testo dell'utente dentro un template
+// letterale destinato a innerHTML. Serve perché la descrizione di una transazione può arrivare
+// da pending.jsonl (scritto dall'app Android) e finisce in tabelle e notifiche senza passare da
+// createTextNode. Copre anche apici e virgolette: alcuni punti la usano dentro un attributo
+// (es. title="${esc(...)}"), dove & < > da soli non bastano a chiudere l'iniezione.
+const esc = s => String(s ?? '')
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
 /* ─── Date helpers ────────────────────────────────────────────────────────── */
 // Formatta una Date come YYYY-MM-DD nel fuso locale (toISOString userebbe UTC e sfaserebbe di 1 giorno)
 const _dateStr  = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;

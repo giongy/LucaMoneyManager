@@ -4617,9 +4617,14 @@ public class Database {
                     WHERE COALESCE((SELECT excluded_from_budget FROM categories WHERE id=ts.category_id),0)=0
                       AND t.date >= ? AND t.type IN ('income','expense')
                 )
+                -- amount SENZA ABS, allineato a getMonthlyChartData e al calcolo dei SALDI dei
+                -- conti (che è la fonte di verità: là un'uscita di -250 AUMENTA il saldo, perché
+                -- è uno storno). Con ABS la stessa transazione risultava una spesa di 250 qui e
+                -- un accredito di 250 nel saldo: due numeri opposti per lo stesso movimento.
+                -- Oggi non si nota perché nel DB non ci sono importi negativi, ma basta il primo.
                 SELECT strftime('%Y-%m', date) AS ym,
-                       SUM(CASE WHEN type='income'  THEN ABS(amount) ELSE 0 END) AS income,
-                       SUM(CASE WHEN type='expense' THEN ABS(amount) ELSE 0 END) AS expense
+                       SUM(CASE WHEN type='income'  THEN amount ELSE 0 END) AS income,
+                       SUM(CASE WHEN type='expense' THEN amount ELSE 0 END) AS expense
                 FROM cat_amounts
                 GROUP BY ym
                 ORDER BY ym
@@ -4656,15 +4661,20 @@ public class Database {
         for (var a : allAccounts)
             currentBalances.put(((Number) a.get("id")).intValue(), ((Number) a.get("balance")).doubleValue());
 
-        // Delta mensili per conti non-investment
+        // Delta mensili per conti non-investment.
+        // amount senza ABS: questi delta servono a RICOSTRUIRE a ritroso i saldi storici
+        // partendo da quelli correnti, quindi devono usare esattamente la stessa formula del
+        // calcolo dei saldi (getAccounts/getDashboardStats: +amount su income, -amount su
+        // expense e sul lato uscente dei transfer). Con ABS, un importo negativo avrebbe
+        // spostato il saldo ricostruito nel verso opposto a quello vero.
         String deltaSql = """
             SELECT sub.account_id, sub.ym, SUM(sub.net) AS net_delta
             FROM (
                 SELECT t.account_id,
                        strftime('%Y-%m', t.date) AS ym,
-                       CASE WHEN t.type='income'   THEN  ABS(t.amount)
-                            WHEN t.type='expense'  THEN -ABS(t.amount)
-                            WHEN t.type='transfer' THEN -ABS(t.amount)
+                       CASE WHEN t.type='income'   THEN  t.amount
+                            WHEN t.type='expense'  THEN -t.amount
+                            WHEN t.type='transfer' THEN -t.amount
                             ELSE 0 END AS net
                 FROM transactions t
                 JOIN accounts a ON a.id = t.account_id AND a.type != 'investment'
@@ -4672,7 +4682,7 @@ public class Database {
                 UNION ALL
                 SELECT t.to_account_id AS account_id,
                        strftime('%Y-%m', t.date) AS ym,
-                       ABS(t.amount) AS net
+                       t.amount AS net
                 FROM transactions t
                 JOIN accounts a ON a.id = t.to_account_id AND a.type != 'investment'
                 WHERE t.type = 'transfer' AND t.date >= ?
@@ -5073,10 +5083,13 @@ public class Database {
             if (!"investment".equals(a.get("type"))) liquid += num(a.get("balance"));
 
         // ── Storico mensile reale (per grafico + dispersione) ──
+        // amount senza ABS: vedi la nota in getMonthlyBalance. La previsione parte dal saldo
+        // liquido reale (calcolato senza ABS), quindi lo storico che la alimenta deve usare la
+        // stessa convenzione, altrimenti uno storno sposterebbe la proiezione nel verso sbagliato.
         List<Map<String, Object>> history = queryList("""
             SELECT strftime('%Y-%m', date) AS ym,
-                   SUM(CASE WHEN type='income'  THEN ABS(amount) ELSE 0 END) AS income,
-                   SUM(CASE WHEN type='expense' THEN ABS(amount) ELSE 0 END) AS expense
+                   SUM(CASE WHEN type='income'  THEN amount ELSE 0 END) AS income,
+                   SUM(CASE WHEN type='expense' THEN amount ELSE 0 END) AS expense
             FROM transactions t
             WHERE date >= ? AND date < ? AND type IN ('income','expense')
               AND COALESCE((SELECT excluded_from_budget FROM categories WHERE id=t.category_id),0)=0
@@ -5085,8 +5098,8 @@ public class Database {
 
         // ── Netto parziale del mese corrente (per ancorare la ricostruzione del grafico) ──
         Map<String, Object> partialRow = queryOne(
-            "SELECT SUM(CASE WHEN type='income' THEN ABS(amount) ELSE 0 END) " +
-            "     - SUM(CASE WHEN type='expense' THEN ABS(amount) ELSE 0 END) AS net " +
+            "SELECT SUM(CASE WHEN type='income' THEN amount ELSE 0 END) " +
+            "     - SUM(CASE WHEN type='expense' THEN amount ELSE 0 END) AS net " +
             "FROM transactions t WHERE date >= ? AND type IN ('income','expense') " +
             "  AND COALESCE((SELECT excluded_from_budget FROM categories WHERE id=t.category_id),0)=0", histToExcl);
         double currentPartialNet = partialRow != null && partialRow.get("net") != null
@@ -5098,8 +5111,8 @@ public class Database {
               + schedCatIds.stream().map(String::valueOf).collect(Collectors.joining(",")) + "))";
         List<Map<String, Object>> varRows = queryList(
             "SELECT strftime('%Y-%m', date) AS ym, " +
-            "SUM(CASE WHEN type='income'  THEN ABS(amount) ELSE 0 END) AS inc, " +
-            "SUM(CASE WHEN type='expense' THEN ABS(amount) ELSE 0 END) AS exp " +
+            "SUM(CASE WHEN type='income'  THEN amount ELSE 0 END) AS inc, " +   // niente ABS: vedi sopra
+            "SUM(CASE WHEN type='expense' THEN amount ELSE 0 END) AS exp " +
             "FROM transactions WHERE date >= ? AND date < ? AND type IN ('income','expense')" + notInCat +
             " AND COALESCE((SELECT excluded_from_budget FROM categories WHERE id=transactions.category_id),0)=0" +
             " GROUP BY ym ORDER BY ym", histFrom, histToExcl);

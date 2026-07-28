@@ -6,10 +6,12 @@
 
 **52 finding.** Legenda stato: ✅ fatto · ⏳ da fare · 🔕 rischio accettato · ⏭️ valutato e scartato.
 
-**Stato al 2026-07-28:** **42 chiusi** · 3 a rischio accettato (S1/S3/S4) ·
+**Stato al 2026-07-28:** **43 chiusi** · 3 a rischio accettato (S1/S3/S4) ·
 6 archiviati (D6 nessun backup pre-v20 · P4 zero non conciliate misurate ·
 `generateBudget` lentezza accettata · `touchSyncMeta` Android non legge il portafoglio ·
-`archiveTransactions` e `getScheduled()` ×2 non influenti) · **1 aperto**.
+`archiveTransactions` e `getScheduled()` ×2 non influenti) · **1 aperto**
+(`getForecastDetail` N+1, performance: attenuato da `idx_splits_cat`, non prioritario)
+· più la sezione "indici e pulizia", tutta di valore trascurabile.
 
 | Commit | Contenuto |
 |---|---|
@@ -841,12 +843,44 @@ Verificato con un porting della logica su 3 sessioni:
 
 ---
 
+## ✅ FATTO — 2026-07-28 · POST `/bridge`: limite sul corpo e timeout
+
+`readAllBytes()` leggeva **senza alcun limite**: una richiesta dalla LAN con un corpo enorme —
+anche solo per errore, es. un upload sbagliato — veniva materializzata per intero in memoria fino
+all'`OutOfMemoryError`, che non è un errore isolabile: porta giù l'intera applicazione,
+connessione al DB compresa.
+
+Fix: `readLimited()` con tetto di **8 MB**. La soglia è tarata sull'uso reale — il payload più
+grosso legittimo è il salvataggio di una nota con un'immagine incollata (Quill incorpora le
+immagini come data URI base64 in `content`: nel DB reale una nota con screenshot pesa ~612 KB), e
+il tutto viaggia a sua volta in Base64, che aggiunge un ~33%. Si legge **un byte oltre** il limite
+per distinguere "esattamente al limite" (valido) da "oltre" (rifiutato con un messaggio chiaro,
+invece di un troncamento silenzioso che darebbe un Base64 corrotto e un errore incomprensibile).
+
+Aggiunti anche i **timeout** che l'audit citava e che mancavano del tutto
+(`sun.net.httpserver.maxReqTime`/`maxRspTime` = 30 s): senza, un client che apre la connessione e
+non manda (o non legge) nulla teneva occupati un virtual thread e una connessione a tempo
+indeterminato. Sono proprietà di sistema perché `com.sun.net.httpserver` non espone un'API, e si
+scrivono solo se non già definite dall'esterno.
+
+Verificato con un server reale e heap ridotto (`-Xmx256m`):
+
+| corpo | esito |
+|---|---|
+| richiesta tipica (48 byte) | 200 ✓ |
+| nota con screenshot (~816 KB) | 200 ✓ |
+| esattamente 8 MB | 200 ✓ |
+| 8 MB + 1 KB | **500, rifiutata** ✓ |
+| 64 MB (il caso OOM) | **500, rifiutata** ✓ — server vivo |
+
+---
+
 ## ⏳ DA FARE — medi
 
 - ✅ ~~**Operazioni multi-scrittura senza `inTx`**~~ — **RISOLTO 2026-07-28**, tutte e 8 ora transazionali. Vedi § dedicato. 🗑️ **`generateBudget` escluso** (vedi sotto).
 - 🗑️ **`generateBudget` senza `inTx` — ARCHIVIATO, nessun intervento (decisione utente, 2026-07-28).** ~600 INSERT = ~600 commit con journal create/fsync/delete su OneDrive: sono i secondi del pulsante "Genera budget". La lentezza è nota e accettata, l'operazione è manuale, rara e ripetibile (se va a metà si rigenera). **Riaprire solo se** diventa abbastanza lenta da dare fastidio o se si scopre che un'interruzione a metà lascia un budget incoerente e non evidente.
 - 🗑️ **`touchSyncMeta` — ARCHIVIATO, nessun intervento (decisione utente, 2026-07-28).** Restano veri i due difetti — 3 statement di cui un DDL a ogni scrittura (spuntare "conciliata" = 4 commit invece di 1) e marcatore assente su categorie, tag, pianificate, budget e portafoglio — ma **Android non legge il portafoglio titoli**, che era la motivazione principale del finding: l'app mobile mostra conti e transazioni, non le posizioni. Il costo dei commit in più non è percepibile. **Riaprire solo se** l'app Android verrà estesa a leggere portafoglio/budget, o se compare una divergenza di sync attribuibile al marcatore mancante.
-- **Nessuna validazione "somma split = importo"** (`saveSplits:2080`): la tolleranza JS è `> 0.01`, quindi 3×33,33 su 100 € passa → dashboard 100,00 vs torta 99,99, per sempre.
+- ✅ ~~**Nessuna validazione "somma split = importo"**~~ — **RISOLTO 2026-07-28** (guardia server in `saveSplits` + soglia JS allineata). ⚠️ L'esempio dell'audit era sbagliato: `3×33,33` su 100 € veniva già bloccato per un pelo dal rumore in virgola mobile; il difetto vero era l'assenza di validazione **fuori dal modale** (Android, LAN).
 - ✅ ~~**`excluded_from_budget` ignorato sulle transazioni suddivise**~~ — **RISOLTO 2026-07-28**, vedi § dedicato.
 - ✅ ~~**`importPending` non ri-marca `applied`**~~ — **RISOLTO 2026-07-28**, vedi § dedicato.
 - ✅ ~~**`DbLogger.log()` non thread-safe**~~ — **RISOLTO 2026-07-28**, vedi § dedicato. ⚠️ Il rischio vero non erano le righe intrecciate (l'append è atomico per write) ma lo **stato condiviso**.
@@ -860,7 +894,7 @@ Verificato con un porting della logica su 3 sessioni:
 - ✅ ~~**`reopen()` sull'EDT**~~ — **RISOLTO 2026-07-28** (`MainWindow.bringToFront`/`reload` + le due azioni DB del tray in `App.java`), vedi § dedicato.
 - ✅ ~~**Porta 47291 occupata** → l'app esce in silenzio assoluto~~ — **RISOLTO 2026-07-28**, vedi § dedicato.
 - ✅ ~~**`Integer.parseInt(backup.max)` senza fallback**~~ — **RISOLTO 2026-07-28** (helper `Database.getBackupMax()`), vedi § dedicato.
-- **`readAllBytes` senza limite** su POST `/bridge` (`WebServer.java:37`) + nessun timeout → OOM dalla LAN.
+- ✅ ~~**`readAllBytes` senza limite** su POST `/bridge` + nessun timeout~~ — **RISOLTO 2026-07-28**, vedi § dedicato.
 - ✅ ~~**`deletePortfolioItem`** lascia orfane le transazioni di acquisto e le commissioni~~ — **CHIUSO 2026-07-28**: ⚠️ finding mal posto, le transazioni devono restare (movimenti di denaro reali). Risolta la tracciabilità. Vedi § dedicato.
 - ✅ ~~**`updateTransaction`** aggiorna `portfolio_transactions.price` solo per `coupon`/`expense`~~ — **RISOLTO 2026-07-28** (guardia graduata sull'importo), vedi § dedicato.
 - ✅ ~~`getProjectionByCategory` usa `LocalDate.parse` diretto~~ — **RISOLTO in `b058115`**, allineato a `tryParseDate` come le altre 5 copie.

@@ -27,6 +27,14 @@ public class WebServer {
         HttpServer server = HttpServer.create(new InetSocketAddress(port), 0);
         server.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
 
+        // Timeout su lettura e scrittura: senza, un client che apre la connessione e poi non
+        // manda (o non legge) nulla tiene occupato il suo virtual thread e la connessione a
+        // tempo indeterminato. Sono proprietà di sistema perché com.sun.net.httpserver non
+        // espone un'API per impostarli; si scrivono solo se non già definite dall'esterno.
+        // 30s è generoso per una LAN domestica e per il salvataggio di una nota con immagine.
+        setPropIfAbsent("sun.net.httpserver.maxReqTime", "30");
+        setPropIfAbsent("sun.net.httpserver.maxRspTime", "30");
+
         // POST /bridge — riceve base64(JSON{method,params}), risponde base64(JSON)
         server.createContext("/bridge", ex -> {
             if (!ex.getRequestMethod().equalsIgnoreCase("POST")) {
@@ -34,7 +42,7 @@ public class WebServer {
                 return;
             }
             try {
-                byte[] body = ex.getRequestBody().readAllBytes();
+                byte[] body = readLimited(ex.getRequestBody());
                 String b64in = new String(body, StandardCharsets.UTF_8).trim();
                 String json  = new String(Base64.getDecoder().decode(b64in), StandardCharsets.UTF_8);
                 JsonObject req = JsonParser.parseString(json).getAsJsonObject();
@@ -118,6 +126,42 @@ public class WebServer {
 
         server.start();
         return server;
+    }
+
+    /** Imposta una proprietà di sistema solo se non è già stata definita (es. da riga di comando). */
+    private static void setPropIfAbsent(String key, String value) {
+        if (System.getProperty(key) == null) System.setProperty(key, value);
+    }
+
+    /**
+     * Dimensione massima accettata per il corpo di una POST /bridge.
+     *
+     * Il payload più grosso legittimo è il salvataggio di una nota con un'immagine incollata:
+     * l'editor Quill incorpora le immagini come data URI base64 dentro `content` (nel DB reale
+     * una singola nota con uno screenshot pesa ~612 KB), e il tutto viaggia a sua volta
+     * codificato in Base64, che aggiunge un altro ~33%. 8 MB lasciano quindi un margine molto
+     * ampio sull'uso reale, restando lontanissimi dal poter esaurire la memoria.
+     */
+    private static final int MAX_BODY_BYTES = 8 * 1024 * 1024;
+
+    /**
+     * Legge il corpo della richiesta fermandosi a {@link #MAX_BODY_BYTES}.
+     *
+     * {@code readAllBytes()} leggeva senza alcun limite: una richiesta dalla LAN con un corpo
+     * enorme (anche solo per errore, es. un upload sbagliato) veniva materializzata per intero
+     * in memoria fino all'OutOfMemoryError, che non è un errore isolabile — porta giù l'intera
+     * applicazione, connessione al DB compresa.
+     *
+     * Si legge un byte oltre il limite per distinguere "esattamente al limite" (valido) da
+     * "oltre il limite" (rifiutato con un messaggio chiaro invece di un troncamento silenzioso,
+     * che darebbe un Base64 corrotto e un errore incomprensibile).
+     */
+    private static byte[] readLimited(InputStream in) throws IOException {
+        byte[] data = in.readNBytes(MAX_BODY_BYTES + 1);
+        if (data.length > MAX_BODY_BYTES)
+            throw new IOException("Richiesta troppo grande: oltre "
+                    + (MAX_BODY_BYTES / (1024 * 1024)) + " MB");
+        return data;
     }
 
     /** Serializza data in JSON, lo codifica in Base64 e lo invia come risposta 200 (come fa Bridge per JCEF). */

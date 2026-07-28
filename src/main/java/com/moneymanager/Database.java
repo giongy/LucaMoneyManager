@@ -4233,13 +4233,35 @@ public class Database {
 
     /** Statistiche dashboard per un anno: entrate/uscite/netto, conteggio transazioni e patrimonio totale. */
     public Map<String, Object> getDashboardStats(int year) throws SQLException {
+        // Il filtro excluded_from_budget deve guardare gli SPLIT quando ci sono: in una
+        // transazione suddivisa `category_id` è NULL, quindi il vecchio predicato su
+        // t.category_id era sempre vero e l'INTERO importo entrava nei totali anche se tutte
+        // le sue voci stavano su categorie escluse. Stesso schema già usato da
+        // getCategoryChartData/getBudgetYear: righe non suddivise + righe split, così la
+        // dashboard e il grafico a torta non possono più divergere.
+        // transaction_count conta le TRANSAZIONI (non le righe split), quindi si calcola a parte.
         Map<String,Object> yearly = queryOne("""
+            WITH cat_amounts AS (
+                SELECT t.type, t.amount FROM transactions t
+                WHERE NOT EXISTS (SELECT 1 FROM transaction_splits ts WHERE ts.transaction_id = t.id)
+                  AND COALESCE((SELECT excluded_from_budget FROM categories WHERE id=t.category_id),0)=0
+                  AND t.date >= ? AND t.date < ?
+                UNION ALL
+                SELECT t.type, ts.amount FROM transactions t
+                JOIN transaction_splits ts ON ts.transaction_id = t.id
+                WHERE COALESCE((SELECT excluded_from_budget FROM categories WHERE id=ts.category_id),0)=0
+                  AND t.date >= ? AND t.date < ?
+            )
             SELECT COALESCE(SUM(CASE WHEN type='income'  THEN amount ELSE 0 END),0) AS income,
                    COALESCE(SUM(CASE WHEN type='expense' THEN amount ELSE 0 END),0) AS expenses,
-                   COUNT(*) AS transaction_count
-            FROM transactions t WHERE date >= ? AND date < ?
-              AND COALESCE((SELECT excluded_from_budget FROM categories WHERE id=t.category_id),0)=0
-        """, yearStart(year), yearEnd(year));
+                   (SELECT COUNT(*) FROM transactions t2
+                     WHERE t2.date >= ? AND t2.date < ?
+                       AND (EXISTS (SELECT 1 FROM transaction_splits ts2 WHERE ts2.transaction_id = t2.id)
+                            OR COALESCE((SELECT excluded_from_budget FROM categories WHERE id=t2.category_id),0)=0)
+                   ) AS transaction_count
+            FROM cat_amounts
+        """, yearStart(year), yearEnd(year), yearStart(year), yearEnd(year),
+             yearStart(year), yearEnd(year));
         Map<String,Object> balance = queryOne("""
             SELECT COALESCE(SUM(CASE
                 WHEN a.type = 'investment' THEN
@@ -4293,12 +4315,24 @@ public class Database {
 
     /** Somma income/expenses in un range di date inclusivo. Per confronti day-exact YTD. */
     public Map<String, Object> getStatsByDateRange(String dateFrom, String dateTo) throws SQLException {
+        // Split gestiti come in getDashboardStats: senza, una transazione suddivisa
+        // (category_id NULL) entrava per intero anche con tutte le voci su categorie escluse.
         Map<String,Object> r = queryOne("""
+            WITH cat_amounts AS (
+                SELECT t.type, t.amount FROM transactions t
+                WHERE NOT EXISTS (SELECT 1 FROM transaction_splits ts WHERE ts.transaction_id = t.id)
+                  AND COALESCE((SELECT excluded_from_budget FROM categories WHERE id=t.category_id),0)=0
+                  AND t.date >= ? AND t.date <= ?
+                UNION ALL
+                SELECT t.type, ts.amount FROM transactions t
+                JOIN transaction_splits ts ON ts.transaction_id = t.id
+                WHERE COALESCE((SELECT excluded_from_budget FROM categories WHERE id=ts.category_id),0)=0
+                  AND t.date >= ? AND t.date <= ?
+            )
             SELECT COALESCE(SUM(CASE WHEN type='income'  THEN amount ELSE 0 END),0) AS income,
                    COALESCE(SUM(CASE WHEN type='expense' THEN amount ELSE 0 END),0) AS expenses
-            FROM transactions t WHERE date >= ? AND date <= ?
-              AND COALESCE((SELECT excluded_from_budget FROM categories WHERE id=t.category_id),0)=0
-        """, dateFrom, dateTo);
+            FROM cat_amounts
+        """, dateFrom, dateTo, dateFrom, dateTo);
         double inc = r != null ? ((Number)r.get("income")).doubleValue()   : 0;
         double exp = r != null ? ((Number)r.get("expenses")).doubleValue() : 0;
         return Map.of("income", inc, "expenses", exp, "net", inc - exp);
@@ -4306,14 +4340,26 @@ public class Database {
 
     /** Entrate/uscite per mese di un anno (grafico a barre dashboard). */
     public List<Map<String, Object>> getMonthlyChartData(int year) throws SQLException {
+        // Split gestiti come in getDashboardStats: la data resta quella della TRANSAZIONE
+        // (le righe split non ne hanno una propria), quindi il raggruppamento per mese non cambia.
         return queryList("""
+            WITH cat_amounts AS (
+                SELECT t.date, t.type, t.amount FROM transactions t
+                WHERE NOT EXISTS (SELECT 1 FROM transaction_splits ts WHERE ts.transaction_id = t.id)
+                  AND COALESCE((SELECT excluded_from_budget FROM categories WHERE id=t.category_id),0)=0
+                  AND t.date >= ? AND t.date < ? AND t.type IN ('income','expense')
+                UNION ALL
+                SELECT t.date, t.type, ts.amount FROM transactions t
+                JOIN transaction_splits ts ON ts.transaction_id = t.id
+                WHERE COALESCE((SELECT excluded_from_budget FROM categories WHERE id=ts.category_id),0)=0
+                  AND t.date >= ? AND t.date < ? AND t.type IN ('income','expense')
+            )
             SELECT CAST(strftime('%m',date) AS INTEGER) AS month,
                 SUM(CASE WHEN type='income'  THEN amount ELSE 0 END) AS income,
                 SUM(CASE WHEN type='expense' THEN amount ELSE 0 END) AS expenses
-            FROM transactions t WHERE date >= ? AND date < ? AND type IN ('income','expense')
-              AND COALESCE((SELECT excluded_from_budget FROM categories WHERE id=t.category_id),0)=0
+            FROM cat_amounts
             GROUP BY strftime('%m',date) ORDER BY month
-        """, yearStart(year), yearEnd(year));
+        """, yearStart(year), yearEnd(year), yearStart(year), yearEnd(year));
     }
 
     /** Totale per categoria (income o expense) in un anno, split inclusi (grafico a torta). */
@@ -4446,18 +4492,31 @@ public class Database {
         try {
             java.time.LocalDate start = java.time.LocalDate.now()
                     .withDayOfMonth(1).minusMonths(months - 1);
+            // Split gestiti come in getMonthlyChartData (di cui questa è la controparte in
+            // Analytics): senza, una transazione suddivisa entrava per intero anche con tutte
+            // le voci su categorie escluse.
             String sql = """
+                WITH cat_amounts AS (
+                    SELECT t.date, t.type, t.amount FROM transactions t
+                    WHERE NOT EXISTS (SELECT 1 FROM transaction_splits ts WHERE ts.transaction_id = t.id)
+                      AND COALESCE((SELECT excluded_from_budget FROM categories WHERE id=t.category_id),0)=0
+                      AND t.date >= ? AND t.type IN ('income','expense')
+                    UNION ALL
+                    SELECT t.date, t.type, ts.amount FROM transactions t
+                    JOIN transaction_splits ts ON ts.transaction_id = t.id
+                    WHERE COALESCE((SELECT excluded_from_budget FROM categories WHERE id=ts.category_id),0)=0
+                      AND t.date >= ? AND t.type IN ('income','expense')
+                )
                 SELECT strftime('%Y-%m', date) AS ym,
                        SUM(CASE WHEN type='income'  THEN ABS(amount) ELSE 0 END) AS income,
                        SUM(CASE WHEN type='expense' THEN ABS(amount) ELSE 0 END) AS expense
-                FROM transactions t
-                WHERE date >= ? AND type IN ('income','expense')
-                  AND COALESCE((SELECT excluded_from_budget FROM categories WHERE id=t.category_id),0)=0
+                FROM cat_amounts
                 GROUP BY ym
                 ORDER BY ym
                 """;
             try (PreparedStatement ps = c.prepareStatement(sql)) {
                 ps.setString(1, start.toString());
+                ps.setString(2, start.toString());
                 return toList(ps.executeQuery());
             }
         } finally {

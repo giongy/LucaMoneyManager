@@ -6,10 +6,10 @@
 
 **52 finding.** Legenda stato: ✅ fatto · ⏳ da fare · 🔕 rischio accettato · ⏭️ valutato e scartato.
 
-**Stato al 2026-07-28:** **35 chiusi** · 3 a rischio accettato (S1/S3/S4) ·
+**Stato al 2026-07-28:** **36 chiusi** · 3 a rischio accettato (S1/S3/S4) ·
 6 archiviati (D6 nessun backup pre-v20 · P4 zero non conciliate misurate ·
 `generateBudget` lentezza accettata · `touchSyncMeta` Android non legge il portafoglio ·
-`archiveTransactions` e `getScheduled()` ×2 non influenti) · **8 aperti**.
+`archiveTransactions` e `getScheduled()` ×2 non influenti) · **7 aperti**.
 
 | Commit | Contenuto |
 |---|---|
@@ -675,13 +675,50 @@ invariata, cioè o valgono entrambe o nessuna.
 
 ---
 
+## ✅ FATTO — 2026-07-28 · `excluded_from_budget` sulle transazioni suddivise
+
+In una transazione suddivisa `category_id` è NULL, quindi il predicato
+`COALESCE((SELECT excluded_from_budget FROM categories WHERE id=t.category_id),0)=0` era
+**sempre vero** e l'intero importo entrava nei totali anche con tutte le voci su categorie
+escluse. È la causa della divergenza "dashboard vs torta": `getCategoryChartData` e
+`getBudgetYear` gestivano già gli split correttamente (righe non suddivise + righe split via
+`UNION ALL`), le somme complessive no.
+
+Corrette **4** query, allineandole a quello schema: `getDashboardStats`, `getStatsByDateRange`,
+`getMonthlyChartData` e — non citata dall'audit ma con lo stesso identico difetto —
+`getMonthlyBalance`, la controparte del grafico mensile in Analytics.
+
+In `getDashboardStats` il `transaction_count` è stato estratto in una subquery separata: conta le
+**transazioni**, non le righe, quindi sommarlo dentro la CTE le avrebbe moltiplicate per il numero
+di split. Una transazione suddivisa resta contata anche se tutte le sue voci sono escluse — è un
+conteggio di righe registrate, non di importi a budget.
+
+⚠️ **Bug reale ma oggi latente**, verificato sul DB reale prima di intervenire: c'è **1** categoria
+esclusa (`Capital Gain`) e **0** righe split che vi puntano, quindi al momento dashboard e torta
+coincidono già. Ma tutte e 28 le transazioni suddivise hanno `category_id` NULL: basta spostare
+una sola voce su una categoria esclusa perché l'intero importo rientri nei totali. Il fix è
+preventivo.
+
+Verificato su copia del DB reale, in due passaggi:
+- **non-regressione**: as-is, vecchio e nuovo danno numeri **identici** su 2026 (47.932,20 /
+  43.623,36 / 523 transazioni) e 2025 (226.213,82 / 233.548,23 / 676);
+- **il bug**: spostando un singolo split da 5,70 € su `Capital Gain`, il vecchio resta a
+  43.623,36 (ignora l'esclusione) mentre il nuovo scende a 43.617,66, **coincidendo con la torta**
+  che era già corretta.
+
+Restano fuori perimetro le occorrenze che raggruppano **per categoria** (`getForecastEngine`,
+`archivePreview`): lì una transazione suddivisa finisce in "Senza categoria" invece di gonfiare
+una categoria esclusa — comportamento diverso e preesistente, non questo finding.
+
+---
+
 ## ⏳ DA FARE — medi
 
 - **Operazioni multi-scrittura senza `inTx`**: `setBudgetBulk` (`:2331`, 12 commit → mezzo anno aggiornato se crasha), `saveNote` (`:1956`, la nota **perde tutti i tag**), `copyBudgetFromYear`, `deleteBudgetYear`, `addScheduled`/`updateScheduled`, `saveForecast`, `seedDefaultData`. 🗑️ **`generateBudget` escluso** (vedi sotto).
 - 🗑️ **`generateBudget` senza `inTx` — ARCHIVIATO, nessun intervento (decisione utente, 2026-07-28).** ~600 INSERT = ~600 commit con journal create/fsync/delete su OneDrive: sono i secondi del pulsante "Genera budget". La lentezza è nota e accettata, l'operazione è manuale, rara e ripetibile (se va a metà si rigenera). **Riaprire solo se** diventa abbastanza lenta da dare fastidio o se si scopre che un'interruzione a metà lascia un budget incoerente e non evidente.
 - 🗑️ **`touchSyncMeta` — ARCHIVIATO, nessun intervento (decisione utente, 2026-07-28).** Restano veri i due difetti — 3 statement di cui un DDL a ogni scrittura (spuntare "conciliata" = 4 commit invece di 1) e marcatore assente su categorie, tag, pianificate, budget e portafoglio — ma **Android non legge il portafoglio titoli**, che era la motivazione principale del finding: l'app mobile mostra conti e transazioni, non le posizioni. Il costo dei commit in più non è percepibile. **Riaprire solo se** l'app Android verrà estesa a leggere portafoglio/budget, o se compare una divergenza di sync attribuibile al marcatore mancante.
 - **Nessuna validazione "somma split = importo"** (`saveSplits:2080`): la tolleranza JS è `> 0.01`, quindi 3×33,33 su 100 € passa → dashboard 100,00 vs torta 99,99, per sempre.
-- **`excluded_from_budget` ignorato sulle transazioni suddivise** (`:3644` vs `:3729`): `category_id` è NULL → l'intero importo entra nei totali anche se tutti gli split sono su categorie escluse.
+- ✅ ~~**`excluded_from_budget` ignorato sulle transazioni suddivise**~~ — **RISOLTO 2026-07-28**, vedi § dedicato.
 - **`importPending` non ri-marca `applied`** (il javadoc promette il contrario): Android continua a scalare l'importo dal saldo mostrato **per sempre** e la riga non è mai eleggibile per la pulizia a 30 giorni. ⚠️ Distinto da ✅ D1 e **non** risolto da esso: riguarda le righe già presenti in `imported_pending`, che il ramo `!applied && !alreadyImported` salta del tutto.
 - **`DbLogger.log()` non thread-safe** (`DbLogger.java:99`): chiamato da 4 famiglie di thread; righe intrecciate → operazioni fantasma nel sidecar JSON del backup.
 - ✅ ~~**Il purge del log non ricalcola `startOffset`**~~ — **RISOLTO 2026-07-28**, vedi § dedicato.

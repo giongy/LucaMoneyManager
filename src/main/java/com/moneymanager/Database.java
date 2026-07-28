@@ -351,7 +351,7 @@ public class Database {
      * con un sidecar .json delle modifiche di sessione. Mantiene al massimo
      * maxBackups file, eliminando i più vecchi (con relativo sidecar).
      */
-    public String backup(String backupDir, int maxBackups) throws IOException {
+    public synchronized String backup(String backupDir, int maxBackups) throws IOException {
         if (backupDir == null || backupDir.isBlank())
             throw new IOException("Cartella backup non configurata");
 
@@ -367,7 +367,44 @@ public class Database {
         String backupName = baseName + "_" + timestamp + ".db.bak";
         Path dest = dir.resolve(backupName);
 
-        Files.copy(src, dest, StandardCopyOption.REPLACE_EXISTING);
+        // Auto-release sospeso per tutta la copia: il timer non deve chiudere/riaprire il file
+        // mentre lo stiamo leggendo. Ripristinato nel finally, come fanno inTx/withExclusiveAccess.
+        boolean prevAutoRelease = autoReleaseEnabled;
+        setAutoRelease(false);
+        try {
+            // Il lock esclude le scritture APPLICATIVE (tutte passano da inTx, synchronized),
+            // ma se un -journal fosse ancora presente vorrebbe dire che ci sono dati non
+            // consolidati nel .db: con journal=DELETE copiare in quel momento darebbe un .bak
+            // incoerente. Si forza allora un checkpoint pulito chiudendo la connessione (punto
+            // unico, aggiorna la baseline): SQLite elimina il journal committando o annullando.
+            // La prossima query riapre da sola via ensureOpen().
+            //
+            // close() però NON chiude se activeQueries > 0 (una lettura in volo su un altro
+            // thread), quindi si concede una breve attesa invece di fallire subito: sono query
+            // da millisecondi e il backup di chiusura non deve saltare per così poco.
+            Path journal = src.resolveSibling(src.getFileName() + "-journal");
+            for (int attempt = 0; attempt < 10 && Files.exists(journal); attempt++) {
+                try {
+                    close();
+                } catch (SQLException e) {
+                    System.err.println("Database.backup: chiusura pre-copia fallita: " + e.getMessage());
+                }
+                if (!Files.exists(journal)) break;
+                try { Thread.sleep(100); }
+                catch (InterruptedException ie) { Thread.currentThread().interrupt(); break; }
+            }
+            if (Files.exists(journal)) {
+                // Dopo ~1s il journal è ancora lì: meglio fallire in modo rumoroso che scrivere
+                // un .bak incoerente spacciandolo per buono — è esattamente il file su cui
+                // conteresti il giorno del ripristino.
+                throw new IOException("Backup annullato: transazione in corso sul database "
+                        + "(journal presente). Riprova fra qualche istante.");
+            }
+
+            Files.copy(src, dest, StandardCopyOption.REPLACE_EXISTING);
+        } finally {
+            setAutoRelease(prevAutoRelease);
+        }
         logger.log("BACKUP ESEGUITO", "dest:" + dest);
 
         // Sidecar JSON con le modifiche della sessione

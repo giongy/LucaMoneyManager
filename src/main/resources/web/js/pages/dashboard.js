@@ -167,7 +167,6 @@ function _renderDashBudgetBubbles(budgetYear) {
     const remaining = c.budget > 0
       ? (isIncome ? c.actual - c.budget : c.budget - c.actual)
       : (isExpOverNoBudget ? c.budget - c.actual : null);
-    const hesc = s => String(s).replace(/"/g, '&quot;');
 
     // Badge % a destra del nome: mostrato solo se c'è un budget; rosso se sforato/sotto target.
     const pctBadge = pctLbl !== null
@@ -178,15 +177,15 @@ function _renderDashBudgetBubbles(budgetYear) {
     const badClass = bad ? ' bbar-over' : '';
 
     return `<div class="bbar${badClass}" onclick="_dashBubbleDetail(${c.id})"
-        data-tt-cat="${hesc(catLine)}"
-        data-tt-budget="${hesc((c.budget > 0 || c.actual > 0) ? fmt.currency(c.budget) : '—')}"
-        data-tt-actual="${hesc(fmt.currency(c.actual))}"
-        data-tt-rem="${hesc(remaining !== null ? fmt.currency(remaining) : '—')}"
+        data-tt-cat="${esc(catLine)}"
+        data-tt-budget="${esc((c.budget > 0 || c.actual > 0) ? fmt.currency(c.budget) : '—')}"
+        data-tt-actual="${esc(fmt.currency(c.actual))}"
+        data-tt-rem="${esc(remaining !== null ? fmt.currency(remaining) : '—')}"
         data-tt-over="${remaining !== null && remaining < 0 ? '1' : '0'}"
         data-tt-l2="Reale">
       <div class="bbar-head">
-        <span class="bbar-icon">${c.icon || '📁'}</span>
-        <span class="bbar-name">${c.name}</span>
+        <span class="bbar-icon">${esc(c.icon || '📁')}</span>
+        <span class="bbar-name">${esc(c.name)}</span>
         ${pctBadge}
       </div>
       <div class="bbar-track">
@@ -319,8 +318,8 @@ function _renderDashAccountsWidget(accounts) {
             <tr class="acc-list-row" onclick="navigateToAccountTx(${a.id})">
               <td>
                 <span class="acc-dot" style="background:${a.color||'var(--accent)'}"></span>
-                <span class="acc-icon">${a.icon||''}</span>
-                <span class="acc-name">${a.name}</span>
+                <span class="acc-icon">${esc(a.icon||'')}</span>
+                <span class="acc-name">${esc(a.name)}</span>
               </td>
               <td class="acc-bal ${a.balance<0?'neg':''}" style="color:${a.balance<0?'var(--expense)':(a.color||'var(--accent)')}"
                   ${a.type==='investment' && a.bond_nominal>0 ? `title="Valore con bond a scadenza (a 100). Valore di mercato attuale: ${fmt.currency(a.balance)}"` : ''}>
@@ -760,11 +759,11 @@ async function renderDashboard() {
   document.getElementById('recentRows').innerHTML = recentAsc.length ? recentAsc.map(t => `
     <tr style="cursor:pointer" onclick="navigateToTx(${t.id})">
       <td style="${compactTd};white-space:nowrap;color:var(--txt2)">${fmt.date(t.date)}</td>
-      <td style="${compactTd}" class="td-main">${t.description}</td>
+      <td style="${compactTd}" class="td-main">${esc(t.description)}</td>
       <td style="${compactTd}">${t.split_count > 0
         ? `<span class="cat-chip" style="opacity:.8">÷ ${t.split_count} voci</span>`
-        : `<span class="cat-chip">${t.category_icon||''}  ${t.category_name||'-'}</span>`}</td>
-      <td style="${compactTd};color:var(--txt2)">${t.account_name||'-'}</td>
+        : `<span class="cat-chip">${esc(t.category_icon||'')}  ${esc(t.category_name||'-')}</span>`}</td>
+      <td style="${compactTd};color:var(--txt2)">${esc(t.account_name||'-')}</td>
       <td style="${compactTd}" class="text-right amount-${t.type}">${t.type==='expense'?'-':''}${fmt.currency(t.amount)}</td>
     </tr>`).join('') :
     '<tr><td colspan="5" class="text-muted" style="text-align:center;padding:20px">Nessuna transazione</td></tr>';
@@ -786,8 +785,8 @@ async function renderDashboard() {
       : '';
     return `
     <tr class="${u.overdue ? 'upcoming-overdue' : ''}">
-      <td><span class="cat-chip">${u.category_icon||''}${u.parent_category_name?u.parent_category_name+':'+u.category_name:u.category_name||'-'}</span></td>
-      <td class="td-main">${u.description||'-'}</td>
+      <td><span class="cat-chip">${esc(u.category_icon||'')}${esc(u.parent_category_name?u.parent_category_name+':'+u.category_name:u.category_name||'-')}</span></td>
+      <td class="td-main">${esc(u.description||'-')}</td>
       <td>${daysHtml}</td>
       <td class="text-right amount-${u.type}">${u.type==='expense'?'-':''}${fmt.currency(u.amount)}</td>
       <td style="width:24px;text-align:center;padding:0">${execBtn}</td>
@@ -906,7 +905,6 @@ function _renderDashMonthDonut(budgetYear) {
   const colors = items.map(sliceColor);
 
   const pct = t => totMonth > 0 ? Math.round(t / totMonth * 100) : 0;
-  const hesc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
 
   // Layout: donut a sinistra (larghezza fissa), legenda scrollabile a destra.
   body.innerHTML = `
@@ -917,7 +915,7 @@ function _renderDashMonthDonut(budgetYear) {
       ${items.map((it, i) => `
         <div style="display:flex;align-items:center;gap:7px;font-size:12px;line-height:1.5">
           <span style="width:9px;height:9px;border-radius:2px;background:${colors[i]};flex-shrink:0"></span>
-          <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--txt2)">${it.icon} ${hesc(it.name)}</span>
+          <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--txt2)">${esc(it.icon)} ${esc(it.name)}</span>
           <span style="color:var(--txt3);font-size:11px;flex-shrink:0">${pct(it.total)}%</span>
           <span style="font-weight:600;flex-shrink:0;min-width:60px;text-align:right">${fmt.currency(it.total)}</span>
         </div>`).join('')}

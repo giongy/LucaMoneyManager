@@ -23,9 +23,14 @@ function openModal(title, bodyHtml, onConfirm, confirmLabel='Salva', confirmClas
 }
 
 // Chiude il modale e ripulisce lo stato (larghezza, classi, eventuale grafico di dettaglio budget).
+// Ripristina anche gli handler di Annulla/✕: confirm() li sostituisce con closure legate alla
+// SUA Promise, che non devono sopravvivere alla chiusura — altrimenti il modale successivo
+// eredita l'Annulla del confirm precedente (era la ragione della toppa in accounts.js).
 function closeModal() {
   document.getElementById('modalOverlay').classList.remove('open');
   modalConfirmCallback = null;
+  document.getElementById('modalCancel').onclick = closeModal;
+  document.getElementById('modalClose').onclick  = closeModal;
   const modal = document.getElementById('modal');
   if (modal) { modal.style.width = ''; modal.className = 'modal'; }
   if (window._budgetDetailChart) { window._budgetDetailChart.destroy(); window._budgetDetailChart = null; }
@@ -51,13 +56,18 @@ document.getElementById('modalConfirm').onclick = async () => {
 };
 
 /* ─── Confirm dialog (usa openModal) ─────────────────────────────────────── */
-// Dialogo di conferma basato su openModal: risolve la Promise a true (Elimina) o false (Annulla).
+// Dialogo di conferma basato su openModal: risolve la Promise a true (Elimina) o false
+// (Annulla / ✕). TUTTE le vie d'uscita del modale devono risolvere: il ✕ era cablato a
+// closeModal nudo, quindi chiuderlo lasciava la Promise pendente per sempre e il chiamante
+// bloccato sull'await. closeModal() rimette gli handler di default dopo la chiusura.
 function confirm(title, msg) {
   return new Promise(resolve => {
+    const done = v => { closeModal(); resolve(v); };
     openModal(title, `<p style="color:var(--txt2);line-height:1.6">${msg}</p>`,
-      () => { closeModal(); resolve(true); },
+      () => done(true),
       'Elimina', 'btn-danger');
-    document.getElementById('modalCancel').onclick = () => { closeModal(); resolve(false); };
+    document.getElementById('modalCancel').onclick = () => done(false);
+    document.getElementById('modalClose').onclick  = () => done(false);
   });
 }
 

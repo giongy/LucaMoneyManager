@@ -99,11 +99,11 @@ function _buildSchedCatOptions(categories) {
   for (const p of parents) {
     const children = (childMap[p.id] || []).sort((a,b) => (a.name||'').localeCompare(b.name));
     if (children.length) {
-      html += `<option value="p:${p.id}" ${sel===`p:${p.id}`?'selected':''}>${p.icon||''} ${p.name}</option>`;
+      html += `<option value="p:${p.id}" ${sel===`p:${p.id}`?'selected':''}>${esc(p.icon||'')} ${esc(p.name)}</option>`;
       for (const c of children)
-        html += `<option value="${c.id}" ${sel===String(c.id)?'selected':''}>&nbsp;&nbsp;└ ${c.icon||''} ${c.name}</option>`;
+        html += `<option value="${c.id}" ${sel===String(c.id)?'selected':''}>&nbsp;&nbsp;└ ${esc(c.icon||'')} ${esc(c.name)}</option>`;
     } else {
-      html += `<option value="${p.id}" ${sel===String(p.id)?'selected':''}>${p.icon||''} ${p.name}</option>`;
+      html += `<option value="${p.id}" ${sel===String(p.id)?'selected':''}>${esc(p.icon||'')} ${esc(p.name)}</option>`;
     }
   }
   return html;
@@ -160,7 +160,7 @@ async function renderSchedLista() {
             ${tags.length ? tags.map(t => `
               <label class="sched-tag-opt">
                 <input type="checkbox" value="${t.id}" ${_schedFilter.tags.has(t.id)?'checked':''}>
-                <span class="tag-chip" style="--tc:${t.color}">${t.name}</span>
+                <span class="tag-chip" style="--tc:${esc(t.color)}">${esc(t.name)}</span>
               </label>`).join('') : '<span style="padding:8px;color:var(--txt3);font-size:12px">Nessun tag</span>'}
           </div>
         </div>
@@ -297,13 +297,13 @@ function _renderSchedRows(scheds) {
   };
 
   tbody.innerHTML = rows.map(s => `
-    <tr oncontextmenu="_showSchedCtx(${s.id},event)" style="${s.color?`background:${s.color}40;`:''}cursor:context-menu">
+    <tr oncontextmenu="_showSchedCtx(${s.id},event)" style="${s.color?`background:${esc(s.color)}40;`:''}cursor:context-menu">
       <td style="text-align:center"><span style="font-size:15px">${s.is_active ? '✅' : '⏸️'}</span></td>
-      <td>${s.account_name||''}${s.to_account_name?' → '+s.to_account_name:''}</td>
-      <td class="td-tags">${(s.tags&&s.tags.length)?s.tags.map(t=>`<span class="tag-inline" style="--tc:${t.color}">${t.name}</span>`).join(''):''}</td>
-      <td><span class="sched-freq-badge">${FREQ_LABELS[s.frequency]||s.frequency}</span></td>
-      <td><span class="cat-chip">${s.category_icon||''} ${s.parent_category_name?s.parent_category_name+' › '+s.category_name:s.category_name||'—'}</span></td>
-      <td class="td-main">${s.description||'—'}</td>
+      <td>${esc(s.account_name||'')}${s.to_account_name?' → '+esc(s.to_account_name):''}</td>
+      <td class="td-tags">${(s.tags&&s.tags.length)?s.tags.map(t=>`<span class="tag-inline" style="--tc:${esc(t.color)}">${esc(t.name)}</span>`).join(''):''}</td>
+      <td><span class="sched-freq-badge">${esc(FREQ_LABELS[s.frequency]||s.frequency)}</span></td>
+      <td><span class="cat-chip">${esc(s.category_icon||'')} ${s.parent_category_name?esc(s.parent_category_name)+' › '+esc(s.category_name):esc(s.category_name||'—')}</span></td>
+      <td class="td-main">${esc(s.description||'—')}</td>
       <td class="text-right amount-${s.type}">${s.type==='expense'?'-':''}${fmt.currency(s.amount)}</td>
       <td>${s._next ? fmt.date(s._next) : '—'}</td>
       <td>${daysLabel(s)}</td>
@@ -448,7 +448,7 @@ async function renderSchedProjection() {
           <label class="form-label">Categorie pianificate (${cats.length})</label>
           <div style="max-height:160px;overflow-y:auto;font-size:12px;border:1px solid var(--border);border-radius:6px;padding:6px">
             ${cats.length ? cats.map(c=>`<div style="display:flex;justify-content:space-between;padding:2px 4px">
-              <span style="color:${c.type==='income'?'var(--income)':'var(--expense)'}">${c.category_name}</span>
+              <span style="color:${c.type==='income'?'var(--income)':'var(--expense)'}">${esc(c.category_name)}</span>
               <span>${fmt.currency(c.projected_amount)}</span>
             </div>`).join('') : '<span style="color:var(--txt3)">Nessuna transazione pianificata</span>'}
           </div>
@@ -733,7 +733,7 @@ window._showSchedCtx = (id, evt) => {
     }
     const el = document.createElement('div');
     el.style.cssText = `padding:7px 14px;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:8px;${item.danger?'color:var(--expense)':''}`;
-    el.innerHTML = `<span>${item.icon}</span><span>${item.label}</span>`;
+    el.innerHTML = `<span>${esc(item.icon)}</span><span>${esc(item.label)}</span>`;
     el.onmouseenter = () => el.style.background = 'var(--bg3)';
     el.onmouseleave = () => el.style.background = '';
     el.onclick = () => { closeSchedContextMenu(); item.action(); };
@@ -832,7 +832,7 @@ function showScheduledModal(sched, accounts, categories, tags = []) {
     </div>
     <div class="form-group">
       <label class="form-label">Descrizione</label>
-      <input class="form-control" id="sc_desc" placeholder="Opzionale" value="${sched?.description||''}">
+      <input class="form-control" id="sc_desc" placeholder="Opzionale" value="${esc(sched?.description||'')}">
     </div>
     <div class="form-row">
       <div class="form-group" id="sc_catGroup">
@@ -854,14 +854,14 @@ function showScheduledModal(sched, accounts, categories, tags = []) {
       <div class="form-group">
         <label class="form-label">Conto *</label>
         <select class="form-control" id="sc_account">
-          ${accounts.filter(isAccountActive).map(a=>`<option value="${a.id}" ${sched?.account_id==a.id?'selected':''}>${a.icon} ${a.name}</option>`).join('')}
+          ${accounts.filter(isAccountActive).map(a=>`<option value="${a.id}" ${sched?.account_id==a.id?'selected':''}>${esc(a.icon)} ${esc(a.name)}</option>`).join('')}
         </select>
       </div>
       <div class="form-group" id="sc_toAccGroup" style="${initType!=='transfer'?'display:none':''}">
         <label class="form-label">Conto destinazione</label>
         <select class="form-control" id="sc_toAccount">
           <option value="">— Seleziona —</option>
-          ${accounts.map(a=>`<option value="${a.id}" ${sched?.to_account_id==a.id?'selected':''}>${a.icon} ${a.name}</option>`).join('')}
+          ${accounts.map(a=>`<option value="${a.id}" ${sched?.to_account_id==a.id?'selected':''}>${esc(a.icon)} ${esc(a.name)}</option>`).join('')}
         </select>
       </div>
     </div>
@@ -879,7 +879,7 @@ function showScheduledModal(sched, accounts, categories, tags = []) {
       <div class="form-group">
         <label class="form-label">Colore riga <span class="settings-hint">(opzionale)</span></label>
         <div class="flex-center-8">
-          <input type="color" id="sc_color" class="form-color-tx" value="${sched?.color||'#ffffff'}">
+          <input type="color" id="sc_color" class="form-color-tx" value="${esc(sched?.color||'#ffffff')}">
           <label class="settings-hint" style="display:flex;align-items:center;gap:6px;cursor:pointer">
             <input type="checkbox" id="sc_color_use" ${sched?.color?'checked':''} style="margin:0">
             Usa colore
@@ -897,7 +897,7 @@ function showScheduledModal(sched, accounts, categories, tags = []) {
     <div class="form-group">
       <label class="form-label">Tag</label>
       <div class="tag-selector" id="sc_tagSelector">
-        ${tags.map(t=>`<span class="tag-chip" data-tag-id="${t.id}" style="--tc:${t.color}">${t.name}</span>`).join('')}
+        ${tags.map(t=>`<span class="tag-chip" data-tag-id="${t.id}" style="--tc:${esc(t.color)}">${esc(t.name)}</span>`).join('')}
       </div>
     </div>
     <div class="form-group">

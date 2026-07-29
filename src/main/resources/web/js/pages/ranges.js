@@ -60,8 +60,8 @@ async function renderRangePresets() {
             const preview = (() => { try { const f=rangeToFilter(p.range_key); return f.date_from && f.date_to ? `${f.date_from} → ${f.date_to}` : ''; } catch { return ''; } })();
             return `
             <div class="tag-mgmt-row">
-              <span style="font-weight:500">${p.label}</span>
-              <span class="tag-inline" style="--tc:#7c6cff;font-size:11px;padding:2px 8px;margin-left:8px">${p.range_key}</span>
+              <span style="font-weight:500">${esc(p.label)}</span>
+              <span class="tag-inline" style="--tc:#7c6cff;font-size:11px;padding:2px 8px;margin-left:8px">${esc(p.range_key)}</span>
               ${preview ? `<span class="text-muted" style="font-size:11px;margin-left:8px">${preview}</span>` : ''}
               <div style="margin-left:auto;display:flex;gap:4px">
                 <button class="btn btn-ghost btn-icon" onclick="editRangePreset(${p.id})">✏️</button>
@@ -105,7 +105,7 @@ function showRangePresetModal(preset) {
   const body = `
     <div class="form-group">
       <label class="form-label">Nome</label>
-      <input class="form-control" id="rp_label" value="${preset?.label||''}" placeholder="es. Ultimi 45 giorni, Anno corrente…">
+      <input class="form-control" id="rp_label" value="${esc(preset?.label||'')}" placeholder="es. Ultimi 45 giorni, Anno corrente…">
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:4px">
       <div class="form-group">

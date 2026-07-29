@@ -168,7 +168,7 @@ async function renderSettings() {
                 <div style="font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--txt3);margin-bottom:6px">Personalizzati</div>
                 ${_customThemes.map(ct => `
                   <div style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--border)">
-                    <span style="font-size:13px;flex:1;color:var(--txt)">${ct.name}</span>
+                    <span style="font-size:13px;flex:1;color:var(--txt)">${esc(ct.name)}</span>
                     <button class="btn theme-btn ${(s['appearance.theme']||'dark')==='c:'+ct.id?'theme-btn-active':''}" style="padding:4px 12px"
                             onclick="settingsSetTheme('c:${ct.id}')">Attiva</button>
                     <button class="btn btn-ghost btn-icon" title="Modifica" onclick="showThemeEditor(_customThemes.find(t=>t.id==='${ct.id}'))">✏️</button>
@@ -807,8 +807,8 @@ async function archiveLoadCategories() {
     if (!cats.length) { box.innerHTML = '<span class="settings-hint">Nessuna categoria</span>'; return; }
     // Etichetta gerarchica: "Parent:Figlia" se ha un parent
     box.innerHTML = cats.map(c => {
-      const label = c.parent_name ? `${c.parent_name}:${c.name}` : c.name;
-      const color = c.color || c.parent_color || 'var(--txt3)';
+      const label = esc(c.parent_name ? `${c.parent_name}:${c.name}` : c.name);
+      const color = esc(c.color || c.parent_color || 'var(--txt3)');
       return `<label style="display:flex;align-items:center;gap:8px;padding:3px 4px;cursor:pointer;font-size:var(--fs-md,12px)">
         <input type="checkbox" class="archive-cat-cb" value="${c.id}">
         <span style="width:10px;height:10px;border-radius:3px;background:${color};flex:none"></span>
@@ -866,10 +866,10 @@ function archiveRenderList(rows) {
     <tr style="border-bottom:1px solid var(--border)">
       <td style="padding:4px 8px"><input type="checkbox" class="archive-row-cb" data-id="${r.id}" data-group="${r.group}" checked onchange="archiveUpdateSummary()"></td>
       <td style="padding:4px 8px;white-space:nowrap;color:var(--txt2)">${r.date}</td>
-      <td style="padding:4px 8px;white-space:nowrap">${r.category_name||'—'}</td>
+      <td style="padding:4px 8px;white-space:nowrap">${esc(r.category_name||'—')}</td>
       <td style="padding:4px 8px;text-align:right;white-space:nowrap;color:${r.type==='income'?'var(--income)':'var(--expense)'}">${fmt(r.amount)}</td>
-      <td style="padding:4px 8px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(r.description||'').replace(/"/g,'&quot;')}">${r.description||'<span style="color:var(--txt3)">(senza commento)</span>'}</td>
-      <td style="padding:4px 8px;color:var(--txt2);white-space:nowrap">${r.tags||''}</td>
+      <td style="padding:4px 8px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(r.description||'')}">${r.description ? esc(r.description) : '<span style="color:var(--txt3)">(senza commento)</span>'}</td>
+      <td style="padding:4px 8px;color:var(--txt2);white-space:nowrap">${esc(r.tags||'')}</td>
     </tr>`).join('');
   return `
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap">
@@ -1306,13 +1306,13 @@ function showThemeEditor(themeObj) {
 
   panel.innerHTML = `
     <div id="teHeader">
-      <span>🎨 ${_teWorkingTheme.name}</span>
+      <span>🎨 ${esc(_teWorkingTheme.name)}</span>
       <button class="btn btn-ghost btn-icon" onclick="closeThemeEditor(false)" title="Chiudi senza salvare">✕</button>
     </div>
     <div id="teBody">
       <div class="te-prop-row" style="padding-top:2px">
         <label>Nome</label>
-        <input class="form-control" id="teName" value="${_teWorkingTheme.name}" placeholder="Nome tema" style="flex:1">
+        <input class="form-control" id="teName" value="${esc(_teWorkingTheme.name)}" placeholder="Nome tema" style="flex:1">
       </div>
       ${colorSections}
       <div class="te-section-hdr">Tipografia</div>
@@ -1681,20 +1681,22 @@ async function settingsLoadBackupList() {
             const detailRows = changes.map(c => {
               let descHtml = '';
               if (c.desc) {
+                // desc viene dal log, che include i campi delle transazioni (descrizione
+                // compresa): è testo utente e va escapato prima di finire in innerHTML.
                 descHtml = c.desc.split(' · ').map(part => {
                   const colon = part.indexOf(':');
-                  if (colon === -1) return `<span style="color:var(--txt3)">${part}</span>`;
+                  if (colon === -1) return `<span style="color:var(--txt3)">${esc(part)}</span>`;
                   const key = part.slice(0, colon);
                   const val = part.slice(colon + 1);
-                  if (key === 'importo') return `<span style="color:var(--txt3)">${key}:</span><span style="color:var(--income);font-weight:700"> ${val}</span>`;
-                  if (key === 'categoria') return `<span style="color:var(--txt3)">${key}:</span><span style="color:var(--accent);font-weight:600"> ${val}</span>`;
-                  return `<span style="color:var(--txt3)">${part}</span>`;
+                  if (key === 'importo') return `<span style="color:var(--txt3)">${esc(key)}:</span><span style="color:var(--income);font-weight:700"> ${esc(val)}</span>`;
+                  if (key === 'categoria') return `<span style="color:var(--txt3)">${esc(key)}:</span><span style="color:var(--accent);font-weight:600"> ${esc(val)}</span>`;
+                  return `<span style="color:var(--txt3)">${esc(part)}</span>`;
                 }).join('<span style="color:var(--border)"> · </span>');
               }
               return `<tr class="bak-detail-row ${detailId}" style="background:var(--bg3)">
                 <td colspan="4" style="padding:3px 8px 3px 24px;font-size:11px;color:var(--txt2)">
-                  <span style="color:var(--txt3);margin-right:6px">${c.time}</span>
-                  <strong>${c.op}</strong>
+                  <span style="color:var(--txt3);margin-right:6px">${esc(c.time)}</span>
+                  <strong>${esc(c.op)}</strong>
                   ${descHtml ? `<span style="margin-left:6px">${descHtml}</span>` : ''}
                 </td>
               </tr>`;
@@ -1741,7 +1743,7 @@ async function settingsConfirmRestore(path, displayTs) {
   try {
     const res = await api.restoreBackup(path);
     openModal('✅ Ripristino completato',
-      `<p style="color:var(--txt2);line-height:1.6">Database precedente archiviato in:<br><code style="font-size:11px">${res.archived}</code><br><br>L'applicazione verrà ricaricata.</p>`,
+      `<p style="color:var(--txt2);line-height:1.6">Database precedente archiviato in:<br><code style="font-size:11px">${esc(res.archived)}</code><br><br>L'applicazione verrà ricaricata.</p>`,
       () => { closeModal(); location.reload(); }, 'Ok', 'btn-primary');
   } catch(e) {
     if (container) container.innerHTML = `<span class="settings-hint" style="color:var(--expense)">❌ ${e.message}</span>`;

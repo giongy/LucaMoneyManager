@@ -317,11 +317,11 @@ function _renderDashAccountsWidget(accounts) {
           ${visGrouped[t].map(a => `
             <tr class="acc-list-row" onclick="navigateToAccountTx(${a.id})">
               <td>
-                <span class="acc-dot" style="background:${a.color||'var(--accent)'}"></span>
+                <span class="acc-dot" style="background:${esc(a.color||'var(--accent)')}"></span>
                 <span class="acc-icon">${esc(a.icon||'')}</span>
                 <span class="acc-name">${esc(a.name)}</span>
               </td>
-              <td class="acc-bal ${a.balance<0?'neg':''}" style="color:${a.balance<0?'var(--expense)':(a.color||'var(--accent)')}"
+              <td class="acc-bal ${a.balance<0?'neg':''}" style="color:${a.balance<0?'var(--expense)':esc(a.color||'var(--accent)')}"
                   ${a.type==='investment' && a.bond_nominal>0 ? `title="Valore con bond a scadenza (a 100). Valore di mercato attuale: ${fmt.currency(a.balance)}"` : ''}>
                 ${a.type==='investment' && a.bond_nominal>0 ? fmt.currency((a.balance||0) - (a.bond_market||0) + (a.bond_nominal||0)) : fmt.currency(a.balance)}
                 ${a.type==='credit'?`<span id="cc-cur-${a.id}" style="display:block;font-size:11px;color:var(--txt2);font-weight:400"></span>`:''}

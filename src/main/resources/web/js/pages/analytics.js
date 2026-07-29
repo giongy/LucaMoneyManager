@@ -496,7 +496,7 @@ function _renderAnalyticsCatTable() {
       const total = catTotal(c);
       const avg = total / monthCols.length;
       html += `<tr>
-        <td class="analytics-cat-name">${c.parent_name ? `<span style="color:var(--txt3);font-size:11px">${c.parent_name} ›</span> ` : ''}<span style="color:${c.color}">${c.icon}</span> ${c.name}</td>
+        <td class="analytics-cat-name">${c.parent_name ? `<span style="color:var(--txt3);font-size:11px">${esc(c.parent_name)} ›</span> ` : ''}<span style="color:${esc(c.color)}">${esc(c.icon)}</span> ${esc(c.name)}</td>
         ${monthCols.map(m => `<td class="text-right">${c.m[m.ym] ? fmt.currency(c.m[m.ym]) : '<span style="color:var(--txt3)">—</span>'}</td>`).join('')}
         <td class="text-right analytics-total">${fmt.currency(total)}</td>
         <td class="text-right analytics-avg">${fmt.currency(avg)}</td>
@@ -876,9 +876,9 @@ function _renderCatCmpTable() {
         ? 'background:rgba(63,185,80,.14);box-shadow:inset 3px 0 0 var(--income)'
         : '';
       html += `<tr style="${winStyle}">
-        <td class="analytics-cat-name">${r.parent_name ? `<span style="color:var(--txt3);font-size:11px">${r.parent_name} ›</span> ` : ''}<span style="color:${r.color}">${r.icon || ''}</span> ${linkable
-          ? `<a href="#" onclick="_catCmpToTrend(${r.id});return false" style="color:inherit;text-decoration:none;border-bottom:1px dashed var(--txt3)" title="Vedi andamento nel periodo (inizio B → fine A)">${r.name}</a>`
-          : r.name}</td>
+        <td class="analytics-cat-name">${r.parent_name ? `<span style="color:var(--txt3);font-size:11px">${esc(r.parent_name)} ›</span> ` : ''}<span style="color:${esc(r.color)}">${esc(r.icon || '')}</span> ${linkable
+          ? `<a href="#" onclick="_catCmpToTrend(${r.id});return false" style="color:inherit;text-decoration:none;border-bottom:1px dashed var(--txt3)" title="Vedi andamento nel periodo (inizio B → fine A)">${esc(r.name)}</a>`
+          : esc(r.name)}</td>
         <td class="text-right">${r.total_a ? fmt.currency(r.total_a) : '<span style="color:var(--txt3)">—</span>'}</td>
         <td class="text-right" style="opacity:.85">${r.total_b ? fmt.currency(r.total_b) : '<span style="color:var(--txt3)">—</span>'}</td>
         <td class="text-right" style="color:${deltaCol};font-weight:600">${delta>=0?'+':''}${fmt.currency(delta)}</td>
@@ -1772,7 +1772,7 @@ function _renderAccBalChart() {
   }).join('');
 
   const headerCells = selAccounts.map((a,i) =>
-    `<th class="text-right" style="color:${accColor(a,i)}">${a.icon||''} ${a.name}</th>`
+    `<th class="text-right" style="color:${accColor(a,i)}">${esc(a.icon||'')} ${esc(a.name)}</th>`
   ).join('');
 
   // Selettore conti
@@ -1783,7 +1783,7 @@ function _renderAccBalChart() {
       style="padding:4px 12px;font-size:12px;border-radius:16px;border:1.5px solid ${col};cursor:pointer;
              background:${on ? col+'33' : 'transparent'};color:${on ? col : 'var(--txt2)'};
              font-weight:${on ? '600' : '400'};transition:all .15s;white-space:nowrap">
-      ${a.icon||''} ${a.name}${a.is_closed ? ' ✕' : ''}
+      ${esc(a.icon||'')} ${esc(a.name)}${a.is_closed ? ' ✕' : ''}
     </button>`;
   }).join('');
 
@@ -2101,10 +2101,10 @@ async function renderNatureReport(token) {
       const tot = Number(c.total);
       const pct = totalAll > 0 ? (tot / totalAll * 100).toFixed(1) : '0.0';
       const catLabel = c.parent_name
-        ? `<span style="opacity:.6">${c.parent_name}:</span>${c.cat_name}`
-        : c.cat_name;
+        ? `<span style="opacity:.6">${esc(c.parent_name)}:</span>${esc(c.cat_name)}`
+        : esc(c.cat_name);
       return `<div class="nature-cat-row" onclick="txFilters={range:'custom',date_from:'${df}',date_to:'${dt}',category_id:${c.cat_id},type:'expense'};navigate('transactions')" title="Vedi transazioni" style="display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:6px;cursor:pointer">
-        <span style="background:${c.color}22;color:${c.color};padding:2px 8px;border-radius:4px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0">${c.icon} ${catLabel}</span>
+        <span style="background:${esc(c.color)}22;color:${esc(c.color)};padding:2px 8px;border-radius:4px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0">${esc(c.icon)} ${catLabel}</span>
         <span style="font-weight:600;font-size:12px;white-space:nowrap">${fmt.currency(tot)}</span>
         <span style="color:var(--txt3);font-size:11px;white-space:nowrap;text-align:right;min-width:74px">${c.tx_count} tx · ${pct}%</span>
       </div>`;
@@ -2208,7 +2208,7 @@ async function _updateReportHeader(r) {
   // riapre la modale precompilata coi filtri correnti, così puoi modificarlo senza salvarlo
   // (lascia il nome vuoto) oppure salvarlo dandogli un nome.
   const nameHtml = r
-    ? `<span class="r-report-name">📋 ${r.name}</span> <button class="btn btn-ghost btn-icon" onclick="showReportModal(${r.id})" title="Modifica">✏️</button>`
+    ? `<span class="r-report-name">📋 ${esc(r.name)}</span> <button class="btn btn-ghost btn-icon" onclick="showReportModal(${r.id})" title="Modifica">✏️</button>`
     : (chips.length
         ? `<span class="r-report-name" style="color:var(--txt3)">📋 Filtro temporaneo <span style="font-size:11px;font-weight:400">(non salvato)</span></span> <button class="btn btn-ghost btn-icon" onclick="showReportModal()" title="Modifica / salva con nome">✏️</button>`
         : '');
@@ -2607,7 +2607,7 @@ function renderReportResults(txs, groupby, chartType, catMap) {
       <th>Categoria</th><th class="text-right">N.</th><th class="text-right">Totale</th>
       </tr></thead><tbody>
       ${cats.map(([,g])=>`<tr>
-        <td><span style="color:${g.color}">${g.icon}</span> ${g.name}</td>
+        <td><span style="color:${esc(g.color)}">${esc(g.icon)}</span> ${esc(g.name)}</td>
         <td class="text-right">${g.count}</td>
         <td class="text-right" style="font-weight:600;color:${g.total>=0?'var(--income)':'var(--expense)'}">
           ${fmt.currency(Math.abs(g.total))}</td></tr>`).join('')}
@@ -2637,7 +2637,7 @@ function renderReportResults(txs, groupby, chartType, catMap) {
       <th class="text-right">Entrate</th><th class="text-right">Uscite</th><th class="text-right">Netto</th>
       </tr></thead><tbody>
       ${accs.map(([,g])=>{const net=g.income-g.expense;return`<tr>
-        <td><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${g.color};margin-right:6px"></span>${g.name}</td>
+        <td><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${esc(g.color)};margin-right:6px"></span>${esc(g.name)}</td>
         <td class="text-right">${g.count}</td>
         <td class="text-right amount-income">${fmt.currency(g.income)}</td>
         <td class="text-right amount-expense">${fmt.currency(g.expense)}</td>
@@ -2750,7 +2750,7 @@ function renderReportResults(txs, groupby, chartType, catMap) {
       <th>Tag</th><th class="text-right">N.</th><th class="text-right">Totale</th>
       </tr></thead><tbody>
       ${tagsArr.map(g=>`<tr>
-        <td><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${g.color};margin-right:6px"></span>${g.name}</td>
+        <td><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${esc(g.color)};margin-right:6px"></span>${esc(g.name)}</td>
         <td class="text-right">${g.count}</td>
         <td class="text-right" style="font-weight:600;color:${g.total>=0?'var(--income)':'var(--expense)'}">
           ${fmt.currency(Math.abs(g.total))}</td></tr>`).join('')}
@@ -2787,7 +2787,7 @@ function renderReportResults(txs, groupby, chartType, catMap) {
       <th>Categoria padre</th><th class="text-right">N.</th><th class="text-right">Totale</th>
       </tr></thead><tbody>
       ${parents.map(([,g])=>`<tr>
-        <td><span style="color:${g.color}">${g.icon}</span> ${g.name}</td>
+        <td><span style="color:${esc(g.color)}">${esc(g.icon)}</span> ${esc(g.name)}</td>
         <td class="text-right">${g.count}</td>
         <td class="text-right" style="font-weight:600;color:${g.total>=0?'var(--income)':'var(--expense)'}">
           ${fmt.currency(Math.abs(g.total))}</td></tr>`).join('')}
@@ -2817,9 +2817,9 @@ function renderReportResults(txs, groupby, chartType, catMap) {
       <th>Tipo</th><th class="text-right">N.</th><th class="text-right">Totale</th>
       </tr></thead><tbody>
       ${arr.map(([,g])=>`<tr>
-        <td><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${g.color};margin-right:6px"></span>${g.label}</td>
+        <td><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${esc(g.color)};margin-right:6px"></span>${esc(g.label)}</td>
         <td class="text-right">${g.count}</td>
-        <td class="text-right" style="font-weight:600;color:${g.color}">
+        <td class="text-right" style="font-weight:600;color:${esc(g.color)}">
           ${fmt.currency(g.total)}</td></tr>`).join('')}
       </tbody></table>`;
     if (chartType==='bar'||chartType==='hbar') chartData={type:'bar',
@@ -2847,7 +2847,7 @@ function renderReportResults(txs, groupby, chartType, catMap) {
       <th class="text-right">Entrate</th><th class="text-right">Uscite</th>
       </tr></thead><tbody>
       ${buckets.map(b=>`<tr>
-        <td>${b.label}</td><td class="text-right">${b.count}</td>
+        <td>${esc(b.label)}</td><td class="text-right">${b.count}</td>
         <td class="text-right amount-income">${b.income?fmt.currency(b.income):''}</td>
         <td class="text-right amount-expense">${b.expense?fmt.currency(b.expense):''}</td>
         </tr>`).join('')}
@@ -2871,10 +2871,10 @@ function renderReportResults(txs, groupby, chartType, catMap) {
         const dispAmt = effectiveAmt(t);
         return `<tr style="cursor:pointer" onclick="editTx(${t.id})">
         <td>${fmt.date(t.date)}</td>
-        <td class="td-main">${t.description||'—'}${isSplitFiltered ? ` <span style="font-size:10px;opacity:.5" title="Totale transazione: ${fmt.currency(t.amount)}">(tot. ${fmt.currency(t.amount)})</span>` : ''}</td>
-        <td class="td-tags">${(t.tags&&t.tags.length)?t.tags.map(tg=>`<span class="tag-inline" style="--tc:${tg.color}">${tg.name}</span>`).join(''):''}</td>
-        <td>${effectiveCatIcon(t)} ${effectiveCatName(t)}${isSplitFiltered ? ' <span style="font-size:10px;opacity:.5">(÷)</span>' : ''}</td>
-        <td>${t.account_name||'—'}</td>
+        <td class="td-main">${esc(t.description||'—')}${isSplitFiltered ? ` <span style="font-size:10px;opacity:.5" title="Totale transazione: ${fmt.currency(t.amount)}">(tot. ${fmt.currency(t.amount)})</span>` : ''}</td>
+        <td class="td-tags">${(t.tags&&t.tags.length)?t.tags.map(tg=>`<span class="tag-inline" style="--tc:${esc(tg.color)}">${esc(tg.name)}</span>`).join(''):''}</td>
+        <td>${esc(effectiveCatIcon(t))} ${esc(effectiveCatName(t))}${isSplitFiltered ? ' <span style="font-size:10px;opacity:.5">(÷)</span>' : ''}</td>
+        <td>${esc(t.account_name||'—')}</td>
         <td class="text-right amount-${t.type}">${t.type==='expense'?'-':''}${fmt.currency(dispAmt)}</td>
         <td><span class="badge badge-${t.type}">${t.type==='income'?'Entrata':t.type==='expense'?'Uscita':'Trasf.'}</span></td>
         </tr>`;}).join('')}
@@ -2948,9 +2948,13 @@ function _fmtMonth(yyyyMM) {
 
 
 // Elimina un resoconto salvato previa conferma e aggiorna sidebar/pagina.
-async function deleteReportConfirm(id, name) {
+// Il nome si ricava dall'id: passarlo dall'onclick inline della sidebar significherebbe
+// interpolare testo utente dentro un attributo HTML.
+async function deleteReportConfirm(id) {
+  const reports = await api.getReports();
+  const name = reports.find(r => r.id === id)?.name ?? '';
   openModal('Elimina resoconto',
-    `<p style="margin:0">Eliminare <b>${name}</b>?</p>`,
+    `<p style="margin:0">Eliminare <b>${esc(name)}</b>?</p>`,
     async () => {
       await api.deleteReport(id);
       if (_currentReportId === id) { _currentReportId = null; _updateReportHeader(null); }
@@ -3358,7 +3362,7 @@ async function _runForecastSaldo() {
         if (!list.length) return '';
         const rows = list.slice(0, 10).map(c =>
           `<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--border);font-size:11px">
-            <span style="color:var(--txt)">${c.name}</span>
+            <span style="color:var(--txt)">${esc(c.name)}</span>
             <span style="color:${color};font-weight:600;white-space:nowrap;margin-left:8px">${fmt.currency(c.avg_monthly)}/m</span>
           </div>`).join('');
         const totAvg = list.reduce((s, c) => s + Number(c.avg_monthly), 0);

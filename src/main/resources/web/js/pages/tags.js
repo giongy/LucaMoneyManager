@@ -7,8 +7,8 @@
 function _tagMgmtRow(t) {
   return `
     <div class="tag-mgmt-row">
-      <span class="tag-inline" style="--tc:${t.color};font-size:13px;padding:4px 10px">${t.name}</span>
-      <span class="text-muted" style="font-size:11px;margin-left:8px">${t.color}</span>
+      <span class="tag-inline" style="--tc:${esc(t.color)};font-size:13px;padding:4px 10px">${esc(t.name)}</span>
+      <span class="text-muted" style="font-size:11px;margin-left:8px">${esc(t.color)}</span>
       ${t.is_system ? '<span class="text-muted" style="font-size:11px;margin-left:4px" title="Tag di sistema">🔒</span>' : ''}
       <div style="margin-left:auto;display:flex;gap:4px">
         <button class="btn btn-ghost btn-icon" onclick="editTagMgmt(${t.id})">✏️</button>
@@ -56,13 +56,13 @@ function showTagModal(tag) {
   const body = `
     <div class="form-group">
       <label class="form-label">Nome</label>
-      <input class="form-control" id="tg_name" value="${tag?.name||''}" placeholder="Es. Vacanza, Lavoro...">
+      <input class="form-control" id="tg_name" value="${esc(tag?.name||'')}" placeholder="Es. Vacanza, Lavoro...">
     </div>
     <div class="form-group">
       <label class="form-label">Colore</label>
       <div style="display:flex;align-items:center;gap:10px">
-        <input type="color" id="tg_color" value="${tag?.color||'#58a6ff'}" class="color-input-sm" style="width:50px;height:34px">
-        <span class="tag-inline" id="tg_preview" style="--tc:${tag?.color||'#58a6ff'}">${tag?.name||'Anteprima'}</span>
+        <input type="color" id="tg_color" value="${esc(tag?.color||'#58a6ff')}" class="color-input-sm" style="width:50px;height:34px">
+        <span class="tag-inline" id="tg_preview" style="--tc:${esc(tag?.color||'#58a6ff')}">${esc(tag?.name||'Anteprima')}</span>
       </div>
     </div>`;
   openModal(isEdit ? 'Modifica Tag' : 'Nuovo Tag', body, async () => {

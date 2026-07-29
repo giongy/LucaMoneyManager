@@ -185,17 +185,19 @@ function renderLogLines() {
     const action   = sepIdx >= 0 ? rest.substring(0, sepIdx).trim() : rest.trim();
     const fields   = sepIdx >= 0 ? rest.substring(sepIdx + 5).split('  |  ') : [];
     const color    = LOG_ACTION_COLORS[action] || 'var(--txt2)';
+    // Il log contiene i campi delle transazioni (descrizione compresa), quindi testo utente:
+    // va escapato prima di finire in innerHTML. `color` viene da LOG_ACTION_COLORS, non dal file.
     const fieldsHtml = fields.map(f => {
       const ci = f.indexOf(':');
-      if (ci < 0) return `<span class="log-field">${f}</span>`;
+      if (ci < 0) return `<span class="log-field">${esc(f)}</span>`;
       const k = f.substring(0, ci);
       const v = f.substring(ci + 1);
-      return `<span class="log-field"><span class="log-key">${k}</span><span class="log-val">${v}</span></span>`;
+      return `<span class="log-field"><span class="log-key">${esc(k)}</span><span class="log-val">${esc(v)}</span></span>`;
     }).join('');
     return `<div class="log-row">
-      <span class="log-date">${dateStr}</span>
-      <span class="log-time">${timeStr}</span>
-      <span class="log-action" style="color:${color}">${action}</span>
+      <span class="log-date">${esc(dateStr)}</span>
+      <span class="log-time">${esc(timeStr)}</span>
+      <span class="log-action" style="color:${color}">${esc(action)}</span>
       <span class="log-fields">${fieldsHtml}</span>
     </div>`;
   }).join('');

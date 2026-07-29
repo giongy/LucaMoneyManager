@@ -38,15 +38,15 @@ async function renderAccounts() {
 // (per le carte di credito aggiunge "Chiudi mese").
 function _accountCardHtml(a) {
   const badges = [a.is_favorite ? '⭐' : '', a.is_closed ? '🔒' : '', a.is_hidden ? '🙈' : ''].filter(Boolean).join(' ');
-  return `<div class="account-card${a.is_closed ? ' account-card-closed' : ''}" data-id="${a.id}" data-type="${a.type}" draggable="true" style="--acc-color:${a.color}">
+  return `<div class="account-card${a.is_closed ? ' account-card-closed' : ''}" data-id="${a.id}" data-type="${a.type}" draggable="true" style="--acc-color:${esc(a.color)}">
     <span class="acc-drag-handle" title="Trascina per riordinare">⠿</span>
-    <div class="account-icon">${a.icon}</div>
+    <div class="account-icon">${esc(a.icon)}</div>
     <div class="acc-info">
-      <div class="account-name">${a.name}${badges ? ` <span style="font-size:11px;font-weight:400">${badges}</span>` : ''}</div>
+      <div class="account-name">${esc(a.name)}${badges ? ` <span style="font-size:11px;font-weight:400">${badges}</span>` : ''}</div>
     </div>
-    <div class="account-balance" style="color:${a.is_closed ? 'var(--txt3)' : a.color}">${fmt.currency(a.balance)}</div>
+    <div class="account-balance" style="color:${a.is_closed ? 'var(--txt3)' : esc(a.color)}">${fmt.currency(a.balance)}</div>
     <div class="account-actions">
-      ${a.type === 'credit' ? `<button class="btn btn-ghost btn-icon" onclick="closeCreditMonth(${a.id},\`${a.name.replace(/`/g,"'")}\`)">💳 Chiudi mese</button>` : ''}
+      ${a.type === 'credit' ? `<button class="btn btn-ghost btn-icon" onclick="closeCreditMonth(${a.id})">💳 Chiudi mese</button>` : ''}
       <button class="btn btn-ghost btn-icon" onclick="editAccount(${a.id})">✏️</button>
       <button class="btn btn-ghost btn-icon" onclick="deleteAccount(${a.id})">🗑️</button>
     </div>
@@ -204,8 +204,13 @@ async function _fillCreditMonthDash(accounts) {
 
 // Modale "Chiudi mese" carta di credito: calcola il totale spese del mese e crea il
 // trasferimento di pagamento dal conto sorgente alla carta (importo e data precompilati).
-window.closeCreditMonth = async (cardId, cardName) => {
+// Il nome della carta si ricava dall'id: passarlo come argomento dell'onclick inline
+// significherebbe interpolare testo utente dentro un attributo HTML.
+window.closeCreditMonth = async (cardId) => {
   const accounts = await api.getAccounts();
+  const card     = accounts.find(a => a.id === cardId);
+  if (!card) return;
+  const cardName = card.name;
   const sources  = accounts.filter(a => a.type !== 'credit' && a.type !== 'investment' && !a.is_closed);
 
   // Default: mese precedente (l'ultimo mese concluso da saldare). La banca addebita il saldo
@@ -235,7 +240,7 @@ window.closeCreditMonth = async (cardId, cardName) => {
       <label class="form-label">Conto sorgente</label>
       <select class="form-control" id="cc_source">
         <option value="">— Seleziona —</option>
-        ${sources.map(a=>`<option value="${a.id}">${a.icon} ${a.name} (${fmt.currency(a.balance)})</option>`).join('')}
+        ${sources.map(a=>`<option value="${a.id}">${esc(a.icon)} ${esc(a.name)} (${fmt.currency(a.balance)})</option>`).join('')}
       </select>
     </div>
     <div class="form-group">
@@ -304,7 +309,7 @@ function showAccountModal(account) {
   const body = `
     <div class="form-group">
       <label class="form-label">Nome</label>
-      <input class="form-control" id="a_name" placeholder="Es. Conto BancaX" value="${account?.name||''}">
+      <input class="form-control" id="a_name" placeholder="Es. Conto BancaX" value="${esc(account?.name||'')}">
     </div>
     <div class="form-row">
       <div class="form-group">
@@ -324,14 +329,14 @@ function showAccountModal(account) {
         <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px">
           ${ACCOUNT_ICONS.map(ic=>`<button type="button" class="btn btn-ghost btn-icon icon-pick ${account?.icon===ic?'icon-selected':''}" onclick="selectIcon(this,'${ic}')" data-icon="${ic}" style="font-size:20px">${ic}</button>`).join('')}
         </div>
-        <input type="hidden" id="a_icon" value="${account?.icon||'🏦'}">
+        <input type="hidden" id="a_icon" value="${esc(account?.icon||'🏦')}">
       </div>
       <div class="form-group">
         <label class="form-label">Colore</label>
         <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px">
           ${ACCOUNT_COLORS.map(c=>`<button type="button" onclick="selectColor(this,'${c}')" style="width:28px;height:28px;border-radius:50%;background:${c};border:2px solid ${account?.color===c?'#fff':'transparent'}" class="color-pick" data-color="${c}"></button>`).join('')}
         </div>
-        <input type="hidden" id="a_color" value="${account?.color||'#58a6ff'}">
+        <input type="hidden" id="a_color" value="${esc(account?.color||'#58a6ff')}">
       </div>
     </div>
     <div class="form-row" style="margin-top:8px">
@@ -423,7 +428,7 @@ window.deleteAccount = async id => {
 
   const listHtml = isEmpty
     ? `<p style="color:var(--txt2);line-height:1.6">Questo conto non ha transazioni, pianificate o posizioni collegate.</p>`
-    : `<p style="color:var(--txt2);line-height:1.6;margin-bottom:10px">Eliminando <b>${u.name}</b> perderai in modo definitivo:</p>
+    : `<p style="color:var(--txt2);line-height:1.6;margin-bottom:10px">Eliminando <b>${esc(u.name)}</b> perderai in modo definitivo:</p>
        <ul style="color:var(--txt2);line-height:1.9;margin:0 0 12px 18px">
          ${rows.map(([lbl, n]) => `<li><b>${n.toLocaleString('it-IT')}</b> ${lbl.toLowerCase()}</li>`).join('')}
        </ul>

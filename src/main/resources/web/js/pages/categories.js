@@ -31,9 +31,9 @@ async function renderCategories() {
       return `
         <div class="cat-parent">
           <div class="cat-row cat-parent-row">
-            <span class="cat-icon" style="background:${p.color}22;color:${p.color}">${p.icon}</span>
-            <span class="cat-color-dot" style="background:${p.color}" title="${p.color}"></span>
-            <span class="cat-name">${p.name}</span>
+            <span class="cat-icon" style="background:${esc(p.color)}22;color:${esc(p.color)}">${esc(p.icon)}</span>
+            <span class="cat-color-dot" style="background:${esc(p.color)}" title="${esc(p.color)}"></span>
+            <span class="cat-name">${esc(p.name)}</span>
             <span class="badge ${typeCls(p.type)}">${typeLabel(p.type)}</span>
             ${p.expense_nature ? `<span class="nature-badge nature-${p.expense_nature}">${{essenziale:'🟢 Essenziale',variabile:'🟡 Variabile',superflua:'🔴 Superflua'}[p.expense_nature]||''}</span>` : ''}
             ${p.excluded_from_budget ? `<span class="badge" style="background:var(--txt3);color:#fff;font-size:10px" title="Esclusa da budget, report, dashboard e previsioni">🚫 Esclusa</span>` : ''}
@@ -51,9 +51,9 @@ async function renderCategories() {
               ${kids.map(k => `
                 <div class="cat-row cat-child-row">
                   <span class="cat-indent">└</span>
-                  <span class="cat-icon" style="background:${k.color}22;color:${k.color}">${k.icon}</span>
-                  <span class="cat-color-dot" style="background:${k.color}" title="${k.color}"></span>
-                  <span class="cat-name">${k.name}</span>
+                  <span class="cat-icon" style="background:${esc(k.color)}22;color:${esc(k.color)}">${esc(k.icon)}</span>
+                  <span class="cat-color-dot" style="background:${esc(k.color)}" title="${esc(k.color)}"></span>
+                  <span class="cat-name">${esc(k.name)}</span>
                   ${(() => { const n = k.expense_nature || k.parent_expense_nature; const inh = !k.expense_nature && n; return n ? `<span class="nature-badge nature-${n}" title="${inh?'ereditata dal parent':''}">${{essenziale:'🟢',variabile:'🟡',superflua:'🔴'}[n]||''}${inh?' ↑':''}</span>` : ''; })()}
                   ${k.excluded_from_budget ? `<span class="badge" style="background:var(--txt3);color:#fff;font-size:10px" title="Esclusa da budget, report, dashboard e previsioni">🚫</span>` : ''}
                   <span class="cat-inherited">eredita ${typeLabel(k.type)}</span>
@@ -92,8 +92,8 @@ async function renderCategories() {
     <div class="cats-list">
       <div class="cat-parent">
         <div class="cat-row cat-parent-row">
-          <span class="cat-icon" style="background:${transfer.color}22;color:${transfer.color}">${transfer.icon}</span>
-          <span class="cat-name">${transfer.name}</span>
+          <span class="cat-icon" style="background:${esc(transfer.color)}22;color:${esc(transfer.color)}">${esc(transfer.icon)}</span>
+          <span class="cat-name">${esc(transfer.name)}</span>
           <span class="badge badge-transfer">Trasferimento</span>
           <span class="settings-hint" style="margin-left:8px">Categoria di sistema, non modificabile</span>
         </div>
@@ -138,7 +138,7 @@ async function deleteCategory(id) {
   // Nessun uso → semplice conferma
   if (totalTx === 0 && splitCount === 0 && schedCount === 0 && !hasBudget && !hasChildren) {
     openModal('Elimina categoria',
-      `<p style="margin:0">Eliminare <b>${cat.icon} ${cat.name}</b>?</p>`,
+      `<p style="margin:0">Eliminare <b>${esc(cat.icon)} ${esc(cat.name)}</b>?</p>`,
       async () => {
         await api.deleteCategory(id); closeModal();
         toast('Categoria eliminata'); renderCategories();
@@ -160,12 +160,12 @@ async function deleteCategory(id) {
     c.id !== id && !childIds.has(c.id) && c.type === cat.type && c.type !== 'transfer'
   );
   const opts = targets.map(c =>
-    `<option value="${c.id}">${c.parent_id ? '  └ ' : ''}${c.icon} ${c.name}</option>`
+    `<option value="${c.id}">${c.parent_id ? '  └ ' : ''}${esc(c.icon)} ${esc(c.name)}</option>`
   ).join('');
 
   openModal('Elimina categoria',
     `<p style="margin-bottom:12px">
-       <b>${cat.icon} ${cat.name}</b> è usata da: <b>${descParts.join(', ')}</b>.<br>
+       <b>${esc(cat.icon)} ${esc(cat.name)}</b> è usata da: <b>${descParts.join(', ')}</b>.<br>
        <span class="settings-hint">Sposta tutto su un'altra categoria prima di eliminare.</span>
      </p>
      <div class="form-group">
@@ -200,7 +200,7 @@ async function showCategoryModal(cat, type, parentId) {
   const effectiveNature = cat?.expense_nature ?? inheritedNature ?? '';
 
   const parentOpts = parents.map(p =>
-    `<option value="${p.id}" ${pId === p.id ? 'selected' : ''}>${p.icon} ${p.name}</option>`
+    `<option value="${p.id}" ${pId === p.id ? 'selected' : ''}>${esc(p.icon)} ${esc(p.name)}</option>`
   ).join('');
 
   openModal(isEdit ? 'Modifica Categoria' : 'Nuova Categoria', `
@@ -221,16 +221,16 @@ async function showCategoryModal(cat, type, parentId) {
       </div>
       <div class="form-group">
         <label class="form-label">Nome *</label>
-        <input id="c_name" class="form-control" value="${cat?.name ?? ''}" placeholder="es. Supermercato">
+        <input id="c_name" class="form-control" value="${esc(cat?.name ?? '')}" placeholder="es. Supermercato">
       </div>
       <div class="form-group" style="grid-column:1/-1">
         <label class="form-label">Icona</label>
-        <input type="hidden" id="c_icon" value="${cat?.icon ?? '📁'}">
+        <input type="hidden" id="c_icon" value="${esc(cat?.icon ?? '📁')}">
         <div id="iconPickerWrap"></div>
       </div>
       <div class="form-group">
         <label class="form-label">Colore</label>
-        <input id="c_color" type="color" class="form-color-tx" value="${cat?.color ?? '#58a6ff'}">
+        <input id="c_color" type="color" class="form-color-tx" value="${esc(cat?.color ?? '#58a6ff')}">
       </div>
       <div class="form-group" style="grid-column:1/-1">
         <label class="form-label" style="display:flex;align-items:center;gap:8px;cursor:pointer">

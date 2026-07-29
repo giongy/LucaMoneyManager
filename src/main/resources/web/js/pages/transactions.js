@@ -208,7 +208,7 @@ async function renderTransactions() {
         </select>
         <select class="form-control" id="txTag">
           <option value="">Tutti i tag</option>
-          ${tags.map(t=>`<option value="${t.id}" ${String(t.id)===String(txFilters.tag_id)?'selected':''}>${t.name}</option>`).join('')}
+          ${tags.map(t=>`<option value="${t.id}" ${String(t.id)===String(txFilters.tag_id)?'selected':''}>${esc(t.name)}</option>`).join('')}
         </select>
         <select class="form-control" id="txHasAttachment">
           <option value="">Tutti (attach.)</option>
@@ -506,7 +506,7 @@ function renderTxBodyAndHeaders() {
     const balCell = showBalance && t.balance != null
       ? `<td class="text-right tx-balance ${t.balance >= 0 ? 'positive' : 'negative'}">${fmt.currency(t.balance)}</td>`
       : (showBalance ? '<td></td>' : '');
-    const bgStyle = t.color ? `style="background:${t.color}40"` : '';
+    const bgStyle = t.color ? `style="background:${esc(t.color)}40"` : '';
     // Se filtro per categoria e la transazione è uno split che matcha → mostra solo la quota filtrata
     const isSplitFiltered = t.split_count > 0 && t.filtered_split_amount != null;
     const displayAmt = isSplitFiltered ? t.filtered_split_amount : t.amount;
@@ -579,10 +579,13 @@ function initCatPicker(inputId, hiddenId, listId) {
     if (!selectables.length) {
       list.innerHTML = '<div class="cat-picker-empty">Nessuna categoria trovata</div>';
     } else {
+      // label contiene nomi di categoria (testo utente): va escapata qui, dove finisce in
+      // innerHTML. Alla sorgente non si può, perché la stessa label viene assegnata a
+      // input.value in selectById, dove le entità HTML si vedrebbero a schermo.
       list.innerHTML = filtered.map(it =>
         it.separator
-          ? `<div class="cat-picker-sep">${it.label}</div>`
-          : `<div class="cat-picker-item" data-id="${it.id}">${it.label}</div>`
+          ? `<div class="cat-picker-sep">${esc(it.label)}</div>`
+          : `<div class="cat-picker-item" data-id="${it.id}">${esc(it.label)}</div>`
       ).join('');
       list.querySelectorAll('.cat-picker-item').forEach(el => {
         el.onmousedown = e => { e.preventDefault(); selectById(Number(el.dataset.id)); };
@@ -734,14 +737,14 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
     </div>
     <div class="form-group">
       <label class="form-label">Descrizione</label>
-      <textarea class="form-control" id="f_desc" rows="2" placeholder="Opzionale">${tx?.description||''}</textarea>
+      <textarea class="form-control" id="f_desc" rows="2" placeholder="Opzionale">${esc(tx?.description||'')}</textarea>
       <div class="desc-suggestions" id="descSuggestions" style="display:none"></div>
     </div>
     <div class="form-row">
       <div class="form-group">
         <label class="form-label">Colore riga <span class="settings-hint">(opzionale)</span></label>
         <div class="flex-center-8">
-          <input type="color" id="f_color" class="form-color-tx" value="${tx?.color||'#ffffff'}">
+          <input type="color" id="f_color" class="form-color-tx" value="${esc(tx?.color||'#ffffff')}">
           <label class="settings-hint" style="display:flex;align-items:center;gap:6px;cursor:pointer">
             <input type="checkbox" id="f_color_use" ${tx?.color?'checked':''} style="margin:0">
             Usa colore
@@ -761,8 +764,8 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
       <div class="form-group">
         <label class="form-label">Tag</label>
         <div class="tag-selector" id="tagSelector">
-          ${tags.filter(t=>!t.is_system).map(t=>`<span class="tag-chip" data-tag-id="${t.id}" style="--tc:${t.color}">${t.name}</span>`).join('')}
-          ${tags.filter(t=>t.is_system && (tx?.tags||[]).some(tt=>Number(tt.id)===t.id)).map(t=>`<span class="tag-chip" data-tag-id="${t.id}" style="--tc:${t.color}" title="Tag di sistema — puoi solo rimuoverlo">${t.name} 🔒</span>`).join('')}
+          ${tags.filter(t=>!t.is_system).map(t=>`<span class="tag-chip" data-tag-id="${t.id}" style="--tc:${esc(t.color)}">${esc(t.name)}</span>`).join('')}
+          ${tags.filter(t=>t.is_system && (tx?.tags||[]).some(tt=>Number(tt.id)===t.id)).map(t=>`<span class="tag-chip" data-tag-id="${t.id}" style="--tc:${esc(t.color)}" title="Tag di sistema — puoi solo rimuoverlo">${esc(t.name)} 🔒</span>`).join('')}
           <span class="tag-chip tag-chip-new" id="tagChipNew">+ nuovo</span>
         </div>
         <div class="tag-new-row" id="tagNewRow" style="display:none">
@@ -778,7 +781,7 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
         <div id="attachDisplay">
           ${tx.attachment_path
             ? `<div class="flex-center-8" style="flex-wrap:wrap">
-                 <span class="settings-hint" style="word-break:break-all">${tx.attachment_path}</span>
+                 <span class="settings-hint" style="word-break:break-all">${esc(tx.attachment_path)}</span>
                  <button type="button" class="btn btn-ghost btn-sm" onclick="modalOpenAttachment()">📂 Apri</button>
                  <button type="button" class="btn btn-ghost btn-sm" onclick="modalRemoveAttachment()">🗑️ Rimuovi</button>
                </div>`
@@ -834,7 +837,7 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
       if (!el) return;
       if (path) {
         el.innerHTML = `<div class="flex-center-8" style="flex-wrap:wrap">
-          <span class="settings-hint" style="word-break:break-all">${path}</span>
+          <span class="settings-hint" style="word-break:break-all">${esc(path)}</span>
           <button type="button" class="btn btn-ghost btn-sm" onclick="modalOpenAttachment()">📂 Apri</button>
           <button type="button" class="btn btn-ghost btn-sm" onclick="modalRemoveAttachment()">🗑️ Rimuovi</button>
         </div>`;

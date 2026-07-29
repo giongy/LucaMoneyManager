@@ -364,11 +364,14 @@ function _initGlobalTooltip() {
     timer = setTimeout(() => {
       const isOver = el.dataset.ttOver === '1';
       const l2     = el.dataset.ttL2 || 'Reale';
+      // dataset restituisce il valore già decodificato dall'attributo: reinterpolarlo in
+      // innerHTML senza escape riaprirebbe l'iniezione che l'escaping in fase di render
+      // aveva chiuso (il nome categoria è testo utente).
       tt.innerHTML =
-        `<div class="tt-name">${el.dataset.ttCat}</div>` +
-        `<div class="tt-row"><span class="tt-label">Budget</span><span class="tt-val">${el.dataset.ttBudget}</span></div>` +
-        `<div class="tt-row"><span class="tt-label">${l2}</span><span class="tt-val">${el.dataset.ttActual}</span></div>` +
-        `<div class="tt-row tt-rem${isOver ? ' over' : ''}"><span class="tt-label">Rimasto</span><span class="tt-val">${el.dataset.ttRem}</span></div>`;
+        `<div class="tt-name">${esc(el.dataset.ttCat)}</div>` +
+        `<div class="tt-row"><span class="tt-label">Budget</span><span class="tt-val">${esc(el.dataset.ttBudget)}</span></div>` +
+        `<div class="tt-row"><span class="tt-label">${esc(l2)}</span><span class="tt-val">${esc(el.dataset.ttActual)}</span></div>` +
+        `<div class="tt-row tt-rem${isOver ? ' over' : ''}"><span class="tt-label">Rimasto</span><span class="tt-val">${esc(el.dataset.ttRem)}</span></div>`;
       tt.style.display = 'block';
       _place();
     }, 300);

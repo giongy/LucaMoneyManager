@@ -154,7 +154,7 @@ function _renderGridOnly(notes, tags, tagMap) {
 // HTML di una singola card nota: titolo, snippet di testo, tag e data (pin/colore opzionali).
 function _renderNoteCard(n, tagMap) {
   const snippet = _stripHtml(n.content).slice(0, 220);
-  const colorStyle = n.color ? `style="--note-color:${n.color}"` : '';
+  const colorStyle = n.color ? `style="--note-color:${_escAttr(n.color)}"` : '';
   const date = n.updated_at ? _formatNoteDate(n.updated_at) : '';
   const tagIds = n.tag_ids || [];
   return `
@@ -214,7 +214,7 @@ function showNoteEditor(note) {
           <div class="note-tags-picker" id="noteTagsPicker">
             ${tags.map(t => `
               <button class="notes-tagchip ${selectedIds.has(t.id) ? 'active' : ''}"
-                      data-tag="${t.id}" style="--tc:${t.color}">
+                      data-tag="${t.id}" style="--tc:${_escAttr(t.color)}">
                 ${_esc(t.name)}
               </button>`).join('')}
           </div>` :

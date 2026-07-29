@@ -16,10 +16,10 @@ async function updateSidebar() {
   visAcc.forEach(a => { (grouped[a.type] = grouped[a.type] || []).push(a); });
   const orderedTypes = [...new Set([..._accTypeOrder.filter(t => grouped[t]), ...Object.keys(grouped)])];
   el.innerHTML = orderedTypes.flatMap(t => grouped[t]).map(a => `
-    <div class="sidebar-account-item" style="--acc-color:${a.color||'var(--border)'};${a.is_closed?'opacity:.55':''}"
-         onclick="navigateToAccountTx(${a.id})" title="${a.name}">
-      <div class="acc-tile-icon">${a.icon}</div>
-      <div class="acc-tile-name">${a.name}</div>
+    <div class="sidebar-account-item" style="--acc-color:${esc(a.color||'var(--border)')};${a.is_closed?'opacity:.55':''}"
+         onclick="navigateToAccountTx(${a.id})" title="${esc(a.name)}">
+      <div class="acc-tile-icon">${esc(a.icon)}</div>
+      <div class="acc-tile-name">${esc(a.name)}</div>
     </div>`).join('');
   if (_reportsGroupOpen) renderSidebarReports();
 }
@@ -108,16 +108,16 @@ async function renderSidebarReports() {
   el.innerHTML = reports.map(r => `
     <div style="display:flex;align-items:center">
       <a class="nav-sub-item${_currentReportId === r.id ? ' active' : ''}" style="flex:1;min-width:0"
-         onclick="openSavedReport(${r.id})" title="${r.name}">
+         onclick="openSavedReport(${r.id})" title="${esc(r.name)}">
         <span style="font-size:11px">📋</span>
-        <span class="nav-sub-label">${r.name}</span>
+        <span class="nav-sub-label">${esc(r.name)}</span>
       </a>
       <button class="btn btn-ghost btn-icon" style="padding:2px 5px;font-size:10px;flex-shrink:0;opacity:.6"
               onmouseenter="this.style.opacity=1" onmouseleave="this.style.opacity=.6"
               onclick="_closeReportsFlyout();showReportModal(${r.id})" title="Modifica">✏️</button>
       <button class="btn btn-ghost btn-icon" style="padding:2px 5px;font-size:10px;flex-shrink:0;opacity:.4"
               onmouseenter="this.style.opacity=1" onmouseleave="this.style.opacity=.4"
-              onclick="deleteReportConfirm(${r.id},'${r.name.replace(/'/g,"\\'")}')">✕</button>
+              onclick="deleteReportConfirm(${r.id})">✕</button>
     </div>`).join('');
 }
 

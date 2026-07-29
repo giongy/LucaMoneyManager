@@ -144,7 +144,7 @@ async function renderForecastDetail(pg, id, backCmd = 'renderForecasts()') {
             const diff = c.diff;
             const rowBg = diff > 0 ? 'rgba(63,185,80,.04)' : diff < 0 ? 'rgba(248,81,73,.04)' : '';
             return `<tr style="background:${rowBg}">
-              <td style="${tdS}">${c.category_name}</td>
+              <td style="${tdS}">${esc(c.category_name)}</td>
               <td style="${tdS};text-align:center">
                 <span style="font-size:11px;padding:1px 7px;border-radius:8px;background:${c.category_type==='income'?'rgba(63,185,80,.15)':'rgba(248,81,73,.15)'};color:${c.category_type==='income'?'var(--income)':'var(--expense)'}">
                   ${c.category_type==='income'?'Entrata':'Uscita'}
@@ -216,7 +216,7 @@ async function _showForecastPreview(id) {
           const diff = c.diff;
           const rowBg = diff > 0 ? 'rgba(63,185,80,.04)' : diff < 0 ? 'rgba(248,81,73,.04)' : '';
           return `<tr style="background:${rowBg}">
-            <td style="${tdS}">${c.category_name}</td>
+            <td style="${tdS}">${esc(c.category_name)}</td>
             <td style="${tdS};text-align:center">
               <span style="font-size:11px;padding:1px 7px;border-radius:8px;background:${c.category_type==='income'?'rgba(63,185,80,.15)':'rgba(248,81,73,.15)'};color:${c.category_type==='income'?'var(--income)':'var(--expense)'}">
                 ${c.category_type==='income'?'Entrata':'Uscita'}

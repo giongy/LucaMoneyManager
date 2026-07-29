@@ -222,7 +222,7 @@ function renderBudgetTable() {
     const cfg = configMap[cat.id];
     const gestioneCell = isGroupHeader
       ? `<td class="budget-gestione-cell budget-cell-parent"></td>`
-      : `<td class="budget-gestione-cell" onclick="_budgetEditGestione(${cat.id},'${cat.name.replace(/'/g,"\\'")}')">
+      : `<td class="budget-gestione-cell" onclick="_budgetEditGestione(${cat.id})">
           ${cfg && cfg.master_amount > 0
             ? `<span class="budget-gestione-badge ${cfg.mode === 'annuale' ? 'annual' : 'monthly'}">${cfg.mode === 'annuale' ? 'Annuale' : 'Mensile'} / ${fmt.currency(cfg.master_amount)}</span>`
             : `<span class="budget-gestione-empty">+ Imposta</span>`}
@@ -336,9 +336,9 @@ function renderBudgetTable() {
     return `<tr class="${isGroupHeader?'budget-row-parent':''} ${isChild?'budget-row-child':''}" data-cat-id="${cat.id}" data-parent-id="${cat.parent_id||''}" data-row-over="${showParentData&&anyOver?1:0}" style="${rowStyle}" ${isGroupHeader?`ondblclick="_budgetToggle(${cat.id})"`:''}">
       <td class="budget-cat-cell ${isChild?'budget-child-indent':''}">
         ${isGroupHeader ? `<button class="btn-budget-toggle" onclick="_budgetToggle(${cat.id})">${isCollapsed?'▶':'▼'}</button>` : ''}
-        <span style="color:${cat.color}">${cat.icon}</span> ${cat.name}
+        <span style="color:${esc(cat.color)}">${esc(cat.icon)}</span> ${esc(cat.name)}
         ${isGroupHeader?'<span class="budget-group-hint"> (riepilogo)</span>':''}
-        <button class="btn-budget-detail" title="Dettaglio" onclick="event.stopPropagation();_budgetShowDetail(${cat.id},'${cat.name.replace(/'/g,"\\'")}')">📊</button>
+        <button class="btn-budget-detail" title="Dettaglio" onclick="event.stopPropagation();_budgetShowDetail(${cat.id})">📊</button>
       </td>
       ${gestioneCell}
       ${cells}
@@ -780,12 +780,12 @@ function renderBudgetScostamenti() {
           const pctStr  = hasActual ? fmtPct(r.pct) : '—';
           const pctCol  = hasActual ? color : 'var(--txt3)';
           const macroEl = r.parent
-            ? `<span style="color:${r.parent.color}">${r.parent.icon}</span> <span style="color:var(--txt2)">${r.parent.name}</span>`
+            ? `<span style="color:${esc(r.parent.color)}">${esc(r.parent.icon)}</span> <span style="color:var(--txt2)">${esc(r.parent.name)}</span>`
             : `<span style="color:var(--txt3)">—</span>`;
           return `<tr style="${rowBg}">
             <td style="${tdS};text-align:right;color:var(--txt3)">${i+1}</td>
             <td style="${tdS};font-size:12px">${macroEl}</td>
-            <td style="${tdS}"><span style="color:${r.cat.color}">${r.cat.icon}</span> ${r.cat.name} <button class="btn-budget-detail" title="Grafico categoria" onclick="_budgetShowDetail(${r.cat.id},'${r.cat.name.replace(/'/g,"\\'")}')">📊</button></td>
+            <td style="${tdS}"><span style="color:${esc(r.cat.color)}">${esc(r.cat.icon)}</span> ${esc(r.cat.name)} <button class="btn-budget-detail" title="Grafico categoria" onclick="_budgetShowDetail(${r.cat.id})">📊</button></td>
             <td style="${tdS};text-align:right;font-variant-numeric:tabular-nums">${fmt.currency(r.bDisplay)}</td>
             <td style="${tdS};text-align:right;font-variant-numeric:tabular-nums">${hasActual?fmt.currency(r.rDisplay):'—'}</td>
             <td style="${tdS};text-align:right;font-variant-numeric:tabular-nums;color:${pctCol}">${diffStr}</td>
@@ -1029,12 +1029,12 @@ function renderBudgetMese() {
       : (isExpSide ? '−' + fmt.currency(-r.remaining) : '−' + fmt.currency(-r.remaining));
 
     const macroEl = r.parent
-      ? `<span style="font-size:11px;color:var(--txt3)">${r.parent.icon} ${r.parent.name}:</span> `
+      ? `<span style="font-size:11px;color:var(--txt3)">${esc(r.parent.icon)} ${esc(r.parent.name)}:</span> `
       : '';
     return `<tr style="background:${zoneBg}">
       <td style="${tdS}">
-        ${macroEl}<span style="color:${r.cat.color}">${r.cat.icon}</span> ${r.cat.name}
-        <button class="btn-budget-detail" title="Grafico categoria" onclick="_budgetShowDetail(${r.cat.id},'${r.cat.name.replace(/'/g,"\\'")}')">📊</button>
+        ${macroEl}<span style="color:${esc(r.cat.color)}">${esc(r.cat.icon)}</span> ${esc(r.cat.name)}
+        <button class="btn-budget-detail" title="Grafico categoria" onclick="_budgetShowDetail(${r.cat.id})">📊</button>
       </td>
       <td style="${tdS};text-align:right;font-variant-numeric:tabular-nums">${fmt.currency(r.budget)}</td>
       <td style="${tdS};text-align:right;font-variant-numeric:tabular-nums">${fmt.currency(r.spent)}</td>
@@ -1250,7 +1250,10 @@ window._budgetCellEdit = (td, catId, month) => {
 
 // Modale "Gestione budget" di una categoria: imposta modalità (mensile/annuale) e importo master
 // distribuito automaticamente sui mesi liberi.
+// catName è opzionale: se assente si ricava da catId. Gli onclick inline passano solo l'id,
+// per non interpolare testo utente dentro un attributo HTML.
 window._budgetEditGestione = (catId, catName) => {
+  catName ??= (_budgetData?.categories || []).find(c => c.id === catId)?.name ?? '';
   const cfg = (_budgetData.configs || []).find(c => c.category_id === catId) || {};
   const currentMode = cfg.mode || 'mensile';
   const currentAmount = cfg.master_amount || 0;
@@ -1305,6 +1308,8 @@ window._budgetToggle = catId => {
 window._budgetShowDetail = (catId, catName) => {
   if (!_budgetData) return;
   const { categories } = _budgetData;
+  // catName opzionale: gli onclick inline passano solo l'id (niente testo utente negli attributi).
+  catName ??= categories.find(c => c.id === catId)?.name ?? '';
   const parentIds = new Set(categories.filter(c => c.parent_id).map(c => c.parent_id));
   _budgetDetailNavList = categories.filter(c => parentIds.has(c.id) || !c.parent_id);
   _budgetDetailNavIdx  = _budgetDetailNavList.findIndex(c => c.id === catId);
@@ -1406,9 +1411,9 @@ function _openBudgetDetail(catId, catName, isFirstOpen) {
   const hasPrev = _budgetDetailNavIdx > 0;
   const hasNext = _budgetDetailNavIdx < _budgetDetailNavList.length - 1;
   const navBar = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
-    <button class="btn btn-ghost" onclick="_budgetNavDetail(-1)" ${hasPrev ? '' : 'disabled style="opacity:.35;pointer-events:none"'}>‹ ${hasPrev ? _budgetDetailNavList[_budgetDetailNavIdx-1].name : 'Inizio'}</button>
+    <button class="btn btn-ghost" onclick="_budgetNavDetail(-1)" ${hasPrev ? '' : 'disabled style="opacity:.35;pointer-events:none"'}>‹ ${hasPrev ? esc(_budgetDetailNavList[_budgetDetailNavIdx-1].name) : 'Inizio'}</button>
     <span style="font-size:12px;color:var(--txt2)">${_budgetDetailNavIdx+1} / ${_budgetDetailNavList.length}</span>
-    <button class="btn btn-ghost" onclick="_budgetNavDetail(1)" ${hasNext ? '' : 'disabled style="opacity:.35;pointer-events:none"'}>${hasNext ? _budgetDetailNavList[_budgetDetailNavIdx+1].name : 'Fine'} ›</button>
+    <button class="btn btn-ghost" onclick="_budgetNavDetail(1)" ${hasNext ? '' : 'disabled style="opacity:.35;pointer-events:none"'}>${hasNext ? esc(_budgetDetailNavList[_budgetDetailNavIdx+1].name) : 'Fine'} ›</button>
   </div>`;
 
   const body = navBar + `
@@ -1818,7 +1823,7 @@ async function renderBudgetVsPianificate() {
         ? `<button class="btn btn-sm btn-primary" onclick="showBudgetIntegraModal(${r.catId})">Integra</button>`
         : `<span style="color:var(--txt2);font-size:.8rem">Eccesso</span>`;
     return `<tr class="${ok ? 'sync-row-ok' : ''}">
-      <td><a style="cursor:pointer;color:inherit;text-decoration:none" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color=''" onclick="schedTab='lista';_schedFilter.category='${r.catId}';renderScheduled()">${r.cat.icon||''} ${catLabel}</a></td>
+      <td><a style="cursor:pointer;color:inherit;text-decoration:none" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color=''" onclick="schedTab='lista';_schedFilter.category='${r.catId}';renderScheduled()">${esc(r.cat.icon||'')} ${esc(catLabel)}</a></td>
       <td class="num">${fmt.currency(r.budgAnnual)}</td>
       <td class="num">${fmt.currency(r.scheduled)}</td>
       <td class="num" style="color:var(--txt2)">${r.actualYtd > 0 ? fmt.currency(r.actualYtd) : '—'}</td>
@@ -1936,7 +1941,7 @@ window.showBudgetIntegraModal = async function(catId) {
     </div>
     <div class="form-group">
       <label>Descrizione</label>
-      <input type="text" class="form-control" id="bi_desc" value="Integrazione budget ${catLabel}">
+      <input type="text" class="form-control" id="bi_desc" value="Integrazione budget ${esc(catLabel)}">
     </div>
     <p style="font-size:.8rem;color:var(--txt2);margin-top:8px">
       Tag <span style="background:#8b5cf6;color:#fff;padding:2px 8px;border-radius:10px;font-size:.8rem">Da Budget</span> applicato automaticamente.

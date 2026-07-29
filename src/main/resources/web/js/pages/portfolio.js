@@ -285,7 +285,7 @@ async function renderPortfolio() {
               : i.quantity;
             const scadenzaDisplay = i.maturity_date || '<span style="color:var(--txt3)">—</span>';
             const countryDisplay = i.country
-              ? `<span style="font-size:12px">${i.country}</span>`
+              ? `<span style="font-size:12px">${esc(i.country)}</span>`
               : `<span style="color:var(--txt3)">—</span>`;
             const firstBuyDisplay = i.first_buy_date
               ? `<span style="font-size:12px;white-space:nowrap">${i.first_buy_date}</span>`
@@ -297,11 +297,11 @@ async function renderPortfolio() {
             return `<tr oncontextmenu="_showPortfolioCtx(${i.id},event)" style="cursor:context-menu" title="Tasto destro per le azioni">
               <td style="white-space:nowrap">${typeBadge}${statusDot}</td>
               <td>${firstBuyDisplay}</td>
-              <td class="td-main" style="font-weight:700">${i.ticker}</td>
-              <td>${i.name}${couponInfo}</td>
+              <td class="td-main" style="font-weight:700">${esc(i.ticker)}</td>
+              <td>${esc(i.name)}${couponInfo}</td>
               <td>${countryDisplay}</td>
               <td style="font-size:12px;white-space:nowrap">${scadenzaDisplay}</td>
-              <td><span style="color:${i.account_color}">${i.account_icon}</span> ${i.account_name}</td>
+              <td><span style="color:${esc(i.account_color)}">${esc(i.account_icon)}</span> ${esc(i.account_name)}</td>
               <td>${qtyDisplay}</td>
               <td>${priceDisplay}</td>
               <td>
@@ -436,7 +436,7 @@ async function renderPortfolioStorico(items) {
       const typeLabel = t.type === 'expense' && IS_COMMISSION_NOTE(t.notes)
         ? `<span style="color:${TYPE_COLOR.expense};font-weight:600">Commissione</span>`
         : `<span style="color:${TYPE_COLOR[t.type]||'var(--txt)'};font-weight:600">${TYPE_LABEL[t.type]||t.type}</span>`;
-      const noteText = (t.notes && !IS_COMMISSION_NOTE(t.notes)) ? t.notes : '';
+      const noteText = (t.notes && !IS_COMMISSION_NOTE(t.notes)) ? esc(t.notes) : '';
       const commNote = commPart > 0 ? `<small style="color:var(--txt3)">+ comm. ${fmt.currency(commPart)}</small>` : '';
       return `<tr>
         <td style="width:110px">${fmt.date(t.date)}</td>
@@ -447,7 +447,7 @@ async function renderPortfolioStorico(items) {
         <td>${noteText}</td>
         <td style="width:36px;text-align:center">
           <button class="btn btn-ghost" style="padding:2px 6px;font-size:11px;color:var(--txt3)"
-                  onclick="deletePortfolioTransactionConfirm(${t.id},'${t.type}','${item.ticker}')"
+                  onclick="deletePortfolioTransactionConfirm(${t.id},'${t.type}',${item.id})"
                   title="Annulla operazione">✕</button>
         </td>
       </tr>`;
@@ -458,8 +458,8 @@ async function renderPortfolioStorico(items) {
         <div class="port-storico-row${collapsed?' port-storico-collapsed':''}" style="display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none"
              onclick="_togglePortStorico(${item.id})">
           <span style="font-size:10px;color:var(--txt3);flex-shrink:0">${collapsed?'▶':'▼'}</span>
-          <span style="font-weight:700;font-size:var(--fs-md,12px)">${item.ticker}</span>
-          <span style="color:var(--txt2);font-size:var(--fs-md,12px)">${item.name}</span>
+          <span style="font-weight:700;font-size:var(--fs-md,12px)">${esc(item.ticker)}</span>
+          <span style="color:var(--txt2);font-size:var(--fs-md,12px)">${esc(item.name)}</span>
           <div style="display:flex;flex-wrap:wrap;gap:4px;margin-left:auto">${chips}</div>
         </div>
         ${collapsed ? '' : `
@@ -588,7 +588,7 @@ function renderEquityAnalisi(equities) {
 
   // Riga e tabella posizioni (con colonna allocazione % sul totale azionario)
   const posRow = x => `<tr style="border-bottom:1px solid var(--border)">
-    <td style="padding:5px 6px"><strong>${x.ticker}</strong><br><small style="color:var(--txt3)">${x.name}</small></td>
+    <td style="padding:5px 6px"><strong>${esc(x.ticker)}</strong><br><small style="color:var(--txt3)">${esc(x.name)}</small></td>
     <td style="padding:5px 6px;text-align:right;color:${x.retEur>=0?'var(--income)':'var(--expense)'}">${fmt.currency(x.retEur)}</td>
     <td style="padding:5px 6px;text-align:right;color:${x.retPct>=0?'var(--income)':'var(--expense)'};font-weight:600">${fmt.pct(x.retPct)}</td>
     <td style="padding:5px 6px;text-align:right;color:var(--txt3)">${fmt.currency(x.val)}</td>
@@ -1011,7 +1011,7 @@ async function showBuyModal(portfolioId, investAccounts, allAccounts) {
       <div class="form-group">
         <label class="form-label">Conto investimento *</label>
         <select class="form-control" id="b_inv_account">
-          ${investAccounts.map(a=>`<option value="${a.id}" ${String(a.id)===String(prefillAccountId)?'selected':''}>${a.icon} ${a.name}</option>`).join('')}
+          ${investAccounts.map(a=>`<option value="${a.id}" ${String(a.id)===String(prefillAccountId)?'selected':''}>${esc(a.icon)} ${esc(a.name)}</option>`).join('')}
         </select>
       </div>
     </div>
@@ -1059,7 +1059,7 @@ async function showBuyModal(portfolioId, investAccounts, allAccounts) {
         <label class="form-label">Paga da *</label>
         <select class="form-control" id="b_from_account">
           <option value="">— Seleziona conto —</option>
-          ${regularAccounts.map(a=>`<option value="${a.id}">${a.icon} ${a.name}</option>`).join('')}
+          ${regularAccounts.map(a=>`<option value="${a.id}">${esc(a.icon)} ${esc(a.name)}</option>`).join('')}
         </select>
       </div>
       <div class="form-group">
@@ -1172,7 +1172,7 @@ async function showSellModal(portfolioId) {
 
   const body = `
     <div style="background:var(--bg3);border-radius:6px;padding:10px 14px;margin-bottom:16px;font-size:13px">
-      <strong>${pos.ticker}</strong> — ${pos.name}
+      <strong>${esc(pos.ticker)}</strong> — ${esc(pos.name)}
       ${isBond?`<span class="badge" style="background:#d29922;color:#fff;font-size:10px;padding:1px 5px;border-radius:4px;margin-left:6px">OBB</span>`:''}
       <br>${isBond?'Nominale disponibile':'Quantità disponibile'}: <strong>${isBond?fmt.currency(pos.quantity):pos.quantity}</strong> &nbsp;|&nbsp; Prezzo medio: <strong>${avgDisplay}</strong>
     </div>
@@ -1181,7 +1181,7 @@ async function showSellModal(portfolioId) {
         <label class="form-label">Accredita su *</label>
         <select class="form-control" id="s_to_account">
           <option value="">— Seleziona conto —</option>
-          ${regularAccounts.map(a=>`<option value="${a.id}">${a.icon} ${a.name}</option>`).join('')}
+          ${regularAccounts.map(a=>`<option value="${a.id}">${esc(a.icon)} ${esc(a.name)}</option>`).join('')}
         </select>
       </div>
       <div class="form-group">
@@ -1289,7 +1289,7 @@ async function showCouponModal(portfolioId) {
 
   const body = `
     <div style="background:var(--bg3);border-radius:6px;padding:10px 14px;margin-bottom:16px;font-size:13px">
-      <strong>${pos.ticker}</strong> — ${pos.name}<br>
+      <strong>${esc(pos.ticker)}</strong> — ${esc(pos.name)}<br>
       Nominale: <strong>${fmt.currency(pos.quantity)}</strong> &nbsp;|&nbsp;
       Tasso: <strong>${pos.coupon_rate}%</strong> &nbsp;|&nbsp;
       Freq.: <strong>${freqLabel[pos.coupon_frequency]||'—'}</strong> &nbsp;|&nbsp;
@@ -1306,7 +1306,7 @@ async function showCouponModal(portfolioId) {
         <label class="form-label">Accredita su *</label>
         <select class="form-control" id="c_account">
           <option value="">— Seleziona conto —</option>
-          ${regularAccounts.map(a=>`<option value="${a.id}">${a.icon} ${a.name}</option>`).join('')}
+          ${regularAccounts.map(a=>`<option value="${a.id}">${esc(a.icon)} ${esc(a.name)}</option>`).join('')}
         </select>
       </div>
       <div class="form-group">
@@ -1391,7 +1391,7 @@ async function showDividendModal(portfolioId) {
 
   const body = `
     <div style="background:var(--bg3);border-radius:6px;padding:10px 14px;margin-bottom:16px;font-size:13px">
-      <strong>${pos.ticker}</strong> — ${pos.name}<br>
+      <strong>${esc(pos.ticker)}</strong> — ${esc(pos.name)}<br>
       Quantità posseduta: <strong>${pos.quantity}</strong>
     </div>
     <div class="form-row">
@@ -1399,7 +1399,7 @@ async function showDividendModal(portfolioId) {
         <label class="form-label">Accredita su *</label>
         <select class="form-control" id="d_account">
           <option value="">— Seleziona conto —</option>
-          ${regularAccounts.map(a=>`<option value="${a.id}">${a.icon} ${a.name}</option>`).join('')}
+          ${regularAccounts.map(a=>`<option value="${a.id}">${esc(a.icon)} ${esc(a.name)}</option>`).join('')}
         </select>
       </div>
       <div class="form-group">
@@ -1495,12 +1495,12 @@ async function showExpenseModal(portfolioId) {
   const expCats = categories.filter(c => c.type === 'expense');
   const today = _todayStr();
 
-  const optLabel = c => `${c.parent_name ? c.parent_name + ' › ' : ''}${c.icon || ''} ${c.name}`;
+  const optLabel = c => `${c.parent_name ? esc(c.parent_name) + ' › ' : ''}${esc(c.icon || '')} ${esc(c.name)}`;
   const catOptions = expCats.map(c => `<option value="${c.id}">${optLabel(c)}</option>`).join('');
 
   const body = `
     <div style="background:var(--bg3);border-radius:6px;padding:8px 14px;margin-bottom:14px;font-size:13px">
-      <strong>${pos.ticker}</strong> — ${pos.name}
+      <strong>${esc(pos.ticker)}</strong> — ${esc(pos.name)}
     </div>
     <div class="form-row">
       <div class="form-group">
@@ -1517,7 +1517,7 @@ async function showExpenseModal(portfolioId) {
         <label class="form-label">Addebita da *</label>
         <select class="form-control" id="ex_account">
           <option value="">— Seleziona conto —</option>
-          ${regularAccounts.map(a=>`<option value="${a.id}">${a.icon} ${a.name}</option>`).join('')}
+          ${regularAccounts.map(a=>`<option value="${a.id}">${esc(a.icon)} ${esc(a.name)}</option>`).join('')}
         </select>
       </div>
       <div class="form-group">
@@ -1573,7 +1573,7 @@ async function showPortfolioHistory(portfolioId) {
   const pos = items.find(i => i.id === portfolioId);
   const isBond = pos?.asset_type === 'bond';
   const body = `
-    <div style="font-weight:600;margin-bottom:12px">${pos?.ticker} — ${pos?.name}</div>
+    <div style="font-weight:600;margin-bottom:12px">${esc(pos?.ticker)} — ${esc(pos?.name)}</div>
     <div class="table-wrap">
       <table style="font-size:12px"><thead><tr>
         <th>Data</th><th>Tipo</th><th>Quantità</th><th>Prezzo</th><th class="text-right">Totale</th>
@@ -1628,18 +1628,18 @@ async function showEditPositionModal(portfolioId) {
 
   const body = `
     <div style="background:var(--bg3);border-radius:6px;padding:8px 14px;margin-bottom:14px;font-size:13px">
-      Ticker: <strong>${pos.ticker}</strong> &nbsp;·&nbsp;
+      Ticker: <strong>${esc(pos.ticker)}</strong> &nbsp;·&nbsp;
       <span class="badge" style="background:${isBond?'#d29922':'#7c6cff'};color:#fff;font-size:10px;padding:1px 5px;border-radius:4px">${isBond?'OBB':'AZI'}</span>
     </div>
     <div class="form-row">
       <div class="form-group">
         <label class="form-label">Nome *</label>
-        <input class="form-control" id="e_name" value="${pos.name}">
+        <input class="form-control" id="e_name" value="${esc(pos.name)}">
       </div>
       <div class="form-group">
         <label class="form-label">Conto investimento *</label>
         <select class="form-control" id="e_account">
-          ${investAccounts.map(a=>`<option value="${a.id}" ${a.id==pos.account_id?'selected':''}>${a.icon} ${a.name}</option>`).join('')}
+          ${investAccounts.map(a=>`<option value="${a.id}" ${a.id==pos.account_id?'selected':''}>${esc(a.icon)} ${esc(a.name)}</option>`).join('')}
         </select>
       </div>
     </div>
@@ -1692,11 +1692,11 @@ async function showEditPositionModal(portfolioId) {
     <div class="form-row">
       <div class="form-group">
         <label class="form-label">Paese / Emittente</label>
-        <input class="form-control" id="e_country" value="${pos.country||''}" placeholder="Es. Italia, Germania…">
+        <input class="form-control" id="e_country" value="${esc(pos.country||'')}" placeholder="Es. Italia, Germania…">
       </div>
       <div class="form-group">
         <label class="form-label">Note</label>
-        <input class="form-control" id="e_notes" value="${pos.notes||''}" placeholder="Opzionale">
+        <input class="form-control" id="e_notes" value="${esc(pos.notes||'')}" placeholder="Opzionale">
       </div>
     </div>`;
 
@@ -1849,7 +1849,7 @@ async function showAddCouponToScheduled(portfolioId) {
 
   const body = `
     <div style="background:var(--bg3);border-radius:6px;padding:8px 14px;margin-bottom:14px;font-size:13px">
-      <strong>${pos.ticker}</strong> — ${pos.name}<br>
+      <strong>${esc(pos.ticker)}</strong> — ${esc(pos.name)}<br>
       Tasso ${pos.coupon_rate}% · tax ${taxRate}% · ${FREQ_LABELS[schedFreq]||schedFreq}<br>
       <span style="color:var(--txt3);font-size:11px">Lordo ${fmt.currency(grossAmt)} → Netto <strong style="color:var(--income)">${fmt.currency(netAmt)}</strong> per periodo</span>
     </div>
@@ -1880,20 +1880,20 @@ async function showAddCouponToScheduled(portfolioId) {
         <label class="form-label">Accredita su *</label>
         <select class="form-control" id="cs_account">
           <option value="">— Seleziona conto —</option>
-          ${regularAccounts.map(a=>`<option value="${a.id}">${a.icon} ${a.name}</option>`).join('')}
+          ${regularAccounts.map(a=>`<option value="${a.id}">${esc(a.icon)} ${esc(a.name)}</option>`).join('')}
         </select>
       </div>
       <div class="form-group">
         <label class="form-label">Categoria</label>
         <select class="form-control" id="cs_cat">
           <option value="">— Nessuna —</option>
-          ${incomeCategories.map(c=>`<option value="${c.id}">${c.icon||''} ${c.name}</option>`).join('')}
+          ${incomeCategories.map(c=>`<option value="${c.id}">${esc(c.icon||'')} ${esc(c.name)}</option>`).join('')}
         </select>
       </div>
     </div>
     <div class="form-group">
       <label class="form-label">Descrizione</label>
-      <input class="form-control" id="cs_desc" value="Cedola ${pos.ticker}">
+      <input class="form-control" id="cs_desc" value="Cedola ${esc(pos.ticker)}">
     </div>`;
 
   openModal('Aggiungi cedola a Pianificate', body, async () => {
@@ -1923,7 +1923,7 @@ async function showAddCouponToScheduled(portfolioId) {
     try {
       await api.addScheduled(data);
       closeModal();
-      toast(`Cedola ${pos.ticker} aggiunta alle pianificate`);
+      toast(`Cedola ${esc(pos.ticker)} aggiunta alle pianificate`);
     } catch(e) { toast(e.message,'error'); }
   });
 }
@@ -1948,7 +1948,11 @@ window._portfolioSortBy = col => {
   renderPortfolio();
 };
 // Annulla un movimento di portafoglio previa conferma (ripristina quantità/prezzo medio lato server).
-async function deletePortfolioTransactionConfirm(ptId, type, ticker) {
+// Il ticker si ricava da portfolioId: passarlo dall'onclick inline significherebbe
+// interpolare testo utente dentro un attributo HTML.
+async function deletePortfolioTransactionConfirm(ptId, type, portfolioId) {
+  const items  = await api.getPortfolio();
+  const ticker = esc(items.find(i => i.id === portfolioId)?.ticker ?? '');
   const TYPE_IT = { buy: 'acquisto', sell: 'vendita', coupon: 'cedola', expense: 'commissione/spesa' };
   const label = TYPE_IT[type] || type;
   const warn = (type === 'buy' || type === 'sell')

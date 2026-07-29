@@ -56,9 +56,15 @@ nomi conto/categoria contenenti `&` o apostrofi.
   `setMonth()` su una data di fine mese sfasa il periodo: il 31 maggio "Ultimi 3 mesi" parte
   dal 3 marzo invece che dal 28 febbraio.
 
-- **`parseFloat` senza normalizzazione della virgola** — `js/pages/portfolio.js:1707`
-  Tassazione cedola: `12,5` → salva **12**. I campi gemelli (righe 1103, 1335, 1358, 1433)
-  fanno già `.replace(',','.')`; questa riga è l'unica che lo omette.
+- ~~**`parseFloat` senza normalizzazione della virgola** — tassazione cedola~~ ✅ **fatto**
+  (commit `fd975af`). Confermato e corretto: il campo è `type="text" inputmode="decimal"`,
+  quindi la virgola arrivava davvero a `parseFloat`, che troncava (`12,5` → 12; `0,50` → 0,
+  azzerando la tassazione). Il campo gemello in `showBuyModal` normalizzava già: stesso dato,
+  due comportamenti. Sostituito con `evalAmount` (che è ciò che usano tutti i campi vicini) e
+  allineati anche i due campi cedola di `showBuyModal`.
+  Verificati gli altri cinque `parseFloat` senza `replace` del progetto (accounts, analytics,
+  budget): tutti su input `type="number"`, dove il browser non lascia passare la virgola.
+  **Nessun intervento necessario** — annotati per non riaprirli.
 
 - **Proiezione fine mese esplosiva** — `js/pages/budget.js:1083`
   `expSpent / (dayOfMonth / daysInMonth)`: il giorno 1 moltiplica per 31. Allarme rosso

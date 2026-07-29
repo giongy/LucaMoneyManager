@@ -17,6 +17,10 @@ let _noticeDelay = 0; // stagger automatico tra notice successive
  *  Invalida i cache JS (il DB su OneDrive potrebbe essere cambiato), torna sulla
  *  dashboard con dati freschi e ricontrolla tutte le scadenze/notifiche. */
 async function onTrayRestore() {
+  // Il polling dello stato DB si sospende a finestra nascosta: qui siamo appena tornati in
+  // primo piano, quindi va ripreso. Java ci chiama da windowDeiconified/tray, che è il
+  // segnale autorevole anche se visibilitychange non fosse scattato.
+  if (typeof window._resumeDbStatusPolling === 'function') window._resumeDbStatusPolling();
   await _refreshFromExternalChange(true);
 }
 
@@ -143,11 +147,28 @@ async function _webDbClose() {
 // Polling dello stato DB in modalità browser: il DB può chiudersi da solo (auto-release
 // idle per la sync OneDrive), quindi teniamo la barra allineata alla realtà ogni 2s.
 // _updateWebDbToggle ridisegna solo al cambio di stato (guardia _lastWebDbState).
-let _webDbPollTimer = null;
+// Come il polling del pallino in titlebar (ui-shell.js), si sospende a pagina non visibile:
+// a tab in background nessuno guarda la barra e dbStatus non tiene vivo il lock OneDrive,
+// quindi il tick sarebbe solo lavoro sprecato. Al ritorno si aggiorna subito.
+// _webDbPollingOn segna che siamo in modalità browser e il polling è desiderato: serve perché
+// #webDbToggle esiste sempre nell'HTML (solo display:none in desktop) e quindi non discrimina
+// la modalità, e perché il timer è null anche durante una sospensione legittima.
+let _webDbPollTimer  = null;
+let _webDbPollingOn  = false;
 function _startWebDbPolling() {
-  if (_webDbPollTimer) return;
+  _webDbPollingOn = true;
+  if (_webDbPollTimer || document.hidden) return;
   _webDbPollTimer = setInterval(_updateWebDbToggle, 2000);
 }
+function _stopWebDbPolling() {
+  if (_webDbPollTimer) { clearInterval(_webDbPollTimer); _webDbPollTimer = null; }
+}
+document.addEventListener('visibilitychange', () => {
+  if (!_webDbPollingOn) return;                       // desktop: qui non c'è nulla da riprendere
+  if (document.hidden) { _stopWebDbPolling(); return; }
+  _updateWebDbToggle();
+  if (!_webDbPollTimer) _webDbPollTimer = setInterval(_updateWebDbToggle, 2000);
+});
 
 // Mostra una notifica toast in alto a destra: stagger automatico, barra di progresso
 // 8s, auto-dismiss e click sull'header (escluso il bottone ✕) → onHeadClick.

@@ -168,8 +168,33 @@ async function _refreshDbStatus() {
       : 'Database chiuso — OneDrive può sincronizzare';
   } catch { /* connessione bridge non pronta: riprova al prossimo tick */ }
 }
-_refreshDbStatus();
-setInterval(_refreshDbStatus, 2000);
+// Il polling si sospende quando la pagina non è visibile: a finestra minimizzata o coperta
+// nessuno guarda il pallino, e continuare a interrogare il bridge ogni 2s è lavoro sprecato
+// (dbStatus non riapre il DB, quindi non c'è alcun effetto sul lock OneDrive: solo CPU).
+// Al ritorno in primo piano si aggiorna subito, senza attendere il tick successivo.
+// In modalità browser la titlebar è nascosta (init.js) e questo indicatore non esiste a
+// schermo: lì il polling non parte affatto — ci pensa la barra #webDbToggle.
+let _dbStatusTimer = null;
+function _stopDbStatusPolling() {
+  if (_dbStatusTimer) { clearInterval(_dbStatusTimer); _dbStatusTimer = null; }
+}
+function _startDbStatusPolling() {
+  if (_dbStatusTimer || document.hidden) return;
+  _dbStatusTimer = setInterval(_refreshDbStatus, 2000);
+}
+// typeof cefQuery: stessa discriminante usata da init.js per _isBrowser.
+if (typeof window.cefQuery === 'function') {
+  _refreshDbStatus();
+  _startDbStatusPolling();
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) _stopDbStatusPolling();
+    else { _refreshDbStatus(); _startDbStatusPolling(); }
+  });
+  // Canale di riserva per il desktop: su minimizza/ripristina Java chiama windowIconified /
+  // windowDeiconified (MainWindow) e da lì onTrayRestore() in JS. È il segnale autorevole
+  // della finestra, quindi il polling riprende anche se visibilitychange non scattasse in JCEF.
+  window._resumeDbStatusPolling = () => { _refreshDbStatus(); _startDbStatusPolling(); };
+}
 
 /* ─── Badge errori app.log ───────────────────────────────────────────────── */
 // app.log raccoglie le eccezioni Java (vedi Bridge/App): errori che possono capitare

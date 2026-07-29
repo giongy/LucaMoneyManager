@@ -234,6 +234,7 @@ async function renderTransactions() {
             <th class="th-select" style="width:32px"><input type="checkbox" id="txSelectAll" onclick="toggleTxSelectAll(this.checked)" title="Seleziona tutte le visibili"></th>
             <th class="th-sort th-sort-active" data-col="date"        onclick="_txSortBy('date')">Data<span class="sort-ind">▲</span></th>
             <th class="th-reconciled" id="thReconciled" title="Stato conciliazione">Stato</th>
+            <th class="th-portfolio" title="Collegata al portafoglio">📈</th>
             <th class="th-attach" title="Allegato">📎</th>
             <th class="th-sort" data-col="account"     onclick="_txSortBy('account')">Conto<span class="sort-ind"></span></th>
             <th class="th-sort" data-col="type"        onclick="_txSortBy('type')">Tipo<span class="sort-ind"></span></th>
@@ -481,7 +482,7 @@ function renderTxBodyAndHeaders() {
   if (!tbody) return;
   const showBalance = txFilters.account_id && String(txFilters.account_id).trim() !== '';
   const sorted = txCache;  // backend già ordinato via sort_col/sort_dir
-  const colCount = (showBalance ? 11 : 10) + 1;  // +1 per checkbox column
+  const colCount = (showBalance ? 12 : 11) + 1;  // +1 per checkbox column
   // Nome categoria filtrata (per mostrare la voce giusta negli split filtrati).
   // esc() perché viene da textContent (già decodificato) e torna dentro innerHTML: senza,
   // un nome categoria con < o & verrebbe re-interpretato come markup.
@@ -508,6 +509,7 @@ function renderTxBodyAndHeaders() {
           ${isRec ? '✅' : '🔲'}
         </button>
       </td>
+      <td class="td-portfolio">${t.portfolio_id ? `<span class="tx-portfolio-badge" title="Collegata al portafoglio — clicca per lo storico della posizione" onclick="event.stopPropagation();showPortfolioHistory(${t.portfolio_id})">📈</span>` : ''}</td>
       <td class="td-attach">${t.attachment_path ? `<span class="tx-attach-badge" title="${esc(t.attachment_path)}" data-path="${encodeURIComponent(t.attachment_path)}" onclick="event.stopPropagation();openTxAttachment(this)">📎</span>` : ''}</td>
       <td>${esc(t.account_name||'-')}${t.to_account_name?` → ${esc(t.to_account_name)}`:''}</td>
       <td><span class="badge badge-${t.type}">${t.type==='income'?'Entrata':t.type==='expense'?'Uscita':'Trasferimento'}</span></td>

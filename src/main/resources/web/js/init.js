@@ -450,9 +450,12 @@ async function init() {
     const daTelefono = await api.getTransactionsWithTag('phone');
     if (daTelefono.length) showDaTelefonoNotice(daTelefono);
   } catch(e) {}
-  // Notifica scadute (non bloccante, dopo il render)
-  const overdue = await api.getOverdue();
-  if (overdue.length) showOverdueNotice(overdue);
+  // Notifica scadute (non bloccante, dopo il render): come le altre, un errore qui
+  // non deve fermare il resto del bootstrap (notifiche successive e wizard di onboarding).
+  try {
+    const overdue = await api.getOverdue();
+    if (overdue.length) showOverdueNotice(overdue);
+  } catch(e) {}
   // Notifica pianificate da inserire oggi
   try {
     const dueToday = await api.getDueToday();
@@ -574,18 +577,8 @@ async function _onboardingStart(ov) {
 
 /* ─── Previsioni ── spostate in js/pages/forecasts.js ─────────────────────── */
 
-// Aspetta che il bridge JCEF sia pronto (in browser mode parte subito)
-if (typeof window.cefQuery === 'function') {
-  init();
-} else if (typeof fetch === 'function') {
-  // Modalità browser: bridge HTTP disponibile subito
-  init();
-} else {
-  // cefQuery viene iniettato da JCEF dopo il caricamento della pagina
-  const check = setInterval(() => {
-    if (typeof window.cefQuery === 'function') {
-      clearInterval(check);
-      init();
-    }
-  }, 50);
-}
+// Avvio immediato: il bridge è già utilizzabile in entrambe le modalità. In JCEF
+// window.cefQuery è iniettato prima dell'esecuzione degli script di pagina; in modalità
+// browser callJava ricade su fetch verso /bridge. init() è comunque async e la prima
+// chiamata a Java avviene dopo il primo await, non durante il parsing di questo file.
+init();

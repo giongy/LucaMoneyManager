@@ -1387,6 +1387,12 @@ button.te-reset-btn:hover { opacity:1; color:var(--accent); }
 .th-attach     { width:28px; text-align:center; font-size:var(--font-size,13px); }
 .td-attach .tx-attach-badge { cursor:pointer; font-size:var(--font-size,13px); opacity:.75; transition:opacity .1s; }
 .td-attach .tx-attach-badge:hover { opacity:1; }
+/* Colonna "collegata al portafoglio": stesse misure dell'allegato, badge cliccabile
+   che apre lo storico della posizione collegata. */
+.td-portfolio  { width:28px; text-align:center; padding:0 2px; }
+.th-portfolio  { width:28px; text-align:center; font-size:var(--font-size,13px); }
+.td-portfolio .tx-portfolio-badge { cursor:pointer; font-size:var(--font-size,13px); opacity:.75; transition:opacity .1s; }
+.td-portfolio .tx-portfolio-badge:hover { opacity:1; }
 .th-balance    { }
 .btn-reconcile {
   background:none; border:none; cursor:pointer; font-size:var(--fs-lg,14px); padding:2px 4px;

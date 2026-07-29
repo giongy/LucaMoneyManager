@@ -1108,9 +1108,11 @@ async function showBuyModal(portfolioId, investAccounts, allAccounts) {
       asset_type:      assetType,
       face_value:      1,
       maturity_date:   isBond ? (document.getElementById('b_maturity')?.value || null) : null,
-      coupon_rate:     isBond ? (parseFloat((document.getElementById('b_coupon_rate')?.value||'').replace(',','.')) || 0) : 0,
+      coupon_rate:     isBond ? (evalAmount(document.getElementById('b_coupon_rate')?.value) || 0) : 0,
       coupon_frequency:isBond ? (document.getElementById('b_coupon_freq')?.value || null) : null,
-      coupon_tax:      isBond ? (parseFloat((document.getElementById('b_coupon_tax')?.value||'').replace(',','.')) ?? 12.5) : 0,
+      // `?? 12.5` scatta perché evalAmount ritorna null (con parseFloat era NaN, che ?? non
+      // intercetta: il default arrivava comunque, ma dal fallback di Database.buyStock).
+      coupon_tax:      isBond ? (evalAmount(document.getElementById('b_coupon_tax')?.value) ?? 12.5) : 0,
     };
     if (!data.account_id)      { toast('Seleziona il conto investimento','error'); return; }
     if (!data.from_account_id) { toast('Seleziona il conto da cui pagare','error'); return; }
@@ -1714,7 +1716,10 @@ async function showEditPositionModal(portfolioId) {
       maturity_date:    isBond ? (document.getElementById('e_maturity')?.value || null) : null,
       coupon_rate:      isBond ? (evalAmount(n('e_coupon_rate')) || 0) : 0,
       coupon_frequency: isBond ? (document.getElementById('e_coupon_freq')?.value || null) : null,
-      coupon_tax:       isBond ? (parseFloat(n('e_coupon_tax')) ?? 12.5) : 0,
+      // evalAmount e non parseFloat: il campo è type="text" inputmode="decimal", quindi
+      // su tastiera italiana si digita "12,5" e parseFloat si fermerebbe alla virgola
+      // salvando 12. Come già fa il campo gemello in showBuyModal.
+      coupon_tax:       isBond ? (evalAmount(n('e_coupon_tax')) ?? 12.5) : 0,
       country:          document.getElementById('e_country').value.trim() || null,
       notes:            document.getElementById('e_notes').value.trim() || null,
     };

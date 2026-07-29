@@ -5,7 +5,9 @@
    ogni pagina/widget: dashboard, budget, portfolio, analytics, scheduled, ecc.).
 
    TEMI: il default è scuro (variabili in :root). I temi alternativi sovrascrivono le
-   variabili via [data-theme="carta|chiaro|glassy"] (impostato su <html> dal JS).
+   variabili via [data-theme="carta|petrolio|glassy"] (impostato su <html> dal JS).
+   Carta è l'unico tema chiaro: le trasparenze bianche pensate per i fondi scuri lì non si
+   staccano e vanno sostituite con un override dedicato (vedi .analytics-table/.budget-cur-month).
 
    CONVENZIONE COLORI DI SFONDO (vedi CLAUDE.md): gerarchia bg3 < bg < bg2, cioè le card
    (bg2) sono PIÙ CHIARE dello sfondo (bg) — mai bianco puro nei temi chiari. bg3 è il
@@ -64,6 +66,11 @@
 [data-theme="carta"] .budget-row-parent td { background: var(--bg2); }
 [data-theme="carta"] .budget-gestione-badge.monthly { background: #d4e4f4; color: #1a4a7a; border-color: #1a4a7a55; }
 [data-theme="carta"] .budget-gestione-badge.annual  { background: #cce8d4; color: #1a5a2e; border-color: #1a5a2e55; }
+/* Righe alternate e marcatore del mese corrente: le versioni base usano bianco trasparente,
+   che su fondo chiaro non si stacca. Qui si scurisce invece di schiarire, con lo stesso bruno
+   caldo della texture (rgba(120,95,55,…)) così la grana di carta resta visibile sotto. */
+[data-theme="carta"] .analytics-table tbody tr:nth-child(even) td { background: rgba(120,95,55,.055); }
+[data-theme="carta"] .budget-cur-month { box-shadow: inset 2px 0 0 rgba(120,95,55,.55), inset -2px 0 0 rgba(120,95,55,.55); }
 /* Toast: nel tema carta i fondi scuri fissi (.toast-info #1a2a3a ecc.) rendono il testo
    quasi illeggibile. Override con fondi chiari coerenti col tema e testo scuro. */
 [data-theme="carta"] .toast         { color: var(--txt); }
@@ -720,8 +727,7 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 }
 /* Barra del titolo = maniglia per trascinare il pannello sullo schermo. */
 .calc-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; cursor:move; }
-.calc-title { font-size:var(--fs-md,12px); font-weight:600; color:var(--txt2); }
-.calc-title { cursor:move; }
+.calc-title { font-size:var(--fs-md,12px); font-weight:600; color:var(--txt2); cursor:move; }
 .calc-close {
   background:transparent; border:none; color:var(--txt3); cursor:pointer;
   font-size:14px; line-height:1; padding:2px 5px; border-radius:5px; transition:all .15s;
@@ -1143,10 +1149,13 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 .modal-close { background:none; border:none; color:var(--txt2); font-size:15px; padding:3px 7px; border-radius:4px; }
 .modal-close:hover { background:var(--bg4); color:var(--txt); }
 .modal-body   { padding:14px 16px; overflow-y:auto; flex:1; }
+/* Colori derivati da --accent: con il viola fisso il banner restava fuori tema
+   in carta (accento marrone) e petrolio (arancio). */
 .portfolio-link-banner {
   display:flex; align-items:center; gap:8px;
-  background:rgba(124,124,255,.12); border:1px solid rgba(124,124,255,.35);
-  color:#7c6cff; border-radius:8px; padding:7px 12px;
+  background:color-mix(in srgb, var(--accent) 12%, transparent);
+  border:1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  color:var(--accent); border-radius:8px; padding:7px 12px;
   font-size:12px; font-weight:600; margin-bottom:12px;
 }
 .modal-footer { padding:10px 16px; border-top:1px solid var(--border); display:flex; gap:8px; justify-content:flex-end; }
@@ -1569,16 +1578,22 @@ tr.tx-selected td { background:rgba(124,124,255,.07); }
 }
 .icon-btn:hover { background:var(--bg4); }
 
+/* Chip di selezione tag/conti — usata in Resoconti, Pianificate e Transazioni.
+   Definizione unica: prima esisteva un secondo blocco .tag-chip nella sezione Report che,
+   avendo lo stesso selettore, ne sovrascriveva silenziosamente padding, border-radius,
+   font-size e border, lasciando però background e ::before di questo. Il risultato era un
+   ibrido non voluto da nessuna delle due. */
 .tag-chip {
   display:inline-flex; align-items:center; gap:5px;
-  padding:3px 10px; border-radius:20px; font-size:var(--fs-sm,11px); font-weight:600;
-  cursor:pointer; transition:all .15s; user-select:none;
+  padding:2px 8px; border-radius:12px; font-size:var(--fs-md,12px); font-weight:600;
+  cursor:pointer; transition:background .15s, color .15s; user-select:none;
   background:color-mix(in srgb, var(--tc,#7c6cff) 12%, transparent);
   /* Testo sempre col colore del tema (leggibile su ogni sfondo); il colore del tag
      resta come accento su bordo e pallino. */
   color:var(--txt);
-  border:1px solid color-mix(in srgb, var(--tc,#7c6cff) 45%, transparent);
+  border:1.5px solid color-mix(in srgb, var(--tc,#7c6cff) 55%, var(--border));
 }
+.tag-chip:hover { background:color-mix(in srgb, var(--tc,#7c6cff) 15%, transparent); }
 /* Pallino accento col colore del tag, davanti al nome */
 .tag-chip::before {
   content:''; flex:0 0 auto; width:7px; height:7px; border-radius:50%;
@@ -1706,8 +1721,12 @@ tr.tx-selected td { background:rgba(124,124,255,.07); }
 .upcoming-overdue td:first-child { border-left: 3px solid #d29922; }
 .overdue-badge { font-size:var(--fs-sm,11px); margin-right:4px; }
 .btn-xs { padding:2px 8px; font-size:var(--fs-sm,11px); border-radius:4px; border:1px solid var(--border); cursor:pointer; white-space:nowrap; }
-.btn-success { background:rgba(63,185,80,.15); color:var(--income); border-color:rgba(63,185,80,.3); }
-.btn-success:hover { background:rgba(63,185,80,.25); }
+/* Variante tenue del verde, solo per i bottoni piccoli nelle righe delle pianificate:
+   senza il vincolo su .btn-xs questa regola sovrascriveva il .btn-success pieno definito
+   sopra, che serve invece ai bottoni di toolbar (es. "Aggiorna valori online" in Portfolio).
+   Colori da --income, non dal verde fisso del tema dark. */
+.btn-xs.btn-success { background:color-mix(in srgb, var(--income) 15%, transparent); color:var(--income); border-color:color-mix(in srgb, var(--income) 30%, transparent); }
+.btn-xs.btn-success:hover { background:color-mix(in srgb, var(--income) 25%, transparent); }
 
 .sched-toolbar { display:flex; align-items:center; gap:10px; margin-bottom:12px; position:sticky; top:0; background:var(--bg); z-index:5; padding-top:12px;padding-bottom:6px; margin-top:-12px; }
 .sched-th-sort { cursor:pointer; user-select:none; white-space:nowrap; }
@@ -1980,20 +1999,7 @@ tr.tx-selected td { background:rgba(124,124,255,.07); }
 /* ─── Report page ─────────────────────────────────────────────────────────── */
 .report-filter-sep { border-top:1px solid var(--border); margin:4px 0; }
 
-/* Tag chips (filter selector) */
-.tag-chip {
-  display:inline-flex; align-items:center; gap:5px;
-  padding:2px 8px; border-radius:12px;
-  font-size:var(--fs-md,12px); cursor:pointer;
-  border:1.5px solid color-mix(in srgb, var(--tc,var(--border)) 55%, var(--border));
-  /* Testo col colore del tema per garantire leggibilità su tutti i temi */
-  color:var(--txt);
-  transition:background .15s, color .15s;
-  user-select:none;
-}
-.tag-chip:hover { background:color-mix(in srgb, var(--tc, #888) 15%, transparent); }
-.tag-chip.selected { background:var(--tc, var(--accent)); color:#fff; border-color:var(--tc, var(--accent)); }
-.tag-chip.selected::before { background:#fff; }
+/* .tag-chip è definita una volta sola, nella sezione dei componenti condivisi. */
 
 /* ─── Log Viewer ──────────────────────────────────────────────────────────── */
 .log-wrap {

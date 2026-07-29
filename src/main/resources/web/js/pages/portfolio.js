@@ -388,8 +388,10 @@ async function renderPortfolioStorico(items) {
   const TYPE_LABEL = { buy:'Acquisto', sell:'Vendita', coupon:'Cedola', dividend:'Dividendo', expense:'Spesa' };
   const TYPE_COLOR = { buy:'var(--expense)', sell:'var(--income)', coupon:'var(--income)', dividend:'var(--income)', expense:'var(--expense)' };
   const TYPE_SIGN  = { buy:'-', sell:'+', coupon:'+', dividend:'+', expense:'-' };
+  // Note con cui il backend marca le righe expense di commissione (Database.buyStock/sellStock).
+  const IS_COMMISSION_NOTE = n => n === 'Commissione' || n === 'Commissione acquisto';
 
-  let grandBuy = 0, grandSell = 0, grandCoupon = 0, grandDividend = 0, grandExpense = 0;
+  let grandBuy = 0, grandSell = 0, grandCoupon = 0, grandDividend = 0, grandExpense = 0, grandSellComm = 0;
 
   const cards = withTxs.map(({ item, txs }) => {
     // Convenzione percentage: bond price stored come % (99.5 = 99.5%), cash = qty*price/100.
@@ -401,18 +403,24 @@ async function renderPortfolioStorico(items) {
     const totSell    = txs.filter(t=>t.type==='sell').reduce((s,t)=>s+sellValue(t), 0);
     const totCoupon  = txs.filter(t=>t.type==='coupon').reduce((s,t)=>s+t.price, 0);
     const totDividend= txs.filter(t=>t.type==='dividend').reduce((s,t)=>s+t.price, 0);
-    const totExpense = txs.filter(t=>t.type==='expense').reduce((s,t)=>s+t.price, 0);
-    grandBuy += totBuy; grandSell += totSell; grandCoupon += totCoupon; grandDividend += totDividend; grandExpense += totExpense;
+    // Le commissioni d'acquisto sono già incluse in totBuy (buyValue somma t.commission):
+    // vanno escluse da totExpense per non contarle due volte. Stessa esclusione del SQL
+    // di total_other_expenses in Database.java (getPortfolio).
+    const totExpense = txs.filter(t=>t.type==='expense' && !IS_COMMISSION_NOTE(t.notes)).reduce((s,t)=>s+t.price, 0);
+    const totSellComm= txs.filter(t=>t.type==='expense' && t.notes==='Commissione').reduce((s,t)=>s+t.price, 0);
+    grandBuy += totBuy; grandSell += totSell; grandCoupon += totCoupon; grandDividend += totDividend;
+    grandExpense += totExpense; grandSellComm += totSellComm;
 
     const collapsed = !_portStoricoExp.has(item.id);
-    const net = totSell + totCoupon + totDividend - totBuy - totExpense;
+    // totBuy include già le commissioni d'acquisto; quelle di vendita si sottraggono a parte.
+    const net = totSell + totCoupon + totDividend - totBuy - totExpense - totSellComm;
 
     const chips = [
       totBuy      > 0 ? `<span class="r-chip" style="color:var(--expense)">Acq. ${fmt.currency(totBuy)}</span>`     : '',
       totSell     > 0 ? `<span class="r-chip" style="color:var(--income)">Vend. ${fmt.currency(totSell)}</span>`    : '',
       totCoupon   > 0 ? `<span class="r-chip" style="color:var(--income)">Ced. ${fmt.currency(totCoupon)}</span>`   : '',
       totDividend > 0 ? `<span class="r-chip" style="color:var(--income)">Div. ${fmt.currency(totDividend)}</span>` : '',
-      totExpense  > 0 ? `<span class="r-chip" style="color:var(--expense)">Sp. ${fmt.currency(totExpense)}</span>`  : '',
+      (totExpense + totSellComm) > 0 ? `<span class="r-chip" style="color:var(--expense)">Sp. ${fmt.currency(totExpense + totSellComm)}</span>`  : '',
       `<span class="r-chip" style="font-weight:600;color:${net>=0?'var(--income)':'var(--expense)'}">Netto ${net>=0?'+':''}${fmt.currency(net)}</span>`,
     ].filter(Boolean).join('');
 
@@ -425,10 +433,10 @@ async function renderPortfolioStorico(items) {
       const priceDisplay = !isValued ? '—'
         : isBond ? `${t.price.toFixed(4)} %`
         : `${t.price.toFixed(4)} €`;
-      const typeLabel = t.type === 'expense' && t.notes === 'Commissione'
+      const typeLabel = t.type === 'expense' && IS_COMMISSION_NOTE(t.notes)
         ? `<span style="color:${TYPE_COLOR.expense};font-weight:600">Commissione</span>`
         : `<span style="color:${TYPE_COLOR[t.type]||'var(--txt)'};font-weight:600">${TYPE_LABEL[t.type]||t.type}</span>`;
-      const noteText = (t.notes && t.notes !== 'Commissione') ? t.notes : '';
+      const noteText = (t.notes && !IS_COMMISSION_NOTE(t.notes)) ? t.notes : '';
       const commNote = commPart > 0 ? `<small style="color:var(--txt3)">+ comm. ${fmt.currency(commPart)}</small>` : '';
       return `<tr>
         <td style="width:110px">${fmt.date(t.date)}</td>
@@ -469,8 +477,10 @@ async function renderPortfolioStorico(items) {
       </div>`;
   });
 
-  const grandNet = grandSell + grandCoupon + grandDividend - grandBuy - grandExpense;
-  const showExp  = grandExpense > 0;
+  // grandBuy include già le commissioni d'acquisto; quelle di vendita si sommano alle spese.
+  const grandExpTot = grandExpense + grandSellComm;
+  const grandNet = grandSell + grandCoupon + grandDividend - grandBuy - grandExpTot;
+  const showExp  = grandExpTot > 0;
   const showDiv  = grandDividend > 0;
   const showCoup = grandCoupon > 0;
 
@@ -490,7 +500,7 @@ async function renderPortfolioStorico(items) {
           <td class="text-right amount-income">+${fmt.currency(grandSell)}</td>
           ${showCoup ? `<td class="text-right amount-income">+${fmt.currency(grandCoupon)}</td>` : ''}
           ${showDiv  ? `<td class="text-right amount-income">+${fmt.currency(grandDividend)}</td>` : ''}
-          ${showExp ? `<td class="text-right amount-expense">-${fmt.currency(grandExpense)}</td>` : ''}
+          ${showExp ? `<td class="text-right amount-expense">-${fmt.currency(grandExpTot)}</td>` : ''}
           <td class="text-right" style="font-weight:700;color:${grandNet>=0?'var(--income)':'var(--expense)'}">
             ${grandNet>=0?'+':''}${fmt.currency(grandNet)}
           </td>

@@ -363,6 +363,10 @@ async function loadTxRows(categories, accounts) {
     hasAccount ? api.getAccountSummary(parseInt(txFilters.account_id)) : Promise.resolve(null),
   ]);
   txCache = rows;
+  // La selezione multipla vale solo per le righe correntemente caricate: cambiando filtro,
+  // ricerca, range o ordinamento gli id selezionati non sono più a schermo e le azioni
+  // multiple agirebbero su transazioni che l'utente non vede più.
+  _selectedTxIds.clear();
   // Mostra/nascondi colonna Saldo
   const thBal = document.getElementById('thBalance');
   if (thBal) thBal.style.display = hasAccount ? '' : 'none';
@@ -432,15 +436,21 @@ window.clearTxSelection = () => {
 
 // Azione multipla: concilia/de-concilia tutte le transazioni selezionate, poi aggiorna saldo e tabella.
 window.bulkReconcile = async newVal => {
-  const ids = [..._selectedTxIds];
+  // Solo le righe correntemente visibili: mai agire su selezioni relative a un filtro precedente.
+  const ids = [..._selectedTxIds].filter(id => txCache.some(t => t.id === id));
   if (!ids.length) return;
-  // Esegue in parallelo (rate-limit naturale del bridge JCEF)
-  await Promise.all(ids.map(id => api.updateTransactionReconciled(id, newVal === 1)));
-  for (const id of ids) {
-    const tx = txCache.find(t => t.id === id);
+  // Esegue in parallelo (rate-limit naturale del bridge JCEF). allSettled e non all: un
+  // fallimento parziale non deve lasciare la cache disallineata dal DB senza avvisare.
+  const results = await Promise.allSettled(ids.map(id => api.updateTransactionReconciled(id, newVal === 1)));
+  let failed = 0;
+  results.forEach((r, i) => {
+    if (r.status === 'rejected') { failed++; return; }
+    const tx = txCache.find(t => t.id === ids[i]);
     if (tx) tx.reconciled = newVal;
-  }
-  toast(`${ids.length} transazion${ids.length===1?'e':'i'} ${newVal ? 'riconciliat' : 'da verificar'}${ids.length===1?'a':'e'}`);
+  });
+  const done = ids.length - failed;
+  if (failed) toast(`Aggiornate ${done}, fallite ${failed}`, 'error');
+  else toast(`${done} transazion${done===1?'e':'i'} ${newVal ? 'riconciliat' : 'da verificar'}${done===1?'a':'e'}`);
   _selectedTxIds.clear();
   renderTxBodyAndHeaders();
   // Ricarica saldo conto se filtro attivo
@@ -454,7 +464,8 @@ window.bulkReconcile = async newVal => {
 
 // Azione multipla: elimina tutte le transazioni selezionate previa conferma.
 window.bulkDelete = async () => {
-  const ids = [..._selectedTxIds];
+  // Solo le righe correntemente visibili: mai eliminare in base a una selezione ormai fuori filtro.
+  const ids = [..._selectedTxIds].filter(id => txCache.some(t => t.id === id));
   if (!ids.length) return;
   const ok = await confirm('Elimina transazioni', `Eliminare definitivamente ${ids.length} transazion${ids.length===1?'e':'i'}? L'operazione non è reversibile.`);
   if (!ok) return;

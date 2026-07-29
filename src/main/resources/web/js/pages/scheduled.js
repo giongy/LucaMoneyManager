@@ -68,8 +68,19 @@ function _schedOccurrences(startDate, freq, endDate) {
   if (freq === 'weekly')   return Math.floor(days / 7) + 1;
   if (freq === 'biweekly') return Math.floor(days / 14) + 1;
   const step = { monthly:1, monthly_last:1, bimonthly:2, quarterly:3, semiannual:6, yearly:12 }[freq] || 1;
-  let count = 0, cur = new Date(start);
-  while (cur <= end) { count++; cur.setMonth(cur.getMonth() + step); }
+  // Ogni occorrenza va calcolata dall'àncora `start`, mai da quella precedente: Date.setMonth()
+  // trabocca invece di clampare (31 gen + 1 mese = 3 mar), e derivare a catena propagherebbe
+  // l'errore a tutti i mesi successivi. Stessa regola di Database.firstOccurrenceFrom in Java,
+  // che usa plusMonths() dall'àncora proprio per questo motivo.
+  const y = start.getFullYear(), m = start.getMonth(), d = start.getDate();
+  let count = 0;
+  for (let k = 0; ; k++) {
+    const lastDom = new Date(y, m + step * k + 1, 0).getDate();  // giorno 0 = ultimo del mese prec.
+    const dom = freq === 'monthly_last' ? lastDom : Math.min(d, lastDom);
+    const cur = new Date(y, m + step * k, dom);
+    if (cur > end) break;
+    count++;
+  }
   return count;
 }
 

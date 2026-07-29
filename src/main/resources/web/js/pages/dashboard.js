@@ -963,6 +963,7 @@ window._dashExecSched = async id => {
   }, cats, accs, u.type, tags, () => {
     // L'avanzamento è già avvenuto dentro la stessa transazione SQL del salvataggio
     // (saveOverride qui sotto): qui resta solo il feedback e il refresh.
+    _resolveOverdue(id);   // la pianificata è stata registrata: via dalle notifiche scadute/oggi
     toast('Pianificata eseguita e avanzata');
     renderDashboard();
   },

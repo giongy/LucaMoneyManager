@@ -448,6 +448,7 @@ window.bulkReconcile = async newVal => {
     const summary = await api.getAccountSummary(parseInt(txFilters.account_id));
     _renderTxSummaryBar(txCache, summary);
   }
+  refreshNotices();  // il badge 🔔 deve riflettere le transazioni appena verificate
 };
 
 // Azione multipla: elimina tutte le transazioni selezionate previa conferma.
@@ -543,6 +544,7 @@ window.toggleReconciled = async (id, newVal) => {
     const summary = await api.getAccountSummary(parseInt(txFilters.account_id));
     _renderTxSummaryBar(txCache, summary);
   }
+  refreshNotices();  // il badge 🔔 deve riflettere la transazione appena verificata
 };
 
 // Inizializza un selettore di categoria ad autocomplete: input testuale + lista filtrabile

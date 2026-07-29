@@ -188,6 +188,32 @@ function updateNoticeBtn() {
   }
 }
 
+/** Ricalcola dal DB le notifiche il cui contenuto può cambiare mentre l'utente lavora
+ *  (transazioni da verificare, transazioni dal telefono) e aggiorna il badge in titlebar.
+ *  Serve perché _noticeData è una fotografia scattata all'avvio: senza questo, il badge
+ *  resta al conteggio vecchio anche dopo che l'utente ha sistemato tutto.
+ *  NON ri-mostra le toast: aggiorna solo i dati e il bottone 🔔.
+ *  Le pianificate (overdue/duetoday) e le previsioni si aggiornano da sole nei rispettivi
+ *  punti di risoluzione (_resolveOverdue, _archiveForecast). */
+async function refreshNotices() {
+  // Sostituisce in blocco una voce di _noticeData: la rimuove se la lista è vuota.
+  const _sync = (type, list) => {
+    const i = _noticeData.findIndex(n => n.type === type);
+    if (list.length === 0) { if (i >= 0) _noticeData.splice(i, 1); }
+    else if (i >= 0) _noticeData[i].list = list;
+    else _noticeData.push({ type, list });
+  };
+  try {
+    const unverified = await api.getTransactions({ reconciled: 0, sort_desc: true });
+    _sync('unverified', unverified);
+  } catch(e) {}
+  try {
+    const daTelefono = await api.getTransactionsWithTag('phone');
+    _sync('telefono', daTelefono);
+  } catch(e) {}
+  updateNoticeBtn();
+}
+
 // Ri-mostra tutte le notifiche della sessione (click sul bottone 🔔), senza ri-salvarle.
 function replayNotices() {
   if (!_noticeData.length) return;

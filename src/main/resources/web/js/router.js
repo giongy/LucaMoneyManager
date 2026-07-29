@@ -71,8 +71,11 @@ function renderPage(page) {
 
 /* ─── Refresh after any transaction change ───────────────────────────────── */
 // Riallinea sidebar, lista transazioni e (se visibile) dashboard dopo una modifica alle transazioni.
+// Ricalcola anche le notifiche: aggiungere/modificare/eliminare una transazione può cambiare
+// il numero di "da verificare" o togliere il tag "phone", e il badge 🔔 deve seguirlo.
 async function refreshAfterTxChange() {
   updateSidebar();
   renderTransactions();
   if (currentPage === 'dashboard') renderDashboard();
+  refreshNotices();
 }

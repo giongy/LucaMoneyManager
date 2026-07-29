@@ -1082,6 +1082,13 @@ function renderBudgetMese() {
     const budgetPct   = expSpent / expBudget * 100;            // % di budget uscite usato
     const projected   = expSpent / (dayOfMonth / daysInMonth); // proiezione lineare a fine mese
     const projColor   = projected > expBudget ? 'var(--expense)' : 'var(--income)';
+    // La proiezione divide per la frazione di mese trascorsa, quindi nei primi giorni
+    // moltiplica per un fattore enorme (x31 il giorno 1, x15.5 il 2, x10.3 il 3): una sola
+    // spesa da 180 € proietterebbe 5.580 €, e il giorno dopo il valore si dimezza da solo
+    // senza che l'utente abbia speso nulla. Sotto i 5 giorni il dato non è informativo e
+    // produrrebbe solo allarmi rossi falsi: si mostra il resto del banner e si tace qui.
+    const PROJ_MIN_DAYS = 5;
+    const projReliable  = dayOfMonth >= PROJ_MIN_DAYS;
     // Se la spesa corre più veloce del tempo (budget% > mese%) → barra rossa
     const fillColor   = budgetPct > monthPct ? 'var(--expense)' : 'var(--income)';
     const fillW       = Math.min(100, budgetPct).toFixed(1);
@@ -1104,7 +1111,9 @@ function renderBudgetMese() {
         </div>
         <div style="white-space:nowrap;text-align:right">
           <div style="font-size:11px;color:var(--txt3);text-transform:uppercase;letter-spacing:.5px">Proiezione fine mese</div>
-          <div style="font-size:14px;font-weight:700;color:${projColor}">${fmt.currency(projected)}</div>
+          ${projReliable
+            ? `<div style="font-size:14px;font-weight:700;color:${projColor}">${fmt.currency(projected)}</div>`
+            : `<div style="font-size:14px;font-weight:700;color:var(--txt3)" title="Nei primi giorni del mese una singola spesa falserebbe la stima: la proiezione compare dal giorno ${PROJ_MIN_DAYS}.">—</div>`}
           <div style="font-size:11px;color:var(--txt3)">budget ${fmt.currency(expBudget)}</div>
         </div>
       </div>`;

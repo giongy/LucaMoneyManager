@@ -228,3 +228,12 @@ _refreshLogErrors();
 // il canale in tempo reale, il polling copre solo gli errori che non passano da onFailure.
 setInterval(_refreshLogErrors, 300000);
 window.refreshLogErrors = _refreshLogErrors;
+// Ricontrollo al ritorno in primo piano: app.log può essere stato svuotato a mano mentre la
+// finestra era minimizzata o coperta, e senza questo il badge resterebbe rosso fino al tick
+// dei 5 minuti — sembrando "bloccato" e sbloccarsi solo riavviando l'app. Il conteggio viene
+// riletto dal file a ogni chiamata (Bridge.appLogErrors), quindi non c'è nulla da invalidare.
+// Il ripristino dal tray passa invece da onTrayRestore (init.js), che chiama la stessa
+// funzione: è il canale autorevole di Java, valido anche se visibilitychange non scattasse.
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) _refreshLogErrors();
+});

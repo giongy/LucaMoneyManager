@@ -21,6 +21,10 @@ async function onTrayRestore() {
   // primo piano, quindi va ripreso. Java ci chiama da windowDeiconified/tray, che è il
   // segnale autorevole anche se visibilitychange non fosse scattato.
   if (typeof window._resumeDbStatusPolling === 'function') window._resumeDbStatusPolling();
+  // Anche il badge errori va ricontrollato: mentre l'app era nel tray l'utente può aver
+  // svuotato app.log a mano, e il badge sarebbe rimasto rosso fino al tick dei 5 minuti
+  // (o al riavvio dell'app). Il conteggio lo rilegge sempre dal file, non è mai in cache.
+  if (typeof window.refreshLogErrors === 'function') window.refreshLogErrors();
   await _refreshFromExternalChange(true);
 }
 

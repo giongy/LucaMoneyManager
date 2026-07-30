@@ -66,9 +66,13 @@ nomi conto/categoria contenenti `&` o apostrofi.
   budget): tutti su input `type="number"`, dove il browser non lascia passare la virgola.
   **Nessun intervento necessario** — annotati per non riaprirli.
 
-- **Proiezione fine mese esplosiva** — `js/pages/budget.js:1083`
-  `expSpent / (dayOfMonth / daysInMonth)`: il giorno 1 moltiplica per 31. Allarme rosso
-  spurio a ogni inizio mese.
+- ~~**Proiezione fine mese esplosiva**~~ ✅ **fatto** (commit `88b838f`)
+  Confermato: `expSpent / (dayOfMonth / daysInMonth)` moltiplica x31 il giorno 1, x15.5 il 2,
+  x10.3 il 3. Con budget 2.000 €, la sola spesa del primo giorno (180 €) proiettava 5.580 € in
+  rosso su un mese che si sarebbe chiuso a ~1.700 €, sotto budget; il giorno dopo il valore si
+  dimezzava da solo senza nuove spese. Ora la proiezione compare dal giorno 5 (moltiplicatore
+  ≤ x6.2), prima un trattino grigio con tooltip esplicativo. Barra e marker del banner restano
+  visibili da subito: confrontano percentuali, non amplificano nulla.
 
 - **Budget "Mensile" ridistribuisce invece di tenere fisso** — `js/pages/budget.js:131-141`
   L'hint UI dice "Stesso importo per tutti i 12 mesi", il codice tratta il master come tetto
@@ -128,9 +132,15 @@ nomi conto/categoria contenenti `&` o apostrofi.
   `_renderAccBalChart` sostituisce il canvas prima di distruggere l'istanza: i listener di
   `zoomOpts()` restano attaccati al nodo staccato.
 
-- **Doppio polling `dbStatus` a 2s** — `js/init.js:149` + `js/ui-shell.js:172`
-  Due `setInterval` indipendenti sulla stessa chiamata, mai fermati, attivi anche a finestra
-  nascosta.
+- ~~**Doppio polling `dbStatus` a 2s**~~ ✅ **fatto** (commit `c851346`)
+  Il report era imperciso: **non erano un duplicato da fondere**, alimentano due indicatori
+  distinti (pallino titlebar in desktop, barra Apri/Chiudi in browser). In desktop girava solo
+  il primo. Lo spreco reale era in modalità browser, dove partivano entrambi ma quello di
+  `ui-shell` aggiornava un elemento con la titlebar a `display:none`: ora si avvia solo se
+  `cefQuery` esiste. Entrambi si sospendono su `visibilitychange`. Verificato che `dbStatus`
+  **non** tocchi il lock OneDrive (`Bridge.java:890` chiama solo `isOpen`/`isManuallyClosed`,
+  non `ensureOpen`): il risparmio è CPU/bridge, non contesa sul file. Chiamate al minuto:
+  desktop minimizzato 30→0, browser in uso 60→30, browser in background 60→0.
 
 - **7 `catch` vuoti in `_refreshFromExternalChange`** — `js/init.js:49, 64, 68, 72, 76, 81, 85`
   Proprio sul percorso che gira quando il DB è appena stato risincronizzato da OneDrive. Se

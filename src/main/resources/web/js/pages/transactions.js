@@ -69,14 +69,22 @@ function rangeToFilter(range, from, to) {
   const today = new Date();
   const fmt = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
   const sub = days => { const d = new Date(today); d.setDate(d.getDate()-days); return d; };
+  // Sottrae mesi limitando il giorno all'ultimo del mese di arrivo. setMonth() non satura ma
+  // trabocca (31 maggio −3 mesi = 31 febbraio → 3 marzo), quindi "Ultimi 3 mesi" chiesto il
+  // 31 maggio sarebbe partito dal 3 marzo escludendo 5 giorni, e il totale sarebbe cambiato
+  // rispetto al giorno prima senza motivo apparente. Stessa regola di _schedOccurrences
+  // (scheduled.js) e nextCouponDate (portfolio.js).
+  const subMonths = n => {
+    const y = today.getFullYear(), m = today.getMonth() - n;
+    const lastDom = new Date(y, m + 1, 0).getDate();   // giorno 0 = ultimo del mese precedente
+    return new Date(y, m, Math.min(today.getDate(), lastDom));
+  };
   switch (range) {
     case '7d':        return { date_from: fmt(sub(6)),  date_to: fmt(today) };
     case '14d':       return { date_from: fmt(sub(13)), date_to: fmt(today) };
     case '30d':       return { date_from: fmt(sub(29)), date_to: fmt(today) };
-    case '3m':        { const d=new Date(today); d.setMonth(d.getMonth()-3);
-                        return { date_from: fmt(d), date_to: fmt(today) }; }
-    case '6m':        { const d=new Date(today); d.setMonth(d.getMonth()-6);
-                        return { date_from: fmt(d), date_to: fmt(today) }; }
+    case '3m':        return { date_from: fmt(subMonths(3)), date_to: fmt(today) };
+    case '6m':        return { date_from: fmt(subMonths(6)), date_to: fmt(today) };
     case 'cur_month': { const d=new Date(today.getFullYear(), today.getMonth(), 1);
                         return { date_from: fmt(d), date_to: fmt(today) }; }
     case 'prev_month':{ const d=new Date(today.getFullYear(), today.getMonth()-1, 1);
@@ -111,8 +119,10 @@ function rangeToFilter(range, from, to) {
       const mM = range && range.match(/^(\d+)m$/);
       const mY = range && range.match(/^(\d+)y$/);
       if (mD) { const n=parseInt(mD[1]); return { date_from: fmt(sub(n-1)), date_to: fmt(today) }; }
-      if (mM) { const d=new Date(today); d.setMonth(d.getMonth()-parseInt(mM[1])); return { date_from: fmt(d), date_to: fmt(today) }; }
-      if (mY) { const d=new Date(today); d.setFullYear(d.getFullYear()-parseInt(mY[1])); return { date_from: fmt(d), date_to: fmt(today) }; }
+      // Stesso clamp dei preset 3m/6m: anche qui setMonth/setFullYear traboccherebbero
+      // (il 29 febbraio −1 anno darebbe il 1° marzo invece del 28 febbraio).
+      if (mM) { return { date_from: fmt(subMonths(parseInt(mM[1]))),      date_to: fmt(today) }; }
+      if (mY) { return { date_from: fmt(subMonths(parseInt(mY[1]) * 12)), date_to: fmt(today) }; }
       return { date_from: fmt(sub(29)), date_to: fmt(today) };
     }
   }

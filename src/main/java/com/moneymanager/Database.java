@@ -3744,7 +3744,8 @@ public class Database {
                    COALESCE(agg.total_dividends,        0)        AS total_dividends,
                    COALESCE(agg.total_expenses,         0)        AS total_expenses,
                    COALESCE(agg.total_other_expenses,   0)        AS total_other_expenses,
-                   COALESCE(agg.total_sell_commissions, 0)        AS total_sell_commissions
+                   COALESCE(agg.total_sell_commissions, 0)        AS total_sell_commissions,
+                   COALESCE(agg.total_buy_commissions,  0)        AS total_buy_commissions
             FROM portfolio p
             JOIN accounts a ON p.account_id = a.id
             LEFT JOIN (
@@ -3760,7 +3761,14 @@ public class Database {
                                  AND COALESCE(pt.notes,'') NOT IN ('Commissione','Commissione acquisto')
                                 THEN pt.price ELSE 0 END)                              AS total_other_expenses,
                        SUM(CASE WHEN pt.type = 'expense' AND pt.notes = 'Commissione'
-                                THEN COALESCE(pt.commission,0) ELSE 0 END)             AS total_sell_commissions
+                                THEN COALESCE(pt.commission,0) ELSE 0 END)             AS total_sell_commissions,
+                       -- Commissioni d'acquisto: lette dalla riga 'buy' stessa, non dalla riga
+                       -- 'expense' di contropartita. Le due sono sempre di pari importo, ma le
+                       -- posizioni importate via "Carica esistente" hanno solo la riga buy.
+                       -- Servono a scorporare la commissione dal P&L mkt, che per definizione
+                       -- misura la sola variazione di prezzo (avg_price la include invece già).
+                       SUM(CASE WHEN pt.type = 'buy'
+                                THEN COALESCE(pt.commission,0) ELSE 0 END)             AS total_buy_commissions
                 FROM portfolio_transactions pt
                 GROUP BY pt.portfolio_id
             ) agg ON agg.portfolio_id = p.id

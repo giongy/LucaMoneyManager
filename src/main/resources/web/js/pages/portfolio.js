@@ -28,6 +28,20 @@ function portfolioItemValue(i, useAvg = false) {
   return i.quantity * price;
 }
 
+// Commissione d'acquisto ancora "dentro" la posizione detenuta.
+// avg_price incorpora le commissioni di acquisto (vedi buyStock), quindi ogni calcolo
+// basato su avg_price le sconta già. Il P&L mkt però deve misurare la sola variazione
+// di prezzo: per scorporarle serve la quota di commissione relativa alle quote ancora
+// in portafoglio — sul venduto la commissione è già confluita nel realized.
+function heldBuyCommission(i) {
+  const buyComm = i.total_buy_commissions || 0;
+  if (!buyComm) return 0;
+  const soldQty = i.total_sold_qty || 0;
+  const totQty  = i.quantity + soldQty;
+  if (totQty <= 0) return 0;
+  return buyComm * (i.quantity / totQty);
+}
+
 // ── Metriche di rendimento ──────────────────────────────────────────────────
 
 // Current yield netto annuo: cedola netta annua / prezzo attuale × 100
@@ -104,8 +118,12 @@ async function renderPortfolio() {
   const totalInvested    = visibleItems.reduce((s,i) => s + portfolioItemValue(i, true), 0);
   const totalCurrent     = visibleItems.reduce((s,i) => s + portfolioItemValue(i, false), 0);
   const totalCommissions = visibleItems.reduce((s,i) => s + (i.total_commissions || 0), 0);
-  const totalPnL         = totalCurrent - totalInvested;
-  const pnlPct           = totalInvested ? (totalPnL/totalInvested)*100 : 0;
+  // P&L mercato = sola variazione di prezzo: scorpora le commissioni d'acquisto che
+  // avg_price (e quindi totalInvested) include già. Coerente con la colonna "P&L mkt".
+  const totalHeldBuyComm = visibleItems.reduce((s,i) => s + heldBuyCommission(i), 0);
+  const totalPnL         = totalCurrent - totalInvested + totalHeldBuyComm;
+  const pnlBase          = totalInvested - totalHeldBuyComm;
+  const pnlPct           = pnlBase ? (totalPnL/pnlBase)*100 : 0;
   const totalNominal     = visibleItems.filter(i => i.asset_type === 'bond').reduce((s,i) => s + (i.quantity || 0), 0);
   const totalCoupons     = visibleItems.reduce((s,i) => s + (i.total_coupons   || 0), 0);
   const totalDividends   = visibleItems.reduce((s,i) => s + (i.total_dividends || 0), 0);
@@ -170,7 +188,7 @@ async function renderPortfolio() {
         <div class="stat-label">📊 Valore Attuale</div>
         <div class="stat-value" style="color:var(--accent2)">${fmt.currency(totalCurrent)}</div>
       </div>
-      <div class="stat-card" title="Variazione di prezzo dei titoli ancora in portafoglio (valore attuale − costo medio)">
+      <div class="stat-card" title="Variazione di prezzo dei titoli ancora in portafoglio: valore attuale − prezzo pagato al mercato (commissioni escluse, sono nel Tot. Return)">
         <div class="stat-label">📈 P&L Mercato</div>
         <div class="stat-value ${totalPnL>=0?'pnl-positive':'pnl-negative'}">${fmt.currency(totalPnL)}</div>
         <div class="stat-sub ${totalPnL>=0?'pnl-positive':'pnl-negative'}">${fmt.pct(pnlPct)}</div>
@@ -229,7 +247,9 @@ async function renderPortfolio() {
             const val  = portfolioItemValue(i, false);
             const cost = portfolioItemValue(i, true);
             const tr   = positionTotalReturn(i);
-            const pnl  = val - cost;
+            // P&L mkt = sola variazione di prezzo, al lordo della commissione d'acquisto
+            // (che avg_price — e quindi cost — include già). Il Tot. Return resta netto.
+            const pnl  = val - cost + heldBuyCommission(i);
             // P&L mkt al netto del capital gain: solo azioni in guadagno, 26% sulla plusvalenza da prezzo.
             const isEq = (i.asset_type || 'equity') === 'equity';
             const nettoCg = (isEq && pnl > 0) ? pnl * 0.74 : null;
@@ -264,7 +284,9 @@ async function renderPortfolio() {
           return rows.map(i => {
             const isBond = i.asset_type === 'bond';
             const val = i._val, cost = i._cost, pnl = i._pnl, comm = i._comm;
-            const pnlP = cost ? (pnl/cost)*100 : 0;
+            // Base coerente col numeratore: costo al netto della commissione già inclusa in avg_price
+            const costMkt = cost - heldBuyCommission(i);
+            const pnlP = costMkt ? (pnl/costMkt)*100 : 0;
             const totret = i._totret, totretPct = i._totretPct;
             const priceDisplay = isBond ? `${(i.avg_price||0).toFixed(4)} %` : fmt.price(i.avg_price);
             const priceUnit    = isBond ? '%' : '€';
@@ -317,7 +339,7 @@ async function renderPortfolio() {
               <td class="text-right">${fmt.currency(val)}</td>
               <td class="text-right ${i._nettoCg != null ? 'pnl-positive' : ''}" style="font-size:12px" title="P&L mkt al netto del capital gain (26% sulla plusvalenza da prezzo). Solo azioni in guadagno.">${i._nettoCg != null ? fmt.currency(i._nettoCg) : '<span style="color:var(--txt3)">—</span>'}</td>
               <td class="text-right" style="color:var(--txt3);font-size:12px">${comm > 0 ? fmt.currency(comm) : '—'}</td>
-              <td class="text-right ${pnl>=0?'pnl-positive':'pnl-negative'}" title="P&L solo da variazione di prezzo (escluso cedole, dividendi, commissioni)">${fmt.currency(pnl)}<br><small>${fmt.pct(pnlP)}</small></td>
+              <td class="text-right ${pnl>=0?'pnl-positive':'pnl-negative'}" title="P&L della sola variazione di prezzo: prezzo attuale vs prezzo pagato al mercato (esclusi cedole, dividendi, commissioni). Il Tot. Return include invece le commissioni.">${fmt.currency(pnl)}<br><small>${fmt.pct(pnlP)}</small></td>
               <td class="text-right ${totret>=0?'pnl-positive':'pnl-negative'}" title="Rendimento complessivo: valore attuale + vendite + cedole/dividendi − acquisti − commissioni − spese">${fmt.currency(totret)}<br><small>${fmt.pct(totretPct)}</small></td>
             </tr>`;
           }).join('');

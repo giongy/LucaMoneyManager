@@ -1751,7 +1751,14 @@ function nextCouponDate(maturityDateStr, frequency) {
     for (let month = 1; month <= 12; month++) {
       const diff = ((month - matMonth) % 12 + 12) % 12;
       if (diff % intervalMonths === 0) {
-        const d = new Date(year, month - 1, day);
+        // Il giorno va limitato all'ultimo del mese: Date non satura ma trabocca, quindi
+        // per una scadenza al 31 il candidato di febbraio diventerebbe il 3 marzo e quello
+        // di novembre il 1° dicembre. La data sbagliata verrebbe poi proposta come prima
+        // cedola e salvata come start_date della pianificata ricorrente, propagandosi a
+        // tutte le occorrenze future. Stessa regola già applicata in _schedOccurrences
+        // (scheduled.js) e in LocalDate.plusMonths lato Java, che clampa da sé.
+        const lastDom = new Date(year, month, 0).getDate();  // giorno 0 = ultimo del mese prec.
+        const d = new Date(year, month - 1, Math.min(day, lastDom));
         if (d <= mat && d >= today) candidates.push(d);
       }
     }

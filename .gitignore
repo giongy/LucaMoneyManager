@@ -27,6 +27,9 @@ debug.log
 .claude/*
 !.claude/commands/
 
+# Screenshot generati da tools/screenshot.ps1 (artefatti di verifica, non codice)
+tools/screenshots/
+
 # OS
 Thumbs.db
 .DS_Store

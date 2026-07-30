@@ -76,7 +76,7 @@ Le query girano deliberatamente **fuori** dal lock (per non serializzarle): è p
 
 - **Lingua:** tutto in italiano (commenti, stringhe UI, messaggi errore)
 - **Naming:** PascalCase classi, camelCase metodi/variabili, UPPER_SNAKE_CASE costanti, snake_case tabelle DB
-- **Nessun test automatico** — test manuale via UI
+- **Nessun test automatico** sulla logica — test manuale via UI. Per la **resa grafica** esiste però una verifica automatizzabile: vedi "Verifica visiva dell'UI" più sotto
 - **Nessun framework JS** — Vanilla JS puro
 - **Commenti sezione** con separatori Unicode `── ──`
 - **SQL:** text blocks Java (`"""..."""`)
@@ -91,6 +91,58 @@ Il tema light **non deve essere bianco puro** — l'utente lo trova aggressivo.
 - Gerarchia obbligatoria: `bg3 < bg < bg2` (cards più chiare dello sfondo, mai #fff)
 - Valori approvati: `bg=#dce0e7`, `bg2=#e9ecf2`, `bg3=#d0d5dc`
 - Badge mensile/annuale in light richiedono override con colori solidi (le trasparenze dark non funzionano)
+
+---
+
+## Verifica visiva dell'UI (screenshot automatici)
+
+**Le modifiche a CSS/layout/temi vanno verificate guardando l'app, non deducendole dal codice.**
+Grep e lettura dei file dimostrano che una regola è scritta, non che si veda bene: il contrasto,
+l'impaginazione e il cascade tra temi si giudicano solo sul rendering reale.
+
+### Come funziona
+
+Sfrutta due cose già presenti, senza installare nulla (niente Node/npm/Playwright):
+
+1. **`WebServer`** espone UI + bridge API su HTTP → l'app è pilotabile da un browser normale,
+   con dati veri e non una vista statica.
+2. **Chrome** (già installato) guidato via **DevTools Protocol** (`--remote-debugging-port`).
+
+### Prerequisiti
+
+- App **in esecuzione** con WebServer attivo (Impostazioni → accesso LAN).
+- Porta: **7890** in produzione. L'istanza lanciata da VSCode usa il DB di progetto
+  (`D:\LucaMoneyManager\luca.db`) e conviene tenerla su una porta diversa (es. **7891**),
+  così non c'è modo di confondersi coi dati reali su OneDrive.
+- ⚠️ Prima di test che **scrivono**, verificare sempre su quale DB si sta operando:
+  `getSettings` restituisce `db.path`.
+
+### Uso
+
+```powershell
+# Screenshot di una pagina (il -Js gira nella pagina: vede navigate, applyTheme, currentPage...)
+.\tools\screenshot.ps1 -Port 7891 -Js "navigate('budgets')" -Out budget
+.\tools\screenshot.ps1 -Port 7891 -Js "applyTheme('carta'); navigate('transactions')" -Out tx-carta
+
+# Controllo automatico su tutte le pagine: errori JS, overflow-X, elementi che sforano,
+# contrasto WCAG sui bottoni pieni
+.\tools\check-ui.ps1 -Port 7891 -Theme carta
+.\tools\check-ui.ps1 -Port 7891 -Theme petrolio -Pages dashboard,budgets
+```
+
+Gli screenshot finiscono in `tools/screenshots/` (in .gitignore: sono artefatti, non codice).
+
+`-Js` serve anche a **misurare** invece che stimare — es. leggere i colori calcolati:
+```js
+getComputedStyle(document.querySelector('.btn-primary')).color   // "rgb(255, 255, 255)"
+```
+
+### Limiti (importanti)
+
+- **Chrome non è JCEF**: stesso motore Chromium, ma font, emoji e `backdrop-filter`
+  (tema glassy) possono rendere diversamente. Ottima approssimazione, non prova definitiva.
+- **Non copre Swing**: titlebar custom, tray, splash, dialog nativi, resize handles.
+  Quella parte resta verificabile solo a mano.
 
 ---
 

@@ -43,14 +43,21 @@ nomi conto/categoria contenenti `&` o apostrofi.
 
 ## Calcoli e date
 
-- **`evalAmount` accetta numeri malformati** — `js/utils.js:56-81`
-  Il regex valida l'alfabeto dei caratteri, non la grammatica; `parseFloat` non fallisce ma
-  tronca. `"12.34.56"` → salva **12.34**. Producibile col tastierino della calcolatrice, che
-  non controlla i punti già inseriti. Alimenta quantità e prezzi in portfolio.
+- ~~**`evalAmount` accetta numeri malformati**~~ ✅ **fatto** (commit `5d34c30`)
+  Confermato eseguendo la logica: `"12.34.56"` → 12.34, `"5..5"` → 5, `"1.2.3"` → 1.2,
+  `"12,34,56"` → 12.34. Verificato anche il vettore: `_append` in `calculator.js` concatena il
+  punto senza controllare quelli già presenti. Aggiunto un helper `num()` che valida la forma di
+  ogni operando, così un operando malformato annulla l'intera espressione. Testato su 28 casi:
+  gli 11 malformati ora danno `null`, i 17 legittimi restano invariati (compresi `.5`, `12.`,
+  `12,5` e `allowNegative` della calcolatrice). Bonus: l'anteprima della calcolatrice mostra `—`
+  invece di un importo plausibile ma sbagliato.
 
-- **Date cedola a fine mese** — `js/pages/portfolio.js:1739` (`nextCouponDate`)
-  `new Date(y, m, 31)` per un mese di 30 giorni trabocca nel mese successivo. Stesso difetto
-  già corretto in `_schedOccurrences`: il fix è analogo (clamp con `new Date(y, m+1, 0).getDate()`).
+- ~~**Date cedola a fine mese**~~ ✅ **fatto** (commit `1b98467`)
+  Confermato — riga reale **1755**, non 1739. Sei casi su dieci davano una data sbagliata: con
+  scadenza al 31, febbraio diventava 3 marzo e novembre 1° dicembre. Il caso peggiore era un bond
+  29/02/2028 a cedola annuale, che proponeva `2026-03-01` invece di `2027-02-28`. Applicato il
+  clamp con `new Date(year, month, 0).getDate()`, la stessa regola di `_schedOccurrences`.
+  Verificato anche sugli anni bisestili (29 feb nel 2028, 28 nel 2027).
 
 - **`rangeToFilter('3m'/'6m')`** — `js/pages/transactions.js:76-79`
   `setMonth()` su una data di fine mese sfasa il periodo: il 31 maggio "Ultimi 3 mesi" parte
@@ -74,11 +81,20 @@ nomi conto/categoria contenenti `&` o apostrofi.
   ≤ x6.2), prima un trattino grigio con tooltip esplicativo. Barra e marker del banner restano
   visibili da subito: confrontano percentuali, non amplificano nulla.
 
-- **Budget "Mensile" ridistribuisce invece di tenere fisso** — `js/pages/budget.js:131-141`
-  L'hint UI dice "Stesso importo per tutti i 12 mesi", il codice tratta il master come tetto
-  annuo `master×12` da ridistribuire sui mesi liberi. Fissando gennaio a 300 €, gli altri 11
-  scendono da 100 € a 81,82 €.
-  **Richiede una decisione:** o si cambia il codice, o si cambia l'hint. Uno dei due mente.
+- ~~**Budget "Mensile" ridistribuisce invece di tenere fisso**~~ ❌ **FALSO POSITIVO — non
+  toccare** (verificato il 2026-07-30, comportamento confermato voluto dall'utente)
+  `master × 12` **è** un tetto annuo da ridistribuire sui mesi liberi: è il design, non un bug.
+  Il codice lo documenta in tre punti indipendenti:
+  - `budget.js:286` — «Valore calcolato: (master − mesi fissati) ÷ mesi liberi.»
+  - `budget.js:287` — «il restante del master verrà ridistribuito sugli altri mesi liberi»
+  - `budget.js:316-320` — warning esplicito di **sforo del tetto** se la somma dei mesi fissati
+    supera `master × 12`, con tolleranza 0,5 € per gli arrotondamenti. Questo controllo ha senso
+    solo se `master × 12` è un tetto: è la prova che la semantica è intenzionale.
+
+  L'agent aveva letto l'hint del modale («Stesso importo per tutti i 12 mesi») come una promessa
+  violata. L'hint descrive invece il caso normale: **senza mesi fissati a mano i 12 mesi hanno
+  davvero lo stesso importo**. La ridistribuzione avviene solo quando se ne fissa uno, ed è
+  spiegata nel tooltip di cella. Nessuna modifica da fare, né al codice né all'hint.
 
 ---
 

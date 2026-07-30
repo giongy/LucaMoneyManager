@@ -18,6 +18,16 @@ let _notesState = { search: '', tagFilter: null };
 let _quill = null;            // istanza Quill attiva nel modale
 let _editingNote = null;      // nota in editing (null = nuova)
 
+/** Rilascia l'editor note. Chiamata da closeModal (ui-shell) a OGNI chiusura del modale:
+ *  prima l'azzeramento avveniva solo nel path di successo di _saveNoteFromModal, quindi
+ *  chiudendo con ✕ o dopo un salvataggio fallito restavano appesi sia l'istanza Quill (col
+ *  suo albero DOM, ormai orfano perché openModal riscrive #modalBody) sia _editingNote —
+ *  e un _editingNote stantio fa salvare la nota nuova sopra quella vecchia. */
+window._resetNoteEditor = () => {
+  _quill = null;
+  _editingNote = null;
+};
+
 // Disegna la pagina Note: barra ricerca + filtro tag + griglia di card "post-it"; collega gli handler.
 async function renderNotes() {
   const pg = document.getElementById('pg-notes');
@@ -313,8 +323,8 @@ async function _saveNoteFromModal() {
       title, content, color, pinned, tag_ids,
     });
     toast(_editingNote ? 'Nota aggiornata' : 'Nota salvata');
-    _quill = null;
-    _editingNote = null;
+    // Il reset di _quill/_editingNote lo fa closeModal via _resetNoteEditor (vale per ogni
+    // chiusura, non solo per il salvataggio riuscito): qui basta leggere il flag prima.
     renderNotes();
   } catch (e) {
     toast('Errore: ' + e.message, 'error');

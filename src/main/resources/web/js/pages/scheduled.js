@@ -86,6 +86,9 @@ function _schedOccurrences(startDate, freq, endDate) {
 
 let _schedSort   = { col: 'days', dir: 'asc' };
 let _schedFilter = { type: '', active: '1', category: '', tags: new Set() };
+// Handler "chiudi dropdown tag al click fuori": tenuto a livello di modulo per poterlo
+// rimuovere prima di registrarne uno nuovo a ogni render (vedi renderSchedLista).
+let _schedCloseTagDrop = null;
 
 // Costruisce le <option> del filtro categoria (parent con figli annidati; "p:id" = intero ramo parent).
 function _buildSchedCatOptions(categories) {
@@ -205,12 +208,19 @@ async function renderSchedLista() {
       _renderSchedRows(scheds);
     });
   });
-  document.addEventListener('click', function _closeTagDrop(e) {
+  // Il listener si auto-rimuoveva solo se il click cadeva FUORI dal dropdown, quindi ogni
+  // renderSchedLista() (skip, registra, elimina, salvataggio del modale…) ne aggiungeva uno
+  // nuovo su document. Ognuno catturava via closure il tagDrop del proprio render, ormai
+  // orfano dopo el.innerHTML, impedendo il GC dell'intero sottoalbero. Ora il riferimento è
+  // a livello di modulo e il precedente viene rimosso prima di registrare il nuovo.
+  if (_schedCloseTagDrop) document.removeEventListener('click', _schedCloseTagDrop);
+  _schedCloseTagDrop = e => {
     if (!document.getElementById('sfTagWrap')?.contains(e.target)) {
-      if (tagDrop) tagDrop.style.display = 'none';
-      document.removeEventListener('click', _closeTagDrop);
+      const dd = document.getElementById('sfTagDrop');
+      if (dd) dd.style.display = 'none';
     }
-  });
+  };
+  document.addEventListener('click', _schedCloseTagDrop);
 
   _renderSchedRows(scheds);
 }
@@ -758,9 +768,25 @@ function _resolveOverdue(schedId) {
   updateNoticeBtn();
 }
 
+// Rilegge una pianificata dal backend ricalcolandone _next, invece di fidarsi di
+// window._schedCache: quella cache è popolata solo da renderSchedLista() e sopravvive al
+// cambio di tab e di pagina, quindi può contenere un _next già superato (es. la pianificata
+// è stata eseguita nel frattempo dalla dashboard). Le operazioni che SCRIVONO sul DB
+// (skip/registra) devono partire dal dato fresco, altrimenti avanzano a una data sbagliata.
+async function _freshSched(id) {
+  const all = await api.getScheduled();
+  const s = all.find(x => x.id === id);
+  if (!s) return null;
+  // Stesso calcolo di renderSchedLista: start_date È già la prossima occorrenza (il backend
+  // la avanza), quindi nessuna conversione Date — solo il controllo di fine validità.
+  const hasEnded = s.end_date && s.start_date > s.end_date;
+  s._next = (!s.is_active || hasEnded) ? null : s.start_date;
+  return s;
+}
+
 // Salta l'occorrenza corrente: avanza start_date alla prossima senza creare transazioni.
 window.skipSched = async id => {
-  const s = window._schedCache?.[id];
+  const s = await _freshSched(id);
   if (!s || !s._next) return;
   await api.advanceScheduled(id, s._next);
   _resolveOverdue(id);
@@ -771,7 +797,7 @@ window.skipSched = async id => {
 // Registra l'occorrenza: apre il modale transazione precompilato (aggiunge il tag "Da Budget")
 // e, al salvataggio, avanza la pianificata alla prossima data.
 window.registerSched = async id => {
-  const s = window._schedCache?.[id];
+  const s = await _freshSched(id);   // mai dalla cache: vedi _freshSched
   if (!s || !s._next) return;
   const [cats, accs, tags] = await Promise.all([
     api.getCategories(), api.getAccounts(), api.getTags()

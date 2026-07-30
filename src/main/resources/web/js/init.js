@@ -50,7 +50,8 @@ async function _refreshFromExternalChange(toDashboard) {
   } else {
     // App in foreground, utente al lavoro: ridisegna la pagina corrente senza spostarlo.
     // renderPage() rilegge i dati dal DB appena risincronizzato.
-    try { await renderPage(currentPage); } catch(e) {}
+    try { await renderPage(currentPage); }
+    catch(e) { console.error('refresh esterno: render pagina', e); }
   }
   // Azzera le notice stale e ricontrolla tutto da zero
   _noticeData.length = 0;
@@ -60,33 +61,46 @@ async function _refreshFromExternalChange(toDashboard) {
   // Niente toast "N importate": sarebbe ridondante con la notice "📱 …da telefono da
   // controllare" qui sotto, che segnala le stesse transazioni in modo persistente e con
   // i dettagli. Qui ci limitiamo a ridisegnare per aggiornare i saldi con le nuove transazioni.
+  // I catch qui sotto erano tutti muti. Questa funzione gira PROPRIO quando il DB è appena
+  // stato risincronizzato da OneDrive, cioè nello scenario in cui un fallimento è più
+  // probabile (file lockato, connessione riaperta a metà): inghiottire l'errore in silenzio
+  // rende impossibile capire cosa è andato storto. Il pattern muto è deliberato in init()
+  // (un errore non deve fermare il bootstrap) ma qui non era giustificato da alcun commento.
   try {
     const importate = await api.importPending();
     if (importate && importate.length) {
       await renderPage(currentPage);   // saldi aggiornati con le nuove transazioni, sulla pagina corrente
     }
-  } catch(e) {}
+  } catch(e) {
+    // Unico caso con toast: è il solo canale da cui l'utente può accorgersi che le
+    // transazioni dal telefono non stanno arrivando. Restano in pending.jsonl e senza
+    // questo messaggio non comparirebbe alcun indizio del perché.
+    console.error('refresh esterno: importPending', e);
+    toast('Import dal telefono non riuscito: ' + (e?.message || e), 'error');
+  }
+  // Le notice qui sotto sono informative: un fallimento si nota (la notice non compare) e
+  // un toast per ognuna sarebbe rumore. Basta il log per la diagnosi.
   try {
     const daTelefono = await api.getTransactionsWithTag('phone');
     if (daTelefono.length) showDaTelefonoNotice(daTelefono);
-  } catch(e) {}
+  } catch(e) { console.error('refresh esterno: notice da telefono', e); }
   try {
     const overdue = await api.getOverdue();
     if (overdue.length) showOverdueNotice(overdue);
-  } catch(e) {}
+  } catch(e) { console.error('refresh esterno: notice scadute', e); }
   try {
     const dueToday = await api.getDueToday();
     if (dueToday.length) showDueTodayNotice(dueToday);
-  } catch(e) {}
+  } catch(e) { console.error('refresh esterno: notice in scadenza oggi', e); }
   try {
     const forecasts = await api.getForecasts();
     const ready = forecasts.filter(f => f.is_ready === 1 && !f.archived);
     if (ready.length) showForecastReadyNotice(ready);
-  } catch(e) {}
+  } catch(e) { console.error('refresh esterno: notice previsioni', e); }
   try {
     const unverified = await api.getTransactions({ reconciled: 0, sort_desc: true });
     if (unverified.length) showUnverifiedNotice(unverified);
-  } catch(e) {}
+  } catch(e) { console.error('refresh esterno: notice da verificare', e); }
   updateNoticeBtn();
 }
 

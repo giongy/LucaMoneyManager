@@ -34,6 +34,10 @@ function closeModal() {
   const modal = document.getElementById('modal');
   if (modal) { modal.style.width = ''; modal.className = 'modal'; }
   if (window._budgetDetailChart) { window._budgetDetailChart.destroy(); window._budgetDetailChart = null; }
+  // Editor note: l'istanza Quill e la nota in editing vanno rilasciate a OGNI chiusura, non
+  // solo dopo un salvataggio riuscito (chiudendo con ✕ restavano appese, e un _editingNote
+  // stantio poteva far sovrascrivere la nota sbagliata al salvataggio successivo).
+  if (typeof window._resetNoteEditor === 'function') window._resetNoteEditor();
 }
 
 document.getElementById('modalClose').onclick  = closeModal;

@@ -24,6 +24,8 @@ let _reportChart      = null;
 // Valori derivati a runtime via _fcDeriveMonths() — l'utente sceglie le date,
 // noi calcoliamo quanti mesi richiedere al backend.
 let _fcChart          = null;
+let _fcRunGen         = 0;           // generazione della richiesta forecast in corso: scarta le
+                                     // risposte superate da un click più recente sull'orizzonte
 let _fcParams         = { histFromYm: null, horizonToYm: null };
 let _fcShowNetWorth   = false;       // toggle: previsione patrimonio netto (conti + portfolio + bond)
 
@@ -1271,8 +1273,9 @@ async function renderAnalyticsForecast(token) {
   el.innerHTML = _fcControlsHtml() + `<div id="fcOutput"></div>`;
   _fcBindControls();
   await _runForecastSaldo();
-  // token non serve dopo: _runForecastSaldo scrive nel suo #fcOutput (già creato qui in modo
-  // sincrono) e questa tab non è tra quelle con race sui select periodo (i controlli sono suoi).
+  // token non serve dopo: _runForecastSaldo scrive nel suo #fcOutput, già creato qui in modo
+  // sincrono, e si protegge da sé dalle richieste concorrenti con _fcRunGen (la race di questa
+  // tab è interna — due click sui preset d'orizzonte — non fra tab diverse).
 }
 
 // Tab "Salute Finanziaria": score 0-100 (via utils.computeHealthScore) con dettaglio di tutte
@@ -1664,6 +1667,8 @@ async function renderAnalyticsHealth(token) {
 let _accBalChart = null;
 let _accBalData  = null;   // { accounts, byAccount: {aid: {ym: balance}}, monthCols }
 let _accBalSel   = null;   // Set di account_id selezionati
+let _accBalKnown = null;   // Set di account_id già visti: distingue i conti nuovi da quelli
+                           // che l'utente ha deselezionato a mano (vedi renderAnalyticsAccBal)
 
 // Tab "Saldo Conti": andamento storico del saldo per conto (serie multiple selezionabili).
 async function renderAnalyticsAccBalance(token) {
@@ -1700,6 +1705,32 @@ async function renderAnalyticsAccBalance(token) {
   if (!_accBalSel) {
     const checking = accounts.filter(a => !a.is_closed && a.type === 'checking');
     _accBalSel = new Set((checking.length ? checking : accounts.filter(a => !a.is_closed)).map(a => a.id));
+    _accBalKnown = new Set(accounts.map(a => a.id));
+  } else {
+    // Il Set era inizializzato una volta sola per sessione: un conto creato dopo restava
+    // spento e quindi FUORI dal totale e dalla linea "Totale", che mostravano un patrimonio
+    // inferiore al reale senza alcuna indicazione. Qui si riconcilia: i conti mai visti prima
+    // entrano selezionati (come farebbe una nuova inizializzazione), quelli spariti escono.
+    // _accBalKnown distingue "conto nuovo" da "conto che l'utente ha deselezionato a mano",
+    // altrimenti ogni render riaccenderebbe le voci spente di proposito.
+    const currentIds = new Set(accounts.map(a => a.id));
+    // Difensivo: se _accBalSel è valorizzato ma _accBalKnown no, considera noti i selezionati
+    // (evita di riaccendere in blocco tutto ciò che l'utente aveva spento).
+    _accBalKnown ??= new Set(_accBalSel);
+    for (const a of accounts) {
+      if (!_accBalKnown.has(a.id)) {
+        _accBalKnown.add(a.id);
+        if (!a.is_closed) _accBalSel.add(a.id);
+      }
+    }
+    for (const id of [..._accBalSel])   if (!currentIds.has(id)) _accBalSel.delete(id);
+    for (const id of [..._accBalKnown]) if (!currentIds.has(id)) _accBalKnown.delete(id);
+    // Se la riconciliazione ha svuotato il Set (tutti i conti selezionati eliminati/nascosti),
+    // ricade sul default, altrimenti il grafico resterebbe vuoto senza spiegazione.
+    if (_accBalSel.size === 0) {
+      const fallback = accounts.filter(a => !a.is_closed);
+      _accBalSel = new Set((fallback.length ? fallback : accounts).map(a => a.id));
+    }
   }
 
   // byAccount: aid -> ym -> balance
@@ -1787,6 +1818,12 @@ function _renderAccBalChart() {
     </button>`;
   }).join('');
 
+  // destroy() PRIMA di riscrivere innerHTML: dopo, l'istanza avrebbe già perso il riferimento
+  // al proprio canvas (sostituito) e i listener wheel/pan registrati da zoomOpts() resterebbero
+  // attaccati al nodo staccato. Con _toggleAccBal cliccato più volte si accumulavano canvas
+  // orfani con i loro listener.
+  if (_accBalChart) { _accBalChart.destroy(); _accBalChart = null; }
+
   el.innerHTML = `
     <div style="padding:12px 0 8px">
       <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">${accButtons}</div>
@@ -1799,7 +1836,6 @@ function _renderAccBalChart() {
       </table>
     </div>`;
 
-  if (_accBalChart) { _accBalChart.destroy(); _accBalChart = null; }
   _accBalChart = new Chart(document.getElementById('accBalChart'), {
     data: { labels, datasets },
     options: {
@@ -3143,6 +3179,14 @@ function _fcBindControls() {
 // Tutta la parte pesante (espansione pianificate, mediane, esclusione categorie) è in
 // Database.getForecastEngine; qui si compone, si spiega ("Come ci arrivo") e si disegna.
 async function _runForecastSaldo() {
+  // Generazione dedicata al forecast: i preset d'orizzonte (12m/5a/10a) e gli altri controlli
+  // possono lanciare più _runForecastSaldo concorrenti, tutte in attesa su getForecastEngine
+  // (fino a 120 mesi di proiezione: è la chiamata più lenta della pagina). Senza questa guardia
+  // vinceva l'ULTIMA a completare, non l'ultima richiesta: cliccando 12m → 10a → 12m restava a
+  // schermo il grafico a 10 anni con i controlli che dicevano 12 mesi, e _fcChart veniva
+  // distrutto/ricreato in ordine non deterministico. Il token di tab non basta: la race è
+  // interna alla tab, fra due richieste dello stesso forecast.
+  const gen = ++_fcRunGen;
   const { histMonths, horizonMonths } = _fcDeriveMonths();
   const out = document.getElementById('fcOutput');
   if (!out) return;
@@ -3156,9 +3200,11 @@ async function _runForecastSaldo() {
       api.getForecastExpenseSplit(histMonths),
     ]);
   } catch (e) {
-    out.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><p>${e.message}</p></div>`;
+    if (gen !== _fcRunGen) return;
+    out.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><p>${esc(e.message)}</p></div>`;
     return;
   }
+  if (gen !== _fcRunGen) return;   // richiesta superata da una più recente: non scrivere
 
   const history = engine?.history || [];
   if (history.length < _FC.HIST_MIN) {

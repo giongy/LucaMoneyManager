@@ -687,6 +687,11 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
   const initType = tx?.type || defaultType;
   const expCats = categories.filter(c=>c.type==='expense');
   const incCats = categories.filter(c=>c.type==='income');
+  // Categoria di sistema dei trasferimenti: nel modale non è selezionabile (il cat-picker
+  // resta vuoto per type='transfer'), ma va comunque rimandata al salvataggio, altrimenti
+  // l'UPDATE la sovrascrive con NULL e la transazione perde la categoria con cui era nata
+  // (i trasferimenti creati da Portfolio la impostano — vedi Database.buyPortfolio/sell).
+  const transferCat = categories.find(c=>c.type==='transfer');
   const today = _todayStr();
 
   const body = `
@@ -897,7 +902,8 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
       description:   document.getElementById('f_desc').value.trim(),
       amount,
       type,
-      category_id:   _splitActive ? null : (parseInt(document.getElementById('f_cat').value) || null),
+      category_id:   type === 'transfer' ? (transferCat?.id ?? null)
+                     : _splitActive ? null : (parseInt(document.getElementById('f_cat').value) || null),
       splits,
       account_id:    parseInt(document.getElementById('f_account').value),
       to_account_id: type==='transfer' ? parseInt(document.getElementById('f_toAccount').value)||null : null,

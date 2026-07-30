@@ -59,9 +59,12 @@ nomi conto/categoria contenenti `&` o apostrofi.
   clamp con `new Date(year, month, 0).getDate()`, la stessa regola di `_schedOccurrences`.
   Verificato anche sugli anni bisestili (29 feb nel 2028, 28 nel 2027).
 
-- **`rangeToFilter('3m'/'6m')`** — `js/pages/transactions.js:76-79`
-  `setMonth()` su una data di fine mese sfasa il periodo: il 31 maggio "Ultimi 3 mesi" parte
-  dal 3 marzo invece che dal 28 febbraio.
+- ~~**`rangeToFilter('3m'/'6m')`**~~ ✅ **fatto** (commit `64097f3`)
+  Confermato. I punti col difetto erano **quattro**, non due: i preset `3m`/`6m` e anche il
+  vecchio formato `Nm`/`Ny`, dove `setFullYear` traboccava allo stesso modo (29 feb −1 anno →
+  1° marzo). Introdotto un helper `subMonths()` unico; `Ny` lo riusa ×12. Terza occorrenza dello
+  stesso difetto dopo `_schedOccurrences` e `nextCouponDate`: ora tutte allineate. Verificato su
+  14 casi, compresi il rollover d'anno e le date a metà mese che non devono cambiare.
 
 - ~~**`parseFloat` senza normalizzazione della virgola** — tassazione cedola~~ ✅ **fatto**
   (commit `fd975af`). Confermato e corretto: il campo è `type="text" inputmode="decimal"`,
@@ -124,29 +127,32 @@ nomi conto/categoria contenenti `&` o apostrofi.
 
 ## Stato stantio / leak
 
-- **`_schedCache` mai invalidata** — `js/pages/scheduled.js:124, 217, 752, 763`
-  Sopravvive al cambio tab e pagina. "Inserisci" può registrare una transazione con una data
-  già superata e chiamare `advanceScheduled` con un valore vecchio.
+> ✅ **Tutto il gruppo è stato risolto nel commit `2e0fa67`.** Dettagli sotto.
 
-- **Listener `document` accumulato a ogni render** — `js/pages/scheduled.js:197-202`
-  Si auto-rimuove solo se il click cade fuori dal dropdown. Ogni `renderSchedLista()` ne
-  aggiunge uno nuovo, che trattiene via closure l'albero DOM del render precedente.
+- ~~**`_schedCache` mai invalidata**~~ ✅ Confermato: `skipSched` e `registerSched` la usavano
+  per ricavare `_next` e passarlo a operazioni che **scrivono** sul DB. Aggiunto `_freshSched(id)`
+  che rilegge dal backend. `_showSchedCtx` continua a usare la cache: è solo un menu, e renderlo
+  async sarebbe peggio del male.
 
-- **Istanza Quill mai distrutta** — `js/pages/notes.js:260, 297, 316`
-  `_quill = null` solo nel path di successo. Chiudendo con ✕ o dopo un salvataggio fallito
-  resta un'istanza orfana; `_editingNote` resta valorizzato (rischio di sovrascrittura).
+- ~~**Listener `document` accumulato a ogni render**~~ ✅ Riferimento portato a livello di modulo
+  e rimosso prima di registrare il nuovo; il nodo si risolve via `getElementById` invece che
+  dalla closure, così non trattiene l'albero orfano.
 
-- **`_accBalSel` mai reinizializzato** — `js/pages/analytics.js:1700-1703`
-  Inizializzato una volta per sessione: un conto creato dopo resta escluso dal totale
-  patrimonio senza alcuna indicazione.
+- ~~**Istanza Quill mai distrutta**~~ ✅ Il reset è passato a `closeModal` via
+  `window._resetNoteEditor`, sullo stesso schema del `_budgetDetailChart` già presente lì: vale
+  ora per **ogni** chiusura, non solo dopo un salvataggio riuscito.
 
-- **Token ignorato nel forecast** — `js/pages/analytics.js:1266-1276`
-  Unica tab che riceve `token` e non lo usa. Cliccando 12m → 10a → 12m in rapida successione
-  resta a schermo il grafico della richiesta più lenta, con i controlli che dicono altro.
+- ~~**`_accBalSel` mai reinizializzato**~~ ✅ Il Set viene riconciliato a ogni render: i conti
+  nuovi entrano, quelli spariti escono, e se si svuota si ricade sul default. Serve un secondo
+  Set (`_accBalKnown`) per distinguere un conto nuovo da uno spento a mano dall'utente,
+  altrimenti ogni render riaccenderebbe le voci disattivate di proposito.
 
-- **Chart.js: `innerHTML` prima di `destroy()`** — `js/pages/analytics.js:1790-1803`
-  `_renderAccBalChart` sostituisce il canvas prima di distruggere l'istanza: i listener di
-  `zoomOpts()` restano attaccati al nodo staccato.
+- ~~**Token ignorato nel forecast**~~ ✅ Aggiunto un contatore di generazione `_fcRunGen`. Il
+  token di tab **non** basterebbe: la race è interna alla tab, fra due click sui preset
+  d'orizzonte. Aggiunto anche `esc()` su `e.message`, che finiva grezzo in `innerHTML`.
+
+- ~~**Chart.js: `innerHTML` prima di `destroy()`**~~ ✅ `destroy()` spostato prima della
+  riscrittura.
 
 - ~~**Doppio polling `dbStatus` a 2s**~~ ✅ **fatto** (commit `c851346`)
   Il report era imperciso: **non erano un duplicato da fondere**, alimentano due indicatori
@@ -158,11 +164,11 @@ nomi conto/categoria contenenti `&` o apostrofi.
   non `ensureOpen`): il risparmio è CPU/bridge, non contesa sul file. Chiamate al minuto:
   desktop minimizzato 30→0, browser in uso 60→30, browser in background 60→0.
 
-- **7 `catch` vuoti in `_refreshFromExternalChange`** — `js/init.js:49, 64, 68, 72, 76, 81, 85`
-  Proprio sul percorso che gira quando il DB è appena stato risincronizzato da OneDrive. Se
-  `importPending()` fallisce, le transazioni dal telefono non arrivano mai e non c'è alcun
-  indizio: nessun toast, nessun log. Contrasta con `init()` (righe 441-474), dove lo stesso
-  pattern è deliberato e documentato.
+- ~~**7 `catch` vuoti in `_refreshFromExternalChange`**~~ ✅ (commit `2e0fa67`)
+  Ora tutti loggano. Solo `importPending` mostra anche un **toast**: è l'unico canale da cui
+  l'utente può accorgersi che le transazioni dal telefono non arrivano (restano in
+  `pending.jsonl` senza alcun indizio). Le notice restano al solo log — un fallimento si nota
+  perché la notice non compare, e un toast per ognuna sarebbe rumore.
 
 ---
 

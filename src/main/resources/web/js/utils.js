@@ -57,6 +57,15 @@ function evalAmount(raw, allowNegative = false) {
   if (!raw || !raw.toString().trim()) return null;
   const s = raw.toString().replace(/,/g, '.').replace(/\s/g, '');
   if (!/^[0-9+\-*/.][0-9+\-*/.]*$/.test(s)) return null;
+  // Il test qui sopra valida solo l'ALFABETO dei caratteri, non la grammatica: "12.34.56"
+  // lo supera. parseFloat non fallirebbe su un operando malformato — si ferma al primo
+  // carattere non valido e ritorna il prefisso — quindi "12.34.56" diventerebbe 12.34 e
+  // verrebbe salvato al posto dell'importo digitato, senza alcun segnale. Il tastierino
+  // (calculator.js _append) non impedisce di inserire più punti, quindi il caso è
+  // raggiungibile a mano. Da qui `num()`: accetta un solo separatore decimale e rifiuta
+  // tutto il resto, così un operando malformato annulla l'intera espressione.
+  // Forme accettate: "12", "12.5", ".5", "12." (punto finale di una digitazione a metà).
+  const num = t => /^(?:\d+(?:\.\d*)?|\.\d+)$/.test(t) ? parseFloat(t) : NaN;
   // Split su + e - come nell'originale (lookahead, nessun lookbehind)
   const addTerms = s.split(/(?=[+\-])/).filter(t => t !== '');
   let result = 0;
@@ -67,10 +76,10 @@ function evalAmount(raw, allowNegative = false) {
     else if (rest[0] === '-') { sign = -1; rest = rest.slice(1); }
     // Gestisci * e / all'interno del termine (split con delimitatori)
     const parts = rest.split(/([*\/])/);
-    let val = parseFloat(parts[0]);
+    let val = num(parts[0]);
     if (isNaN(val)) return null;
     for (let i = 1; i < parts.length; i += 2) {
-      const op = parts[i], n = parseFloat(parts[i + 1]);
+      const op = parts[i], n = num(parts[i + 1]);
       if (isNaN(n)) return null;
       if (op === '*') val *= n;
       else { if (n === 0) return null; val /= n; }

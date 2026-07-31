@@ -2114,7 +2114,12 @@ tr.tx-selected td { background:rgba(124,124,255,.07); }
 /* ─── Analytics table ────────────────────────────────────────────────────── */
 .analytics-table { width:100%; border-collapse:collapse; font-size:var(--fs-md,12px); white-space:nowrap; }
 .analytics-table thead th { position:sticky; top:0; background:var(--bg2); padding:5px 10px; font-size:var(--fs-sm,11px); font-weight:600; color:var(--txt2); border-bottom:1px solid var(--border); z-index:2; }
-.analytics-table td { padding:4px 10px; border-bottom:1px solid var(--border); }
+/* Gli importi sono il contenuto della tabella, non contorno: vanno su --txt.
+   La regola globale `td` li lascerebbe su --txt2 (contrasto 5.78:1 — dentro AA,
+   ma slavato in mezzo a 12 colonne di cifre); --txt porta il rapporto a ~12:1. */
+.analytics-table td { padding:4px 10px; border-bottom:1px solid var(--border); color:var(--txt); }
+/* La colonna categoria resta un filo più tenue: è l'etichetta, non il dato. */
+.analytics-table td.analytics-cat-name { color:var(--txt2); }
 .analytics-table tbody tr:nth-child(even) td { background:rgba(255,255,255,.025); }
 .analytics-table tbody tr:hover td { background:var(--bg3); }
 .analytics-cat-name { font-size:var(--fs-md,12px); min-width:160px; }

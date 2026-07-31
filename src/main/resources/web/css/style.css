@@ -96,6 +96,17 @@ html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy
 html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"])) .main {
   background-color: transparent;
 }
+/* Fasce che ospitano le barre delle schede (Pianificate, Budget, Transazioni,
+   Impostazioni): hanno background:var(--bg) inline, una tinta piatta che copriva
+   il gradiente e creava uno stacco netto contro il contenuto sottostante.
+   Rese trasparenti perché il fondo prosegua senza interruzione — serve !important
+   per battere lo stile inline.
+   ⚠️ Solo queste: .sched-toolbar e .tx-add-group usano lo stesso var(--bg) ma
+   sono position:sticky, e dietro ci scorre il contenuto → restano opache. */
+html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"]))
+  :is(#pg-scheduled, #pg-budgets, #pg-transactions, #pg-settings) > div[style*="background:var(--bg)"] {
+  background: transparent !important;
+}
 /* Sidebar: sfumatura verticale + alone freddo in alto, così la colonna non è un
    blocco unico di colore. È la superficie grande sempre a schermo, quindi è qui
    che il tema "si sente" anche nelle pagine dense di tabelle, dove il fondo del

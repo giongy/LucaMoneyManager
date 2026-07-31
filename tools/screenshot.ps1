@@ -40,8 +40,14 @@ param(
   [string]$OutDir   = "",                      # cartella output (default: tools/screenshots)
   [int]$SettleMs    = 0,                       # 0 = attesa automatica (vedi Wait-Idle)
   [int]$MaxWaitMs   = 8000,                    # tetto massimo dell'attesa automatica
-  [int]$Width       = 1600,
-  [int]$Height      = 1000,
+  # Default allineati allo schermo reale dell'utente (1920x1080). L'altezza e'
+  # 970 e non 1080 perche' e' l'area utile: barra applicazioni di Windows (~48px)
+  # e titlebar dell'app (~44px, nascosta in modalita' browser) non fanno parte
+  # del viewport. Scattare piu' stretto di cosi' TAGLIA contenuto reale: a 1600px
+  # le colonne Totale/Media di Categorie/Mese restavano fuori dall'immagine e
+  # sembravano assenti.
+  [int]$Width       = 1920,
+  [int]$Height      = 970,
   [int]$CdpPort     = 9222,                    # porta debug di Chrome
   [switch]$KeepOpen,                           # non chiudere Chrome a fine run
   [switch]$Stamp,                              # aggiunge un progressivo al nome file

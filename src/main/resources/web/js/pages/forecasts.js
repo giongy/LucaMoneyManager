@@ -45,8 +45,11 @@ function _forecastsHTML(list, openCmd) {
         ${rows.map(f => {
           const ready = f.is_ready === 1;
           const statusBadge = ready
-            ? `<span style="background:rgba(63,185,80,.15);color:#3fb950;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">Pronta</span>`
-            : `<span style="background:rgba(124,124,255,.12);color:#7c6cff;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">In attesa</span>`;
+            // Fondo tenue con la tinta viva, testo su variabile di tema: i verdi/viola
+            // accesi sono tarati sui fondi scuri e come testo sui temi chiari
+            // scendevano a 2.2:1 ("Pronta") e 3.3:1 ("In attesa").
+            ? `<span style="background:rgba(63,185,80,.15);color:var(--income);padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">Pronta</span>`
+            : `<span style="background:rgba(124,124,255,.12);color:var(--purple);padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600">In attesa</span>`;
           const clickable = ready || isArchived;
           return `<tr style="${clickable?'cursor:pointer':''}" ${clickable ? `onclick="_forecastDetailId=${f.id};${openCmd}"` : ''}>
             <td style="${tdS};font-weight:600">${fmt.date(f.forecast_date)}</td>

@@ -32,23 +32,46 @@ const zoomOpts = () => ({
 // scuri) il colore quel tanto che basta a raggiungere `target`, MANTENENDO la
 // tinta — così la categoria resta riconoscibile ma il testo si legge.
 // Usarla solo per il testo: come sfondo/bordo il colore originale va benissimo.
-function readableColor(hex, target = 4.5) {
+// `veloAlpha`: opacità di un eventuale velo dello STESSO colore dietro al testo
+// (i badge di Natura Spese usano `colore + '22'`). Chi non ha velo passa 0.
+function readableColor(hex, target = 4.5, veloAlpha = 0) {
   const m = /^#?([a-f\d]{6})$/i.exec(String(hex || '').trim());
   if (!m) return 'var(--txt)';
   let [r, g, b] = [0, 2, 4].map(i => parseInt(m[1].substr(i, 2), 16));
   const lin = v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
   const lum = (r, g, b) => 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
-  // fondo effettivo: --bg2 è il livello delle card, dove questi badge vivono
-  const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg2').trim();
-  const bm = /^#?([a-f\d]{6})$/i.exec(bg);
-  const [br, bg_, bb] = bm ? [0, 2, 4].map(i => parseInt(bm[1].substr(i, 2), 16)) : [233, 237, 243];
-  const bl = lum(br, bg_, bb);
+
+  // Chiaro o scuro? Si deduce da --txt, non dai --bg*: in Glassy i livelli di
+  // sfondo sono rgba() traslucidi (es. --bg2: rgba(255,255,255,.045)) e leggerli
+  // come esadecimale falliva, facendo scurire il testo su un tema SCURO.
+  // --txt invece è sempre un esadecimale ed è, per definizione, il colore
+  // leggibile sul fondo corrente: se è chiaro, il tema è scuro.
+  const tv = getComputedStyle(document.documentElement).getPropertyValue('--txt').trim();
+  const tm = /^#?([a-f\d]{6})$/i.exec(tv);
+  const [tr, tg, tb] = tm ? [0, 2, 4].map(i => parseInt(tm[1].substr(i, 2), 16)) : [27, 36, 48];
+  const temaScuro = lum(tr, tg, tb) > 0.5;
+
+  // Fondo di riferimento. Questi badge hanno il proprio colore al 13% (suffisso
+  // '22') sopra il livello card, quindi il contrasto va calcolato su QUELLA
+  // composizione, non sul fondo nudo: altrimenti si sottostima e il testo esce
+  // comunque poco leggibile. In Glassy/Petrolio i livelli card sono traslucidi
+  // su fondo scuro → si parte da --bg, che è sempre opaco.
+  const bgv = getComputedStyle(document.documentElement).getPropertyValue(temaScuro ? '--bg' : '--bg2').trim();
+  const bm = /^#?([a-f\d]{6})$/i.exec(bgv);
+  let [br, bgc, bb] = bm ? [0, 2, 4].map(i => parseInt(bm[1].substr(i, 2), 16))
+                         : (temaScuro ? [22, 27, 37] : [233, 237, 243]);
+  if (veloAlpha > 0) {
+    br  = Math.round(r * veloAlpha + br  * (1 - veloAlpha));
+    bgc = Math.round(g * veloAlpha + bgc * (1 - veloAlpha));
+    bb  = Math.round(b * veloAlpha + bb  * (1 - veloAlpha));
+  }
+  const bl = lum(br, bgc, bb);
   const cr = (r, g, b) => {
     const a = lum(r, g, b);
     return (Math.max(a, bl) + 0.05) / (Math.min(a, bl) + 0.05);
   };
-  // fondo chiaro → scurisci il testo; fondo scuro → schiariscilo
-  const verso = bl > 0.5 ? 0 : 255;
+  // tema scuro → schiarisci il testo; tema chiaro → scuriscilo
+  const verso = temaScuro ? 255 : 0;
   for (let i = 0; i < 24 && cr(r, g, b) < target; i++) {
     r = Math.round(r + (verso - r) * 0.1);
     g = Math.round(g + (verso - g) * 0.1);

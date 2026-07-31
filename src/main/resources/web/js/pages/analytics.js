@@ -1814,7 +1814,7 @@ function _renderAccBalChart() {
     const col = accColor(a, i);
     return `<button type="button" onclick="_toggleAccBal(${a.id})"
       style="padding:4px 12px;font-size:12px;border-radius:16px;border:1.5px solid ${col};cursor:pointer;
-             background:${on ? col+'33' : 'transparent'};color:${on ? readableColor(col) : 'var(--txt2)'};
+             background:${on ? col+'33' : 'transparent'};color:${on ? readableColor(col, 4.5, 0x33 / 255) : 'var(--txt2)'};
              font-weight:${on ? '600' : '400'};transition:all .15s;white-space:nowrap">
       ${esc(a.icon||'')} ${esc(a.name)}${a.is_closed ? ' ✕' : ''}
     </button>`;
@@ -2149,7 +2149,7 @@ async function renderNatureReport(token) {
         ? `<span style="opacity:.6">${esc(c.parent_name)}:</span>${esc(c.cat_name)}`
         : esc(c.cat_name);
       return `<div class="nature-cat-row" onclick="txFilters={range:'custom',date_from:'${df}',date_to:'${dt}',category_id:${c.cat_id},type:'expense'};navigate('transactions')" title="Vedi transazioni" style="display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:6px;cursor:pointer">
-        <span style="background:${esc(c.color)}22;color:${readableColor(c.color)};padding:2px 8px;border-radius:4px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0">${esc(c.icon)} ${catLabel}</span>
+        <span style="border-left:3px solid ${esc(c.color)};color:var(--txt);padding:2px 8px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0">${esc(c.icon)} ${catLabel}</span>
         <span style="font-weight:600;font-size:12px;white-space:nowrap">${fmt.currency(tot)}</span>
         <span style="color:var(--txt3);font-size:11px;white-space:nowrap;text-align:right;min-width:74px">${c.tx_count} tx · ${pct}%</span>
       </div>`;

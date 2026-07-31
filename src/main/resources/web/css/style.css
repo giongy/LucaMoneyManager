@@ -69,6 +69,56 @@
 }
 
 
+/* ─── Nebbia — atmosfera: gradiente, filigrana, card translucide ─────────── */
+/* Nebbia nasceva su un fondo a tinta unita: corretto ma inerte. Qui si aggiunge
+   profondità con tre strati, gli stessi trucchi di Carta e Glassy riletti in
+   chiave fredda:
+     1. due aloni d'ambiente (azzurro in alto a sx, verde-acqua in basso a dx)
+        che accennano il colore senza sporcare la neutralità dei grigi;
+     2. una micro-filigrana incrociata come la grana di Carta, ma con grigio
+        bluastro e opacità ancora più bassa (.02): a schermo non si "vede", si
+        percepisce solo che il fondo non è morto;
+     3. una velatura chiara diagonale che stacca il fondo dalle card.
+   Come Carta, tutto con gradienti CSS: niente SVG/feTurbulence (JCEF non li
+   renderizza). Come Glassy, niente background-attachment:fixed. */
+html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"])) body {
+  background-color: var(--bg);
+  background-image:
+    radial-gradient(1200px 820px at 12% -8%, rgba(70,130,180,.13), transparent 66%),
+    radial-gradient(1000px 700px at 95% 108%, rgba(23,112,107,.10), transparent 64%),
+    linear-gradient(160deg, rgba(255,255,255,.42) 0%, transparent 42%),
+    repeating-linear-gradient( 45deg, rgba(60,80,105,.020) 0 1px, transparent 1px 3px),
+    repeating-linear-gradient(-45deg, rgba(60,80,105,.020) 0 1px, transparent 1px 3px);
+}
+/* .main trasparente: lascia passare il gradiente del body invece di coprirlo
+   con la tinta piatta (stessa accortezza di Carta). */
+html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"])) .main {
+  background-color: transparent;
+}
+/* Sidebar: sfumatura verticale + alone freddo in alto, così la colonna non è un
+   blocco unico di colore. È la superficie grande sempre a schermo, quindi è qui
+   che il tema "si sente" anche nelle pagine dense di tabelle, dove il fondo del
+   body resta quasi tutto coperto. */
+html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"])) .sidebar {
+  background-image:
+    radial-gradient(420px 300px at 50% -10%, rgba(70,130,180,.16), transparent 70%),
+    linear-gradient(180deg, rgba(255,255,255,.50) 0%, rgba(255,255,255,0) 38%);
+}
+/* Card appena translucide: il gradiente sottostante traspare e le fa "galleggiare",
+   con un filo di luce sul bordo superiore. Nessun backdrop-filter — le card sono
+   decine per pagina e ognuna avvierebbe una passata GPU (lezione di Glassy).
+   ⚠️ La translucenza sta QUI e non su --bg2: quella variabile la usano anche gli
+   elementi sticky (thead, .budget-cat-cell), dietro cui scorre il contenuto. */
+html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"])) .card,
+html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"])) .stat-card {
+  background-color: rgba(255,255,255,.55);
+  border-color: #c3ccd8;
+  box-shadow:
+    0 1px 2px rgba(30,45,65,.07),
+    0 8px 24px rgba(30,45,65,.09),
+    inset 0 1px 0 rgba(255,255,255,.65);
+}
+
 /* ─── Nebbia — correzioni su regole nate per il default scuro ────────────── */
 /* Queste regole valgono SOLO sul tema Nebbia (il default in :root). Sono l'equivalente
    degli override di Carta: servono perché diverse regole base hanno colori fissi pensati
@@ -123,13 +173,8 @@ html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy
 html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"])) .budget-row-child td  { background: var(--bg); }
 html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"])) .budget-row-parent td { background: var(--bg2); }
 
-/* Card come superfici appoggiate: ombra fredda morbida, senza texture (tema sobrio). */
-html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"])) .card,
-html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"])) .stat-card {
-  box-shadow:
-    0 1px 2px rgba(30,45,65,.06),
-    0 6px 18px rgba(30,45,65,.07);
-}
+/* (l'aspetto delle card di Nebbia — translucenza e ombra — è definito più sopra,
+   nella sezione "atmosfera") */
 
 
 /* ─── Carta theme (carta calda, beige pergamena) ─────────────────────────── */

@@ -518,7 +518,9 @@ async function loadProjectionChart(accounts) {
       plugins: { legend: { labels: { color:chartColors().tick } }, zoom: zoomOpts() },
       scales: {
         x: { ticks:{ color:chartColors().tick, maxTicksLimit: isDaily ? 20 : 14 }, grid:{ color:chartColors().grid } },
-        y: { ticks:{ color:chartColors().tick, callback: v => fmt.currency(v) }, grid:{ color:chartColors().grid } }
+        // Asse da zero: senza, Chart.js parte dal minimo dei dati e una crescita
+        // modesta sembra un'impennata (stessa scelta di analytics/dashboard).
+        y: { beginAtZero: true, ticks:{ color:chartColors().tick, callback: v => fmt.currency(v) }, grid:{ color:chartColors().grid } }
       }
     }
   });

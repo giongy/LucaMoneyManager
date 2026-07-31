@@ -15,13 +15,17 @@
 #    .\tools\check-ui.ps1                       # tema corrente, porta 7890
 #    .\tools\check-ui.ps1 -Port 7891 -Theme carta
 #    .\tools\check-ui.ps1 -Theme petrolio -Pages dashboard,budgets
+#    .\tools\check-ui.ps1 -Port 7891 -AllThemes # tutti i temi built-in in sequenza
+#    .\tools\check-ui.ps1 -Port 7891 -NoShots   # solo diagnostica, nessun PNG (piu' veloce)
 # ═══════════════════════════════════════════════════════════════════════════
 param(
   [int]$Port      = 7890,
-  [string]$Theme  = "",                        # carta | petrolio | glassy | "" = non cambiare
+  [string]$Theme  = "",                        # nebbia | carta | petrolio | glassy | "" = non cambiare
   [string[]]$Pages = @("dashboard","accounts","transactions","budgets","scheduled",
                        "portfolio","analytics","categories","tags","notes","settings"),
-  [int]$CdpPort   = 9222
+  [int]$CdpPort   = 9222,
+  [switch]$AllThemes,                          # cicla su tutti i temi built-in
+  [switch]$NoShots                             # niente PNG: solo i controlli
 )
 
 $shot = Join-Path $PSScriptRoot "screenshot.ps1"
@@ -81,33 +85,58 @@ $diag = @'
 })()
 '@
 
-Write-Host ""
-Write-Host "  Controllo UI - porta $Port$(if($Theme){" - tema $Theme"})" -ForegroundColor Cyan
-Write-Host "  ---------------------------------------------------------------"
+# Esegue la diagnostica su tutte le pagine per UN tema. Ritorna il n. di pagine con problemi.
+function Invoke-ThemeCheck([string]$T) {
+  Write-Host ""
+  Write-Host "  Controllo UI - porta $Port$(if($T){" - tema $T"})" -ForegroundColor Cyan
+  Write-Host "  ---------------------------------------------------------------"
 
-$problemi = 0
-foreach ($p in $Pages) {
-  $js = ""
-  if ($Theme) { $js += "try{applyTheme('$Theme')}catch(e){}; " }
-  $js += "try{navigate('$p')}catch(e){}; "
-  $js += $diag
+  $problemi = 0
+  foreach ($p in $Pages) {
+    $js = ""
+    if ($T) { $js += "try{applyTheme('$T')}catch(e){}; " }
+    $js += "try{navigate('$p')}catch(e){}; "
+    $js += $diag
 
-  $name = if ($Theme) { "$Theme-$p" } else { $p }
-  $res  = & $shot -Port $Port -Js $js -Out $name -CdpPort $CdpPort -KeepOpen 2>&1
+    $name = if ($T) { "$T-$p" } else { $p }
+    # NB: non chiamare questa hashtable $args — e' una variabile automatica di PowerShell.
+    $shotArgs = @{ Port = $Port; Js = $js; Out = $name; CdpPort = $CdpPort; KeepOpen = $true }
+    if ($NoShots) { $shotArgs.Probe = $true }
+    $res = & $shot @shotArgs 2>&1
 
-  # Scarta la riga di conferma dello screenshot e l'"ok" della diagnostica:
-  # resta solo l'elenco dei problemi, se ce ne sono.
-  $diagLines = $res | Where-Object { $_ -notmatch '^OK\s' -and $_ -notmatch '^\s*$' -and $_ -ne 'ok' }
-  if ($diagLines) {
-    Write-Host ("  [!] {0}" -f $p) -ForegroundColor Yellow
-    $diagLines | ForEach-Object { Write-Host "      $_" -ForegroundColor Yellow }
-    $problemi++
-  } else {
-    Write-Host ("  [ok] {0}" -f $p) -ForegroundColor Green
+    # Scarta le righe di servizio dello scatto (OK/PIXEL/PROBE) e l'"ok" della
+    # diagnostica: resta solo l'elenco dei problemi, se ce ne sono.
+    $diagLines = $res | Where-Object {
+      $_ -notmatch '^OK\s' -and $_ -notmatch '^PIXEL\s' -and $_ -notmatch '^PROBE\s' -and
+      $_ -notmatch '^\s*$' -and $_ -ne 'ok'
+    }
+    if ($diagLines) {
+      Write-Host ("  [!] {0}" -f $p) -ForegroundColor Yellow
+      $diagLines | ForEach-Object { Write-Host "      $_" -ForegroundColor Yellow }
+      $problemi++
+    } else {
+      Write-Host ("  [ok] {0}" -f $p) -ForegroundColor Green
+    }
   }
+
+  Write-Host "  ---------------------------------------------------------------"
+  if ($problemi) { Write-Host "  $problemi pagine con segnalazioni$(if(-not $NoShots){". Screenshot in tools\screenshots\"})" -ForegroundColor Yellow }
+  else           { Write-Host "  Nessun problema rilevato$(if(-not $NoShots){". Screenshot in tools\screenshots\"})" -ForegroundColor Green }
+  return $problemi
 }
 
-Write-Host "  ---------------------------------------------------------------"
-if ($problemi) { Write-Host "  $problemi pagine con segnalazioni. Screenshot in tools\screenshots\" -ForegroundColor Yellow }
-else           { Write-Host "  Nessun problema rilevato. Screenshot in tools\screenshots\" -ForegroundColor Green }
+$sw = [Diagnostics.Stopwatch]::StartNew()
+$totale = 0
+if ($AllThemes) {
+  # I quattro built-in. Un tema rotto si vede solo provandolo: le regole base
+  # sono condivise, quindi una modifica "per un tema" puo' romperne un altro.
+  foreach ($t in @("nebbia","carta","petrolio","glassy")) { $totale += (Invoke-ThemeCheck $t) }
+} else {
+  $totale = Invoke-ThemeCheck $Theme
+}
+$sw.Stop()
+
+Write-Host ""
+if ($totale) { Write-Host ("  TOTALE: $totale pagine con segnalazioni  ({0:n1}s)" -f $sw.Elapsed.TotalSeconds) -ForegroundColor Yellow }
+else         { Write-Host ("  TOTALE: tutto ok  ({0:n1}s)" -f $sw.Elapsed.TotalSeconds) -ForegroundColor Green }
 Write-Host ""

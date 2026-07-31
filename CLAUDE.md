@@ -127,14 +127,50 @@ Sfrutta due cose già presenti, senza installare nulla (niente Node/npm/Playwrig
 # Controllo automatico su tutte le pagine: errori JS, overflow-X, elementi che sforano,
 # contrasto WCAG sui bottoni pieni
 .\tools\check-ui.ps1 -Port 7891 -Theme carta
-.\tools\check-ui.ps1 -Port 7891 -Theme petrolio -Pages dashboard,budgets
+.\tools\check-ui.ps1 -Port 7891 -AllThemes            # tutti e 4 i temi (~50s)
+.\tools\check-ui.ps1 -Port 7891 -NoShots              # solo diagnostica, niente PNG
 ```
 
 Gli screenshot finiscono in `tools/screenshots/` (in .gitignore: sono artefatti, non codice).
 
-`-Js` serve anche a **misurare** invece che stimare — es. leggere i colori calcolati:
+**Opzioni utili di `screenshot.ps1`:**
+
+| Opzione | A cosa serve |
+|---|---|
+| `-Stamp` | nome progressivo (`out-001.png`, `-002`…): mai sovrascritto |
+| `-Probe` | solo la misura JS, nessun PNG — il modo più rapido di leggere uno stato |
+| `-NoCache` | ignora la cache HTTP: **da usare dopo aver ridistribuito CSS/JS** |
+| `-FullPage` | cattura l'intera pagina, non solo la viewport |
+| `-SettleMs` | forza un'attesa fissa; di default l'attesa è automatica |
+
+L'attesa è **automatica**: lo script aspetta documento pronto, rete ferma e DOM stabile
+(tipicamente ~0,5s invece di 7s fissi), con un tetto di `-MaxWaitMs`. Aspetta anche **dopo**
+il `-Js`, perché `navigate()`/`applyTheme()` ridisegnano: scattare subito catturerebbe il
+render precedente.
+
+`-Js` supporta `await` diretto e più istruzioni separate da `;` (l'ultima fa da valore di
+ritorno, come nella console del browser):
+```powershell
+-Js "(await api.getSettings())['db.path']"          # su quale DB sto lavorando
+-Js "applyTheme('carta'); navigate('budgets'); currentPage"
+```
+
+`-Js` serve soprattutto a **misurare** invece che stimare — es. leggere i colori calcolati:
 ```js
 getComputedStyle(document.querySelector('.btn-primary')).color   // "rgb(255, 255, 255)"
+```
+
+### Leggere l'esito: la riga `PIXEL`
+
+Ogni scatto stampa `PIXEL <hash> <3 colori campionati>`. Serve a non farsi ingannare da una
+**vista in cache** del PNG: se l'immagine sembra invariata ma l'hash cambia, è stantia la
+vista, non il rendering. I colori dicono a colpo d'occhio quale tema è a schermo, senza
+nemmeno aprire il file:
+
+```
+PIXEL 9EC59A9D  #e9edf3 #e9edf3 #e9edf3     <- nebbia (chiaro grigio-azzurro)
+PIXEL 82FE213E  #f4ede0 #f4ede0 #f4ede0     <- carta  (beige)
+PIXEL A64FB224  #16292f #0c191d #16292f     <- petrolio (teal scuro)
 ```
 
 ### Limiti (importanti)
@@ -142,7 +178,14 @@ getComputedStyle(document.querySelector('.btn-primary')).color   // "rgb(255, 25
 - **Chrome non è JCEF**: stesso motore Chromium, ma font, emoji e `backdrop-filter`
   (tema glassy) possono rendere diversamente. Ottima approssimazione, non prova definitiva.
 - **Non copre Swing**: titlebar custom, tray, splash, dialog nativi, resize handles.
-  Quella parte resta verificabile solo a mano.
+  Quella parte resta verificabile solo a mano. In modalità browser la titlebar è nascosta:
+  per ispezionarla serve `-Js "document.getElementById('titlebar').style.display='flex'"`.
+- ⚠️ **Riaprire lo stesso path può mostrare una copia vecchia.** Chi legge i PNG (editor,
+  visualizzatori, agenti) può servirli dalla cache: si finisce per giurare che il rendering
+  sia sbagliato quando il file su disco è giusto. Difese: usare `-Stamp` quando si
+  confrontano più scatti, e **credere alla riga `PIXEL`** più che all'immagine.
+- ⚠️ **Dopo aver ridistribuito CSS/JS** in `target/classes/web/`, usare `-NoCache`: Chrome
+  riusa il foglio di stile precedente e mostrerebbe la versione vecchia.
 
 ---
 

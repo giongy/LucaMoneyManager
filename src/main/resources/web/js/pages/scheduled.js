@@ -703,6 +703,7 @@ function closeSchedContextMenu() {
   document.getElementById('sched-ctx-menu')?.remove();
   document.removeEventListener('click', closeSchedContextMenu);
   document.removeEventListener('contextmenu', closeSchedContextMenu);
+  document.removeEventListener('keydown', _schedCtxEsc);
 }
 
 // Mostra il menu contestuale (tasto destro) di una pianificata: Inserisci/Salta (se attiva e
@@ -754,8 +755,17 @@ window._showSchedCtx = (id, evt) => {
   setTimeout(() => {
     document.addEventListener('click', closeSchedContextMenu, { once: true });
     document.addEventListener('contextmenu', closeSchedContextMenu, { once: true });
+    // Esc chiude, come nel menu delle transazioni: senza, l'unico modo per
+    // farlo sparire era cliccare da qualche parte.
+    document.addEventListener('keydown', _schedCtxEsc);
   }, 0);
 };
+
+// Handler Esc del menu contestuale: nominato (non anonimo) perche'
+// closeSchedContextMenu deve poterlo rimuovere con removeEventListener.
+function _schedCtxEsc(e) {
+  if (e.key === 'Escape') closeSchedContextMenu();
+}
 
 // Rimuove una pianificata dalle notifiche scadute/di oggi dopo che è stata registrata o saltata.
 function _resolveOverdue(schedId) {

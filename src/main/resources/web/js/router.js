@@ -13,11 +13,25 @@ const PAGE_TITLES = {
 let currentPage = 'dashboard';
 let charts = {};
 
+// Chiude i menu contestuali ancora aperti. Va chiamata quando si cambia pagina:
+// quei menu sono overlay in position:fixed appesi a <body>, quindi nascondere la
+// pagina che li ha aperti NON li rimuove. Restavano a schermo con i loro listener
+// di chiusura registrati su document ({once:true}): il primo tasto destro sulla
+// pagina nuova veniva consumato per chiudere il menu vecchio invece di aprire
+// quello giusto — da utente, "a volte devo cliccare due volte".
+// Le funzioni vivono nei rispettivi moduli di pagina: si chiamano solo se definite.
+function closeAllContextMenus() {
+  if (typeof closeSchedContextMenu     === 'function') closeSchedContextMenu();
+  if (typeof closePortfolioContextMenu === 'function') closePortfolioContextMenu();
+  if (typeof _hideCtxMenu              === 'function') _hideCtxMenu();
+}
+
 // Cambia pagina visibile (SPA): aggiorna classi .active, titolo e renderizza la pagina.
 function navigate(page) {
   if (currentPage === page) return;
   // Guardia: pagina inesistente → non toccare la UI (eviterebbe di lasciarla vuota).
   if (!page || !document.getElementById(`pg-${page}`)) return;
+  closeAllContextMenus();
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.getElementById(`pg-${page}`).classList.add('active');

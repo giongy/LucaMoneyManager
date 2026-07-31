@@ -1795,6 +1795,13 @@ function closePortfolioContextMenu() {
   document.getElementById('portfolio-ctx-menu')?.remove();
   document.removeEventListener('click', closePortfolioContextMenu);
   document.removeEventListener('contextmenu', closePortfolioContextMenu);
+  document.removeEventListener('keydown', _portfolioCtxEsc);
+}
+
+// Handler Esc del menu contestuale: nominato (non anonimo) perche'
+// closePortfolioContextMenu deve poterlo rimuovere con removeEventListener.
+function _portfolioCtxEsc(e) {
+  if (e.key === 'Escape') closePortfolioContextMenu();
 }
 
 // Menu contestuale (tasto destro) di una posizione: compra/vendi, cedola/dividendo, spesa,
@@ -1849,6 +1856,8 @@ window._showPortfolioCtx = (portfolioId, evt) => {
   setTimeout(() => {
     document.addEventListener('click', closePortfolioContextMenu, { once: true });
     document.addEventListener('contextmenu', closePortfolioContextMenu, { once: true });
+    // Esc chiude, come nel menu delle transazioni.
+    document.addEventListener('keydown', _portfolioCtxEsc);
   }, 0);
 };
 

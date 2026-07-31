@@ -40,3 +40,4 @@ settings.properties
 allegati/
 deps.txt
 backups/
+luca.db.bak-*

@@ -316,7 +316,7 @@ function _renderAnalyticsControls() {
         </div>
         <span style="color:var(--txt3);font-weight:700">vs</span>
         <div style="display:flex;gap:4px;align-items:center;background:rgba(188,140,255,.10);border:1px solid rgba(188,140,255,.35);padding:4px 8px;border-radius:6px">
-          <span style="font-size:12px;font-weight:600;color:#bc8cff">Periodo B</span>
+          <span style="font-size:12px;font-weight:600;color:var(--purple)">Periodo B</span>
           <label style="font-size:12px;color:var(--txt2)">Da</label>
           <select id="aCompBStartY" class="form-control" style="font-size:12px;padding:3px 6px;width:68px">${yearOpts(bS.y)}</select>
           <select id="aCompBStartM" class="form-control" style="font-size:12px;padding:3px 6px;width:56px">${monthOpts(bS.m)}</select>
@@ -726,7 +726,7 @@ async function renderAnalyticsCatCompare(token) {
       </div>
       <span style="color:var(--txt3);font-weight:700">vs</span>
       <div style="display:flex;gap:4px;align-items:center;background:rgba(188,140,255,.10);border:1px solid rgba(188,140,255,.35);padding:4px 8px;border-radius:6px">
-        <span style="font-size:12px;font-weight:600;color:#bc8cff">Periodo B</span>
+        <span style="font-size:12px;font-weight:600;color:var(--purple)">Periodo B</span>
         <label style="font-size:12px;color:var(--txt2)">Da</label>
         ${dateInput('ccBStart', _catCmpB.startDate)}
         <label style="font-size:12px;color:var(--txt2)">A</label>
@@ -914,14 +914,14 @@ function _renderCatCmpTable() {
   el.innerHTML = `
     <p style="font-size:12px;color:var(--txt3);margin:0 0 8px">
       <span style="color:var(--accent);font-weight:600">A</span> = ${lblA} &nbsp;·&nbsp;
-      <span style="color:#bc8cff;font-weight:600">B</span> = ${lblB}
+      <span style="color:var(--purple);font-weight:600">B</span> = ${lblB}
       &nbsp;·&nbsp; riga evidenziata = più virtuosa (uscita in calo / entrata in crescita)
     </p>
     <table class="analytics-table">
       <thead><tr>
         <th style="${thS}" onclick="_sortCatCmp('name')">${detailLabel}${arrow('name')}</th>
         <th class="text-right" style="${thS};color:var(--accent)" onclick="_sortCatCmp('a')">Periodo A${arrow('a')}</th>
-        <th class="text-right" style="${thS};color:#bc8cff" onclick="_sortCatCmp('b')">Periodo B${arrow('b')}</th>
+        <th class="text-right" style="${thS};color:var(--purple)" onclick="_sortCatCmp('b')">Periodo B${arrow('b')}</th>
         <th class="text-right" style="${thS}" onclick="_sortCatCmp('delta')">Δ Valore${arrow('delta')}</th>
         <th style="${thS};text-align:left;min-width:180px" onclick="_sortCatCmp('pct')">Δ %${arrow('pct')}</th>
       </tr></thead>
@@ -1061,7 +1061,7 @@ async function renderAnalyticsBalance(token) {
         </div>
       </div>
       <div style="flex:1;min-width:260px;padding:10px 14px;background:rgba(188,140,255,.10);border:1px solid rgba(188,140,255,.35);border-radius:8px">
-        <div style="font-size:11px;font-weight:700;color:#bc8cff;text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px">Periodo B · ${labelB}</div>
+        <div style="font-size:11px;font-weight:700;color:var(--purple);text-transform:uppercase;letter-spacing:.5px;margin-bottom:2px">Periodo B · ${labelB}</div>
         <div style="display:flex;gap:18px;flex-wrap:wrap;align-items:baseline">
           <div><span style="color:var(--txt3);font-size:11px">Entrate</span> <b style="color:var(--income)">${fmt.currency(totIncB)}</b></div>
           <div><span style="color:var(--txt3);font-size:11px">Uscite</span>  <b style="color:var(--expense)">${fmt.currency(totExpB)}</b></div>
@@ -1317,11 +1317,11 @@ async function renderAnalyticsHealth(token) {
   const cc = chartColors();
 
   // ── Colori badge componenti ───────────────────────────────────────────────
-  const colS = scoreSavings >= 33 ? 'var(--income)' : scoreSavings >= 18 ? '#e8a838' : 'var(--expense)';
-  const colP = scorePos >= 11 ? 'var(--income)' : scorePos >= 5 ? '#e8a838' : 'var(--expense)';
-  const colR = scoreRunway >= 10 ? 'var(--income)' : scoreRunway >= 6 ? '#e8a838' : 'var(--expense)';
-  const colI = scoreIncTrend >= 13 ? 'var(--income)' : scoreIncTrend >= 6 ? '#e8a838' : 'var(--expense)';
-  const colV = scoreVol >= 7 ? 'var(--income)' : scoreVol >= 4 ? '#e8a838' : 'var(--expense)';
+  const colS = scoreSavings >= 33 ? 'var(--income)' : scoreSavings >= 18 ? 'var(--warn)' : 'var(--expense)';
+  const colP = scorePos >= 11 ? 'var(--income)' : scorePos >= 5 ? 'var(--warn)' : 'var(--expense)';
+  const colR = scoreRunway >= 10 ? 'var(--income)' : scoreRunway >= 6 ? 'var(--warn)' : 'var(--expense)';
+  const colI = scoreIncTrend >= 13 ? 'var(--income)' : scoreIncTrend >= 6 ? 'var(--warn)' : 'var(--expense)';
+  const colV = scoreVol >= 7 ? 'var(--income)' : scoreVol >= 4 ? 'var(--warn)' : 'var(--expense)';
 
   // ── Dati grafici dettaglio ────────────────────────────────────────────────
   const monthlyRates = monthCols.map((_,i) => incomes[i] > 0 ? +(savings[i] / incomes[i] * 100).toFixed(2) : 0);
@@ -1353,35 +1353,35 @@ async function renderAnalyticsHealth(token) {
               desc:  `Quota media di entrate risparmiata negli ultimi ${n} mesi. ≥20% = eccellente (46 pt) · ≥15% = ottimo · ≥10% = buono · ≥5% = sufficiente · ≤3% = scarso · =0% = nullo · <0% = penalità (fino a −23 pt).`,
               got: scoreSavings, max: 46,
               detail: `${avgSavingsRate.toFixed(1)}% medio → ${scoreSavings}/46 pt`,
-              col: scoreSavings>=33?'var(--income)':scoreSavings>=18?'#e8a838':'var(--expense)'
+              col: scoreSavings>=33?'var(--income)':scoreSavings>=18?'var(--warn)':'var(--expense)'
             },
             {
               label: 'Stabilità mensile',
               desc:  `Quota di finestre mobili di 3 mesi chiuse in positivo (somma risparmio &gt; 0). Usare 3 mesi invece del singolo mese evita che una grossa spesa annuale pianificata (tasse, assicurazione) conti come "fallimento" se i mesi vicini la assorbono. 100% = ottimo · ≥75% = buono · &lt;40% = attenzione.`,
               got: scorePos, max: 14,
               detail: `${roll3Pos}/${roll3Total} finestre di 3 mesi positive (${(roll3Pct*100).toFixed(0)}%) → ${scorePos}/14 pt`,
-              col: scorePos>=11?'var(--income)':scorePos>=5?'#e8a838':'var(--expense)'
+              col: scorePos>=11?'var(--income)':scorePos>=5?'var(--warn)':'var(--expense)'
             },
             {
               label: 'Riserva di emergenza',
               desc:  `Mesi di vita coperti dalla riserva disponibile — liquidità (conti non-investimento) più investimenti scontati al ${(investHaircut*100).toFixed(0)}% — divisa per la spesa di un mese tipico (media interquartile su ${n} mesi: scarta il 25% più alto e più basso per ignorare outlier come tasse o vacanze). ≥6 mesi = ottimo (14 pt) · ≥3 = buono · ≥1.5 = sufficiente · ≥0.5 = scarso · &lt;0.5 = critico.`,
               got: scoreRunway, max: 14,
               detail: `${fmt.currency(reserveBalance)} riserva ÷ ${fmt.currency(expMedian)}/mese tipico = <strong>${runwayDisplay} mesi</strong> → ${scoreRunway}/14 pt`,
-              col: scoreRunway>=10?'var(--income)':scoreRunway>=6?'#e8a838':'var(--expense)'
+              col: scoreRunway>=10?'var(--income)':scoreRunway>=6?'var(--warn)':'var(--expense)'
             },
             {
               label: 'Trend del risparmio',
               desc:  `Confronto robusto tra la mediana del risparmio mensile della seconda metà del periodo e quella della prima metà (più stabile di una regressione: un singolo mese-outlier non lo sposta). Normalizzato sul reddito mediano. Crescita &gt;+3%/mese = ottimo · stabile = sufficiente · calo &gt;−3%/mese = critico. Se tutti i mesi sono positivi e risparmi ≥10%, il punteggio minimo è 7 — un calo di tendenza conta meno quando sei sempre in attivo.`,
               got: scoreIncTrend, max: 16,
               detail: `mediana ${fmt.currency(savMedFirst)} → ${fmt.currency(savMedSecond)} (${savSlopePct>=0?'+':''}${savSlopePct.toFixed(1)}%/mese del reddito) → ${scoreIncTrend}/16 pt`,
-              col: scoreIncTrend>=13?'var(--income)':scoreIncTrend>=6?'#e8a838':'var(--expense)'
+              col: scoreIncTrend>=13?'var(--income)':scoreIncTrend>=6?'var(--warn)':'var(--expense)'
             },
             {
               label: 'Stabilità delle entrate',
               desc:  `Semi-deviazione rispetto alla media interquartile (solo mesi sotto il reddito tipico — i bonus non spostano il riferimento). Semi-CV &lt; 3% = ottimo (10 pt) · &lt; 12% = buono · ≥ 30% = variabile.`,
               got: scoreVol, max: 10,
               detail: `Semi-CV ${incCV.toFixed(1)}% → ${scoreVol}/10 pt`,
-              col: scoreVol>=7?'var(--income)':scoreVol>=4?'#e8a838':'var(--expense)'
+              col: scoreVol>=7?'var(--income)':scoreVol>=4?'var(--warn)':'var(--expense)'
             },
           ].map(c=>`
             <div>
@@ -1404,7 +1404,7 @@ async function renderAnalyticsHealth(token) {
           ['Entrate totali',  fmt.currency(totalIncome),  'var(--income)'],
           ['Uscite totali',   fmt.currency(totalExpense), 'var(--expense)'],
           ['Risparmio netto', fmt.currency(totalSavings), totalSavings>=0?'var(--income)':'var(--expense)'],
-          ['Tasso risparmio', avgSavingsRate.toFixed(1)+'%', avgSavingsRate>=15?'var(--income)':avgSavingsRate>=0?'#e8a838':'var(--expense)'],
+          ['Tasso risparmio', avgSavingsRate.toFixed(1)+'%', avgSavingsRate>=15?'var(--income)':avgSavingsRate>=0?'var(--warn)':'var(--expense)'],
         ].map(([label,val,col])=>`
           <div style="padding:14px 16px;background:var(--bg3);border-radius:12px">
             <div style="font-size:11px;color:var(--txt3);margin-bottom:4px">${label}</div>
@@ -1423,7 +1423,7 @@ async function renderAnalyticsHealth(token) {
             <div class="score-badge" style="color:${colS}">${scoreSavings > 0 ? '+' : ''}${scoreSavings} / 46 pt</div>
           </div>
           <div class="health-desc" style="margin-bottom:10px">
-            Percentuale di entrate risparmiata ogni mese. Media: <strong style="color:${avgSavingsRate>=10?'var(--income)':avgSavingsRate>=0?'#e8a838':'var(--expense)'}">${avgSavingsRate.toFixed(1)}%</strong>.
+            Percentuale di entrate risparmiata ogni mese. Media: <strong style="color:${avgSavingsRate>=10?'var(--income)':avgSavingsRate>=0?'var(--warn)':'var(--expense)'}">${avgSavingsRate.toFixed(1)}%</strong>.
             Soglie: ≥20% ottimo · ≥10% buono · ≥5% sufficiente · &lt;0% penalizza il punteggio.
           </div>
           <div style="height:150px"><canvas id="healthRateChart"></canvas></div>
@@ -1525,7 +1525,7 @@ async function renderAnalyticsHealth(token) {
             Mediana: <strong>${fmt.currency(savMedFirst)}</strong> → <strong>${fmt.currency(savMedSecond)}</strong>, pari a
             <strong style="color:${savSlopePct>=0?'var(--income)':'var(--expense)'}">${savSlopePct>=0?'+':''}${savSlopePct.toFixed(1)}% del reddito/mese</strong>.
             La linea a gradino indica i due livelli mediani.
-            ${(posPct===1&&avgSavingsRate>=10)?'<em style="color:var(--income)">Tutti i mesi in attivo con risparmio ≥10%: punteggio minimo garantito a 7.</em>':(posPct>=0.75&&avgSavingsRate>=5)?'<em style="color:#e8a838">Situazione complessivamente positiva: punteggio minimo garantito a 5.</em>':''}
+            ${(posPct===1&&avgSavingsRate>=10)?'<em style="color:var(--income)">Tutti i mesi in attivo con risparmio ≥10%: punteggio minimo garantito a 7.</em>':(posPct>=0.75&&avgSavingsRate>=5)?'<em style="color:var(--warn)">Situazione complessivamente positiva: punteggio minimo garantito a 5.</em>':''}
           </div>
           <div style="height:150px"><canvas id="healthIncChart"></canvas></div>
         </div>
@@ -1802,8 +1802,10 @@ function _renderAccBalChart() {
     return `<tr><td>${m.label}</td>${cells}<td class="text-right" style="font-weight:700">${fmt.currency(tot)}</td></tr>`;
   }).join('');
 
+  // readableColor: i colori conto sono scelti per distinguersi tra loro, non per
+  // essere leggibili come testo (i verdi scendono a 1.7:1 sui temi chiari).
   const headerCells = selAccounts.map((a,i) =>
-    `<th class="text-right" style="color:${accColor(a,i)}">${esc(a.icon||'')} ${esc(a.name)}</th>`
+    `<th class="text-right" style="color:${readableColor(accColor(a,i))}">${esc(a.icon||'')} ${esc(a.name)}</th>`
   ).join('');
 
   // Selettore conti
@@ -1812,7 +1814,7 @@ function _renderAccBalChart() {
     const col = accColor(a, i);
     return `<button type="button" onclick="_toggleAccBal(${a.id})"
       style="padding:4px 12px;font-size:12px;border-radius:16px;border:1.5px solid ${col};cursor:pointer;
-             background:${on ? col+'33' : 'transparent'};color:${on ? col : 'var(--txt2)'};
+             background:${on ? col+'33' : 'transparent'};color:${on ? readableColor(col) : 'var(--txt2)'};
              font-weight:${on ? '600' : '400'};transition:all .15s;white-space:nowrap">
       ${esc(a.icon||'')} ${esc(a.name)}${a.is_closed ? ' ✕' : ''}
     </button>`;
@@ -1912,7 +1914,7 @@ async function renderAnalyticsTrend(token) {
       </label>
     </div>
     <div style="font-size:11px;color:var(--txt3);margin-bottom:10px">
-      La linea <span style="color:rgba(185,120,255,1);font-weight:600">Trend</span> usa il metodo Theil-Sen: mediana delle pendenze tra tutte le coppie di mesi. Più robusto della regressione lineare classica — i mesi anomali (es. spese straordinarie) non distorcono la tendenza.
+      La linea <span style="color:var(--purple);font-weight:600">Trend</span> usa il metodo Theil-Sen: mediana delle pendenze tra tutte le coppie di mesi. Più robusto della regressione lineare classica — i mesi anomali (es. spese straordinarie) non distorcono la tendenza.
     </div>
     <div style="position:relative;height:380px"><canvas id="trendChart"></canvas></div>`;
 
@@ -1973,7 +1975,9 @@ function _renderAnalyticsTrendChart() {
     const pctYear = avg ? (slope * 12 / avg * 100) : 0;
     const pctSign = pctYear >= 0 ? '+' : '';
     const color = slope >= 0 ? 'var(--expense)' : 'var(--income)';
-    slopeEl.innerHTML = `<span style="color:rgba(100,160,255,1);font-weight:600">${fmt.currency(avg)}/mese</span>`
+    // --accent invece del blu chiaro fisso: quest'ultimo è tarato sui temi scuri
+    // e sul fondo chiaro di Nebbia scendeva a 1.99:1.
+    slopeEl.innerHTML = `<span style="color:var(--accent);font-weight:600">${fmt.currency(avg)}/mese</span>`
       + `<span style="color:var(--txt3);margin-left:6px;margin-right:12px">media</span>`
       + `<span style="color:${color};font-weight:600">${sign}${fmt.currency(slope)}/mese</span>`
       + `<span style="color:var(--txt3);margin-left:8px">(${pctSign}${pctYear.toFixed(1)}%/anno)</span>`;
@@ -1983,7 +1987,9 @@ function _renderAnalyticsTrendChart() {
 
   const cc = chartColors();
   const t = document.documentElement.dataset.theme;
-  const isLight    = t === 'carta';
+  // Nebbia è il default (nessun data-theme) ed è un tema CHIARO: prima restava
+  // fuori da isLight e prendeva le varianti pensate per i fondi scuri.
+  const isLight    = t === 'carta' || !t;
   const lineBlue   = isLight ? 'rgba(20,70,190,1)'  : 'rgba(100,160,255,1)';
   const linePurple = isLight ? 'rgba(100,30,190,1)' : 'rgba(185,120,255,1)';
   const barColor = (cat.color && cat.color.startsWith('#') && cat.color.length === 7)
@@ -2088,11 +2094,14 @@ async function renderNatureReport(token) {
   const byCat    = data.by_category || [];
   const totalAll = byNature.reduce((s, r) => s + (Number(r.total) || 0), 0);
 
+  // `color` = tinta viva, per barre e riempimenti (dove la saturazione serve).
+  // `text`  = variabile di tema, per le scritte: i toni vivi sono tarati sui fondi
+  // scuri e come testo su Nebbia scendevano a 1.8-2.4:1.
   const NATURE = {
-    essenziale: { label: 'Essenziale', color: '#3fb950', icon: '🟢' },
-    variabile:  { label: 'Variabile',  color: '#e3b341', icon: '🟡' },
-    superflua:  { label: 'Superflua',  color: '#f85149', icon: '🔴' },
-    '':         { label: 'Non classificata', color: 'var(--txt3)', icon: '⬜' },
+    essenziale: { label: 'Essenziale', color: '#3fb950', text: 'var(--income)',  icon: '🟢' },
+    variabile:  { label: 'Variabile',  color: '#e3b341', text: 'var(--warn)',    icon: '🟡' },
+    superflua:  { label: 'Superflua',  color: '#f85149', text: 'var(--expense)', icon: '🔴' },
+    '':         { label: 'Non classificata', color: 'var(--txt3)', text: 'var(--txt2)', icon: '⬜' },
   };
   const ORDER = ['essenziale', 'variabile', 'superflua', ''];
 
@@ -2106,7 +2115,7 @@ async function renderNatureReport(token) {
       <div class="card" style="padding:16px;flex:1;min-width:130px">
         <div style="font-size:18px;margin-bottom:4px">${m.icon}</div>
         <div style="font-size:12px;font-weight:700;color:var(--txt2);text-transform:uppercase;letter-spacing:.5px">${m.label}</div>
-        <div style="font-size:22px;font-weight:700;color:${m.color};margin:6px 0">${fmt.currency(tot)}</div>
+        <div style="font-size:22px;font-weight:700;color:${m.text};margin:6px 0">${fmt.currency(tot)}</div>
         <div style="font-size:11px;color:var(--txt3)">${pct}% · ${cnt} transazioni</div>
         <div style="margin-top:8px;height:4px;background:var(--bg3);border-radius:2px">
           <div style="height:4px;background:${m.color};border-radius:2px;width:${pct}%"></div>
@@ -2140,7 +2149,7 @@ async function renderNatureReport(token) {
         ? `<span style="opacity:.6">${esc(c.parent_name)}:</span>${esc(c.cat_name)}`
         : esc(c.cat_name);
       return `<div class="nature-cat-row" onclick="txFilters={range:'custom',date_from:'${df}',date_to:'${dt}',category_id:${c.cat_id},type:'expense'};navigate('transactions')" title="Vedi transazioni" style="display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:6px;cursor:pointer">
-        <span style="background:${esc(c.color)}22;color:${esc(c.color)};padding:2px 8px;border-radius:4px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0">${esc(c.icon)} ${catLabel}</span>
+        <span style="background:${esc(c.color)}22;color:${readableColor(c.color)};padding:2px 8px;border-radius:4px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0">${esc(c.icon)} ${catLabel}</span>
         <span style="font-weight:600;font-size:12px;white-space:nowrap">${fmt.currency(tot)}</span>
         <span style="color:var(--txt3);font-size:11px;white-space:nowrap;text-align:right;min-width:74px">${c.tx_count} tx · ${pct}%</span>
       </div>`;
@@ -2148,8 +2157,8 @@ async function renderNatureReport(token) {
     return `
       <div class="card" style="padding:12px 14px">
         <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid var(--border)">
-          <div style="font-size:13px;font-weight:700;color:${m.color}">${m.icon} ${m.label}</div>
-          <div style="font-size:11px;color:var(--txt3)"><strong style="color:${m.color}">${fmt.currency(natureTotal)}</strong> · ${naturePct}% · ${natureTxCount} tx</div>
+          <div style="font-size:13px;font-weight:700;color:${m.text}">${m.icon} ${m.label}</div>
+          <div style="font-size:11px;color:var(--txt3)"><strong style="color:${m.text}">${fmt.currency(natureTotal)}</strong> · ${naturePct}% · ${natureTxCount} tx</div>
         </div>
         ${rows}
       </div>`;

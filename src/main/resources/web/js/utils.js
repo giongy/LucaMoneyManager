@@ -7,17 +7,55 @@
 Chart.defaults.animation.duration = 700;
 Chart.defaults.animation.easing   = 'linear';
 
+// Colori di assi e griglie dei grafici, per tema.
+// ⚠️ Nebbia (default, fondo CHIARO) va nel suo ramo esplicito: prima cadeva nel
+// return finale, tarato per un tema scuro, con due effetti — tick #8b949e a
+// contrasto 2.62:1 sul fondo delle card (sotto il minimo AA di 4.5) e griglia
+// bianca al 6%, di fatto invisibile sul chiaro. Glassy resta l'unico sul default.
 const chartColors = () => {
   const t = document.documentElement.dataset.theme;
-  if (t === 'carta') return { tick: '#8a7860', grid: 'rgba(0,0,0,0.05)' };
+  if (t === 'carta') return { tick: '#6b5a42', grid: 'rgba(90,70,40,0.10)' };
   if (t === 'petrolio') return { tick: '#9db3b8', grid: 'rgba(157,179,184,0.10)' };
-  return { tick: '#8b949e', grid: 'rgba(255,255,255,0.06)' };
+  if (t === 'glassy') return { tick: '#8b949e', grid: 'rgba(255,255,255,0.06)' };
+  return { tick: '#4c5866', grid: 'rgba(45,65,90,0.13)' };   // nebbia
 };
 
 const zoomOpts = () => ({
   zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' },
   pan:  { enabled: true, mode: 'x' }
 });
+
+/* ─── Leggibilità dei colori categoria ────────────────────────────────────── */
+// I colori delle categorie sono scelti per distinguersi tra loro, non per essere
+// leggibili come TESTO: sui temi chiari i verdi acqua e i gialli scendono anche a
+// 1.2:1 sul fondo delle card. Questa funzione scurisce (o schiarisce, sui temi
+// scuri) il colore quel tanto che basta a raggiungere `target`, MANTENENDO la
+// tinta — così la categoria resta riconoscibile ma il testo si legge.
+// Usarla solo per il testo: come sfondo/bordo il colore originale va benissimo.
+function readableColor(hex, target = 4.5) {
+  const m = /^#?([a-f\d]{6})$/i.exec(String(hex || '').trim());
+  if (!m) return 'var(--txt)';
+  let [r, g, b] = [0, 2, 4].map(i => parseInt(m[1].substr(i, 2), 16));
+  const lin = v => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+  const lum = (r, g, b) => 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+  // fondo effettivo: --bg2 è il livello delle card, dove questi badge vivono
+  const bg = getComputedStyle(document.documentElement).getPropertyValue('--bg2').trim();
+  const bm = /^#?([a-f\d]{6})$/i.exec(bg);
+  const [br, bg_, bb] = bm ? [0, 2, 4].map(i => parseInt(bm[1].substr(i, 2), 16)) : [233, 237, 243];
+  const bl = lum(br, bg_, bb);
+  const cr = (r, g, b) => {
+    const a = lum(r, g, b);
+    return (Math.max(a, bl) + 0.05) / (Math.min(a, bl) + 0.05);
+  };
+  // fondo chiaro → scurisci il testo; fondo scuro → schiariscilo
+  const verso = bl > 0.5 ? 0 : 255;
+  for (let i = 0; i < 24 && cr(r, g, b) < target; i++) {
+    r = Math.round(r + (verso - r) * 0.1);
+    g = Math.round(g + (verso - g) * 0.1);
+    b = Math.round(b + (verso - b) * 0.1);
+  }
+  return `rgb(${r}, ${g}, ${b})`;
+}
 
 /* ─── Lazy-load script vendor (caricamento on-demand) ─────────────────────── */
 // Carica uno script una sola volta, restituendo una Promise risolta quando è
@@ -210,7 +248,10 @@ function computeHealthScore(balRows, accounts) {
   const scoreVol   = n < 2 ? 0 : incCV < 3 ? 10 : incCV < 6 ? 9 : incCV < 12 ? 7 : incCV < 20 ? 4 : incCV < 30 ? 1 : 0;
 
   const score      = Math.min(100, scoreSavings + scorePos + scoreRunway + scoreIncTrend + scoreVol);
-  const scoreColor = score >= 75 ? 'var(--income)' : score >= 50 ? '#e8a838' : score >= 30 ? '#e07020' : 'var(--expense)';
+  // Variabili di tema anche per le fasce intermedie: i gialli/arancio fissi erano
+  // tarati sui fondi scuri e sul chiaro scendevano a 1.4:1 (il punteggio è a 52px,
+  // ma la soglia per il testo grande resta 3:1 e non era raggiunta).
+  const scoreColor = score >= 75 ? 'var(--income)' : score >= 50 ? 'var(--warn)' : score >= 30 ? 'var(--orange)' : 'var(--expense)';
   const scoreLabel = score >= 75 ? 'Ottima' : score >= 60 ? 'Buona' : score >= 45 ? 'Discreta' : score >= 30 ? 'Sufficiente' : score >= 0 ? 'Attenzione' : 'Critica';
 
   return {

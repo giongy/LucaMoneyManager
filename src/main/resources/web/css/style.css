@@ -53,7 +53,11 @@
   --orange:   #9a5518;
   --txt:      #1b2430;
   --txt2:     #4c5866;
-  --txt3:     #77828f;
+  /* --txt3 è il grigio dei sottotesti, spesso a 10-11px (didascalie dei report,
+     "ultimi N mesi", unità sotto i valori). A #77828f stava a 3.33:1 sulle card
+     e 2.57:1 su bg3, sotto il minimo AA di 4.5 proprio dove il testo è più
+     piccolo. Scurito a 4.98:1 sulle card, restando distinguibile da --txt2. */
+  --txt3:     #5a6675;
   --shadow:   0 8px 32px rgba(30,45,65,.16);
   --radius:    14px;
   --fs-xs:     10px;

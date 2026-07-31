@@ -43,7 +43,8 @@ public class TrayManager {
     static String javaExePath;
     static String jarPath;
 
-    // ── Palette menu tray (coerente con il tema dark JCEF: bg #0d1117, accento teal) ──
+    // ── Palette menu tray: scura di proposito, indipendente dal tema dell'app.
+    //    È un menu di sistema (fuori dalla finestra), dove i menu scuri sono la norma su Windows. ──
     private static final Color MENU_BG     = new Color(0x1b, 0x22, 0x2c);
     private static final Color MENU_BORDER = new Color(0x30, 0x36, 0x3d);
     private static final Color MENU_FG     = new Color(0xc9, 0xd1, 0xd9);

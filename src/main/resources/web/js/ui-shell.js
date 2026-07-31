@@ -163,6 +163,7 @@ document.getElementById('shortcutsBtn').onclick   = () => showShortcutsHelp();
 // se la connessione è aperta (in uso) o chiusa (lock rilasciato).
 // Nota: dbStatus NON riapre il DB — leggere lo stato non tiene vivo il lock.
 const _dbStatusEl = document.getElementById('dbStatusIndicator');
+const _dbStatusLabelEl = document.getElementById('dbStatusLabel');
 async function _refreshDbStatus() {
   try {
     const { open } = await api.dbStatus();
@@ -170,6 +171,8 @@ async function _refreshDbStatus() {
     _dbStatusEl.title = open
       ? 'Database aperto (in uso)'
       : 'Database chiuso — OneDrive può sincronizzare';
+    // L'etichetta dice a parole quel che il colore del pallino codifica.
+    if (_dbStatusLabelEl) _dbStatusLabelEl.textContent = open ? 'DB aperto' : 'DB chiuso';
   } catch { /* connessione bridge non pronta: riprova al prossimo tick */ }
 }
 // Il polling si sospende quando la pagina non è visibile: a finestra minimizzata o coperta

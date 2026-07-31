@@ -43,7 +43,7 @@ public class MainWindow {
         frame.setMinimumSize(new Dimension(900, 600));
         frame.setLocationRelativeTo(null);
         frame.setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
-        frame.getContentPane().setBackground(new Color(13, 17, 23));
+        frame.getContentPane().setBackground(new Color(0xdc, 0xe1, 0xe8)); // sfondo tema Nebbia
 
         client = cefApp.createClient();
 

@@ -1,12 +1,12 @@
 <!DOCTYPE html>
-<html lang="it" style="background:#0d1117">
+<html lang="it" style="background:#dce1e8">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>LucaMoneyManager</title>
   <!-- Tema persistito: riapplicato SINCRONICAMENTE prima del primo paint, leggendolo da
-       localStorage (scritto da _cacheAppearance in settings.js). Evita il flash di tema
-       scuro in modalità browser quando l'app è in tray col DB chiuso: in quel caso
+       localStorage (scritto da _cacheAppearance in settings.js). Evita il flash del tema
+       di default in modalità browser quando l'app è in tray col DB chiuso: in quel caso
        getSettings non restituisce ancora appearance.theme e init.js non chiamerebbe
        applyTheme fino al refresh. -->
   <script>
@@ -16,7 +16,7 @@
       if (!c) return;
       var de = document.documentElement;
       de.dataset.theme = c.dataTheme || '';
-      if (c.bg) de.style.background = c.bg;                                    // sfondo html (override #0d1117)
+      if (c.bg) de.style.background = c.bg;                                    // sfondo html (override #dce1e8)
       if (c.vars) for (var k in c.vars) de.style.setProperty(k, c.vars[k]);   // tema personalizzato
       if (c.radius != null) de.style.setProperty('--radius', c.radius + 'px');
       if (c.fontSizes) for (var fk in c.fontSizes) de.style.setProperty(fk, c.fontSizes[fk] + 'px');
@@ -148,10 +148,18 @@
       <div class="titlebar-title" id="pageTitle">Dashboard</div>
       <div class="titlebar-subtitle" id="pageTitleSub"></div>
       <div class="titlebar-drag"></div>
-      <div id="dbStatusIndicator" class="db-status" title="Stato database">
-        <span class="db-status-dot"></span>
+      <!-- Voci di stato: hanno un'etichetta testuale perché il loro VALORE cambia (stato del
+           DB, tema attivo, numero di notifiche) e l'icona da sola non lo comunica. Help e
+           controlli finestra restano solo icona: sono azioni fisse, non stati.
+           I <span class="tb-label"> sono riempiti da JS (_refreshDbStatus, _updateThemeBtn,
+           updateNoticeBtn) e vengono nascosti dal CSS quando la finestra è stretta. -->
+      <div id="dbStatusIndicator" class="db-status tb-item" title="Stato database">
+        <span class="db-status-dot"></span><span class="tb-label" id="dbStatusLabel">Database</span>
       </div>
-      <div id="themeToggleBtn" title="Cambia tema (Alt+T)">🌙</div>
+      <span class="tb-sep"></span>
+      <!-- Icona del tema di default (Nebbia); _updateThemeBtn aggiorna icona ed etichetta. -->
+      <div id="themeToggleBtn" class="tb-item" title="Cambia tema (Alt+T)"><span class="tb-icon">🌁</span><span class="tb-label">Nebbia</span></div>
+      <span class="tb-sep"></span>
       <div id="shortcutsBtn" title="Scorciatoie da tastiera (?)">⌨</div>
       <!-- Badge errori app.log: nascosto se il log è pulito, rosso con conteggio se ci sono
            errori. Click → apre app.log. Aggiornato in background da ui-shell.js. -->

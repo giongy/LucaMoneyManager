@@ -212,18 +212,24 @@ function _showNotice(className, html, onHeadClick) {
 }
 
 // Aggiorna il bottone notifiche nella titlebar (✓ se nessuna, 🔔+badge col totale).
+// Porta anche un'etichetta testuale (.tb-label) perché il valore cambia: vedi il commento
+// sulle voci di stato in index.html. Il badge numerico viene scritto sempre, ma il CSS lo
+// mostra solo a titlebar collassata (finestra stretta): con l'etichetta visibile il numero
+// sarebbe già scritto a parole e i due si sovrapporrebbero.
 function updateNoticeBtn() {
   const btn = document.getElementById('noticeBtn');
   if (!btn) return;
   if (_noticeData.length === 0) {
-    btn.innerHTML = '✓';
-    btn.className = '';
+    btn.innerHTML = '<span class="tb-icon">✓</span><span class="tb-label">Tutto ok</span>';
+    btn.className = 'tb-item';
     btn.title = 'Nessuna notifica';
   } else {
     const total = _noticeData.reduce((s, n) => s + n.list.length, 0);
-    btn.innerHTML = `🔔<span class="notice-badge">${total}</span>`;
-    btn.className = 'has-notices';
-    btn.title = `${total} notific${total===1?'a':'he'} — clicca per rivedere`;
+    const parola = total === 1 ? 'notifica' : 'notifiche';
+    btn.innerHTML = `<span class="tb-icon">🔔<span class="notice-badge">${total}</span></span>`
+                  + `<span class="tb-label">${total} ${parola}</span>`;
+    btn.className = 'has-notices tb-item';
+    btn.title = `${total} ${parola} — clicca per rivedere`;
   }
 }
 

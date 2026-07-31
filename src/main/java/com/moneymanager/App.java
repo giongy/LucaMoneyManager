@@ -263,10 +263,10 @@ public class App {
         builder.getCefSettings().windowless_rendering_enabled = false;
         builder.getCefSettings().root_cache_path = dataDir.resolve("jcef_cache").toAbsolutePath().toString();
         builder.getCefSettings().log_severity = org.cef.CefSettings.LogSeverity.LOGSEVERITY_DISABLE;
-        // Sfondo Chromium = sfondo app (#0d1117): elimina il flash bianco
+        // Sfondo Chromium = sfondo app (#dce1e8, tema Nebbia): elimina il flash
         // tra creazione del browser e primo paint del CSS.
         org.cef.CefSettings cs = builder.getCefSettings();
-        cs.background_color = cs.new ColorType(255, 0x0d, 0x11, 0x17);
+        cs.background_color = cs.new ColorType(255, 0xdc, 0xe1, 0xe8);
         builder.setAppHandler(new MavenCefAppHandlerAdapter() {});
         builder.setProgressHandler((state, percent) -> {
             String msg = switch (state) {

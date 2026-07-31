@@ -4,10 +4,14 @@
    (resize, variabili/temi, layout, sidebar, card, tabelle, form, e una sezione per
    ogni pagina/widget: dashboard, budget, portfolio, analytics, scheduled, ecc.).
 
-   TEMI: il default è scuro (variabili in :root). I temi alternativi sovrascrivono le
-   variabili via [data-theme="carta|petrolio|glassy"] (impostato su <html> dal JS).
-   Carta è l'unico tema chiaro: le trasparenze bianche pensate per i fondi scuri lì non si
-   staccano e vanno sostituite con un override dedicato (vedi .analytics-table/.budget-cur-month).
+   TEMI: il default è Nebbia, un tema CHIARO neutro (variabili in :root). I temi alternativi
+   sovrascrivono le variabili via [data-theme="carta|petrolio|glassy"] (impostato su <html> dal JS).
+   Carta e Nebbia sono i temi chiari; petrolio e glassy restano scuri.
+   ⚠️ Diverse regole base hanno colori FISSI nati quando il default era scuro (toast con fondi
+   scuri, color:#000 sulle superfici d'accento, trasparenze bianche per righe alternate/hover).
+   Servono ancora a petrolio e glassy, quindi restano: Nebbia le neutralizza in un blocco di
+   override dedicato (vedi "Nebbia — correzioni su regole nate per il default scuro"),
+   con lo stesso approccio già usato per Carta.
 
    CONVENZIONE COLORI DI SFONDO (vedi CLAUDE.md): gerarchia bg3 < bg < bg2, cioè le card
    (bg2) sono PIÙ CHIARE dello sfondo (bg) — mai bianco puro nei temi chiari. bg3 è il
@@ -27,24 +31,30 @@
 .rh-se { bottom:0; right:0;   width:8px;  height:8px; cursor:se-resize; }
 .rh-sw { bottom:0; left:0;    width:8px;  height:8px; cursor:sw-resize; }
 
-/* ─── Variabili ─────────────────────────────────────────────────────────── */
+/* ─── Variabili — tema Nebbia (default) ─────────────────────────────────── */
+/* Nebbia: chiaro neutro grigio-azzurro, sobrio e riposante. Niente bianco puro
+   (aggressivo) e niente calde beige come Carta: grigi freddi leggermente virati
+   al blu, per far riposare l'occhio sulle tabelle dense di Transazioni/Budget.
+   Gerarchia bg3 < bg < bg2: le card (bg2) sono più CHIARE dello sfondo (bg),
+   bg3 è il livello basso (header tabella, righe alternate, input).
+   Accenti desaturati e scuri quanto basta per restare leggibili su fondo chiaro. */
 :root {
-  --bg:       #0d1117;
-  --bg2:      #161b22;
-  --bg3:      #232c38;
-  --bg4:      #21262d;
-  --border:   #30363d;
-  --accent:   #7c6cff;
-  --accent2:  #00d4aa;
-  --income:   #3fb950;
-  --expense:  #f85149;
-  --warn:     #d29922;
-  --purple:   #a371f7;
-  --orange:   #f0883e;
-  --txt:      #e6edf3;
-  --txt2:     #8b949e;
-  --txt3:     #6e7681;
-  --shadow:   0 8px 32px rgba(0,0,0,.5);
+  --bg:       #dce1e8;
+  --bg2:      #e9edf3;
+  --bg3:      #ccd2db;
+  --bg4:      #bfc7d2;
+  --border:   #b6bfcb;
+  --accent:   #2f6f8f;
+  --accent2:  #17706b;
+  --income:   #1d6b3a;
+  --expense:  #b03028;
+  --warn:     #8a5a00;
+  --purple:   #5a4a9c;
+  --orange:   #9a5518;
+  --txt:      #1b2430;
+  --txt2:     #4c5866;
+  --txt3:     #77828f;
+  --shadow:   0 8px 32px rgba(30,45,65,.16);
   --radius:    14px;
   --fs-xs:     10px;
   --fs-sm:     11px;
@@ -56,6 +66,69 @@
   --titlebar:  44px;
   --dash-gap:  10px;
   --dash-row-h: 400px;
+}
+
+
+/* ─── Nebbia — correzioni su regole nate per il default scuro ────────────── */
+/* Queste regole valgono SOLO sul tema Nebbia (il default in :root). Sono l'equivalente
+   degli override di Carta: servono perché diverse regole base hanno colori fissi pensati
+   per un fondo scuro, che su fondo chiaro diventano illeggibili. Non si possono correggere
+   alla fonte perché petrolio e glassy, scuri, continuano a usarle così come sono.
+
+   ⚠️ Il selettore elenca in negativo i temi alternativi invece di usare :not([data-theme]):
+   applyTheme imposta dataset.theme = "" (attributo PRESENTE ma vuoto) sia sul default sia
+   sui temi personalizzati, quindi :not([data-theme]) non farebbe mai match. Elencandoli si
+   coprono entrambi i casi. Nota: i temi personalizzati ("c:id") ricadono qui, ma applicano
+   le proprie variabili inline, che vincono su queste regole.
+   ⚠️ Serve anche a superare le regole base (.btn-primary ecc.), che stanno PIÙ IN BASSO nel
+   file: a parità di specificità vincerebbe l'ultima. Gli override di Carta non hanno il
+   problema perché [data-theme="carta"] alza già la specificità.
+
+   :where() tiene la lista dei temi in un punto solo pur non alzando la specificità (vale 0):
+   il selettore resta html + classe, quanto basta per battere le regole base. Aggiungendo un
+   tema built-in va comunque aggiornata ogni occorrenza qui sotto. Se si tocca questo
+   selettore, riverificare con check-ui.ps1: se la specificità calasse, il testo dei bottoni
+   primari tornerebbe nero su blu (3.79:1) senza altri sintomi evidenti. */
+
+/* Toast: le versioni base hanno fondi scuri fissi (#1a3a1c, #3a1a1a…) con testo
+   del colore d'accento → su fondo chiaro spariscono. Fondi tenui + testo scuro. */
+html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"])) .toast         { color: var(--txt); }
+html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"])) .toast-info    { background: #dbe8f0; border-color: var(--accent);  color: #17455c; }
+html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"])) .toast-success { background: #d8ead9; border-color: var(--income);  color: #14512a; }
+html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"])) .toast-error   { background: #f2dcd9; border-color: var(--expense); color: #85231c; }
+html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"])) .toast-warning { background: #f0e6cd; border-color: var(--warn);    color: #5e3d00; }
+html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"])) .toast-action-btn { background: var(--accent) !important; border-color: var(--accent) !important; color: #fff !important; }
+
+/* Superfici riempite d'accento: le regole base scrivono color:#000, che sull'accent
+   viola chiaro del vecchio tema scuro funzionava. Qui l'accento è un blu petrolio
+   scuro → serve testo bianco (nero su #2f6f8f dà 3.79:1, sotto la soglia WCAG). */
+html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"])) .btn-primary,
+html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"])) .calc-eq,
+html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"])) .theme-btn-active { color: #fff; }
+html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"])) .btn-primary:hover { background: #3a86ab; }
+
+/* Righe alternate e marcatore del mese corrente: le versioni base schiariscono con
+   bianco trasparente, invisibile su fondo chiaro. Qui si scurisce, con lo stesso
+   grigio-blu della palette. */
+html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"])) .analytics-table tbody tr:nth-child(even) td { background: rgba(45,65,90,.045); }
+html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"])) .budget-cur-month { box-shadow: inset 2px 0 0 rgba(45,65,90,.45), inset -2px 0 0 rgba(45,65,90,.45); }
+
+/* Badge gestione: le versioni base usano fondi trasparenti su colori chiari del
+   tema scuro. Su fondo chiaro servono colori solidi (vedi CLAUDE.md). */
+html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"])) .budget-gestione-badge.monthly { background: #d7e6f1; color: #1c5375; border-color: #1c537555; }
+html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"])) .budget-gestione-badge.annual  { background: #d5e8da; color: #1a5a32; border-color: #1a5a3255; }
+
+/* Tabelle: header e righe gerarchiche sul livello basso della palette. */
+html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"])) th { background: var(--bg3); }
+html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"])) .budget-row-child td  { background: var(--bg); }
+html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"])) .budget-row-parent td { background: var(--bg2); }
+
+/* Card come superfici appoggiate: ombra fredda morbida, senza texture (tema sobrio). */
+html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"])) .card,
+html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"])) .stat-card {
+  box-shadow:
+    0 1px 2px rgba(30,45,65,.06),
+    0 6px 18px rgba(30,45,65,.07);
 }
 
 
@@ -1177,32 +1250,79 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 .recon-toggle .recon-opt:hover:not(.active)   { background:var(--bg2); color:var(--txt); }
 
 /* ─── Notice button (titlebar) ───────────────────────────────────────────── */
+/* Niente width fissa: il bottone porta un'etichetta e si dimensiona sul contenuto (.tb-item). */
 #noticeBtn {
-  width:40px; height:var(--titlebar); display:flex; align-items:center;
+  height:var(--titlebar); display:flex; align-items:center;
   justify-content:center; cursor:pointer; font-size:var(--fs-xl,16px); position:relative;
   color:var(--txt3); transition:color .15s; flex-shrink:0; user-select:none;
 }
 #noticeBtn:hover { color:var(--txt); }
 #noticeBtn.has-notices { color:#d29922; }
+#noticeBtn.has-notices .tb-label { color:#d29922; }
+/* Il badge è ancorato all'ICONA, non al bottone: col bottone che ora contiene anche
+   l'etichetta, un position:absolute sul bottone lo spingerebbe sopra il testo. */
+#noticeBtn .tb-icon { position:relative; display:inline-flex; align-items:center; }
 #noticeBtn .notice-badge {
-  position:absolute; top:7px; right:4px; background:#d29922; color:#0d1117;
+  position:absolute; top:-3px; right:-6px; background:#d29922; color:#0d1117;
   border-radius:8px; font-size:9px; font-weight:700; padding:0 3px;
   min-width:13px; text-align:center; line-height:13px;
+}
+/* Con l'etichetta visibile il conteggio è già scritto a parole ("2 notifiche"): il badge
+   ripeterebbe lo stesso numero sovrapponendosi al testo. Resta nascosto qui e ricompare
+   sotto i 1100px, dove le etichette spariscono ed è l'unico indicatore del numero. */
+#noticeBtn .tb-icon .notice-badge { display:none; }
+@media (max-width: 1100px) {
+  #noticeBtn .tb-icon .notice-badge { display:block; }
 }
 
 /* ─── Titlebar utility buttons (tema, shortcut) ─────────────────────────── */
 #themeToggleBtn, #shortcutsBtn {
-  width:36px; height:var(--titlebar); display:flex; align-items:center;
+  height:var(--titlebar); display:flex; align-items:center;
   justify-content:center; cursor:pointer; font-size:15px; position:relative;
   color:var(--txt3); transition:color .15s; flex-shrink:0; user-select:none;
 }
+/* Solo icona (help): larghezza fissa. Le voci con etichetta (.tb-item) si dimensionano
+   sul contenuto, quindi non possono avere width fissa. */
+#shortcutsBtn { width:36px; }
 #themeToggleBtn:hover, #shortcutsBtn:hover { color:var(--txt); }
+
+/* ─── Titlebar: voci di stato con etichetta ──────────────────────────────── */
+/* Portano un testo perché il loro valore cambia (DB aperto/chiuso, tema attivo,
+   n. notifiche). L'etichetta è secondaria: più piccola e tenue dell'icona, così
+   informa senza competere col titolo della pagina a sinistra. */
+.tb-item {
+  display:flex; align-items:center; gap:6px;
+  padding:0 8px; height:var(--titlebar); flex-shrink:0;
+}
+.tb-label {
+  font-size:var(--fs-sm,11px); font-weight:600; line-height:1;
+  color:var(--txt2); white-space:nowrap; letter-spacing:.01em;
+}
+.tb-icon { font-size:15px; line-height:1; }
+#themeToggleBtn:hover .tb-label { color:var(--txt); }
+/* Separatore tra i gruppi: sottile, non deve marcare più delle etichette.
+   Usa txt3 e non border: su titlebar chiara il colore dei bordi è troppo tenue per
+   leggersi come divisione (verificato a schermo). */
+.tb-sep {
+  width:1px; height:18px; flex-shrink:0; margin:0 3px;
+  background:var(--txt3); opacity:.45;
+}
+
+/* Finestra stretta: le etichette spariscono e restano le sole icone, così la titlebar
+   non va mai in overflow sopra i controlli finestra. Le informazioni non si perdono,
+   restano nei tooltip (title). Soglia scelta sulla larghezza minima della finestra
+   (900px, vedi MainWindow.setMinimumSize) più il margine della sidebar. */
+@media (max-width: 1100px) {
+  .tb-label, .tb-sep { display:none; }
+  .tb-item { padding:0 4px; }
+}
 
 /* ─── Indicatore stato connessione DB ────────────────────────────────────── */
 /* Pallino nella titlebar: verde acceso = DB aperto (lock attivo, in uso),
    grigio spento = DB chiuso (lock rilasciato, OneDrive può sincronizzare). */
+/* Niente width fissa: la voce porta un'etichetta e si dimensiona sul contenuto (.tb-item). */
 .db-status {
-  width:28px; height:var(--titlebar); display:flex; align-items:center;
+  height:var(--titlebar); display:flex; align-items:center;
   justify-content:center; flex-shrink:0; user-select:none; cursor:default;
 }
 .db-status-dot {

@@ -585,8 +585,11 @@ function renderEquityAnalisi(equities) {
   const top10 = sortedByVal.slice(0, 10);
   const rest  = sortedByVal.slice(10);
   const restVal = rest.reduce((s, x) => s + x.val, 0);
-  const allocLabels = [...top10.map(x => x.ticker), ...(rest.length ? ['Altri'] : [])];
-  const allocData   = [...top10.map(x => x.val),    ...(rest.length ? [restVal] : [])];
+  // In legenda il nome del titolo, non il codice: "Fincantieri" si riconosce a colpo
+  // d'occhio, "IT0005599938" no. Il ticker resta nel tooltip (vedi allocTickers).
+  const allocLabels  = [...top10.map(x => x.name || x.ticker), ...(rest.length ? ['Altri'] : [])];
+  const allocTickers = [...top10.map(x => x.ticker),           ...(rest.length ? [''] : [])];
+  const allocData    = [...top10.map(x => x.val),              ...(rest.length ? [restVal] : [])];
   const allocColors = allocLabels.map((_, i) => palette[i % palette.length]);
 
   // Allocazione per conto investimento
@@ -673,7 +676,11 @@ function renderEquityAnalisi(equities) {
   if (showTitoloDonut) new Chart(document.getElementById('eqAllocChart'), {
     type: 'doughnut',
     data: { labels: allocLabels, datasets: [{ data: allocData, backgroundColor: allocColors, borderWidth: 1 }] },
-    options: donutOpts({ footer: () => [`Totale: ${fmt.currency(totalVal)}`] })
+    options: donutOpts({
+      // Il codice ISIN/ticker non e' piu' in legenda: lo si ritrova qui sotto al nome.
+      afterLabel: ctx => allocTickers[ctx.dataIndex] ? ` ${allocTickers[ctx.dataIndex]}` : '',
+      footer: () => [`Totale: ${fmt.currency(totalVal)}`]
+    })
   });
 
   if (showAcctDonut) new Chart(document.getElementById('eqAcctChart'), {

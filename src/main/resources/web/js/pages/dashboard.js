@@ -461,6 +461,29 @@ function _dashWidgetDefs(dashYear) {
 // Layout corrente (in memoria). Caricato da app_settings al primo render.
 let _dashLayout = null;
 
+// Modalità modifica layout. Fuori da questa modalità la dashboard è "sola lettura":
+// niente maniglie, niente selettori larghezza, e le card restano cliccabili come sempre.
+// È di sessione (non salvata): si riparte sempre in visualizzazione normale.
+let _dashEditMode = false;
+
+/** Barra sopra la dashboard: entra/esce dalla modifica del layout. */
+function _renderDashEditBar() {
+  if (!_dashEditMode) {
+    return `<button class="btn btn-ghost btn-xs" onclick="toggleDashEdit(true)"
+              title="Sposta i widget e cambiane la larghezza">⚙️ Personalizza</button>`;
+  }
+  return `<span class="dash-editbar-hint">✋ Trascina i widget per riordinarli · scegli la larghezza su ogni scheda</span>
+    <span style="flex:1"></span>
+    <button class="btn btn-ghost btn-xs" onclick="resetDashLayout()" title="Torna all'ordine e alle larghezze originali">↺ Ripristina layout</button>
+    <button class="btn btn-primary btn-xs" onclick="toggleDashEdit(false)">✓ Fatto</button>`;
+}
+
+/** Entra/esce dalla modalità modifica. */
+window.toggleDashEdit = (on) => {
+  _dashEditMode = !!on;
+  renderDashboard();
+};
+
 /** Fonde il layout salvato coi default: i widget nuovi (aggiunti da una versione
  *  successiva) vengono accodati invece di sparire, e gli id non più esistenti si
  *  scartano. Senza questo, aggiungere un widget lo renderebbe invisibile a chiunque
@@ -481,9 +504,9 @@ function _renderDashWidgets(dashYear) {
     const d = defs[item.id];
     if (!d) return '';
     const domId = d.id ? ` id="${d.id}"` : (item.id === 'bubbles' ? ' id="dashBudgetBubbles"' : '');
-    // La maniglia NON viene messa qui dentro: alcuni widget (le bolle budget) si
-    // ridisegnano riscrivendo l'innerHTML della card, e la cancellerebbero. La
-    // aggiunge _addDashHandles() dopo che i widget sono stati riempiti.
+    // Maniglia e barra larghezze NON stanno qui: alcuni widget (le bolle budget) si
+    // ridisegnano riscrivendo l'innerHTML della card e le cancellerebbero. Le aggiunge
+    // _initDashDnD() dopo che i widget sono stati riempiti.
     return `<div class="card dash-w${item.w}${d.tall ? ' dash-tall' : ''}${d.cls ? ' ' + d.cls : ''}" data-wid="${item.id}"${domId} ${d.attrs || ''}>${d.html}</div>`;
   }).join('');
 }
@@ -531,17 +554,38 @@ function _initDashDnD() {
   if (!grid) return;
   let dragged = null;
 
+  // Fuori dalla modalità modifica la dashboard resta com'era: nessuna maniglia, nessun
+  // selettore, card cliccabili senza interferenze.
+  if (!_dashEditMode) return;
+
   grid.querySelectorAll('[data-wid]').forEach(card => {
-    // Maniglia creata qui e non nell'HTML del widget: i widget che si ridisegnano da soli
-    // riscrivendo l'innerHTML della card (bolle budget) la cancellerebbero, e quella card
-    // resterebbe l'unica non trascinabile.
+    // Maniglia e selettore creati qui e non nell'HTML del widget: i widget che si
+    // ridisegnano da soli riscrivendo l'innerHTML della card (bolle budget) li
+    // cancellerebbero, e quella card resterebbe l'unica non modificabile.
     let handle = card.querySelector(':scope > .dash-drag-handle');
     if (!handle) {
       handle = document.createElement('div');
       handle.className = 'dash-drag-handle';
-      handle.title = 'Trascina per spostare · clic destro per la larghezza';
-      handle.textContent = '⠿';
+      handle.title = 'Trascina per spostare';
+      handle.textContent = '⠿ trascina';
       card.appendChild(handle);
+    }
+    if (!card.querySelector(':scope > .dash-width-picker')) {
+      const cur = _dashLayout.find(x => x.id === card.dataset.wid)?.w;
+      const picker = document.createElement('div');
+      picker.className = 'dash-width-picker';
+      picker.innerHTML = DASH_WIDTHS.map(({ w, label }) =>
+        `<button type="button" class="dash-wbtn${cur === w ? ' active' : ''}" data-w="${w}"
+                 title="Larghezza ${label}">${label}</button>`).join('');
+      // I widget-grafico hanno onclick sulla card che naviga altrove: senza stopPropagation
+      // scegliere una larghezza porterebbe via dalla dashboard.
+      picker.addEventListener('click', e => {
+        const b = e.target.closest('.dash-wbtn');
+        if (!b) return;
+        e.preventDefault(); e.stopPropagation();
+        _setDashWidth(card.dataset.wid, parseInt(b.dataset.w));
+      });
+      card.appendChild(picker);
     }
     handle.addEventListener('mousedown', () => { card.draggable = true; });
     card.addEventListener('dragend',     () => { card.draggable = false; dragged = null;
@@ -570,42 +614,7 @@ function _initDashDnD() {
       await _saveDashLayout();
       renderDashboard();
     });
-
-    // Menu larghezza: tasto destro sulla maniglia (il tasto destro sulla card resta
-    // libero per il menu nativo di JCEF — ricarica/zoom/devtools).
-    handle.addEventListener('contextmenu', e => {
-      e.preventDefault();
-      e.stopPropagation();
-      _showDashWidthMenu(card.dataset.wid, e);
-    });
   });
-}
-
-/** Menu a comparsa con le 4 larghezze + ripristino layout. */
-function _showDashWidthMenu(wid, evt) {
-  document.getElementById('dash-width-menu')?.remove();
-  const cur = _dashLayout.find(x => x.id === wid)?.w;
-  const menu = document.createElement('div');
-  menu.id = 'dash-width-menu';
-  menu.style.cssText = `position:fixed;z-index:9999;background:var(--bg2);border:1px solid var(--border);
-    border-radius:8px;padding:4px 0;min-width:150px;box-shadow:0 4px 16px rgba(0,0,0,.3);
-    left:${Math.min(evt.clientX, window.innerWidth - 170)}px;top:${Math.min(evt.clientY, window.innerHeight - 200)}px`;
-  const mk = (label, active, fn) => {
-    const el = document.createElement('div');
-    el.style.cssText = `padding:7px 14px;cursor:pointer;font-size:13px;display:flex;gap:8px;align-items:center;${active ? 'color:var(--accent);font-weight:600' : ''}`;
-    el.innerHTML = `<span style="width:14px">${active ? '✓' : ''}</span><span>${label}</span>`;
-    el.onmouseenter = () => el.style.background = 'var(--bg3)';
-    el.onmouseleave = () => el.style.background = '';
-    el.onclick = () => { menu.remove(); fn(); };
-    menu.appendChild(el);
-  };
-  DASH_WIDTHS.forEach(({ w, label }) => mk(`Larghezza ${label}`, cur === w, () => _setDashWidth(wid, w)));
-  const sep = document.createElement('div');
-  sep.style.cssText = 'height:1px;background:var(--border);margin:3px 0';
-  menu.appendChild(sep);
-  mk('↺ Ripristina layout', false, () => resetDashLayout());
-  document.body.appendChild(menu);
-  setTimeout(() => document.addEventListener('click', () => menu.remove(), { once: true }), 0);
 }
 
 // Disegna l'intera Dashboard: stat cards YTD (con sparkline e confronto YoY day-exact),
@@ -624,8 +633,9 @@ async function renderDashboard() {
   const dashYear = new Date().getFullYear();
   const pg = document.getElementById('pg-dashboard');
   pg.innerHTML = `
+    <div class="dash-editbar" id="dashEditBar">${_renderDashEditBar()}</div>
     <div class="stats-grid" id="statsGrid"></div>
-    <div class="dash-grid" id="dashGrid">${_renderDashWidgets(dashYear)}</div>`;
+    <div class="dash-grid${_dashEditMode ? ' dash-editing' : ''}" id="dashGrid">${_renderDashWidgets(dashYear)}</div>`;
 
   // Day-exact YTD: 1 gen → oggi (entrambi gli anni allo stesso giorno-mese)
   // Confronto onesto considerando che il mese corrente è quasi sempre incompleto

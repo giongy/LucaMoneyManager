@@ -986,17 +986,41 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 .dash-tall { height:var(--dash-row-h); }
 .dash-grid > .card { min-width:0; display:flex; flex-direction:column; position:relative; }
 
-/* Maniglia di trascinamento: visibile solo al passaggio del mouse per non sporcare le card. */
+/* Barra "Personalizza": in modalità normale è solo il pulsante d'ingresso; in modifica
+   diventa la barra dei comandi (suggerimento + ripristino + fine). I comandi del layout
+   stanno qui e non in menu nascosti: devono essere trovabili senza doverli indovinare. */
+.dash-editbar { display:flex; align-items:center; gap:8px; margin-bottom:var(--dash-gap); min-height:26px; }
+.dash-editbar-hint { font-size:var(--fs-sm,12px); color:var(--txt2); }
+
+/* Modalità modifica: le card si staccano visivamente per far capire che sono manipolabili.
+   I controlli NON si sovrappongono al contenuto: la card scorre in giù di una fascia
+   (padding-top) e maniglia + selettore vivono lì. Sovrapporli coprirebbe i bottoni
+   "Gestisci →" in alto e i totali in basso. */
+.dash-editing > .card { outline:1px dashed var(--border); padding-top:30px; }
+.dash-editing > .card:hover { outline-color:var(--accent); }
+
+/* Maniglia di trascinamento: esiste solo in modalità modifica (creata da _initDashDnD). */
 .dash-drag-handle {
-  position:absolute; top:6px; right:8px; z-index:3; cursor:grab; user-select:none;
-  color:var(--txt3); font-size:14px; line-height:1; padding:2px 4px; border-radius:4px;
-  opacity:0; transition:opacity .12s;
+  position:absolute; top:5px; left:8px; z-index:4; cursor:grab; user-select:none;
+  color:var(--txt2); background:var(--bg3); border:1px solid var(--border);
+  font-size:var(--fs-xs,11px); line-height:1; padding:3px 7px; border-radius:5px;
 }
-.dash-grid > .card:hover .dash-drag-handle { opacity:.6; }
-.dash-drag-handle:hover { opacity:1 !important; background:var(--bg3); }
+.dash-drag-handle:hover { color:var(--txt); border-color:var(--accent); }
 .dash-drag-handle:active { cursor:grabbing; }
 .dash-grid > .card[draggable="true"] { opacity:.5; }
-.dash-drop-target { outline:2px dashed var(--accent); outline-offset:2px; }
+.dash-drop-target { outline:2px dashed var(--accent) !important; outline-offset:2px; }
+
+/* Selettore larghezza: nella stessa fascia della maniglia, allineato a destra. */
+.dash-width-picker {
+  position:absolute; top:5px; right:8px; z-index:4; display:flex; gap:3px;
+  background:var(--bg3); border:1px solid var(--border); border-radius:6px; padding:2px;
+}
+.dash-wbtn {
+  background:none; border:none; cursor:pointer; color:var(--txt2);
+  font-size:var(--fs-xs,11px); padding:2px 7px; border-radius:4px; line-height:1.5;
+}
+.dash-wbtn:hover  { background:var(--bg); color:var(--txt); }
+.dash-wbtn.active { background:var(--accent); color:#fff; font-weight:600; }
 
 .dash-upcoming-card td { padding:3px 10px; }
 .dash-upcoming-card th { padding:4px 10px; }

@@ -1921,7 +1921,11 @@ tr.tx-selected td { background:rgba(124,124,255,.07); }
 .sched-tag-dropdown {
   position:absolute; top:calc(100% + 4px); left:0; z-index:200;
   background:var(--bg2); border:1px solid var(--border); border-radius:var(--radius);
-  box-shadow:var(--shadow); min-width:180px; max-height:220px; overflow-y:auto; padding:4px 0;
+  box-shadow:var(--shadow); min-width:180px; padding:4px 0;
+  /* I tag sono pochi: si vogliono vedere tutti insieme, senza scroll. Il tetto è la
+     viewport (non un numero fisso di righe) così la lista non esce mai dallo schermo;
+     lo scroll resta come rete di sicurezza se un giorno i tag diventassero molti. */
+  max-height:calc(100vh - 160px); overflow-y:auto;
 }
 .sched-tag-opt {
   display:flex; align-items:center; gap:8px;

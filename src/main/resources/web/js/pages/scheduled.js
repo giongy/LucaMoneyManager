@@ -174,6 +174,7 @@ async function renderSchedLista() {
       <div class="table-wrap">
         <table id="schedTable"><thead><tr>
           <th class="sched-th-sort" data-scol="active"  onclick="_schedSortBy('active')">Stato<span class="sort-ind"></span></th>
+          <th class="th-portfolio" title="Collegata al portafoglio">📈</th>
           <th class="sched-th-sort" data-scol="account" onclick="_schedSortBy('account')">Conto<span class="sort-ind"></span></th>
           <th class="sched-th-sort" data-scol="tag"     onclick="_schedSortBy('tag')">Tag<span class="sort-ind"></span></th>
           <th class="sched-th-sort" data-scol="freq"    onclick="_schedSortBy('freq')">Frequenza<span class="sort-ind"></span></th>
@@ -294,7 +295,7 @@ function _renderSchedRows(scheds) {
   });
 
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:40px;color:var(--txt3)">Nessuna transazione pianificata.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;padding:40px;color:var(--txt3)">Nessuna transazione pianificata.</td></tr>';
     return;
   }
 
@@ -309,6 +310,7 @@ function _renderSchedRows(scheds) {
   tbody.innerHTML = rows.map(s => `
     <tr oncontextmenu="_showSchedCtx(${s.id},event)" style="${s.color?`background:${esc(s.color)}40;`:''}cursor:context-menu">
       <td style="text-align:center"><span style="font-size:15px">${s.is_active ? '✅' : '⏸️'}</span></td>
+      <td class="td-portfolio">${s.portfolio_id ? `<span class="tx-portfolio-badge" title="Collegata al portafoglio — clicca per lo storico della posizione" onclick="event.stopPropagation();showPortfolioHistory(${s.portfolio_id})">📈</span>` : ''}</td>
       <td>${esc(s.account_name||'')}${s.to_account_name?' → '+esc(s.to_account_name):''}</td>
       <td class="td-tags">${(s.tags&&s.tags.length)?s.tags.map(t=>`<span class="tag-inline" style="--tc:${esc(t.color)}">${esc(t.name)}</span>`).join(''):''}</td>
       <td><span class="sched-freq-badge">${esc(FREQ_LABELS[s.frequency]||s.frequency)}</span></td>
@@ -828,7 +830,11 @@ window.registerSched = async id => {
     description:   s.description   || '',
     color:         s.color         || null,
     reconciled:    s.reconciled    ?? 1,
-    tag_ids: tagIds
+    tag_ids: tagIds,
+    // Solo per il banner "Collegata a posizione portfolio" nel modale: il link vero lo crea
+    // registerScheduled lato Java leggendo portfolio_id dalla pianificata. Qui non finisce
+    // nel payload di salvataggio (showTxModal lo costruisce dai campi del form).
+    portfolio_id:  s.portfolio_id  || null
   };
   showTxModal(prefilled, cats, accs, s.type, tags, () => {
     // Avanzamento già fatto dentro la stessa transazione SQL del salvataggio (saveOverride).

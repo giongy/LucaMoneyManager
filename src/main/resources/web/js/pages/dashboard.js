@@ -481,10 +481,10 @@ function _renderDashWidgets(dashYear) {
     const d = defs[item.id];
     if (!d) return '';
     const domId = d.id ? ` id="${d.id}"` : (item.id === 'bubbles' ? ' id="dashBudgetBubbles"' : '');
-    return `<div class="card dash-w${item.w}${d.tall ? ' dash-tall' : ''}${d.cls ? ' ' + d.cls : ''}" data-wid="${item.id}"${domId} ${d.attrs || ''}>
-      <div class="dash-drag-handle" title="Trascina per spostare · clic destro per la larghezza">⠿</div>
-      ${d.html}
-    </div>`;
+    // La maniglia NON viene messa qui dentro: alcuni widget (le bolle budget) si
+    // ridisegnano riscrivendo l'innerHTML della card, e la cancellerebbero. La
+    // aggiunge _addDashHandles() dopo che i widget sono stati riempiti.
+    return `<div class="card dash-w${item.w}${d.tall ? ' dash-tall' : ''}${d.cls ? ' ' + d.cls : ''}" data-wid="${item.id}"${domId} ${d.attrs || ''}>${d.html}</div>`;
   }).join('');
 }
 
@@ -532,8 +532,17 @@ function _initDashDnD() {
   let dragged = null;
 
   grid.querySelectorAll('[data-wid]').forEach(card => {
-    const handle = card.querySelector('.dash-drag-handle');
-    if (!handle) return;
+    // Maniglia creata qui e non nell'HTML del widget: i widget che si ridisegnano da soli
+    // riscrivendo l'innerHTML della card (bolle budget) la cancellerebbero, e quella card
+    // resterebbe l'unica non trascinabile.
+    let handle = card.querySelector(':scope > .dash-drag-handle');
+    if (!handle) {
+      handle = document.createElement('div');
+      handle.className = 'dash-drag-handle';
+      handle.title = 'Trascina per spostare · clic destro per la larghezza';
+      handle.textContent = '⠿';
+      card.appendChild(handle);
+    }
     handle.addEventListener('mousedown', () => { card.draggable = true; });
     card.addEventListener('dragend',     () => { card.draggable = false; dragged = null;
                                                  grid.querySelectorAll('.dash-drop-target').forEach(c => c.classList.remove('dash-drop-target')); });
@@ -617,7 +626,6 @@ async function renderDashboard() {
   pg.innerHTML = `
     <div class="stats-grid" id="statsGrid"></div>
     <div class="dash-grid" id="dashGrid">${_renderDashWidgets(dashYear)}</div>`;
-  _initDashDnD();
 
   // Day-exact YTD: 1 gen → oggi (entrambi gli anni allo stesso giorno-mese)
   // Confronto onesto considerando che il mese corrente è quasi sempre incompleto
@@ -767,6 +775,9 @@ async function renderDashboard() {
   _fillCreditMonthDash(accounts);
   _renderDashBudgetBubbles(budgetYear);
   _initBubbleDrag();
+  // Dopo che i widget si sono disegnati: _renderDashBudgetBubbles riscrive l'innerHTML
+  // della sua card, quindi le maniglie vanno (ri)create adesso, non prima.
+  _initDashDnD();
 
   // ── Widget donut "Analisi mese corrente" ─────────────────────────────────
   _renderDashMonthDonut(budgetYear);

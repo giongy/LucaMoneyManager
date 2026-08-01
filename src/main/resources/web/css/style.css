@@ -973,18 +973,34 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 .account-actions .btn { padding:3px 7px; font-size:var(--fs-sm,11px); }
 
 /* ─── Dashboard layout ───────────────────────────────────────────────────── */
-.dash-top-row    { display:flex; gap:var(--dash-gap); align-items:stretch; margin-bottom:var(--dash-gap); }
-.dash-accounts-card { flex:0 0 36%; min-width:0; }
-.dash-bubbles-card  { flex:1; min-width:0; display:flex; flex-direction:column; }
-.dash-mid-row    { display:flex; gap:var(--dash-gap); align-items:stretch; margin-bottom:var(--dash-gap); height:var(--dash-row-h); }
-.dash-upcoming-card { flex:0 0 60%; min-width:0; display:flex; flex-direction:column; }
+/* Griglia a 12 colonne: ogni widget occupa 4 (⅓), 6 (½), 8 (⅔) o 12 (intera) colonne.
+   Ordine e larghezze arrivano dal layout salvato dall'utente in app_settings
+   ('dashboard.layout', vedi dashboard.js) — qui il CSS espone solo le taglie. */
+.dash-grid { display:grid; grid-template-columns:repeat(12, 1fr); gap:var(--dash-gap); align-items:start; }
+.dash-w4  { grid-column:span 4; }
+.dash-w6  { grid-column:span 6; }
+.dash-w8  { grid-column:span 8; }
+.dash-w12 { grid-column:span 12; }
+/* Le card con grafici/tabelle lunghe tengono l'altezza fissa che avevano nelle vecchie
+   righe, altrimenti i canvas Chart.js collasserebbero (height:auto su un canvas = 0). */
+.dash-tall { height:var(--dash-row-h); }
+.dash-grid > .card { min-width:0; display:flex; flex-direction:column; position:relative; }
+
+/* Maniglia di trascinamento: visibile solo al passaggio del mouse per non sporcare le card. */
+.dash-drag-handle {
+  position:absolute; top:6px; right:8px; z-index:3; cursor:grab; user-select:none;
+  color:var(--txt3); font-size:14px; line-height:1; padding:2px 4px; border-radius:4px;
+  opacity:0; transition:opacity .12s;
+}
+.dash-grid > .card:hover .dash-drag-handle { opacity:.6; }
+.dash-drag-handle:hover { opacity:1 !important; background:var(--bg3); }
+.dash-drag-handle:active { cursor:grabbing; }
+.dash-grid > .card[draggable="true"] { opacity:.5; }
+.dash-drop-target { outline:2px dashed var(--accent); outline-offset:2px; }
+
 .dash-upcoming-card td { padding:3px 10px; }
 .dash-upcoming-card th { padding:4px 10px; }
-.dash-charts-row { display:flex; gap:var(--dash-gap); align-items:stretch; margin-bottom:var(--dash-gap); height:var(--dash-row-h); }
-.dash-barchart-card    { flex:1; min-width:0; display:flex; flex-direction:column; align-self:stretch; }
-.dash-budgetchart-card { flex:1; min-width:0; display:flex; flex-direction:column; align-self:stretch; }
 .dash-chart-wrap { position:relative; flex:1; min-height:210px; margin-top:6px; }
-.dash-recent-card   { flex:1; min-width:0; display:flex; flex-direction:column; }
 .dash-recent-card .table-wrap { flex:1; overflow:hidden; }
 .dash-recent-card .card-header { margin-bottom:4px; padding-bottom:4px; }
 .dash-recent-card th { padding:1px 10px; font-size:var(--fs-xs); }
@@ -994,8 +1010,6 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 .dash-recent-card td { white-space:nowrap; }
 .dash-recent-card td.td-main { max-width:220px; overflow:hidden; text-overflow:ellipsis; }
 
-.dash-bottom-charts { display:flex; gap:var(--dash-gap); margin-top:var(--dash-gap); height:var(--dash-row-h); }
-.dash-chart-sm { flex:1; min-width:0; display:flex; flex-direction:column; }
 
 /* ─── Dashboard Budget — barre di progresso (sostituiscono le vecchie "bolle" ad anello) ─── */
 /* Griglia auto-fill: tante colonne quante ne stanno, ognuna min 150px. Le uscite (molte)

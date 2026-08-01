@@ -365,10 +365,245 @@ window._dashQuickTx = async (accountId, type) => {
   showTxModal({account_id: accountId, type}, cats, accs, type, tags, () => renderDashboard());
 };
 
+// ─── Layout widget dashboard (spostabili + larghezza a scelta) ──────────────
+//
+// I widget non sono più cablati in righe flex fisse: qui c'è il registro delle card
+// (id stabile + corpo HTML) e sotto il layout salvato dall'utente. L'ordine e la
+// larghezza vivono in app_settings ('dashboard.layout'), non in una tabella nuova:
+// è una singola preferenza dell'utente, la stessa strada di tema e backup.
+//
+// Il contenuto delle card è invariato rispetto a prima: cambia solo il contenitore,
+// che ora è una griglia a 6 colonne invece di 5 righe flex. Le funzioni che riempiono
+// i widget dopo il fetch (_fillDashAccounts, i grafici, ecc.) non sono state toccate:
+// cercano gli stessi id.
+
+// w = larghezza in dodicesimi di riga: 4=1/3, 6=1/2, 8=2/3, 12=piena.
+const DASH_WIDTHS = [
+  { w: 4,  label: '⅓' },
+  { w: 6,  label: '½' },
+  { w: 8,  label: '⅔' },
+  { w: 12, label: 'Intera' },
+];
+
+// Ordine e larghezze di default: riproducono esattamente il layout storico della
+// dashboard, così chi non tocca nulla non vede alcun cambiamento.
+const DASH_DEFAULT_LAYOUT = [
+  { id: 'accounts',    w: 6 },
+  { id: 'bubbles',     w: 6 },
+  { id: 'upcoming',    w: 6 },
+  { id: 'budgetchart', w: 6 },
+  { id: 'topcat',      w: 6 },
+  { id: 'recent',      w: 6 },
+  { id: 'donut',       w: 4 },
+  { id: 'barchart',    w: 4 },
+  { id: 'savings',     w: 4 },
+];
+
+// Registro dei widget: id → titolo (per il menu) e corpo HTML.
+// `tall` marca le card che vogliono l'altezza fissa delle righe grafico (--dash-row-h).
+function _dashWidgetDefs(dashYear) {
+  return {
+    accounts: { title: 'I miei conti', html: `
+      <div class="card-header"><span class="card-title">I miei conti</span>
+        <button class="btn btn-ghost" onclick="navigate('accounts')">Gestisci →</button>
+      </div>
+      <div id="dashAccounts"></div>` },
+
+    bubbles: { title: 'Bolle budget', raw: true, html: '' },
+
+    upcoming: { title: '🗓️ Prossime pianificate', tall: true, cls: 'dash-upcoming-card', html: `
+      <div class="card-header">
+        <span class="card-title">🗓️ Prossime pianificate</span>
+        <button class="btn btn-ghost" onclick="navigate('scheduled')">Gestisci →</button>
+      </div>
+      <div class="table-wrap"><table><thead><tr>
+        <th>Categoria</th><th>Descrizione</th><th>Giorni</th><th class="text-right">Importo</th><th style="width:24px"></th>
+      </tr></thead><tbody id="upcomingRows"></tbody></table></div>` },
+
+    budgetchart: { title: `Budget vs Reale ${dashYear}`, tall: true,
+      attrs: `style="cursor:pointer" onclick="_budgetTab='andamento';navigate('budgets')"`, html: `
+      <div class="card-header"><span class="card-title">Budget vs Reale ${dashYear}</span></div>
+      <div class="dash-chart-wrap"><canvas id="budgetChart"></canvas></div>` },
+
+    topcat: { title: 'Top categorie spesa', tall: true,
+      attrs: `style="cursor:pointer" onclick="_analyticsTab='catmonth';navigate('analytics')"`, html: `
+      <div class="card-header"><span class="card-title">Top categorie spesa</span></div>
+      <div class="dash-chart-wrap"><canvas id="topCatChart"></canvas></div>` },
+
+    recent: { title: 'Ultime transazioni', tall: true, cls: 'dash-recent-card', html: `
+      <div class="card-header">
+        <span class="card-title">Ultime transazioni</span>
+        <button class="btn btn-ghost" onclick="txFilters={range:txFilters.range};navigate('transactions')">Vedi tutte →</button>
+      </div>
+      <div class="table-wrap"><table><thead><tr>
+        <th>Data</th><th>Descrizione</th><th>Categoria</th><th>Conto</th><th class="text-right">Importo</th>
+      </tr></thead><tbody id="recentRows"></tbody></table></div>` },
+
+    donut: { title: '🍩 Analisi mese corrente', tall: true, id: 'dashMonthDonutCard',
+      attrs: `style="cursor:pointer" onclick="_analyticsTab='catmonth';navigate('analytics')" title="Uscite per categoria — mese corrente"`, html: `
+      <div class="card-header">
+        <span class="card-title">🍩 Analisi mese corrente</span>
+        <span style="font-size:10px;color:var(--txt3);font-weight:400" id="dashMonthDonutTot"></span>
+      </div>
+      <div id="dashMonthDonutBody" style="flex:1;display:flex;gap:14px;padding:8px 16px 14px;min-height:0"></div>` },
+
+    barchart: { title: `Entrate vs Uscite ${dashYear}`, tall: true,
+      attrs: `style="cursor:pointer" onclick="_analyticsTab='balance';navigate('analytics')"`, html: `
+      <div class="card-header"><span class="card-title">Entrate vs Uscite ${dashYear}</span></div>
+      <div class="dash-chart-wrap"><canvas id="barChart"></canvas></div>` },
+
+    savings: { title: 'Risparmio mensile', tall: true, html: `
+      <div class="card-header"><span class="card-title">Risparmio mensile</span></div>
+      <div class="dash-chart-wrap"><canvas id="savingsChart"></canvas></div>` },
+  };
+}
+
+// Layout corrente (in memoria). Caricato da app_settings al primo render.
+let _dashLayout = null;
+
+/** Fonde il layout salvato coi default: i widget nuovi (aggiunti da una versione
+ *  successiva) vengono accodati invece di sparire, e gli id non più esistenti si
+ *  scartano. Senza questo, aggiungere un widget lo renderebbe invisibile a chiunque
+ *  abbia già salvato un layout. */
+function _mergeDashLayout(saved, defs) {
+  const valid = (saved || []).filter(it => defs[it.id]);
+  const seen  = new Set(valid.map(it => it.id));
+  const added = DASH_DEFAULT_LAYOUT.filter(d => !seen.has(d.id) && defs[d.id]);
+  const out   = [...valid, ...added];
+  return out.length ? out : DASH_DEFAULT_LAYOUT.filter(d => defs[d.id]);
+}
+
+/** HTML di tutti i widget nell'ordine e con le larghezze del layout corrente. */
+function _renderDashWidgets(dashYear) {
+  const defs = _dashWidgetDefs(dashYear);
+  _dashLayout = _mergeDashLayout(_dashLayout, defs);
+  return _dashLayout.map(item => {
+    const d = defs[item.id];
+    if (!d) return '';
+    const domId = d.id ? ` id="${d.id}"` : (item.id === 'bubbles' ? ' id="dashBudgetBubbles"' : '');
+    return `<div class="card dash-w${item.w}${d.tall ? ' dash-tall' : ''}${d.cls ? ' ' + d.cls : ''}" data-wid="${item.id}"${domId} ${d.attrs || ''}>
+      <div class="dash-drag-handle" title="Trascina per spostare · clic destro per la larghezza">⠿</div>
+      ${d.html}
+    </div>`;
+  }).join('');
+}
+
+/** Salva il layout in app_settings (una sola chiave JSON, niente tabella nuova). */
+async function _saveDashLayout() {
+  try { await api.setSetting('dashboard.layout', JSON.stringify(_dashLayout)); }
+  catch (e) { console.error('salvataggio layout dashboard', e); toast('Layout non salvato: ' + (e?.message || e), 'error'); }
+}
+
+/** Legge il layout salvato. Chiamata una volta prima del primo render. */
+async function _loadDashLayout() {
+  if (_dashLayout) return;
+  try {
+    const s = await api.getSettings();
+    const raw = s['dashboard.layout'];
+    // JSON malformato (modifica a mano, sync a metà): si riparte dai default invece
+    // di lasciare la dashboard vuota.
+    if (raw) { try { _dashLayout = JSON.parse(raw); } catch { _dashLayout = null; } }
+  } catch (e) { console.error('lettura layout dashboard', e); }
+}
+
+/** Ripristina l'ordine e le larghezze di fabbrica. */
+window.resetDashLayout = async () => {
+  _dashLayout = DASH_DEFAULT_LAYOUT.slice();
+  await _saveDashLayout();
+  renderDashboard();
+  toast('Layout ripristinato');
+};
+
+/** Cambia la larghezza di un widget e ridisegna. */
+window._setDashWidth = async (wid, w) => {
+  const it = _dashLayout?.find(x => x.id === wid);
+  if (!it) return;
+  it.w = w;
+  await _saveDashLayout();
+  renderDashboard();
+};
+
+/** Drag & drop per riordinare + menu contestuale per la larghezza.
+ *  Il drag parte solo dalla maniglia: le card contengono tabelle, bottoni e grafici
+ *  cliccabili, e renderle interamente trascinabili romperebbe quelle interazioni. */
+function _initDashDnD() {
+  const grid = document.getElementById('dashGrid');
+  if (!grid) return;
+  let dragged = null;
+
+  grid.querySelectorAll('[data-wid]').forEach(card => {
+    const handle = card.querySelector('.dash-drag-handle');
+    if (!handle) return;
+    handle.addEventListener('mousedown', () => { card.draggable = true; });
+    card.addEventListener('dragend',     () => { card.draggable = false; dragged = null;
+                                                 grid.querySelectorAll('.dash-drop-target').forEach(c => c.classList.remove('dash-drop-target')); });
+    card.addEventListener('dragstart', e => {
+      dragged = card;
+      e.dataTransfer.effectAllowed = 'move';
+      // Firefox non avvia il drag senza dati impostati.
+      e.dataTransfer.setData('text/plain', card.dataset.wid);
+    });
+    card.addEventListener('dragover', e => {
+      if (!dragged || dragged === card) return;
+      e.preventDefault();
+      card.classList.add('dash-drop-target');
+    });
+    card.addEventListener('dragleave', () => card.classList.remove('dash-drop-target'));
+    card.addEventListener('drop', async e => {
+      e.preventDefault();
+      card.classList.remove('dash-drop-target');
+      if (!dragged || dragged === card) return;
+      const from = _dashLayout.findIndex(x => x.id === dragged.dataset.wid);
+      const to   = _dashLayout.findIndex(x => x.id === card.dataset.wid);
+      if (from < 0 || to < 0) return;
+      const [moved] = _dashLayout.splice(from, 1);
+      _dashLayout.splice(to, 0, moved);
+      await _saveDashLayout();
+      renderDashboard();
+    });
+
+    // Menu larghezza: tasto destro sulla maniglia (il tasto destro sulla card resta
+    // libero per il menu nativo di JCEF — ricarica/zoom/devtools).
+    handle.addEventListener('contextmenu', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      _showDashWidthMenu(card.dataset.wid, e);
+    });
+  });
+}
+
+/** Menu a comparsa con le 4 larghezze + ripristino layout. */
+function _showDashWidthMenu(wid, evt) {
+  document.getElementById('dash-width-menu')?.remove();
+  const cur = _dashLayout.find(x => x.id === wid)?.w;
+  const menu = document.createElement('div');
+  menu.id = 'dash-width-menu';
+  menu.style.cssText = `position:fixed;z-index:9999;background:var(--bg2);border:1px solid var(--border);
+    border-radius:8px;padding:4px 0;min-width:150px;box-shadow:0 4px 16px rgba(0,0,0,.3);
+    left:${Math.min(evt.clientX, window.innerWidth - 170)}px;top:${Math.min(evt.clientY, window.innerHeight - 200)}px`;
+  const mk = (label, active, fn) => {
+    const el = document.createElement('div');
+    el.style.cssText = `padding:7px 14px;cursor:pointer;font-size:13px;display:flex;gap:8px;align-items:center;${active ? 'color:var(--accent);font-weight:600' : ''}`;
+    el.innerHTML = `<span style="width:14px">${active ? '✓' : ''}</span><span>${label}</span>`;
+    el.onmouseenter = () => el.style.background = 'var(--bg3)';
+    el.onmouseleave = () => el.style.background = '';
+    el.onclick = () => { menu.remove(); fn(); };
+    menu.appendChild(el);
+  };
+  DASH_WIDTHS.forEach(({ w, label }) => mk(`Larghezza ${label}`, cur === w, () => _setDashWidth(wid, w)));
+  const sep = document.createElement('div');
+  sep.style.cssText = 'height:1px;background:var(--border);margin:3px 0';
+  menu.appendChild(sep);
+  mk('↺ Ripristina layout', false, () => resetDashLayout());
+  document.body.appendChild(menu);
+  setTimeout(() => document.addEventListener('click', () => menu.remove(), { once: true }), 0);
+}
+
 // Disegna l'intera Dashboard: stat cards YTD (con sparkline e confronto YoY day-exact),
 // widget conti, bolle budget, salute finanziaria, prossime pianificate, ultime transazioni
 // e i grafici (entrate/uscite, budget vs reale, risparmio, top categorie).
 async function renderDashboard() {
+  await _loadDashLayout();
   // Invalida la cache conti: se il DB è stato aggiornato esternamente (sync OneDrive dal
   // telefono) i saldi in _accountsCache sarebbero stale. Ricaricando la dashboard vogliamo
   // sempre saldi freschi nel widget "I miei conti".
@@ -381,62 +616,8 @@ async function renderDashboard() {
   const pg = document.getElementById('pg-dashboard');
   pg.innerHTML = `
     <div class="stats-grid" id="statsGrid"></div>
-    <div class="dash-top-row">
-      <div class="card dash-accounts-card">
-        <div class="card-header"><span class="card-title">I miei conti</span>
-          <button class="btn btn-ghost" onclick="navigate('accounts')">Gestisci →</button>
-        </div>
-        <div id="dashAccounts"></div>
-      </div>
-      <div class="card dash-bubbles-card" id="dashBudgetBubbles"></div>
-    </div>
-    <div class="dash-mid-row">
-      <div class="card dash-upcoming-card">
-        <div class="card-header">
-          <span class="card-title">🗓️ Prossime pianificate</span>
-          <button class="btn btn-ghost" onclick="navigate('scheduled')">Gestisci →</button>
-        </div>
-        <div class="table-wrap"><table><thead><tr>
-          <th>Categoria</th><th>Descrizione</th><th>Giorni</th><th class="text-right">Importo</th><th style="width:24px"></th>
-        </tr></thead><tbody id="upcomingRows"></tbody></table></div>
-      </div>
-      <div class="card dash-budgetchart-card" style="cursor:pointer" onclick="_budgetTab='andamento';navigate('budgets')">
-        <div class="card-header"><span class="card-title">Budget vs Reale ${dashYear}</span></div>
-        <div class="dash-chart-wrap"><canvas id="budgetChart"></canvas></div>
-      </div>
-    </div>
-    <div class="dash-charts-row">
-      <div class="card dash-barchart-card" style="cursor:pointer" onclick="_analyticsTab='catmonth';navigate('analytics')">
-        <div class="card-header"><span class="card-title">Top categorie spesa</span></div>
-        <div class="dash-chart-wrap"><canvas id="topCatChart"></canvas></div>
-      </div>
-      <div class="card dash-recent-card">
-        <div class="card-header">
-          <span class="card-title">Ultime transazioni</span>
-          <button class="btn btn-ghost" onclick="txFilters={range:txFilters.range};navigate('transactions')">Vedi tutte →</button>
-        </div>
-        <div class="table-wrap"><table><thead><tr>
-          <th>Data</th><th>Descrizione</th><th>Categoria</th><th>Conto</th><th class="text-right">Importo</th>
-        </tr></thead><tbody id="recentRows"></tbody></table></div>
-      </div>
-    </div>
-    <div class="dash-bottom-charts">
-      <div class="card dash-chart-sm" id="dashMonthDonutCard" style="cursor:pointer" onclick="_analyticsTab='catmonth';navigate('analytics')" title="Uscite per categoria — mese corrente">
-        <div class="card-header">
-          <span class="card-title">🍩 Analisi mese corrente</span>
-          <span style="font-size:10px;color:var(--txt3);font-weight:400" id="dashMonthDonutTot"></span>
-        </div>
-        <div id="dashMonthDonutBody" style="flex:1;display:flex;gap:14px;padding:8px 16px 14px;min-height:0"></div>
-      </div>
-      <div class="card dash-chart-sm" style="cursor:pointer" onclick="_analyticsTab='balance';navigate('analytics')">
-        <div class="card-header"><span class="card-title">Entrate vs Uscite ${dashYear}</span></div>
-        <div class="dash-chart-wrap"><canvas id="barChart"></canvas></div>
-      </div>
-      <div class="card dash-chart-sm">
-        <div class="card-header"><span class="card-title">Risparmio mensile</span></div>
-        <div class="dash-chart-wrap"><canvas id="savingsChart"></canvas></div>
-      </div>
-    </div>`;
+    <div class="dash-grid" id="dashGrid">${_renderDashWidgets(dashYear)}</div>`;
+  _initDashDnD();
 
   // Day-exact YTD: 1 gen → oggi (entrambi gli anni allo stesso giorno-mese)
   // Confronto onesto considerando che il mese corrente è quasi sempre incompleto

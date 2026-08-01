@@ -494,6 +494,7 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             case "getDueToday"           -> db.getDueToday();
             case "getTransactionsWithTag" -> db.getTransactionsWithTag(p.get("name").getAsString());
             case "importPending"          -> db.importPending();
+            case "syncCardSettlements"    -> db.syncCardSettlements();
             case "readPendingQueue"       -> db.readPendingRaw();
             case "advanceScheduled"  -> {
                 Integer txId = p.has("transaction_id") && !p.get("transaction_id").isJsonNull()

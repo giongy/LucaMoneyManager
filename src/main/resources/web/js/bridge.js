@@ -126,6 +126,7 @@ const api = {
   getTransactionsWithTag: name => callJava('getTransactionsWithTag', {name}),
   importPending:          ()   => { api._invalidateAccounts(); return callJava('importPending'); },
   readPendingQueue:       ()   => callJava('readPendingQueue'),
+  syncCardSettlements:    ()   => callJava('syncCardSettlements'),
 
   // Note
   getNotes:       ()           => callJava('getNotes'),

@@ -339,6 +339,25 @@ function showAccountModal(account) {
         <input type="hidden" id="a_color" value="${esc(account?.color||'#58a6ff')}">
       </div>
     </div>
+    <div class="form-group" id="a_creditBox" style="${account?.type === 'credit' ? '' : 'display:none'};background:var(--bg3);border-radius:6px;padding:10px 14px;margin-top:4px">
+      <label class="acc-check-label" style="margin-bottom:8px" title="All'avvio dell'app crea/aggiorna una pianificata di saldo con le spese dell'ultimo mese chiuso.">
+        <input type="checkbox" id="a_autosettle" ${account?.auto_settle ? 'checked' : ''}>
+        💳 Genera il saldo automaticamente
+      </label>
+      <div class="form-row">
+        <div class="form-group" style="margin:0">
+          <label class="form-label">Giorno di saldo</label>
+          <input type="number" min="1" max="31" class="form-control" id="a_payday"
+                 value="${account?.payment_day || 10}">
+        </div>
+        <div class="form-group" style="margin:0">
+          <label class="form-label">Conto di addebito</label>
+          <select class="form-control" id="a_payacc">
+            <option value="">— Seleziona —</option>
+          </select>
+        </div>
+      </div>
+    </div>
     <div class="form-row" style="margin-top:8px">
       <label class="acc-check-label">
         <input type="checkbox" id="a_favorite" ${account?.is_favorite ? 'checked' : ''}>
@@ -368,6 +387,19 @@ function showAccountModal(account) {
       is_hidden:       document.getElementById('a_hidden').checked   ? 1 : 0,
     };
     if (!data.name) { toast('Inserisci un nome per il conto','error'); return; }
+    // Saldo automatico: solo per le carte. Il backend azzera comunque i 3 campi sugli altri
+    // tipi, ma inviarli solo quando servono tiene il payload onesto.
+    if (data.type === 'credit') {
+      data.auto_settle        = document.getElementById('a_autosettle').checked ? 1 : 0;
+      data.payment_day        = parseInt(document.getElementById('a_payday').value) || null;
+      data.payment_account_id = parseInt(document.getElementById('a_payacc').value) || null;
+      if (data.auto_settle && !data.payment_account_id) {
+        toast('Scegli il conto di addebito per il saldo automatico','error'); return;
+      }
+      if (data.auto_settle && (!data.payment_day || data.payment_day < 1 || data.payment_day > 31)) {
+        toast('Giorno di saldo non valido (1-31)','error'); return;
+      }
+    }
     try {
       if (account) await api.updateAccount(data);
       else         await api.addAccount(data);
@@ -384,6 +416,25 @@ function showAccountModal(account) {
   const cbHidden = document.getElementById('a_hidden');
   cbHidden.onchange = () => { if (cbHidden.checked) cbClosed.checked = true; };
   cbClosed.onchange = () => { if (!cbClosed.checked) cbHidden.checked = false; };
+
+  // Il blocco "saldo automatico" esiste solo per le carte: compare/sparisce col tipo.
+  const selType   = document.getElementById('a_type');
+  const creditBox = document.getElementById('a_creditBox');
+  selType.addEventListener('change', () => {
+    creditBox.style.display = selType.value === 'credit' ? '' : 'none';
+  });
+
+  // Conti di addebito possibili: esclusi carte e investimenti (non si salda una carta con
+  // un'altra carta) e i conti chiusi. Popolato in async perché serve la lista conti.
+  api.getAccounts().then(accs => {
+    const sel = document.getElementById('a_payacc');
+    if (!sel) return;
+    const current = account?.payment_account_id;
+    sel.innerHTML = '<option value="">— Seleziona —</option>' +
+      accs.filter(a => a.type !== 'credit' && a.type !== 'investment' && !a.is_closed)
+          .map(a => `<option value="${a.id}" ${current === a.id ? 'selected' : ''}>${esc(a.icon||'')} ${esc(a.name)}</option>`)
+          .join('');
+  }).catch(() => {});
 }
 
 // Selezione icona/colore nel modale conto (aggiornano l'input nascosto corrispondente).

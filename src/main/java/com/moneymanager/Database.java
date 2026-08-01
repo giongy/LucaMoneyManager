@@ -872,6 +872,11 @@ public class Database {
                 is_closed       INTEGER DEFAULT 0,
                 is_hidden       INTEGER DEFAULT 0,
                 sort_order      INTEGER DEFAULT 0,
+                -- Saldo automatico carte di credito (usati solo se type='credit', vedi v22):
+                -- giorno di addebito, conto da cui esce il denaro, interruttore automatismo.
+                payment_day        INTEGER,
+                payment_account_id INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
+                auto_settle        INTEGER DEFAULT 0,
                 created_at      TEXT    DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE IF NOT EXISTS categories (
@@ -1096,7 +1101,7 @@ public class Database {
         }
     }
 
-    private static final int SCHEMA_VERSION = 21;
+    private static final int SCHEMA_VERSION = 22;
 
     /**
      * Migrazioni incrementali dello schema per DB creati con versioni precedenti.
@@ -1127,8 +1132,21 @@ public class Database {
             catch (SQLException ignored) {}
         }
 
-        // ── v22+: aggiungere qui i blocchi futuri, es.:
-        //   if (currentVersion < 22) { try { executePlain("ALTER TABLE ..."); } catch (SQLException ignored) {} }
+        // ── v22: saldo automatico delle carte di credito. payment_day = giorno del mese in cui
+        // la banca addebita l'estratto conto (es. 10); payment_account_id = conto da cui esce il
+        // denaro; auto_settle = interruttore della generazione automatica. Solo per type='credit':
+        // sugli altri conti restano NULL/0 e non vengono mai letti.
+        if (currentVersion < 22) {
+            try { executePlain("ALTER TABLE accounts ADD COLUMN payment_day INTEGER"); }
+            catch (SQLException ignored) {}
+            try { executePlain("ALTER TABLE accounts ADD COLUMN payment_account_id INTEGER REFERENCES accounts(id) ON DELETE SET NULL"); }
+            catch (SQLException ignored) {}
+            try { executePlain("ALTER TABLE accounts ADD COLUMN auto_settle INTEGER DEFAULT 0"); }
+            catch (SQLException ignored) {}
+        }
+
+        // ── v23+: aggiungere qui i blocchi futuri, es.:
+        //   if (currentVersion < 23) { try { executePlain("ALTER TABLE ..."); } catch (SQLException ignored) {} }
 
         // Segna il DB come aggiornato all'ultima versione
         executePlain("DELETE FROM schema_version");
@@ -1205,7 +1223,11 @@ public class Database {
             {"phone",      "Da Telefono", "#58a6ff"},
             {"budget",     "Da Budget",   "#d29922"},
             {"investment", "Investimenti","#3fb950"},
-            {"archived",   "RAGGRUPPATE", "#8b949e"}
+            {"archived",   "RAGGRUPPATE", "#8b949e"},
+            // Marca le pianificate di saldo carta generate da syncCardSettlements(): è la
+            // chiave con cui l'automatismo ritrova "la sua" pianificata per aggiornarla, invece
+            // di riconoscerla dalla descrizione (che l'utente può riscrivere).
+            {"cardsettle", "Saldo Carta", "#a371f7"}
         };
         for (String[] t : sys) {
             // Crea se non esiste ancora un tag con questa system_key
@@ -1444,12 +1466,21 @@ public class Database {
         int hidden = hiddenRaw != null ? hiddenRaw : 0;
         if (hidden == 1) closed = 1;
         else if (closed == 0) hidden = 0;
-        execute("UPDATE accounts SET name=?,type=?,currency=?,initial_balance=?,color=?,icon=?,is_favorite=?,is_closed=?,is_hidden=? WHERE id=?",
+        // I 3 campi del saldo automatico hanno senso solo sulle carte: su un altro tipo di conto
+        // vanno azzerati, altrimenti un conto ex-carta resterebbe con un automatismo invisibile
+        // nella UI (il blocco nel modale compare solo per type='credit') ma ancora attivo.
+        boolean isCredit = "credit".equals(str(p,"type"));
+        Integer payDay   = isCredit ? intVal(p,"payment_day") : null;
+        Integer payAcc   = isCredit ? intVal(p,"payment_account_id") : null;
+        int autoSettle   = isCredit && intVal(p,"auto_settle") != null ? intVal(p,"auto_settle") : 0;
+        execute("UPDATE accounts SET name=?,type=?,currency=?,initial_balance=?,color=?,icon=?,is_favorite=?,is_closed=?,is_hidden=?,"
+              + "payment_day=?,payment_account_id=?,auto_settle=? WHERE id=?",
                 str(p,"name"), str(p,"type"), str(p,"currency") != null ? str(p,"currency") : "EUR",
                 dbl2(p,"initial_balance") != null ? dbl2(p,"initial_balance") : 0.0,
                 str(p,"color"), str(p,"icon"),
                 intVal(p,"is_favorite") != null ? intVal(p,"is_favorite") : 0,
                 closed, hidden,
+                payDay, payAcc, autoSettle,
                 id);
         touchSyncMeta();
         logger.log("CONTO MODIFICATO", "id:" + id, "nome:" + str(p,"name"), "tipo:" + str(p,"type"),
@@ -3005,6 +3036,133 @@ public class Database {
         Map<String, Object> cat = queryOne("SELECT name FROM categories WHERE id=?", categoryId);
         logger.log("BUDGET MESE ELIMINATO", "categoria:" + DbLogger.s(cat != null ? cat.get("name") : categoryId),
                    "mese:" + month + "/" + year);
+    }
+
+    // ─── Saldo automatico carte di credito ────────────────────────────────────
+
+    /** Totale speso su una carta in un mese: solo income/expense, i trasferimenti sono esclusi.
+     *  Il pagamento della carta È un trasferimento, quindi escluderlo evita che il saldo del mese
+     *  scorso entri nel conteggio del mese in cui viene addebitato. Stessa regola del modale
+     *  "Chiudi mese" lato JS (_creditCardMonthTotal), qui replicata in SQL. */
+    private double creditCardMonthTotal(int cardId, java.time.YearMonth ym) throws SQLException {
+        Map<String, Object> r = queryOne("""
+            SELECT COALESCE(SUM(amount),0) AS tot FROM transactions
+            WHERE account_id=? AND type IN ('income','expense')
+              AND strftime('%Y-%m', date)=?
+        """, cardId, ym.toString());
+        return r2(num(r == null ? null : r.get("tot")));
+    }
+
+    /**
+     * Allinea le pianificate di "saldo carta" per ogni carta con auto_settle attivo.
+     * Chiamata all'avvio (vedi Bridge "syncCardSettlements"): è il punto in cui l'app
+     * si sveglia, non serve uno scheduler.
+     *
+     * <p>Per ogni carta e per ogni mese saldato mantiene una pianificata, marcata col tag di
+     * sistema "cardsettle": trasferimento dal conto di pagamento alla carta, il giorno
+     * payment_day del mese successivo a quello saldato. Fra il 1° e il giorno di addebito ne
+     * convivono due (il mese scorso non ancora registrato + quello appena maturato); più carte
+     * restano indipendenti anche se condividono lo stesso giorno di saldo.
+     *
+     * <p>L'importo è quello dell'<b>ultimo mese chiuso</b>, mai del mese in corso: finché il
+     * mese non è finito il totale è parziale e scriverlo significherebbe mostrare una cifra
+     * che non verrà addebitata. Essendo un trasferimento non entra in nessuna previsione
+     * (getForecast somma solo income/expense), quindi riscriverlo ogni volta è innocuo.
+     *
+     * <p>Idempotente: la pianificata si ritrova da tag + carta + data di addebito, non dalla
+     * descrizione (che l'utente può riscrivere). Se esiste la aggiorna, altrimenti la crea; se
+     * è già stata registrata (is_active=0) la lascia stare. Se il totale del mese è 0
+     * (carta non usata) la rimuove invece di lasciare un addebito da 0.
+     *
+     * @return numero di pianificate create/aggiornate/rimosse
+     */
+    public int syncCardSettlements() throws SQLException {
+        Integer tagId = getSystemTagIdByKey("cardsettle");
+        if (tagId == null) return 0;   // tag assente: DB inatteso, meglio non inventare pianificate
+
+        var cards = queryList("""
+            SELECT id, name, payment_day, payment_account_id FROM accounts
+            WHERE type='credit' AND auto_settle=1 AND is_closed=0
+              AND payment_day IS NOT NULL AND payment_account_id IS NOT NULL
+        """);
+        if (cards.isEmpty()) return 0;
+
+        // Ultimo mese chiuso: se oggi è il 1° agosto, è luglio. L'addebito cade il mese dopo.
+        java.time.YearMonth settled = java.time.YearMonth.from(LocalDate.now()).minusMonths(1);
+        int changed = 0;
+
+        for (var card : cards) {
+            int cardId = ((Number) card.get("id")).intValue();
+            int srcId  = ((Number) card.get("payment_account_id")).intValue();
+            int payDay = ((Number) card.get("payment_day")).intValue();
+            String cardName = (String) card.get("name");
+
+            // Data addebito: payment_day del mese successivo a quello saldato, troncato all'ultimo
+            // giorno se il mese è più corto (payment_day=31 a febbraio → 28/29).
+            java.time.YearMonth payMonth = settled.plusMonths(1);
+            LocalDate payDate = payMonth.atDay(Math.min(payDay, payMonth.lengthOfMonth()));
+            String desc = "Saldo carta " + cardName + " — " + settled;
+
+            // La pianificata di QUESTA carta per QUESTO mese. L'identità include il mese saldato
+            // (via start_date): fra il 1° e il giorno di addebito convivono due saldi — quello del
+            // mese scorso non ancora registrato e quello appena maturato. Cercare solo per carta
+            // farebbe riscrivere il saldo pendente con quello nuovo, e il mese vecchio non
+            // verrebbe mai pagato.
+            Map<String, Object> existing = queryOne("""
+                SELECT s.id, s.is_active FROM scheduled_transactions s
+                JOIN scheduled_transaction_tags st ON st.scheduled_id = s.id
+                WHERE st.tag_id=? AND s.to_account_id=? AND s.start_date=? LIMIT 1
+            """, tagId, cardId, payDate.toString());
+
+            // Saldo già registrato: registerScheduled porta le "once" a is_active=0. Va lasciato
+            // stare — riscriverlo (o riattivarlo) farebbe ricomparire un pagamento già fatto.
+            if (existing != null && !Integer.valueOf(1).equals(existing.get("is_active"))) continue;
+
+            double total = creditCardMonthTotal(cardId, settled);
+
+            // Carta non usata nel mese: niente da saldare. Se era rimasta la pianificata di questo
+            // stesso mese (spese poi cancellate) va tolta, altrimenti resta un addebito fantasma.
+            // Il filtro su start_date garantisce che non si cancelli il saldo di un ALTRO mese.
+            if (total <= 0) {
+                if (existing != null) {
+                    int oldId = ((Number) existing.get("id")).intValue();
+                    execute("DELETE FROM scheduled_transactions WHERE id=?", oldId);
+                    logger.log("SALDO CARTA RIMOSSO", "carta:" + DbLogger.s(cardName),
+                               "mese:" + settled, "motivo:nessuna spesa");
+                    changed++;
+                }
+                continue;
+            }
+
+            if (existing != null) {
+                // start_date NON si tocca: è la chiave d'identità del saldo (vedi la query sopra).
+                // Aggiornare la data qui significherebbe spostare il saldo su un altro mese.
+                int schedId = ((Number) existing.get("id")).intValue();
+                execute("""
+                    UPDATE scheduled_transactions
+                       SET amount=?, description=?, account_id=?
+                     WHERE id=?
+                """, total, desc, srcId, schedId);
+                logger.log("SALDO CARTA AGGIORNATO", "carta:" + DbLogger.s(cardName),
+                           "mese:" + settled, "importo:" + DbLogger.amt(total),
+                           "data:" + payDate);
+            } else {
+                long schedId = execute("""
+                    INSERT INTO scheduled_transactions
+                        (type,amount,description,account_id,to_account_id,category_id,
+                         frequency,start_date,is_active,reconciled)
+                    VALUES('transfer',?,?,?,?,NULL,'once',?,1,0)
+                """, total, desc, srcId, cardId, payDate.toString());
+                execute("INSERT OR IGNORE INTO scheduled_transaction_tags(scheduled_id,tag_id) VALUES(?,?)",
+                        schedId, tagId);
+                logger.log("SALDO CARTA CREATO", "carta:" + DbLogger.s(cardName),
+                           "mese:" + settled, "importo:" + DbLogger.amt(total),
+                           "data:" + payDate);
+            }
+            changed++;
+        }
+        if (changed > 0) touchSyncMeta();
+        return changed;
     }
 
     // ─── Transazioni Pianificate ──────────────────────────────────────────────

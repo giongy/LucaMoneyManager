@@ -498,6 +498,13 @@ async function init() {
     const daTelefono = await api.getTransactionsWithTag('phone');
     if (daTelefono.length) showDaTelefonoNotice(daTelefono);
   } catch(e) {}
+  // Saldo carte di credito: riallinea le pianificate "Saldo Carta" all'ultimo mese chiuso.
+  // Va PRIMA di getOverdue, così un saldo appena creato/aggiornato entra subito fra le
+  // scadenze notificate. Silenzioso: è manutenzione, non un'azione dell'utente.
+  try {
+    const n = await api.syncCardSettlements();
+    if (n > 0) api._invalidateAccounts?.();
+  } catch(e) { console.error('syncCardSettlements', e); }
   // Notifica scadute (non bloccante, dopo il render): come le altre, un errore qui
   // non deve fermare il resto del bootstrap (notifiche successive e wizard di onboarding).
   try {

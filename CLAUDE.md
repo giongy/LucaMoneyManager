@@ -55,9 +55,9 @@ Le query girano deliberatamente **fuori** dal lock (per non serializzarle): è p
 
 ---
 
-## Schema DB (v21, 22 tabelle)
+## Schema DB (v22, 22 tabelle)
 
-- **Core:** `accounts` (3 stati: `is_closed`, `is_hidden` — nascosto ⇒ sempre chiuso), `categories` (gerarchiche, `expense_nature`), `transactions` (`reconciled`, `attachment_path`, `color`), `transaction_splits`, `transaction_tags`, `tags` (`is_system`, `system_key`)
+- **Core:** `accounts` (3 stati: `is_closed`, `is_hidden` — nascosto ⇒ sempre chiuso; per le carte anche `payment_day`, `payment_account_id`, `auto_settle` — vedi "Saldo automatico carte"), `categories` (gerarchiche, `expense_nature`), `transactions` (`reconciled`, `attachment_path`, `color`), `transaction_splits`, `transaction_tags`, `tags` (`is_system`, `system_key`)
 - **Budget:** `budgets`, `budget_config` (master_amount mensile/annuale)
 - **Pianificate:** `scheduled_transactions` (`portfolio_id`, `original_start_date`), `scheduled_transaction_tags`
 - **Portfolio:** `portfolio` (equity/bond: `asset_type`, `face_value`, `maturity_date`, `coupon_*`, `country`), `portfolio_transactions`
@@ -69,6 +69,36 @@ Le query girano deliberatamente **fuori** dal lock (per non serializzarle): è p
 **Indici (oltre alle PK):** su `transactions(date, account_id, category_id, to_account_id)` + composito `(account_id, date)`; su `transaction_splits(transaction_id)` e `portfolio_transactions(transaction_id)` (FK non indicizzate da SQLite); su `categories(parent_id)`, `budgets(year)`, `scheduled_transactions(is_active)`, `transaction_tags(tag_id)`, `note_tags(tag_id)`, `portfolio(account_id)`
 
 **SQLite config:** journal=DELETE, synchronous=FULL, cache=16MB, temp_store=MEMORY, FK abilitati
+
+---
+
+## Saldo automatico carte di credito
+
+`Database.syncCardSettlements()` — chiamata a **ogni avvio** da `init.js` (non c'è uno scheduler:
+l'avvio è il momento in cui l'app si sveglia). Per ogni conto `type='credit'` con `auto_settle=1`
+crea/aggiorna una pianificata di saldo: trasferimento `payment_account_id → carta`, il giorno
+`payment_day` del mese successivo a quello saldato.
+
+Regole che tengono in piedi il meccanismo:
+
+1. **L'importo è dell'ultimo mese chiuso**, mai del mese in corso — un totale parziale mostrerebbe
+   una cifra che non verrà addebitata.
+2. **Identità = tag `cardsettle` + `to_account_id` + `start_date`.** Include la carta *e* il mese:
+   fra il 1° e il giorno di addebito convivono due saldi (quello del mese scorso non ancora
+   registrato e quello appena maturato), e più carte restano indipendenti anche con lo stesso
+   giorno di saldo. ⚠️ Cercare solo per carta farebbe riscrivere il saldo pendente → un mese non
+   verrebbe mai pagato.
+3. **`start_date` non si aggiorna mai** nell'UPDATE: è la chiave d'identità.
+4. **I saldi già registrati si saltano** (`is_active=0`, impostato da `advanceScheduled` sulle
+   `once`): riscriverli farebbe ricomparire un pagamento già fatto.
+5. Totale del mese a 0 → la pianificata di *quel* mese viene rimossa (non le altre).
+
+Il calcolo esclude i trasferimenti: il pagamento della carta è esso stesso un trasferimento, e
+per lo stesso motivo non entra in `getForecast` (che somma solo `income`/`expense`) — quindi
+riscrivere l'importo a ogni avvio non altera nessuna previsione.
+
+Il modale manuale "Chiudi mese" (`accounts.js`) resta disponibile in parallelo, per scelta:
+è l'utente a decidere se saldare a mano.
 
 ---
 

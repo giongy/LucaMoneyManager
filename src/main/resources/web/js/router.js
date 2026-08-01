@@ -39,6 +39,9 @@ function navigate(page) {
   document.getElementById('pageTitle').textContent = PAGE_TITLES[page];
   document.getElementById('pageTitleSub').textContent = '';
   currentPage = page;
+  // Il comando "Personalizza" della dashboard sta in titlebar, che è condivisa da tutte
+  // le pagine: va nascosto uscendo, altrimenti resterebbe visibile altrove.
+  if (page !== 'dashboard') _syncDashEditBar?.();
   renderPage(page);
 }
 

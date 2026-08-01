@@ -986,11 +986,15 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 .dash-tall { height:var(--dash-row-h); }
 .dash-grid > .card { min-width:0; display:flex; flex-direction:column; position:relative; }
 
-/* Barra "Personalizza": in modalità normale è solo il pulsante d'ingresso; in modifica
-   diventa la barra dei comandi (suggerimento + ripristino + fine). I comandi del layout
-   stanno qui e non in menu nascosti: devono essere trovabili senza doverli indovinare. */
-.dash-editbar { display:flex; align-items:center; gap:8px; margin-bottom:var(--dash-gap); min-height:26px; }
-.dash-editbar-hint { font-size:var(--fs-sm,12px); color:var(--txt2); }
+/* Comandi "Personalizza" in titlebar (non sopra la griglia: lì rubavano una riga di
+   altezza alla dashboard). Riusano .tb-item della titlebar per allinearsi alle altre
+   voci; qui solo ciò che li distingue. */
+.tb-dash-edit { display:flex; align-items:center; gap:4px; }
+.tb-dash-edit .tb-item { cursor:pointer; border-radius:5px; }
+.tb-dash-edit .tb-item:hover { background:var(--bg3); }
+.tb-dash-edit .tb-item:hover .tb-label { color:var(--txt); }
+.tb-dash-hint { font-size:var(--fs-xs,11px); color:var(--txt3); white-space:nowrap; margin-right:2px; }
+.tb-dash-done .tb-label { color:var(--income); }
 
 /* Modalità modifica: le card si staccano visivamente per far capire che sono manipolabili.
    I controlli NON si sovrappongono al contenuto: la card scorre in giù di una fascia

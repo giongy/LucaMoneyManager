@@ -466,16 +466,19 @@ let _dashLayout = null;
 // È di sessione (non salvata): si riparte sempre in visualizzazione normale.
 let _dashEditMode = false;
 
-/** Barra sopra la dashboard: entra/esce dalla modifica del layout. */
-function _renderDashEditBar() {
-  if (!_dashEditMode) {
-    return `<button class="btn btn-ghost btn-xs" onclick="toggleDashEdit(true)"
-              title="Sposta i widget e cambiane la larghezza">⚙️ Personalizza</button>`;
-  }
-  return `<span class="dash-editbar-hint">✋ Trascina i widget per riordinarli · scegli la larghezza su ogni scheda</span>
-    <span style="flex:1"></span>
-    <button class="btn btn-ghost btn-xs" onclick="resetDashLayout()" title="Torna all'ordine e alle larghezze originali">↺ Ripristina layout</button>
-    <button class="btn btn-primary btn-xs" onclick="toggleDashEdit(false)">✓ Fatto</button>`;
+/** Riempie il comando "Personalizza" in titlebar. Vive lì (e non sopra la griglia)
+ *  per non rubare una riga di altezza alla dashboard in permanenza.
+ *  Va nascosto sulle altre pagine: la titlebar è condivisa da tutta l'app. */
+function _syncDashEditBar() {
+  const bar = document.getElementById('dashEditBar');
+  if (!bar) return;
+  if (currentPage !== 'dashboard') { bar.style.display = 'none'; bar.innerHTML = ''; return; }
+  bar.style.display = '';
+  bar.innerHTML = _dashEditMode
+    ? `<span class="tb-dash-hint">✋ trascina per riordinare</span>
+       <div class="tb-item" onclick="resetDashLayout()" title="Torna all'ordine e alle larghezze originali">↺<span class="tb-label">Ripristina</span></div>
+       <div class="tb-item tb-dash-done" onclick="toggleDashEdit(false)" title="Esci dalla personalizzazione">✓<span class="tb-label">Fatto</span></div>`
+    : `<div class="tb-item" onclick="toggleDashEdit(true)" title="Sposta i widget e cambiane la larghezza">⚙️<span class="tb-label">Personalizza</span></div>`;
 }
 
 /** Entra/esce dalla modalità modifica. */
@@ -633,9 +636,9 @@ async function renderDashboard() {
   const dashYear = new Date().getFullYear();
   const pg = document.getElementById('pg-dashboard');
   pg.innerHTML = `
-    <div class="dash-editbar" id="dashEditBar">${_renderDashEditBar()}</div>
     <div class="stats-grid" id="statsGrid"></div>
     <div class="dash-grid${_dashEditMode ? ' dash-editing' : ''}" id="dashGrid">${_renderDashWidgets(dashYear)}</div>`;
+  _syncDashEditBar();
 
   // Day-exact YTD: 1 gen → oggi (entrambi gli anni allo stesso giorno-mese)
   // Confronto onesto considerando che il mese corrente è quasi sempre incompleto

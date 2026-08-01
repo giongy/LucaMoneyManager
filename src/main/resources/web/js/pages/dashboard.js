@@ -494,23 +494,58 @@ window.toggleDashEdit = (on) => {
 function _mergeDashLayout(saved, defs) {
   const valid = (saved || []).filter(it => defs[it.id]);
   const seen  = new Set(valid.map(it => it.id));
-  const added = DASH_DEFAULT_LAYOUT.filter(d => !seen.has(d.id) && defs[d.id]);
+  // Copie: gli oggetti di DASH_DEFAULT_LAYOUT non devono mai finire nel layout vivo,
+  // altrimenti salvare un'altezza li modificherebbe e i "default" non sarebbero più tali.
+  const added = DASH_DEFAULT_LAYOUT.filter(d => !seen.has(d.id) && defs[d.id]).map(d => ({ ...d }));
   const out   = [...valid, ...added];
-  return out.length ? out : DASH_DEFAULT_LAYOUT.filter(d => defs[d.id]);
+  return out.length ? out : DASH_DEFAULT_LAYOUT.filter(d => defs[d.id]).map(d => ({ ...d }));
 }
 
-/** HTML di tutti i widget nell'ordine e con le larghezze del layout corrente. */
+/** Raggruppa i widget in righe da 12 dodicesimi: le larghezze si sommano finché
+ *  entrano nella riga, poi si va a capo. È la stessa suddivisione che fa il browser
+ *  con la griglia, ma esplicita — serve perché l'altezza è una proprietà della RIGA,
+ *  non del singolo widget: i widget affiancati devono essere alti uguale. */
+function _dashRows(layout) {
+  const rows = [];
+  let cur = [], used = 0;
+  for (const item of layout) {
+    const w = item.w || 6;
+    if (used + w > 12 && cur.length) { rows.push(cur); cur = []; used = 0; }
+    cur.push(item); used += w;
+  }
+  if (cur.length) rows.push(cur);
+  return rows;
+}
+
+/** Altezza di una riga: quella salvata, altrimenti il default storico (--dash-row-h).
+ *  La prima riga (conti + budget) storicamente era a contenuto libero: resta 'auto'
+ *  finché non la si ridimensiona a mano. */
+function _dashRowHeight(row) {
+  const h = row.find(it => it.rowH)?.rowH;
+  return h ? `${h}px` : null;
+}
+
+/** HTML di tutti i widget, raggruppati per riga. */
 function _renderDashWidgets(dashYear) {
   const defs = _dashWidgetDefs(dashYear);
   _dashLayout = _mergeDashLayout(_dashLayout, defs);
-  return _dashLayout.map(item => {
-    const d = defs[item.id];
-    if (!d) return '';
-    const domId = d.id ? ` id="${d.id}"` : (item.id === 'bubbles' ? ' id="dashBudgetBubbles"' : '');
-    // Maniglia e barra larghezze NON stanno qui: alcuni widget (le bolle budget) si
-    // ridisegnano riscrivendo l'innerHTML della card e le cancellerebbero. Le aggiunge
-    // _initDashDnD() dopo che i widget sono stati riempiti.
-    return `<div class="card dash-w${item.w}${d.tall ? ' dash-tall' : ''}${d.cls ? ' ' + d.cls : ''}" data-wid="${item.id}"${domId} ${d.attrs || ''}>${d.html}</div>`;
+  return _dashRows(_dashLayout).map((row, ri) => {
+    const h = _dashRowHeight(row);
+    // I widget "tall" (grafici/tabelle) danno alla riga l'altezza di default se non
+    // ne è stata salvata una: senza altezza esplicita i canvas Chart.js collassano.
+    const rowH = h || (row.some(it => defs[it.id]?.tall) ? 'var(--dash-row-h)' : null);
+    const cards = row.map(item => {
+      const d = defs[item.id];
+      if (!d) return '';
+      const domId = d.id ? ` id="${d.id}"` : (item.id === 'bubbles' ? ' id="dashBudgetBubbles"' : '');
+      // Maniglia e barra larghezze NON stanno qui: alcuni widget (le bolle budget) si
+      // ridisegnano riscrivendo l'innerHTML della card e le cancellerebbero. Le aggiunge
+      // _initDashDnD() dopo che i widget sono stati riempiti.
+      return `<div class="card dash-w${item.w}${d.cls ? ' ' + d.cls : ''}" data-wid="${item.id}"${domId} ${d.attrs || ''}>${d.html}</div>`;
+    }).join('');
+    return `<div class="dash-row" data-row="${ri}"${rowH ? ` style="height:${rowH}"` : ''}>${cards}
+      <div class="dash-row-resize" data-row="${ri}" title="Trascina per cambiare l'altezza della riga"></div>
+    </div>`;
   }).join('');
 }
 
@@ -532,9 +567,11 @@ async function _loadDashLayout() {
   } catch (e) { console.error('lettura layout dashboard', e); }
 }
 
-/** Ripristina l'ordine e le larghezze di fabbrica. */
+/** Ripristina ordine, larghezze e altezze di fabbrica.
+ *  Copia PROFONDA: con slice() gli oggetti restano condivisi con DASH_DEFAULT_LAYOUT, e
+ *  un rowH salvato dopo un reset finirebbe dentro i default per il resto della sessione. */
 window.resetDashLayout = async () => {
-  _dashLayout = DASH_DEFAULT_LAYOUT.slice();
+  _dashLayout = DASH_DEFAULT_LAYOUT.map(d => ({ ...d }));
   await _saveDashLayout();
   renderDashboard();
   toast('Layout ripristinato');
@@ -548,6 +585,67 @@ window._setDashWidth = async (wid, w) => {
   await _saveDashLayout();
   renderDashboard();
 };
+
+/** Ridimensionamento in altezza delle righe: si trascina il bordo inferiore.
+ *  L'altezza si salva sul PRIMO widget della riga (campo rowH). Le righe non hanno un
+ *  id proprio — nascono dalle larghezze — quindi ancorarla a un indice si romperebbe
+ *  appena si sposta un widget; ancorata al widget, segue il layout.
+ *  Attivo sempre, non solo in modifica: è un gesto diretto sul bordo, non un comando. */
+function _initDashRowResize() {
+  const grid = document.getElementById('dashGrid');
+  if (!grid) return;
+  grid.querySelectorAll('.dash-row-resize').forEach(hnd => {
+    hnd.addEventListener('mousedown', e => {
+      e.preventDefault();
+      const row = hnd.closest('.dash-row');
+      if (!row) return;
+      const startY = e.clientY;
+      const startH = row.getBoundingClientRect().height;
+      row.classList.add('dash-row-resizing');
+      // Durante il trascinamento il cursore non deve cambiare passando sopra le card,
+      // e il testo non deve selezionarsi: entrambi rendono il gesto scattoso.
+      const prevUserSelect = document.body.style.userSelect;
+      document.body.style.userSelect = 'none';
+      document.body.style.cursor = 'ns-resize';
+
+      const onMove = ev => {
+        const h = Math.max(120, Math.round(startH + (ev.clientY - startY)));
+        row.style.height = h + 'px';
+      };
+      const onUp = async () => {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        row.classList.remove('dash-row-resizing');
+        document.body.style.userSelect = prevUserSelect;
+        document.body.style.cursor = '';
+        // Altezza salvata sul primo widget della riga.
+        const firstWid = row.querySelector('[data-wid]')?.dataset.wid;
+        const item = _dashLayout.find(x => x.id === firstWid);
+        if (item) {
+          item.rowH = Math.round(row.getBoundingClientRect().height);
+          // Gli altri widget della riga non devono portarsi dietro una vecchia altezza:
+          // se poi diventano primi di riga la applicherebbero a sproposito.
+          [...row.querySelectorAll('[data-wid]')].slice(1).forEach(c => {
+            const other = _dashLayout.find(x => x.id === c.dataset.wid);
+            if (other) delete other.rowH;
+          });
+          await _saveDashLayout();
+        }
+        // I grafici Chart.js non si riadattano da soli a un contenitore ridimensionato.
+        _resizeDashCharts();
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  });
+}
+
+/** Riadatta i grafici Chart.js dopo un cambio di altezza della riga che li contiene:
+ *  con responsive:true si riadattano al resize della finestra, non a quello di un
+ *  contenitore mosso via JS. */
+function _resizeDashCharts() {
+  try { Object.values(charts || {}).forEach(c => c?.resize?.()); } catch {}
+}
 
 /** Drag & drop per riordinare + menu contestuale per la larghezza.
  *  Il drag parte solo dalla maniglia: le card contengono tabelle, bottoni e grafici
@@ -791,6 +889,7 @@ async function renderDashboard() {
   // Dopo che i widget si sono disegnati: _renderDashBudgetBubbles riscrive l'innerHTML
   // della sua card, quindi le maniglie vanno (ri)create adesso, non prima.
   _initDashDnD();
+  _initDashRowResize();
 
   // ── Widget donut "Analisi mese corrente" ─────────────────────────────────
   _renderDashMonthDonut(budgetYear);

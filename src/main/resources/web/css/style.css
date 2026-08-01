@@ -976,15 +976,32 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 /* Griglia a 12 colonne: ogni widget occupa 4 (⅓), 6 (½), 8 (⅔) o 12 (intera) colonne.
    Ordine e larghezze arrivano dal layout salvato dall'utente in app_settings
    ('dashboard.layout', vedi dashboard.js) — qui il CSS espone solo le taglie. */
-.dash-grid { display:grid; grid-template-columns:repeat(12, 1fr); gap:var(--dash-gap); align-items:start; }
+/* La dashboard è una pila di righe; ogni riga è una griglia a 12 colonne. L'altezza è
+   una proprietà della RIGA e non del singolo widget: così i widget affiancati sono
+   sempre alti uguale (stretch) e non restano gradini fra una card e la vicina.
+   Il bordo inferiore di ogni riga è trascinabile per cambiarne l'altezza. */
+.dash-grid { display:flex; flex-direction:column; gap:var(--dash-gap); }
+.dash-row {
+  display:grid; grid-template-columns:repeat(12, 1fr); gap:var(--dash-gap);
+  align-items:stretch; position:relative; min-height:120px;
+}
+/* Zona di presa sul bordo inferiore: invisibile finché non ci si passa sopra. */
+.dash-row-resize {
+  position:absolute; left:0; right:0; bottom:calc(var(--dash-gap) / -2 - 3px); height:8px;
+  cursor:ns-resize; z-index:5; border-radius:3px;
+}
+.dash-row-resize:hover, .dash-row-resizing .dash-row-resize { background:var(--accent); opacity:.35; }
 .dash-w4  { grid-column:span 4; }
 .dash-w6  { grid-column:span 6; }
 .dash-w8  { grid-column:span 8; }
 .dash-w12 { grid-column:span 12; }
-/* Le card con grafici/tabelle lunghe tengono l'altezza fissa che avevano nelle vecchie
-   righe, altrimenti i canvas Chart.js collasserebbero (height:auto su un canvas = 0). */
-.dash-tall { height:var(--dash-row-h); }
-.dash-grid > .card { min-width:0; display:flex; flex-direction:column; position:relative; }
+/* min-height:0 e overflow:hidden: senza, il contenuto (una tabella lunga) impone la
+   propria altezza naturale e la card sfonda la riga ridimensionata invece di adattarsi.
+   Il corpo della card scorre: così accorciando una riga il contenuto resta raggiungibile
+   invece di essere tagliato via. */
+.dash-row > .card { min-width:0; min-height:0; overflow:hidden; display:flex; flex-direction:column; position:relative; }
+.dash-row > .card > .table-wrap,
+.dash-row > .card > #dashAccounts { overflow:auto; min-height:0; }
 
 /* Comandi "Personalizza" in titlebar (non sopra la griglia: lì rubavano una riga di
    altezza alla dashboard). Riusano .tb-item della titlebar per allinearsi alle altre
@@ -1000,8 +1017,8 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
    I controlli NON si sovrappongono al contenuto: la card scorre in giù di una fascia
    (padding-top) e maniglia + selettore vivono lì. Sovrapporli coprirebbe i bottoni
    "Gestisci →" in alto e i totali in basso. */
-.dash-editing > .card { outline:1px dashed var(--border); padding-top:30px; }
-.dash-editing > .card:hover { outline-color:var(--accent); }
+.dash-editing .dash-row > .card { outline:1px dashed var(--border); padding-top:30px; }
+.dash-editing .dash-row > .card:hover { outline-color:var(--accent); }
 
 /* Maniglia di trascinamento: esiste solo in modalità modifica (creata da _initDashDnD). */
 .dash-drag-handle {
@@ -1011,7 +1028,7 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 }
 .dash-drag-handle:hover { color:var(--txt); border-color:var(--accent); }
 .dash-drag-handle:active { cursor:grabbing; }
-.dash-grid > .card[draggable="true"] { opacity:.5; }
+.dash-row > .card[draggable="true"] { opacity:.5; }
 .dash-drop-target { outline:2px dashed var(--accent) !important; outline-offset:2px; }
 
 /* Selettore larghezza: nella stessa fascia della maniglia, allineato a destra. */

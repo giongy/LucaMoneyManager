@@ -153,16 +153,17 @@
            controlli finestra restano solo icona: sono azioni fisse, non stati.
            I <span class="tb-label"> sono riempiti da JS (_refreshDbStatus, _updateThemeBtn,
            updateNoticeBtn) e vengono nascosti dal CSS quando la finestra è stretta. -->
-      <!-- Personalizzazione layout dashboard: sta in titlebar e non sopra la griglia
-           perché lì rubava una riga di altezza in permanenza. Mostrato/nascosto da
-           _syncDashEditBar() (dashboard.js) — visibile solo sulla pagina Dashboard. -->
-      <div id="dashEditBar" class="tb-dash-edit" style="display:none"></div>
       <div id="dbStatusIndicator" class="db-status tb-item" title="Stato database">
         <span class="db-status-dot"></span><span class="tb-label" id="dbStatusLabel">Database</span>
       </div>
       <span class="tb-sep"></span>
       <!-- Icona del tema di default (Nebbia); _updateThemeBtn aggiorna icona ed etichetta. -->
       <div id="themeToggleBtn" class="tb-item" title="Cambia tema (Alt+T)"><span class="tb-icon">🌁</span><span class="tb-label">Nebbia</span></div>
+      <!-- Personalizzazione layout dashboard: accanto al tema perché è la stessa famiglia
+           di comandi (l'aspetto), non uno stato come il DB. Sta in titlebar e non sopra la
+           griglia perché lì rubava una riga di altezza in permanenza. Mostrato/nascosto da
+           _syncDashEditBar() (dashboard.js) — visibile solo sulla pagina Dashboard. -->
+      <div id="dashEditBar" class="tb-dash-edit" style="display:none"></div>
       <span class="tb-sep"></span>
       <div id="shortcutsBtn" title="Scorciatoie da tastiera (?)">⌨</div>
       <!-- Badge errori app.log: nascosto se il log è pulito, rosso con conteggio se ci sono

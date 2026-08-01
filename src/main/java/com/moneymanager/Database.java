@@ -3096,6 +3096,12 @@ public class Database {
         Integer tagId = getSystemTagIdByKey("cardsettle");
         if (tagId == null) return 0;   // tag assente: DB inatteso, meglio non inventare pianificate
 
+        // Categoria di sistema "Trasferimento" (type='transfer'), la stessa che usano i bonifici
+        // creati da buyPortfolio/sellPortfolio: senza, la colonna Categoria in Pianificate resta
+        // vuota. Se manca si lascia null, come fanno gli altri chiamanti.
+        var transferCat = queryOne("SELECT id FROM categories WHERE type='transfer' LIMIT 1");
+        Integer transferCatId = transferCat != null ? ((Number) transferCat.get("id")).intValue() : null;
+
         // Ultimo mese chiuso: se oggi è il 1° agosto, è luglio. L'addebito cade il mese dopo.
         java.time.YearMonth settled = java.time.YearMonth.from(LocalDate.now()).minusMonths(1);
         int changed = 0;
@@ -3118,7 +3124,8 @@ public class Database {
             // farebbe riscrivere il saldo pendente con quello nuovo, e il mese vecchio non
             // verrebbe mai pagato.
             Map<String, Object> existing = queryOne("""
-                SELECT s.id, s.is_active, s.amount, s.account_id FROM scheduled_transactions s
+                SELECT s.id, s.is_active, s.amount, s.account_id, s.category_id
+                FROM scheduled_transactions s
                 JOIN scheduled_transaction_tags st ON st.scheduled_id = s.id
                 WHERE st.tag_id=? AND s.to_account_id=? AND s.start_date=? LIMIT 1
             """, tagId, cardId, payDate.toString());
@@ -3147,8 +3154,16 @@ public class Database {
                 // Già allineata: nessuna scrittura. Essendo chiamata a ogni lettura delle
                 // pianificate (vedi getScheduled) il caso normale è questo, e deve costare
                 // solo la SELECT del totale — niente UPDATE, niente touchSyncMeta.
+                // La categoria entra nel confronto per recuperare le pianificate create prima
+                // che venisse impostata (category_id NULL): senza, l'importo già corretto le
+                // farebbe saltare per sempre e resterebbero senza categoria.
+                Object curCat = existing.get("category_id");
+                boolean catOk = transferCatId == null
+                        ? curCat == null
+                        : curCat != null && ((Number) curCat).intValue() == transferCatId;
                 if (r2(num(existing.get("amount"))) == total
-                        && srcId == ((Number) existing.get("account_id")).intValue()) {
+                        && srcId == ((Number) existing.get("account_id")).intValue()
+                        && catOk) {
                     continue;
                 }
                 // start_date NON si tocca: è la chiave d'identità del saldo (vedi la query sopra).
@@ -3156,9 +3171,9 @@ public class Database {
                 int schedId = ((Number) existing.get("id")).intValue();
                 execute("""
                     UPDATE scheduled_transactions
-                       SET amount=?, description=?, account_id=?
+                       SET amount=?, description=?, account_id=?, category_id=?
                      WHERE id=?
-                """, total, desc, srcId, schedId);
+                """, total, desc, srcId, transferCatId, schedId);
                 logger.log("SALDO CARTA AGGIORNATO", "carta:" + DbLogger.s(cardName),
                            "mese:" + settled, "importo:" + DbLogger.amt(total),
                            "data:" + payDate);
@@ -3167,8 +3182,8 @@ public class Database {
                     INSERT INTO scheduled_transactions
                         (type,amount,description,account_id,to_account_id,category_id,
                          frequency,start_date,is_active,reconciled)
-                    VALUES('transfer',?,?,?,?,NULL,'once',?,1,0)
-                """, total, desc, srcId, cardId, payDate.toString());
+                    VALUES('transfer',?,?,?,?,?,'once',?,1,0)
+                """, total, desc, srcId, cardId, transferCatId, payDate.toString());
                 execute("INSERT OR IGNORE INTO scheduled_transaction_tags(scheduled_id,tag_id) VALUES(?,?)",
                         schedId, tagId);
                 logger.log("SALDO CARTA CREATO", "carta:" + DbLogger.s(cardName),

@@ -3055,8 +3055,14 @@ public class Database {
 
     /**
      * Allinea le pianificate di "saldo carta" per ogni carta con auto_settle attivo.
-     * Chiamata all'avvio (vedi Bridge "syncCardSettlements"): è il punto in cui l'app
-     * si sveglia, non serve uno scheduler.
+     * Chiamata da {@link #getScheduled()}, cioè a ogni lettura delle pianificate: l'importo
+     * si riallinea da sé appena si registra una spesa sulla carta, senza aspettare un riavvio.
+     * Resta esposta anche come operazione del Bridge ("syncCardSettlements"), invocata all'avvio.
+     * Non serve uno scheduler.
+     *
+     * <p>Progettata per essere chiamata spesso: esce subito se nessuna carta ha l'automatismo
+     * attivo, e quando l'importo è già corretto non scrive nulla (nessun UPDATE, nessun
+     * touchSyncMeta). Il costo a regime è una SELECT indicizzata per carta.
      *
      * <p>Per ogni carta e per ogni mese saldato mantiene una pianificata, marcata col tag di
      * sistema "cardsettle": trasferimento dal conto di pagamento alla carta, il giorno
@@ -3077,15 +3083,18 @@ public class Database {
      * @return numero di pianificate create/aggiornate/rimosse
      */
     public int syncCardSettlements() throws SQLException {
-        Integer tagId = getSystemTagIdByKey("cardsettle");
-        if (tagId == null) return 0;   // tag assente: DB inatteso, meglio non inventare pianificate
-
+        // Prima la query più economica: chi non ha carte con l'automatismo attivo (il caso di
+        // gran lunga più comune) esce subito. Girando a ogni lettura delle pianificate, questa
+        // uscita anticipata è ciò che rende il meccanismo gratuito per tutti gli altri.
         var cards = queryList("""
             SELECT id, name, payment_day, payment_account_id FROM accounts
             WHERE type='credit' AND auto_settle=1 AND is_closed=0
               AND payment_day IS NOT NULL AND payment_account_id IS NOT NULL
         """);
         if (cards.isEmpty()) return 0;
+
+        Integer tagId = getSystemTagIdByKey("cardsettle");
+        if (tagId == null) return 0;   // tag assente: DB inatteso, meglio non inventare pianificate
 
         // Ultimo mese chiuso: se oggi è il 1° agosto, è luglio. L'addebito cade il mese dopo.
         java.time.YearMonth settled = java.time.YearMonth.from(LocalDate.now()).minusMonths(1);
@@ -3109,7 +3118,7 @@ public class Database {
             // farebbe riscrivere il saldo pendente con quello nuovo, e il mese vecchio non
             // verrebbe mai pagato.
             Map<String, Object> existing = queryOne("""
-                SELECT s.id, s.is_active FROM scheduled_transactions s
+                SELECT s.id, s.is_active, s.amount, s.account_id FROM scheduled_transactions s
                 JOIN scheduled_transaction_tags st ON st.scheduled_id = s.id
                 WHERE st.tag_id=? AND s.to_account_id=? AND s.start_date=? LIMIT 1
             """, tagId, cardId, payDate.toString());
@@ -3135,6 +3144,13 @@ public class Database {
             }
 
             if (existing != null) {
+                // Già allineata: nessuna scrittura. Essendo chiamata a ogni lettura delle
+                // pianificate (vedi getScheduled) il caso normale è questo, e deve costare
+                // solo la SELECT del totale — niente UPDATE, niente touchSyncMeta.
+                if (r2(num(existing.get("amount"))) == total
+                        && srcId == ((Number) existing.get("account_id")).intValue()) {
+                    continue;
+                }
                 // start_date NON si tocca: è la chiave d'identità del saldo (vedi la query sopra).
                 // Aggiornare la data qui significherebbe spostare il saldo su un altro mese.
                 int schedId = ((Number) existing.get("id")).intValue();
@@ -3167,8 +3183,14 @@ public class Database {
 
     // ─── Transazioni Pianificate ──────────────────────────────────────────────
 
-    /** Tutte le transazioni pianificate con categoria, conti e tag. */
+    /** Tutte le transazioni pianificate con categoria, conti e tag.
+     *  Prima di leggere riallinea i saldi carta: così l'importo è aggiornato appena si registra
+     *  una spesa sulla carta, senza aspettare il riavvio. Nel caso normale (importo già giusto)
+     *  syncCardSettlements non scrive nulla, quindi il costo è una SELECT indicizzata per carta.
+     *  Il fallimento non deve impedire di leggere le pianificate: loggato e ignorato. */
     public List<Map<String, Object>> getScheduled() throws SQLException {
+        try { syncCardSettlements(); }
+        catch (SQLException e) { System.err.println("Database.getScheduled: syncCardSettlements: " + e.getMessage()); }
         return parseTags(queryList("""
             SELECT s.*, c.name AS category_name, c.icon AS category_icon,
                    p.name AS parent_category_name,

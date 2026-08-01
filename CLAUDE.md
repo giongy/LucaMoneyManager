@@ -74,10 +74,17 @@ Le query girano deliberatamente **fuori** dal lock (per non serializzarle): è p
 
 ## Saldo automatico carte di credito
 
-`Database.syncCardSettlements()` — chiamata a **ogni avvio** da `init.js` (non c'è uno scheduler:
-l'avvio è il momento in cui l'app si sveglia). Per ogni conto `type='credit'` con `auto_settle=1`
-crea/aggiorna una pianificata di saldo: trasferimento `payment_account_id → carta`, il giorno
-`payment_day` del mese successivo a quello saldato.
+`Database.syncCardSettlements()` — chiamata da **`getScheduled()`**, cioè a ogni lettura delle
+pianificate: l'importo si riallinea da sé appena si registra una spesa sulla carta, senza
+aspettare un riavvio. Resta esposta anche come operazione del Bridge, invocata da `init.js`
+all'avvio. Niente scheduler. Per ogni conto `type='credit'` con `auto_settle=1` crea/aggiorna una
+pianificata di saldo: trasferimento `payment_account_id → carta`, il giorno `payment_day` del mese
+successivo a quello saldato.
+
+⚠️ Girando a ogni lettura **deve restare a costo quasi zero**: esce subito se nessuna carta ha
+l'automatismo attivo, e se l'importo è già corretto non scrive nulla — niente `UPDATE`, niente
+`touchSyncMeta()`. Quest'ultimo punto non è cosmetico: una scrittura inutile marcherebbe il DB
+come modificato a ogni apertura di Pianificate, facendo risincronizzare OneDrive a vuoto.
 
 Regole che tengono in piedi il meccanismo:
 

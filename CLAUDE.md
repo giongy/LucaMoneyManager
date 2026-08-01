@@ -11,7 +11,7 @@ Due piattaforme: **desktop (primaria)** e **Android (secondaria)**, database SQL
 - **Linguaggio:** Java 25, Maven 3.x
 - **UI:** JCEF v146 (Chromium embedded) + Swing per dialogs/titlebar/splash
 - **Frontend:** Vanilla JS puro (`src/main/resources/web/`, modulare in `js/pages/*.js`), no React/Vue
-- **Versione:** 1.18.1 — output `target/moneymanager-1.18.1.jar` (fat JAR, web/ esclusa)
+- **Versione:** 1.20.1 — output `target/moneymanager-1.20.1.jar` (fat JAR, web/ esclusa)
 - **Web assets:** serviti da filesystem (cartella `web/` accanto al `.exe` in produzione, `target/classes/web/` in IDE)
 - **DB path:** `%APPDATA%\LucaMoneyManager\data.db` (`%APPDATA%` = `...\Roaming`)
 - **Build:** `mvn package` oppure `build.bat`
@@ -30,16 +30,16 @@ Due piattaforme: **desktop (primaria)** e **Android (secondaria)**, database SQL
 ```
 JS Frontend (js/pages/*.js, 14 moduli)
     ↓  cefQuery (payload JSON in Base64)      ↑ stessa API anche via HTTP LAN (WebServer)
-Bridge.java (~935 LOC) — dispatch 133 operazioni
+Bridge.java (~1075 LOC) — dispatch 134 operazioni
     ↓
-Database.java (~4730 LOC) — tutte le query JDBC
+Database.java (~5460 LOC) — tutte le query JDBC
     ↓
 SQLite
 ```
 
 **Classi Java:** `App` (entry point), `MainWindow` (Swing + JCEF), `Bridge` (dispatch JS↔Java), `Database` (JDBC), `Settings` (preferenze utente), `IconFactory` (generazione .ico), `SplashWindow` (splash Swing 700ms), `TrayManager` (system tray), `SingleInstance` (lock istanza unica), `WebServer` (serve web/ da filesystem), `DbLogger` (logging query), `ContextMenuHandler` (menu tasto destro nativo: ricarica/zoom/devtools)
 
-**Moduli JS pagine** (LOC indicativi): `analytics` (3480), `portfolio` (2020), `budget` (1960), `settings` (1765), `transactions` (1350), `scheduled` (1005), `dashboard` (970), `accounts` (375), `notes` (350), `categories` (270), `forecasts` (235), `logviewer` (205), `ranges` (195), `tags` (105)
+**Moduli JS pagine** (LOC indicativi): `analytics` (3555), `portfolio` (2100), `budget` (1985), `settings` (1785), `transactions` (1395), `scheduled` (1060), `dashboard` (970), `accounts` (510), `notes` (360), `categories` (280), `forecasts` (240), `logviewer` (210), `ranges` (195), `tags` (105)
 
 ### Connessione DB — invariante da rispettare
 

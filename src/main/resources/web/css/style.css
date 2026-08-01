@@ -1125,6 +1125,40 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 .dash-budget-col-exp { flex:3; min-width:0; padding-right:12px; }
 .dash-budget-col-inc { flex:1; min-width:0; border-left:1px solid var(--border); padding-left:12px; }
 
+/* ─── Dashboard "Spese del mese" — barre di quota sul totale ──────────────── */
+/* Diverse dalle .bbar del widget Budget: lì la barra misura il reale CONTRO il budget,
+   qui misura la QUOTA della categoria sul totale speso. Righe su una sola linea (non
+   impilate) perché ne devono stare fino a 15 nella stessa card alta 400px. */
+/* space-evenly e non flex-start: con 3-4 categorie le righe si distribuiscono
+   sull'altezza invece di ammassarsi in cima lasciando la card mezza vuota.
+   overflow-y:auto è la rete di sicurezza se la card viene rimpicciolita a mano. */
+.dshare-list {
+  flex:1; min-height:0; overflow-y:auto;
+  display:flex; flex-direction:column; justify-content:space-evenly; gap:2px;
+}
+.dshare {
+  display:flex; align-items:center; gap:8px;
+  padding:2px 5px; border-radius:6px; font-size:12px; line-height:1.5;
+}
+.dshare-icon { font-size:13px; line-height:1; flex-shrink:0; }
+/* Nome a larghezza fissa: allinea le barre tutte alla stessa ascissa, altrimenti
+   ogni riga partirebbe da un punto diverso e il confronto tra lunghezze sparirebbe.
+   140px e non 104: le categorie reali hanno nomi lunghi ("Manut./revis./telepass",
+   "Elettrodomestici/Arredamento") che a 104px venivano troncati in massa. La barra
+   resta comunque il segmento più largo della riga, quindi il confronto non ne soffre. */
+.dshare-name {
+  width:140px; flex-shrink:0; color:var(--txt2);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.dshare-track { flex:1; min-width:0; height:8px; border-radius:4px; background:var(--bg3); overflow:hidden; }
+.dshare-fill { display:block; height:100%; border-radius:4px; transition:width .85s cubic-bezier(.22,.61,.36,1); }
+.dshare-pct { flex-shrink:0; width:30px; text-align:right; font-size:11px; color:var(--txt3); }
+.dshare-amt { flex-shrink:0; min-width:64px; text-align:right; font-weight:600; }
+/* Categoria sopra il budget del mese: stessa semantica visiva delle .bbar-over. */
+.dshare-over { box-shadow:inset 2px 0 0 var(--expense); background:color-mix(in srgb, var(--expense) 4%, transparent); }
+.dshare-over .dshare-amt { color:var(--expense); }
+.dshare-other .dshare-name, .dshare-other .dshare-amt { color:var(--txt3); font-style:italic; }
+
 /* ─── Backup list — badge modifiche ──────────────────────────────────────── */
 .btn-bak-changes {
   display:inline-block; cursor:pointer; border:none; outline:none;

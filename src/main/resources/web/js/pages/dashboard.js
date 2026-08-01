@@ -440,13 +440,13 @@ function _dashWidgetDefs(dashYear) {
         <th>Data</th><th>Descrizione</th><th>Categoria</th><th>Conto</th><th class="text-right">Importo</th>
       </tr></thead><tbody id="recentRows"></tbody></table></div>` },
 
-    donut: { title: '🍩 Analisi mese corrente', tall: true, id: 'dashMonthDonutCard',
+    donut: { title: '🍩 Spese del mese', tall: true, id: 'dashMonthDonutCard',
       attrs: `style="cursor:pointer" onclick="_analyticsTab='catmonth';navigate('analytics')" title="Uscite per categoria — mese corrente"`, html: `
       <div class="card-header">
-        <span class="card-title">🍩 Analisi mese corrente</span>
-        <span style="font-size:10px;color:var(--txt3);font-weight:400" id="dashMonthDonutTot"></span>
+        <span class="card-title">🍩 Spese del mese</span>
+        <span style="font-size:11px;color:var(--txt3);font-weight:400" id="dashMonthDonutTot"></span>
       </div>
-      <div id="dashMonthDonutBody" style="flex:1;display:flex;gap:14px;padding:8px 16px 14px;min-height:0"></div>` },
+      <div id="dashMonthDonutBody" style="flex:1;display:flex;flex-direction:column;padding:4px 16px 12px;min-height:0"></div>` },
 
     barchart: { title: `Entrate vs Uscite ${dashYear}`, tall: true,
       attrs: `style="cursor:pointer" onclick="_analyticsTab='balance';navigate('analytics')"`, html: `
@@ -1293,20 +1293,36 @@ async function renderDashboard() {
   }
 }
 
-// ── Widget donut "Analisi mese corrente" ──────────────────────────────────
-// Ripartizione delle uscite del mese corrente per categoria: donut Chart.js a sinistra
-// + legenda (categoria · % · importo) a destra. Ricava tutto da budgetYear (actuals +
-// categories, già caricato in renderDashboard) — nessuna query dedicata. Le categorie
-// oltre le prime MAX_SLICES vengono aggregate in una fetta "Altro".
-const _DONUT_FALLBACK = ['#58a6ff','#3fb950','#ff7b72','#e3b341','#bc8cff','#79c0ff','#56d364','#ffa657','#f78166','#d2a8ff'];
+// ── Widget "Spese del mese" ───────────────────────────────────────────────
+// Ripartizione delle uscite del mese corrente per categoria, in barre proporzionali a
+// piena larghezza: la quota è codificata dalla LUNGHEZZA della barra, non da un angolo.
+// Ricava tutto da budgetYear (actuals + categories + budgets/configs, già caricato in
+// renderDashboard) — nessuna query dedicata.
+//
+// Perché barre e non più un donut: donut + legenda testuale erano ridondanti (la legenda
+// riportava già la percentuale, quindi il grafico occupava il 40% della larghezza per
+// ripetere dei numeri scritti accanto). Le barre reggono entrambi gli estremi d'uso —
+// 3-4 categorie a inizio mese senza lasciare un buco verticale, 20-25 a fine mese senza
+// che "Altro" diventi la voce dominante.
+const _SHARE_FALLBACK = ['#58a6ff','#3fb950','#ff7b72','#e3b341','#bc8cff','#79c0ff','#56d364','#ffa657','#f78166','#d2a8ff'];
 function _renderDashMonthDonut(budgetYear) {
   const body = document.getElementById('dashMonthDonutBody');
   const totEl = document.getElementById('dashMonthDonutTot');
   if (!body) return;
 
-  const { actuals = [], categories = [] } = budgetYear;
-  const curMonth = new Date().getMonth() + 1;
+  const { actuals = [], categories = [], budgets = [], configs = [] } = budgetYear;
+  const now = new Date();
+  const curMonth = now.getMonth() + 1;
+  const monthName = now.toLocaleString('it-IT', { month: 'long' });
   const catMap = Object.fromEntries(categories.map(c => [c.id, c]));
+
+  // Budget effettivo del mese per categoria (stessa logica della pagina budget): serve
+  // solo a marcare in rosso le categorie sforate — l'informazione principale resta la quota.
+  const _bMap = {};
+  budgets.forEach(b => { if (!_bMap[b.category_id]) _bMap[b.category_id] = {}; _bMap[b.category_id][b.month] = b.amount; });
+  const _cfgMap = {};
+  (configs || []).forEach(c => { _cfgMap[c.category_id] = c; });
+  const budgetOf = catId => _budgetEffective(_cfgMap[catId], _bMap[catId] || {})[curMonth] || 0;
 
   // Aggrega le uscite del mese corrente per categoria (solo categorie di tipo expense).
   const byCat = {};
@@ -1320,63 +1336,84 @@ function _renderDashMonthDonut(budgetYear) {
   });
 
   let items = Object.entries(byCat)
-    .map(([id, total]) => { const c = catMap[id]; return { name: c.name, icon: c.icon || '📁', color: c.color, total }; })
+    .map(([id, total]) => {
+      const c = catMap[id];
+      const budget = budgetOf(c.id);
+      return { name: c.name, icon: c.icon || '📁', color: c.color, total, budget, over: budget > 0 && total > budget };
+    })
     .sort((a, b) => b.total - a.total);
 
   const totMonth = items.reduce((s, i) => s + i.total, 0);
 
+  if (totEl) totEl.textContent = '';
   if (!items.length) {
-    if (totEl) totEl.textContent = '';
     body.innerHTML = `<div style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--txt3);font-size:13px">Nessuna spesa nel mese</div>`;
-    if (charts.monthDonut) { charts.monthDonut.destroy(); charts.monthDonut = null; }
     return;
   }
-  if (totEl) totEl.textContent = fmt.currency(totMonth);
+  if (totEl) totEl.textContent = `${monthName} · ${fmt.currency(totMonth)}`;
 
-  // Cap alle prime N categorie; il resto confluisce in "Altro" (fetta grigia).
-  const MAX_SLICES = 8;
-  if (items.length > MAX_SLICES) {
-    const head = items.slice(0, MAX_SLICES);
-    const rest = items.slice(MAX_SLICES);
-    const restTot = rest.reduce((s, i) => s + i.total, 0);
-    head.push({ name: 'Altro', icon: '•', color: 'var(--txt3)', total: restTot, _isOther: true });
-    items = head;
+  // Quante righe ci stanno DAVVERO nell'altezza disponibile: il widget è ridimensionabile
+  // (rowH nel layout), quindi un cap fisso o troncava presto in una card alta o mandava in
+  // overflow una card bassa — e la prima riga a sparire sotto il bordo sarebbe stata proprio
+  // "Altre N categorie", cioè quella che rende conto di tutto ciò che non si vede.
+  // 24 = riga 22px + gap 2px: è il PASSO tra due righe, non la sola altezza. Usare 22
+  // sovrastimava di una riga e mandava in overflow proprio la coda "Altre N categorie".
+  // Deve restare allineato al CSS .dshare (padding/line-height) e a .dshare-list (gap).
+  const ROW_H = 24;
+  const avail = body.clientHeight || 320;
+  // Almeno 4 righe anche in una card molto bassa (sotto, lo scroll fa da rete di sicurezza);
+  // mai più di 18: oltre, le barre diventano troppo fitte per essere confrontabili.
+  const MAX_ROWS = Math.max(4, Math.min(18, Math.floor(avail / ROW_H)));
+
+  // Il resto confluisce in "Altre N categorie" (riga grigia). Quando serve la riga di coda,
+  // il cap sulle categorie è MAX_ROWS-1: la coda occupa essa stessa una riga.
+  let other = null;
+  if (items.length > MAX_ROWS) {
+    const head = MAX_ROWS - 1;
+    const rest = items.slice(head);
+    other = { count: rest.length, total: rest.reduce((s, i) => s + i.total, 0) };
+    items = items.slice(0, head);
   }
 
-  // Colore per fetta: colore categoria se valido (#hex), altrimenti dalla palette fallback.
-  const sliceColor = (it, i) => it._isOther ? '#8b949e'
-    : (it.color && it.color.startsWith('#') ? it.color : _DONUT_FALLBACK[i % _DONUT_FALLBACK.length]);
-  const colors = items.map(sliceColor);
+  // Colore barra: colore categoria se valido (#hex), altrimenti dalla palette fallback.
+  const barColor = (it, i) => (it.color && it.color.startsWith('#')) ? it.color : _SHARE_FALLBACK[i % _SHARE_FALLBACK.length];
 
-  const pct = t => totMonth > 0 ? Math.round(t / totMonth * 100) : 0;
+  const pct = t => totMonth > 0 ? t / totMonth * 100 : 0;
+  // Le barre sono normalizzate sulla categoria più grossa, non sul totale: con 20 categorie
+  // la quota massima è ~20% e barre tarate sul totale sarebbero tutte stumps illeggibili.
+  const maxTot = items[0].total || 1;
 
-  // Layout: donut a sinistra (larghezza fissa), legenda scrollabile a destra.
+  // Righe distribuite sull'altezza disponibile (space-evenly): con poche categorie la card
+  // respira invece di lasciare un vuoto in fondo, con molte si compattano da sé.
   body.innerHTML = `
-    <div style="width:40%;max-width:150px;flex-shrink:0;display:flex;align-items:center;justify-content:center;position:relative">
-      <canvas id="dashMonthDonut"></canvas>
-    </div>
-    <div class="donut-legend" style="flex:1;min-width:0;overflow-y:auto;display:flex;flex-direction:column;gap:3px;align-content:center;justify-content:center">
+    <div class="dshare-list">
       ${items.map((it, i) => `
-        <div style="display:flex;align-items:center;gap:7px;font-size:12px;line-height:1.5">
-          <span style="width:9px;height:9px;border-radius:2px;background:${colors[i]};flex-shrink:0"></span>
-          <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--txt2)">${esc(it.icon)} ${esc(it.name)}</span>
-          <span style="color:var(--txt3);font-size:11px;flex-shrink:0">${pct(it.total)}%</span>
-          <span style="font-weight:600;flex-shrink:0;min-width:60px;text-align:right">${fmt.currency(it.total)}</span>
+        <div class="dshare${it.over ? ' dshare-over' : ''}" title="${esc(it.name)} — ${esc(fmt.currency(it.total))}${it.budget > 0 ? ` di ${esc(fmt.currency(it.budget))} a budget` : ''}">
+          <span class="dshare-icon">${esc(it.icon)}</span>
+          <span class="dshare-name">${esc(it.name)}</span>
+          <span class="dshare-track">
+            <span class="dshare-fill" data-fill="${(it.total / maxTot * 100).toFixed(1)}" style="width:0;background-color:${barColor(it, i)}"></span>
+          </span>
+          <span class="dshare-pct">${Math.round(pct(it.total))}%</span>
+          <span class="dshare-amt">${fmt.currency(it.total)}</span>
         </div>`).join('')}
+      ${other ? `
+        <div class="dshare dshare-other" title="Categorie minori aggregate">
+          <span class="dshare-icon">•</span>
+          <span class="dshare-name">Altre ${other.count} categorie</span>
+          <span class="dshare-track">
+            <span class="dshare-fill" data-fill="${(other.total / maxTot * 100).toFixed(1)}" style="width:0;background-color:#8b949e"></span>
+          </span>
+          <span class="dshare-pct">${Math.round(pct(other.total))}%</span>
+          <span class="dshare-amt">${fmt.currency(other.total)}</span>
+        </div>` : ''}
     </div>`;
 
-  if (charts.monthDonut) charts.monthDonut.destroy();
-  charts.monthDonut = new Chart(document.getElementById('dashMonthDonut'), {
-    type: 'doughnut',
-    data: { labels: items.map(i => i.name), datasets: [{ data: items.map(i => i.total), backgroundColor: colors, borderWidth: 0 }] },
-    options: {
-      responsive: true, maintainAspectRatio: true, cutout: '62%',
-      plugins: {
-        legend: { display: false },
-        tooltip: { callbacks: { label: ctx => ` ${ctx.label}: ${fmt.currency(ctx.parsed)} (${pct(ctx.parsed)}%)` } }
-      }
-    }
-  });
+  // Stessa animazione "crescita" delle barre budget: partono da width:0 e al frame
+  // successivo vanno al valore reale (doppio rAF perché il browser registri lo stato iniziale).
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    body.querySelectorAll('.dshare-fill').forEach(f => { f.style.width = (f.dataset.fill || '0') + '%'; });
+  }));
 }
 
 // ── Esegui pianificata ora (F6) ───────────────────────────────────────────

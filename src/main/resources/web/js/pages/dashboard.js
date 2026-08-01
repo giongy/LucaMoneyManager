@@ -377,26 +377,27 @@ window._dashQuickTx = async (accountId, type) => {
 // i widget dopo il fetch (_fillDashAccounts, i grafici, ecc.) non sono state toccate:
 // cercano gli stessi id.
 
-// w = larghezza in dodicesimi di riga: 4=1/3, 6=1/2, 8=2/3, 12=piena.
-const DASH_WIDTHS = [
-  { w: 4,  label: '⅓' },
-  { w: 6,  label: '½' },
-  { w: 8,  label: '⅔' },
-  { w: 12, label: 'Intera' },
-];
+// w = larghezza in PERCENTUALE della riga. I widget di una riga sommano ~100.
+// Percentuale e non "taglie fisse": le proporzioni storiche della dashboard erano
+// 36/64 e 60/40, non esprimibili con ⅓ ½ ⅔.
+const DASH_W_MIN  = 15;   // sotto questa soglia un widget diventa illeggibile
+const DASH_W_STEP = 5;    // passo del ridimensionamento a tastiera/click
 
-// Ordine e larghezze di default: riproducono esattamente il layout storico della
-// dashboard, così chi non tocca nulla non vede alcun cambiamento.
+// Ordine e larghezze di default: riproducono ESATTAMENTE il layout storico della
+// dashboard (le percentuali vengono dal CSS che c'era prima dei widget mobili:
+// .dash-accounts-card 36%, .dash-upcoming-card 60%, il resto in parti uguali).
+// rowH: altezza della riga; le prime due card storicamente erano a contenuto libero
+// (nessuna altezza fissata), le righe grafico avevano --dash-row-h = 400px.
 const DASH_DEFAULT_LAYOUT = [
-  { id: 'accounts',    w: 6 },
-  { id: 'bubbles',     w: 6 },
-  { id: 'upcoming',    w: 6 },
-  { id: 'budgetchart', w: 6 },
-  { id: 'topcat',      w: 6 },
-  { id: 'recent',      w: 6 },
-  { id: 'donut',       w: 4 },
-  { id: 'barchart',    w: 4 },
-  { id: 'savings',     w: 4 },
+  { id: 'accounts',    row: 0, w: 36 },
+  { id: 'bubbles',     row: 0, w: 64 },
+  { id: 'upcoming',    row: 1, w: 60, rowH: 400 },
+  { id: 'budgetchart', row: 1, w: 40 },
+  { id: 'topcat',      row: 2, w: 50, rowH: 400 },
+  { id: 'recent',      row: 2, w: 50 },
+  { id: 'donut',       row: 3, w: 34, rowH: 400 },
+  { id: 'barchart',    row: 3, w: 33 },
+  { id: 'savings',     row: 3, w: 33 },
 ];
 
 // Registro dei widget: id → titolo (per il menu) e corpo HTML.
@@ -475,7 +476,7 @@ function _syncDashEditBar() {
   if (currentPage !== 'dashboard') { bar.style.display = 'none'; bar.innerHTML = ''; return; }
   bar.style.display = '';
   bar.innerHTML = _dashEditMode
-    ? `<span class="tb-dash-hint">✋ trascina per riordinare</span>
+    ? `<span class="tb-dash-hint">✋ trascina i widget per riordinarli · i bordi per ridimensionarli</span>
        <div class="tb-item" onclick="resetDashLayout()" title="Torna all'ordine e alle larghezze originali">↺<span class="tb-label">Ripristina</span></div>
        <div class="tb-item tb-dash-done" onclick="toggleDashEdit(false)" title="Esci dalla personalizzazione">✓<span class="tb-label">Fatto</span></div>`
     : `<div class="tb-item" onclick="toggleDashEdit(true)" title="Sposta i widget e cambiane la larghezza">⚙️<span class="tb-label">Personalizza</span></div>`;
@@ -501,39 +502,61 @@ function _mergeDashLayout(saved, defs) {
   return out.length ? out : DASH_DEFAULT_LAYOUT.filter(d => defs[d.id]).map(d => ({ ...d }));
 }
 
-/** Raggruppa i widget in righe da 12 dodicesimi: le larghezze si sommano finché
- *  entrano nella riga, poi si va a capo. È la stessa suddivisione che fa il browser
- *  con la griglia, ma esplicita — serve perché l'altezza è una proprietà della RIGA,
- *  non del singolo widget: i widget affiancati devono essere alti uguale. */
+/** Raggruppa i widget per riga.
+ *
+ *  La riga è un dato ESPLICITO (campo `row`), non dedotto dalla somma delle larghezze.
+ *  Con le righe implicite un widget spostato a metà lista faceva slittare a catena tutte
+ *  le righe successive, e non c'era modo di aggiungere un terzo widget a una riga piena:
+ *  la somma sforava il 100% e qualcun altro veniva spinto a capo.
+ *
+ *  I layout salvati prima di questo cambiamento non hanno `row`: si ricostruisce con la
+ *  vecchia regola (accumulo fino a 100) così nessuno perde la propria disposizione. */
 function _dashRows(layout) {
-  const rows = [];
-  let cur = [], used = 0;
+  if (layout.some(it => it.row === undefined)) _assignDashRows(layout);
+  const byRow = new Map();
   for (const item of layout) {
-    const w = item.w || 6;
-    if (used + w > 12 && cur.length) { rows.push(cur); cur = []; used = 0; }
-    cur.push(item); used += w;
+    if (!byRow.has(item.row)) byRow.set(item.row, []);
+    byRow.get(item.row).push(item);
   }
-  if (cur.length) rows.push(cur);
-  return rows;
+  return [...byRow.keys()].sort((a, b) => a - b).map(k => byRow.get(k));
 }
 
-/** Altezza di una riga: quella salvata, altrimenti il default storico (--dash-row-h).
- *  La prima riga (conti + budget) storicamente era a contenuto libero: resta 'auto'
- *  finché non la si ridimensiona a mano. */
-function _dashRowHeight(row) {
-  const h = row.find(it => it.rowH)?.rowH;
-  return h ? `${h}px` : null;
+/** Assegna il campo `row` mancante usando la vecchia regola implicita (migrazione). */
+function _assignDashRows(layout) {
+  let r = 0, used = 0;
+  for (const item of layout) {
+    const w = item.w || 50;
+    if (used + w > 101 && used > 0) { r++; used = 0; }
+    item.row = r; used += w;
+  }
 }
 
-/** HTML di tutti i widget, raggruppati per riga. */
+/** Rinumera le righe 0..N-1 eliminando i buchi lasciati dalle righe svuotate. */
+function _compactDashRows(layout) {
+  const uniq = [...new Set(layout.map(it => it.row))].sort((a, b) => a - b);
+  const map = new Map(uniq.map((r, i) => [r, i]));
+  layout.forEach(it => { it.row = map.get(it.row); });
+  // L'ordine nell'array deve rispecchiare quello visivo: il drag&drop e il salvataggio
+  // si basano sulla sequenza, e una lista fuori ordine produrrebbe spostamenti erratici.
+  layout.sort((a, b) => a.row - b.row);
+}
+
+/** HTML di tutti i widget, raggruppati per riga.
+ *  Le colonne sono percentuali esplicite (grid-template-columns), così una riga può
+ *  avere proporzioni qualsiasi — 36/64 come in origine, o quelle scelte trascinando. */
 function _renderDashWidgets(dashYear) {
   const defs = _dashWidgetDefs(dashYear);
   _dashLayout = _mergeDashLayout(_dashLayout, defs);
   return _dashRows(_dashLayout).map((row, ri) => {
-    const h = _dashRowHeight(row);
-    // I widget "tall" (grafici/tabelle) danno alla riga l'altezza di default se non
-    // ne è stata salvata una: senza altezza esplicita i canvas Chart.js collassano.
-    const rowH = h || (row.some(it => defs[it.id]?.tall) ? 'var(--dash-row-h)' : null);
+    // Altezza salvata sul primo widget della riga; se assente la riga si adatta al
+    // contenuto (com'era la prima riga storicamente).
+    const rowH = row.find(it => it.rowH)?.rowH;
+    // Le percentuali sommano 100, ma fra le colonne ci sono i gap: senza sottrarli la
+    // riga risulta più larga del contenitore e l'ultima card sfora oltre il bordo destro
+    // (misurato: -5px, mentre le stat card in alto rientrano di 15). Ogni colonna cede
+    // la propria quota del gap complessivo.
+    const gapShare = row.length > 1 ? `var(--dash-gap) * ${row.length - 1} / ${row.length}` : '0px';
+    const cols = row.map(it => `calc(${it.w}% - (${gapShare}))`).join(' ');
     const cards = row.map(item => {
       const d = defs[item.id];
       if (!d) return '';
@@ -541,11 +564,23 @@ function _renderDashWidgets(dashYear) {
       // Maniglia e barra larghezze NON stanno qui: alcuni widget (le bolle budget) si
       // ridisegnano riscrivendo l'innerHTML della card e le cancellerebbero. Le aggiunge
       // _initDashDnD() dopo che i widget sono stati riempiti.
-      return `<div class="card dash-w${item.w}${d.cls ? ' ' + d.cls : ''}" data-wid="${item.id}"${domId} ${d.attrs || ''}>${d.html}</div>`;
+      return `<div class="card${d.cls ? ' ' + d.cls : ''}" data-wid="${item.id}"${domId} ${d.attrs || ''}>${d.html}</div>`;
     }).join('');
-    return `<div class="dash-row" data-row="${ri}"${rowH ? ` style="height:${rowH}"` : ''}>${cards}
-      <div class="dash-row-resize" data-row="${ri}" title="Trascina per cambiare l'altezza della riga"></div>
-    </div>`;
+    // Separatori di ridimensionamento: esistono SOLO in modalità Personalizza. Fuori, la
+    // dashboard è inerte — niente zone di presa invisibili in cui inciampare mentre la si
+    // usa normalmente.
+    // Stanno fuori dal flusso della griglia (position:absolute): occupando una colonna
+    // falserebbero le percentuali. La posizione è la somma delle larghezze a sinistra.
+    let acc = 0;
+    const seps = !_dashEditMode ? '' : row.slice(0, -1).map((it, ci) => {
+      acc += it.w;
+      return `<div class="dash-col-resize" data-row="${ri}" data-col="${ci}" style="left:${acc}%"
+                   title="Trascina per cambiare la larghezza"></div>`;
+    }).join('');
+    const rowSep = _dashEditMode
+      ? `<div class="dash-row-resize" data-row="${ri}" title="Trascina per cambiare l'altezza della riga"></div>`
+      : '';
+    return `<div class="dash-row" data-row="${ri}" style="grid-template-columns:${cols}${rowH ? `;height:${rowH}px` : ''}">${cards}${seps}${rowSep}</div>`;
   }).join('');
 }
 
@@ -577,20 +612,140 @@ window.resetDashLayout = async () => {
   toast('Layout ripristinato');
 };
 
-/** Cambia la larghezza di un widget e ridisegna. */
-window._setDashWidth = async (wid, w) => {
-  const it = _dashLayout?.find(x => x.id === wid);
-  if (!it) return;
-  it.w = w;
-  await _saveDashLayout();
-  renderDashboard();
-};
+
+/**
+ * Sposta un widget accanto a un altro, facendogli SPAZIO nella riga di destinazione.
+ *
+ * <p>Il solo riordino della lista non bastava: le righe nascono dalla somma delle
+ * larghezze, quindi trascinare un widget da 50% in una riga già piena (50+50) sforava
+ * il 100% e lo spingeva a capo, buttando fuori un altro widget. Era impossibile
+ * passare da 2 a 3 widget su una riga.
+ *
+ * <p>Qui invece le due righe coinvolte vengono rinormalizzate: la destinazione
+ * ridistribuisce lo spazio fra i suoi widget (in proporzione, così le differenze
+ * volute restano), l'origine si richiude sullo spazio lasciato libero.
+ *
+ * @param wid      id del widget trascinato
+ * @param targetId id del widget su cui è stato rilasciato
+ * @param after    true se rilasciato sulla metà destra del bersaglio
+ */
+function _moveDashWidget(wid, targetId, after) {
+  _dashRows(_dashLayout);                       // garantisce il campo row su tutti
+  const moved  = _dashLayout.find(x => x.id === wid);
+  const target = _dashLayout.find(x => x.id === targetId);
+  if (!moved || !target || moved === target) return;
+
+  const srcRowIdx = moved.row;
+  const dstRowIdx = target.row;
+
+  // Tetto di widget per riga: col minimo leggibile del 15% oltre 6 la riga sforerebbe
+  // il 100% (il minimo vince sulla normalizzazione) e sfonderebbe la larghezza. Meglio
+  // rifiutare lo spostamento che produrre un layout rotto.
+  if (srcRowIdx !== dstRowIdx) {
+    const dstCount = _dashLayout.filter(it => it.row === dstRowIdx).length;
+    if (dstCount >= Math.floor(100 / DASH_W_MIN)) {
+      toast('Riga piena: sposta prima un widget altrove', 'error');
+      return;
+    }
+  }
+
+  // Riga di destinazione: il widget vi entra accanto al bersaglio. L'ordine dentro la
+  // riga è quello dell'array, quindi si reinserisce nella posizione giusta.
+  _dashLayout.splice(_dashLayout.indexOf(moved), 1);
+  let at = _dashLayout.indexOf(target) + (after ? 1 : 0);
+  moved.row = dstRowIdx;
+  _dashLayout.splice(at, 0, moved);
+
+  // Le due righe coinvolte tornano a sommare 100: la destinazione fa spazio al nuovo
+  // arrivato, l'origine si richiude sullo spazio lasciato libero.
+  const rows = _dashRows(_dashLayout);
+  _normalizeDashRow(rows.find(r => r[0]?.row === dstRowIdx) || []);
+  const src = rows.find(r => r[0]?.row === srcRowIdx);
+  if (src && src.length) _normalizeDashRow(src);
+
+  _compactDashRows(_dashLayout);                // la riga d'origine può essersi svuotata
+}
+
+/** Porta a 100 la somma delle larghezze di una riga, in proporzione a quelle attuali
+ *  (così le proporzioni scelte dall'utente restano) e mai sotto il minimo leggibile.
+ *  Se i minimi non ci stanno tutti (riga troppo affollata) si ripiega su parti uguali:
+ *  meglio widget stretti ma uniformi che una riga che sfora il 100% e sfonda. */
+function _normalizeDashRow(row) {
+  if (!row.length) return;
+  if (row.length * DASH_W_MIN > 100) {
+    const eq = Math.floor(100 / row.length);
+    row.forEach((it, i) => { it.w = i === row.length - 1 ? 100 - eq * (row.length - 1) : eq; });
+    return;
+  }
+  const tot = row.reduce((s, it) => s + (it.w || 0), 0) || 1;
+  let acc = 0;
+  row.forEach((it, i) => {
+    if (i === row.length - 1) { it.w = Math.max(DASH_W_MIN, 100 - acc); return; }
+    // Il massimo lascia spazio ai widget rimanenti al loro minimo: senza, uno molto
+    // largo si prenderebbe quasi tutto e gli altri sforerebbero.
+    const maxW = 100 - acc - DASH_W_MIN * (row.length - 1 - i);
+    it.w = Math.min(maxW, Math.max(DASH_W_MIN, Math.round((it.w || 0) / tot * 100)));
+    acc += it.w;
+  });
+}
+
+/** Ridimensionamento in larghezza: si trascina il separatore fra due widget della
+ *  stessa riga. Lo spazio si sposta da una card all'altra (somma della riga invariata),
+ *  quindi le altre card non si muovono. Passo libero, con un minimo per non ridurre
+ *  un widget a una fessura illeggibile. */
+function _initDashColResize() {
+  const grid = document.getElementById('dashGrid');
+  if (!grid) return;
+  grid.querySelectorAll('.dash-col-resize').forEach(sep => {
+    sep.addEventListener('mousedown', e => {
+      e.preventDefault(); e.stopPropagation();
+      const rowEl = sep.closest('.dash-row');
+      const rows  = _dashRows(_dashLayout);
+      const row   = rows[parseInt(sep.dataset.row)];
+      const ci    = parseInt(sep.dataset.col);
+      if (!rowEl || !row || !row[ci] || !row[ci + 1]) return;
+
+      const startX = e.clientX;
+      const rowW   = rowEl.getBoundingClientRect().width;
+      const wA0    = row[ci].w, wB0 = row[ci + 1].w;
+      document.body.style.userSelect = 'none';
+      document.body.style.cursor = 'ew-resize';
+
+      const onMove = ev => {
+        // Delta in percentuale della riga: ciò che A guadagna, B lo perde.
+        let d = ((ev.clientX - startX) / rowW) * 100;
+        d = Math.max(DASH_W_MIN - wA0, Math.min(wB0 - DASH_W_MIN, d));
+        const wA = Math.round(wA0 + d), wB = Math.round(wB0 - d);
+        row[ci].w = wA; row[ci + 1].w = wB;
+        // Stessa formula del render: le percentuali vanno al netto dei gap (vedi
+        // _renderDashWidgets), altrimenti trascinando la riga sforerebbe a destra.
+        const gs = row.length > 1 ? `var(--dash-gap) * ${row.length - 1} / ${row.length}` : '0px';
+        rowEl.style.gridTemplateColumns = row.map(it => `calc(${it.w}% - (${gs}))`).join(' ');
+        // I separatori sono in absolute: vanno riposizionati insieme alle colonne.
+        let a = 0;
+        [...rowEl.querySelectorAll('.dash-col-resize')].forEach((s, i) => {
+          a += row[i].w; s.style.left = a + '%';
+        });
+      };
+      const onUp = async () => {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        document.body.style.userSelect = '';
+        document.body.style.cursor = '';
+        await _saveDashLayout();
+        _resizeDashCharts();
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  });
+}
 
 /** Ridimensionamento in altezza delle righe: si trascina il bordo inferiore.
  *  L'altezza si salva sul PRIMO widget della riga (campo rowH). Le righe non hanno un
  *  id proprio — nascono dalle larghezze — quindi ancorarla a un indice si romperebbe
  *  appena si sposta un widget; ancorata al widget, segue il layout.
- *  Attivo sempre, non solo in modifica: è un gesto diretto sul bordo, non un comando. */
+ *  I separatori esistono solo in modalità Personalizza (vedi _renderDashWidgets). */
 function _initDashRowResize() {
   const grid = document.getElementById('dashGrid');
   if (!grid) return;
@@ -671,23 +826,6 @@ function _initDashDnD() {
       handle.textContent = '⠿ trascina';
       card.appendChild(handle);
     }
-    if (!card.querySelector(':scope > .dash-width-picker')) {
-      const cur = _dashLayout.find(x => x.id === card.dataset.wid)?.w;
-      const picker = document.createElement('div');
-      picker.className = 'dash-width-picker';
-      picker.innerHTML = DASH_WIDTHS.map(({ w, label }) =>
-        `<button type="button" class="dash-wbtn${cur === w ? ' active' : ''}" data-w="${w}"
-                 title="Larghezza ${label}">${label}</button>`).join('');
-      // I widget-grafico hanno onclick sulla card che naviga altrove: senza stopPropagation
-      // scegliere una larghezza porterebbe via dalla dashboard.
-      picker.addEventListener('click', e => {
-        const b = e.target.closest('.dash-wbtn');
-        if (!b) return;
-        e.preventDefault(); e.stopPropagation();
-        _setDashWidth(card.dataset.wid, parseInt(b.dataset.w));
-      });
-      card.appendChild(picker);
-    }
     handle.addEventListener('mousedown', () => { card.draggable = true; });
     card.addEventListener('dragend',     () => { card.draggable = false; dragged = null;
                                                  grid.querySelectorAll('.dash-drop-target').forEach(c => c.classList.remove('dash-drop-target')); });
@@ -707,11 +845,12 @@ function _initDashDnD() {
       e.preventDefault();
       card.classList.remove('dash-drop-target');
       if (!dragged || dragged === card) return;
-      const from = _dashLayout.findIndex(x => x.id === dragged.dataset.wid);
-      const to   = _dashLayout.findIndex(x => x.id === card.dataset.wid);
-      if (from < 0 || to < 0) return;
-      const [moved] = _dashLayout.splice(from, 1);
-      _dashLayout.splice(to, 0, moved);
+      // Lato del bersaglio su cui si rilascia: sinistra = prima, destra = dopo. Senza
+      // questo non si potrebbe inserire in coda a una riga (si finirebbe sempre prima
+      // del bersaglio) e certi accostamenti sarebbero irraggiungibili.
+      const r = card.getBoundingClientRect();
+      const after = (e.clientX - r.left) > r.width / 2;
+      _moveDashWidget(dragged.dataset.wid, card.dataset.wid, after);
       await _saveDashLayout();
       renderDashboard();
     });
@@ -890,6 +1029,7 @@ async function renderDashboard() {
   // della sua card, quindi le maniglie vanno (ri)create adesso, non prima.
   _initDashDnD();
   _initDashRowResize();
+  _initDashColResize();
 
   // ── Widget donut "Analisi mese corrente" ─────────────────────────────────
   _renderDashMonthDonut(budgetYear);

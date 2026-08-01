@@ -981,20 +981,27 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
    sempre alti uguale (stretch) e non restano gradini fra una card e la vicina.
    Il bordo inferiore di ogni riga è trascinabile per cambiarne l'altezza. */
 .dash-grid { display:flex; flex-direction:column; gap:var(--dash-gap); }
+/* grid-template-columns è inline (percentuali per riga, vedi _renderDashWidgets).
+   min-height:0 — il limite inferiore lo applica il drag (120px), non il CSS: un minimo
+   qui impedirebbe di restringere la riga sotto quella soglia. */
 .dash-row {
-  display:grid; grid-template-columns:repeat(12, 1fr); gap:var(--dash-gap);
-  align-items:stretch; position:relative; min-height:120px;
+  display:grid; gap:var(--dash-gap);
+  align-items:stretch; position:relative; min-height:0;
 }
+/* Separatore verticale fra due widget: FUORI dal flusso della griglia (absolute), così
+   non occupa una colonna e non falsa le percentuali. La posizione (left) è calcolata in
+   JS dalla somma delle larghezze a sinistra; il -4px lo centra sul gap. */
+.dash-col-resize {
+  position:absolute; top:0; bottom:0; width:9px; margin-left:-4px;
+  cursor:ew-resize; z-index:5; border-radius:3px;
+}
+.dash-col-resize:hover { background:var(--accent); opacity:.35; }
 /* Zona di presa sul bordo inferiore: invisibile finché non ci si passa sopra. */
 .dash-row-resize {
   position:absolute; left:0; right:0; bottom:calc(var(--dash-gap) / -2 - 3px); height:8px;
   cursor:ns-resize; z-index:5; border-radius:3px;
 }
 .dash-row-resize:hover, .dash-row-resizing .dash-row-resize { background:var(--accent); opacity:.35; }
-.dash-w4  { grid-column:span 4; }
-.dash-w6  { grid-column:span 6; }
-.dash-w8  { grid-column:span 8; }
-.dash-w12 { grid-column:span 12; }
 /* min-height:0 e overflow:hidden: senza, il contenuto (una tabella lunga) impone la
    propria altezza naturale e la card sfonda la riga ridimensionata invece di adattarsi.
    Il corpo della card scorre: così accorciando una riga il contenuto resta raggiungibile
@@ -1031,21 +1038,12 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 .dash-row > .card[draggable="true"] { opacity:.5; }
 .dash-drop-target { outline:2px dashed var(--accent) !important; outline-offset:2px; }
 
-/* Selettore larghezza: nella stessa fascia della maniglia, allineato a destra. */
-.dash-width-picker {
-  position:absolute; top:5px; right:8px; z-index:4; display:flex; gap:3px;
-  background:var(--bg3); border:1px solid var(--border); border-radius:6px; padding:2px;
-}
-.dash-wbtn {
-  background:none; border:none; cursor:pointer; color:var(--txt2);
-  font-size:var(--fs-xs,11px); padding:2px 7px; border-radius:4px; line-height:1.5;
-}
-.dash-wbtn:hover  { background:var(--bg); color:var(--txt); }
-.dash-wbtn.active { background:var(--accent); color:#fff; font-weight:600; }
 
 .dash-upcoming-card td { padding:3px 10px; }
 .dash-upcoming-card th { padding:4px 10px; }
-.dash-chart-wrap { position:relative; flex:1; min-height:210px; margin-top:6px; }
+/* min-height:0 e non 210px: un minimo fisso qui impedirebbe alla riga di rimpicciolirsi
+   (si allungava ma non si restringeva). Il limite minimo lo impone la riga. */
+.dash-chart-wrap { position:relative; flex:1; min-height:0; margin-top:6px; }
 .dash-recent-card .table-wrap { flex:1; overflow:hidden; }
 .dash-recent-card .card-header { margin-bottom:4px; padding-bottom:4px; }
 .dash-recent-card th { padding:1px 10px; font-size:var(--fs-xs); }

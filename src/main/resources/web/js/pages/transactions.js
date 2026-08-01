@@ -209,11 +209,15 @@ async function renderTransactions() {
           <option value="">Tutte le categorie</option>
           ${(() => {
             const parents = categories.filter(c => !c.parent_id && c.type !== 'transfer');
-            return parents.map(p => {
+            const html = parents.map(p => {
               const children = categories.filter(c => String(c.parent_id) === String(p.id));
               if (!children.length) return `<option value="${p.id}" ${String(p.id)===String(txFilters.category_id)?'selected':''}>${p.icon||''} ${p.name}</option>`;
               return `<optgroup label="${p.icon||''} ${p.name}">${children.map(c=>`<option value="${c.id}" ${String(c.id)===String(txFilters.category_id)?'selected':''}>${c.icon||''} ${c.name}</option>`).join('')}</optgroup>`;
             }).join('');
+            // La categoria di sistema Trasferimento va in fondo, staccata dalle categorie utente:
+            // non è una voce di spesa/entrata ma serve per isolare i giroconti nella lista.
+            const tr = categories.find(c => c.type === 'transfer');
+            return html + (tr ? `<option value="${tr.id}" ${String(tr.id)===String(txFilters.category_id)?'selected':''}>${tr.icon||''} ${tr.name}</option>` : '');
           })()}
         </select>
         <select class="form-control" id="txTag">

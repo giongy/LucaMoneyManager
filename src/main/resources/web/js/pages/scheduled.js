@@ -92,7 +92,11 @@ let _schedCloseTagDrop = null;
 
 // Costruisce le <option> del filtro categoria (parent con figli annidati; "p:id" = intero ramo parent).
 function _buildSchedCatOptions(categories) {
-  const parents  = categories.filter(c => !c.parent_id).sort((a,b) => (a.name||'').localeCompare(b.name));
+  // Trasferimento è di sistema: esce dall'ordinamento alfabetico e va in fondo (come in
+  // Transazioni), staccata dalle categorie utente di spesa/entrata.
+  const parents  = categories.filter(c => !c.parent_id && c.type !== 'transfer')
+                             .sort((a,b) => (a.name||'').localeCompare(b.name));
+  const transferCat = categories.find(c => c.type === 'transfer');
   const childMap = {};
   categories.filter(c => c.parent_id).forEach(c => {
     (childMap[c.parent_id] = childMap[c.parent_id] || []).push(c);
@@ -109,6 +113,8 @@ function _buildSchedCatOptions(categories) {
       html += `<option value="${p.id}" ${sel===String(p.id)?'selected':''}>${esc(p.icon||'')} ${esc(p.name)}</option>`;
     }
   }
+  if (transferCat)
+    html += `<option value="${transferCat.id}" ${sel===String(transferCat.id)?'selected':''}>${esc(transferCat.icon||'')} ${esc(transferCat.name)}</option>`;
   return html;
 }
 
@@ -852,6 +858,9 @@ function showScheduledModal(sched, accounts, categories, tags = []) {
   const isEdit = !!(sched?.id);
   const today  = _todayStr();
   const initType = sched?.type || 'expense';
+  // Categoria di sistema dei trasferimenti: non è selezionabile nel modale (il cat-picker resta
+  // vuoto per type='transfer'), ma va comunque salvata — vedi il commento nel payload.
+  const transferCat = categories.find(c => c.type === 'transfer');
 
   const expCats = categories.filter(c=>c.type==='expense');
   const incCats = categories.filter(c=>c.type==='income');
@@ -982,7 +991,11 @@ function showScheduledModal(sched, accounts, categories, tags = []) {
       description:   document.getElementById('sc_desc').value.trim(),
       amount:        evalAmount(document.getElementById('sc_amount').value),
       type,
-      category_id:   parseInt(document.getElementById('sc_cat').value)||null,
+      // Per i trasferimenti il cat-picker resta vuoto (non è l'utente a scegliere): va imposta
+      // la categoria di sistema, come fa il modale delle transazioni. Senza, la pianificata
+      // nascerebbe con category_id NULL e la colonna Categoria resterebbe vuota.
+      category_id:   type === 'transfer' ? (transferCat?.id ?? null)
+                     : parseInt(document.getElementById('sc_cat').value)||null,
       account_id:    parseInt(document.getElementById('sc_account').value),
       to_account_id: type==='transfer' ? parseInt(document.getElementById('sc_toAccount').value)||null : null,
       frequency:     document.getElementById('sc_freq').value,

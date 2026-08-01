@@ -428,7 +428,7 @@ function _dashWidgetDefs(dashYear) {
 
     topcat: { title: 'Top categorie spesa', tall: true,
       attrs: `style="cursor:pointer" onclick="_analyticsTab='catmonth';navigate('analytics')"`, html: `
-      <div class="card-header"><span class="card-title">Top categorie spesa</span></div>
+      <div class="card-header"><span class="card-title">Top categorie spesa - Anno corrente</span></div>
       <div class="dash-chart-wrap"><canvas id="topCatChart"></canvas></div>` },
 
     recent: { title: 'Ultime transazioni', tall: true, cls: 'dash-recent-card', html: `

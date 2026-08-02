@@ -1227,7 +1227,13 @@ public class Database {
             // Marca le pianificate di saldo carta generate da syncCardSettlements(): è la
             // chiave con cui l'automatismo ritrova "la sua" pianificata per aggiornarla, invece
             // di riconoscerla dalla descrizione (che l'utente può riscrivere).
-            {"cardsettle", "Saldo Carta", "#a371f7"}
+            {"cardsettle", "Saldo Carta", "#a371f7"},
+            // Movimento straordinario: è avvenuto davvero (resta in saldi, budget, report e
+            // nella linea storica del grafico) ma NON va estrapolato in avanti. Serve per gli
+            // episodi irripetibili — estinzione mutuo, successione, rate di un acquisto una
+            // tantum, rimborsi non ricorrenti — che altrimenti entrano nella mediana e nella
+            // dispersione della Previsione Saldo e sporcano ogni "mese tipico".
+            {"oneoff", "Straordinario", "#e3b341"}
         };
         for (String[] t : sys) {
             // Crea se non esiste ancora un tag con questa system_key
@@ -5207,64 +5213,228 @@ public class Database {
         return forecast;
     }
 
-    // ── Previsione Saldo — struttura spese per categoria ─────────────────────
-    // Restituisce solo i mesi COMPLETATI (esclude il mese corrente, parziale).
-    //   categories: nome, frequency (0-1), avg_monthly (media sui mesi completati)
-    //   monthly:    ym, fixed_exp (cat freq≥0.75), sporadic_exp (cat freq<0.75)
+    // ── Movimenti straordinari (tag di sistema "oneoff") ─────────────────────
     /**
-     * Struttura delle spese per la Previsione Saldo: per ogni categoria calcola frequenza
-     * (in quanti mesi compare) e media mensile sui soli mesi completati, distinguendo spese
-     * fisse (freq≥0.75) da sporadiche. Esclude il mese corrente perché parziale.
+     * Predicato SQL da concatenare a una WHERE per ESCLUDERE i movimenti marcati come
+     * straordinari. `alias` è l'alias della tabella transactions nella query chiamante.
+     * <p>
+     * ⚠️ Va aggiunto SOLO dove si <em>estrapola</em> (mediana della parte variabile, dispersione
+     * della banda, mese tipico, struttura spese). Mai dove si mostra la realtà: saldi dei conti,
+     * budget, report e la linea storica del grafico devono continuare a contarli — i soldi si
+     * sono mossi davvero, quello che non va proiettato in avanti è la loro ripetizione.
      */
-    public Map<String, Object> getForecastExpenseSplit(int histMonths) throws SQLException {
-        java.time.LocalDate today     = java.time.LocalDate.now();
-        java.time.LocalDate startDate = today.withDayOfMonth(1).minusMonths(histMonths - 1);
-        java.time.LocalDate endExcl   = today.withDayOfMonth(1); // primo del mese corrente (escluso)
-        String dateFrom       = startDate.toString();
-        String dateTo         = endExcl.toString();
-        int    completedMonths = histMonths - 1; // mesi completati effettivi (escluso il corrente)
+    private static String notOneoff(String alias) {
+        return " AND NOT EXISTS (SELECT 1 FROM transaction_tags _tt JOIN tags _tg ON _tg.id=_tt.tag_id"
+             + " WHERE _tt.transaction_id=" + alias + ".id AND _tg.system_key='oneoff') ";
+    }
 
-        List<Map<String, Object>> categories = queryList("""
-                SELECT CASE
-                         WHEN p.name IS NOT NULL THEN p.name || ':' || c.name
-                         WHEN c.name IS NOT NULL THEN c.name
-                         ELSE 'Senza categoria'
-                       END AS name,
-                       ROUND(COUNT(DISTINCT strftime('%Y-%m', t.date)) * 1.0 / ?, 3) AS frequency,
-                       ROUND(SUM(t.amount) / ?, 2) AS avg_monthly,
-                       ROUND(SUM(t.amount), 2) AS total
+    // Soglie del rilevatore di movimenti straordinari. Calibrate sui dati reali: gli episodi veri
+    // (estinzione mutuo z=8507, successione z=1439, rimborso auto z=63, acconti arredamento z≈40-50)
+    // stanno ordini di grandezza sopra le normali oscillazioni di una voce ricorrente
+    // (stipendio con premio produzione z=9, mensilità più alta z=6). Una soglia a 20 separa le due
+    // popolazioni con margine; il minimo in euro evita di segnalare inezie in categorie quasi vuote.
+    private static final double ONEOFF_Z_MIN   = 20.0;
+    private static final double ONEOFF_AMT_MIN = 500.0;
+
+    /**
+     * Candidati "movimento straordinario": movimenti anomali <em>rispetto alla loro stessa
+     * categoria</em>, non in assoluto — 4.550 € sono enormi per un mobile e normali per uno
+     * stipendio. Distanza robusta (mediana e MAD della categoria) così un episodio non alza da sé
+     * la soglia che dovrebbe segnalarlo.
+     * <p>
+     * Il rilevatore <b>propone soltanto</b>: nessuna esclusione automatica. Solo l'utente sa se un
+     * movimento si ripeterà, e una previsione che cambia da sola in silenzio è peggio di una che
+     * sbaglia in modo visibile. I movimenti già marcati sono sempre inclusi nella risposta, per
+     * poterli smarcare.
+     */
+    private List<Map<String, Object>> forecastOneoffCandidates(String from, String toExcl) throws SQLException {
+        List<Map<String, Object>> rows = queryList("""
+                SELECT t.id AS id, t.date AS date, t.description AS description,
+                       t.amount AS amount, t.type AS type,
+                       CASE WHEN p.name IS NOT NULL THEN p.name || ':' || c.name
+                            WHEN c.name IS NOT NULL THEN c.name
+                            ELSE 'Senza categoria' END AS category,
+                       EXISTS(SELECT 1 FROM transaction_tags tt JOIN tags g ON g.id=tt.tag_id
+                              WHERE tt.transaction_id=t.id AND g.system_key='oneoff') AS oneoff
                 FROM transactions t
                 LEFT JOIN categories c ON c.id = t.category_id
                 LEFT JOIN categories p ON p.id = c.parent_id
-                WHERE t.type = 'expense' AND t.date >= ? AND t.date < ?
+                WHERE t.type IN ('income','expense') AND t.date >= ? AND t.date < ?
                   AND COALESCE(c.excluded_from_budget,0)=0
-                GROUP BY t.category_id
-                ORDER BY total DESC
-                LIMIT 50
-                """, completedMonths, completedMonths, dateFrom, dateTo);
+                """, from, toExcl);
 
-        // Per ogni mese completato: split fisso (freq≥0.75) vs saltuario (freq<0.75)
-        List<Map<String, Object>> monthly = queryList("""
-                WITH freq AS (
-                    SELECT category_id,
-                           COUNT(DISTINCT strftime('%Y-%m', date)) * 1.0 / ? AS freq
-                    FROM transactions
-                    WHERE type = 'expense' AND date >= ? AND date < ?
-                      AND COALESCE((SELECT excluded_from_budget FROM categories WHERE id=transactions.category_id),0)=0
-                    GROUP BY category_id
+        // Raggruppa per tipo+categoria e calcola mediana/MAD degli importi
+        Map<String, List<Map<String, Object>>> groups = new LinkedHashMap<>();
+        for (var r : rows)
+            groups.computeIfAbsent(r.get("type") + "|" + r.get("category"), k -> new ArrayList<>()).add(r);
+
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (var g : groups.values()) {
+            List<Double> amts = new ArrayList<>();
+            for (var r : g) amts.add(num(r.get("amount")));
+            double med = fcMedian(amts);
+            List<Double> dev = new ArrayList<>();
+            for (double a : amts) dev.add(Math.abs(a - med));
+            double scale = 1.4826 * fcMedian(dev);
+            for (var r : g) {
+                double a = num(r.get("amount"));
+                boolean marked = num(r.get("oneoff")) != 0;
+                // scale=0 → categoria con importi tutti uguali: qualunque valore molto sopra la
+                // mediana è anomalo, ma senza dispersione lo z non è definito.
+                double z = scale > 0 ? (a - med) / scale : (med > 0 && a > med * 3 ? 99 : 0);
+                if (!marked && (z < ONEOFF_Z_MIN || a < ONEOFF_AMT_MIN)) continue;
+                Map<String, Object> m = new LinkedHashMap<>(r);
+                m.put("oneoff",  marked);
+                m.put("typical", r2(med));
+                m.put("z",       r2(Math.min(z, 9999)));
+                out.add(m);
+            }
+        }
+        // I più grossi per primi: sono quelli che spostano davvero le stime
+        out.sort((a, b) -> Double.compare(num(b.get("amount")), num(a.get("amount"))));
+        if (out.size() > 20) out = new ArrayList<>(out.subList(0, 20));
+        return out;
+    }
+
+    /** Marca (o smarca) una transazione come movimento straordinario. Ritorna lo stato finale. */
+    public Map<String, Object> setTransactionOneoff(int txId, boolean oneoff) throws SQLException {
+        Integer tagId = getSystemTagIdByKey("oneoff");
+        if (tagId == null) { ensureSystemTags(); tagId = getSystemTagIdByKey("oneoff"); }
+        if (tagId == null) throw new SQLException("Tag di sistema 'oneoff' non disponibile");
+        if (oneoff) execute("INSERT OR IGNORE INTO transaction_tags(transaction_id,tag_id) VALUES(?,?)", txId, tagId);
+        else        execute("DELETE FROM transaction_tags WHERE transaction_id=? AND tag_id=?", txId, tagId);
+        touchSyncMeta();
+        logger.log(oneoff ? "STRAORDINARIO ON" : "STRAORDINARIO OFF", "tx:" + txId);
+        return Map.of("ok", true, "id", txId, "oneoff", oneoff);
+    }
+
+    // ── Previsione Saldo — struttura spese per categoria ─────────────────────
+    // Restituisce solo i mesi COMPLETATI (esclude il mese corrente, parziale).
+    //   categories: nome, frequency (0-1), typical_monthly (mediana), avg_monthly (media)
+    //   monthly:    ym, fixed_exp, sporadic_exp
+    /**
+     * Struttura delle spese per la Previsione Saldo: per ogni categoria, quanto si spende in un
+     * mese TIPICO e quanto spesso la categoria compare. Solo mesi completati (il corrente è parziale).
+     * <p>
+     * Il valore di punta è la <b>mediana</b> dei totali mensili, non la media: con la media un
+     * singolo movimento eccezionale diventava una "spesa fissa di ogni mese" (l'estinzione del
+     * mutuo, 135.596 € in un mese, faceva leggere 13.054 €/mese di spesa fissa su Varie:Varie).
+     * La media resta esposta come {@code avg_monthly} perché per le voci annuali è lei quella
+     * sensata: {@code irregular} segnala le categorie dove le due divergono molto.
+     * <p>
+     * Gestisce i {@code transaction_splits} come getMonthlyBalance: senza, una transazione
+     * suddivisa finiva tutta sulla categoria di testata (spesso vuota → "Senza categoria").
+     * Esclude i movimenti marcati straordinari: vedi {@link #notOneoff(String)}.
+     */
+    public Map<String, Object> getForecastExpenseSplit(int histMonths) throws SQLException {
+        java.time.LocalDate today     = java.time.LocalDate.now();
+        // Stessa finestra di getForecastEngine: prima partiva da histMonths-1 e con lo stesso
+        // parametro le due API coprivano periodi diversi (12 mesi contro 11).
+        java.time.LocalDate startDate = today.withDayOfMonth(1).minusMonths(histMonths);
+        java.time.LocalDate endExcl   = today.withDayOfMonth(1); // primo del mese corrente (escluso)
+        String dateFrom = startDate.toString();
+        String dateTo   = endExcl.toString();
+
+        // Elenco dei mesi completati nella finestra: serve a contare gli ZERI: una categoria che
+        // compare in 3 mesi su 12 ha 9 mesi a zero, e la mediana deve saperlo.
+        List<String> yms = new ArrayList<>();
+        for (java.time.LocalDate d = startDate; d.isBefore(endExcl); d = d.plusMonths(1))
+            yms.add(String.format("%04d-%02d", d.getYear(), d.getMonthValue()));
+        int completedMonths = Math.max(1, yms.size());
+
+        List<Map<String, Object>> rows = queryList("""
+                WITH cat_amounts AS (
+                    SELECT strftime('%Y-%m', t.date) AS ym, t.category_id AS cid, t.amount AS amt
+                    FROM transactions t
+                    WHERE NOT EXISTS (SELECT 1 FROM transaction_splits ts WHERE ts.transaction_id = t.id)
+                      AND t.type='expense' AND t.date >= ? AND t.date < ?
+                      AND COALESCE((SELECT excluded_from_budget FROM categories WHERE id=t.category_id),0)=0
+                """ + notOneoff("t") + """
+                    UNION ALL
+                    SELECT strftime('%Y-%m', t.date) AS ym, ts.category_id AS cid, ts.amount AS amt
+                    FROM transactions t
+                    JOIN transaction_splits ts ON ts.transaction_id = t.id
+                    WHERE t.type='expense' AND t.date >= ? AND t.date < ?
+                      AND COALESCE((SELECT excluded_from_budget FROM categories WHERE id=ts.category_id),0)=0
+                """ + notOneoff("t") + """
                 )
-                SELECT strftime('%Y-%m', t.date) AS ym,
-                       ROUND(SUM(CASE WHEN COALESCE(f.freq, 0) >= 0.75 THEN t.amount ELSE 0 END), 2) AS fixed_exp,
-                       ROUND(SUM(CASE WHEN COALESCE(f.freq, 0) <  0.75 THEN t.amount ELSE 0 END), 2) AS sporadic_exp
-                FROM transactions t
-                LEFT JOIN freq f ON f.category_id = t.category_id
-                WHERE t.type = 'expense' AND t.date >= ? AND t.date < ?
-                  AND COALESCE((SELECT excluded_from_budget FROM categories WHERE id=t.category_id),0)=0
-                GROUP BY ym
-                ORDER BY ym
-                """, completedMonths, dateFrom, dateTo, dateFrom, dateTo);
+                SELECT a.ym AS ym,
+                       CASE WHEN p.name IS NOT NULL THEN p.name || ':' || c.name
+                            WHEN c.name IS NOT NULL THEN c.name
+                            ELSE 'Senza categoria' END AS name,
+                       ROUND(SUM(a.amt), 2) AS amt
+                FROM cat_amounts a
+                LEFT JOIN categories c ON c.id = a.cid
+                LEFT JOIN categories p ON p.id = c.parent_id
+                -- GROUP BY sul cid, non sull'alias "name": sia c sia p hanno una colonna name
+                -- e SQLite lo risolve come ambiguo (SQLITE_ERROR a runtime). Il nome dipende
+                -- comunque dal cid; eventuali omonimie le fonde il merge lato Java.
+                GROUP BY a.ym, a.cid
+                """, dateFrom, dateTo, dateFrom, dateTo);
 
-        return Map.of("categories", categories, "monthly", monthly);
+        // name -> (ym -> totale del mese)
+        Map<String, Map<String, Double>> byCat = new LinkedHashMap<>();
+        for (var r : rows)
+            byCat.computeIfAbsent((String) r.get("name"), k -> new HashMap<>())
+                 .merge((String) r.get("ym"), num(r.get("amt")), Double::sum);
+
+        List<Map<String, Object>> categories = new ArrayList<>();
+        Set<String> fixedCats = new HashSet<>();   // per lo split mensile fisse/saltuarie
+        for (var e : byCat.entrySet()) {
+            Map<String, Double> perYm = e.getValue();
+            List<Double> series = new ArrayList<>(completedMonths);
+            double total = 0, max = 0;
+            int present = 0;
+            for (String ym : yms) {
+                double v = perYm.getOrDefault(ym, 0.0);
+                series.add(v);
+                total += v;
+                if (v > 0) present++;
+                if (v > max) max = v;
+            }
+            double median    = fcMedian(series);
+            double avg       = total / completedMonths;
+            double frequency = present * 1.0 / completedMonths;
+            // irregular: la media dice molto più della mediana → gli importi sono a scatti, non
+            // una spesa ripetibile. È il caso che prima veniva presentato come "spesa fissa".
+            // ⚠️ Ha senso SOLO per le categorie presenti quasi ogni mese: lì "costo medio
+            // mensile" è un'affermazione forte e può essere falsa. Per una voce che compare 4
+            // mesi su 12 la mediana è zero per costruzione e il flag scatterebbe sempre,
+            // segnalando come anomalo il comportamento normale di una spesa saltuaria.
+            boolean irregular = frequency >= 0.75 && (median <= 0 ? avg > 0 : avg > median * 2);
+
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("name", e.getKey());
+            m.put("frequency",       Math.round(frequency * 1000) / 1000.0);
+            m.put("typical_monthly", r2(median));
+            m.put("avg_monthly",     r2(avg));
+            m.put("max_month",       r2(max));
+            m.put("total",           r2(total));
+            m.put("irregular",       irregular);
+            categories.add(m);
+            if (frequency >= 0.75) fixedCats.add(e.getKey());
+        }
+        // Ordinamento per peso reale sul mese tipico (prima era per totale: bastava un movimento
+        // eccezionale per mettere la sua categoria in cima alla lista).
+        categories.sort((a, b) -> Double.compare(num(b.get("avg_monthly")), num(a.get("avg_monthly"))));
+        if (categories.size() > 50) categories = new ArrayList<>(categories.subList(0, 50));
+
+        // Split mensile fisse/saltuarie, coerente con la classificazione appena calcolata
+        List<Map<String, Object>> monthly = new ArrayList<>();
+        for (String ym : yms) {
+            double fixed = 0, sporadic = 0;
+            for (var e : byCat.entrySet()) {
+                double v = e.getValue().getOrDefault(ym, 0.0);
+                if (fixedCats.contains(e.getKey())) fixed += v; else sporadic += v;
+            }
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("ym", ym);
+            m.put("fixed_exp",    r2(fixed));
+            m.put("sporadic_exp", r2(sporadic));
+            monthly.add(m);
+        }
+
+        return Map.of("categories", categories, "monthly", monthly, "months", completedMonths);
     }
 
     // ── Previsione Saldo (decomposizione) — motore completo ──────────────────
@@ -5353,15 +5523,19 @@ public class Database {
                 ? ((Number) partialRow.get("net")).doubleValue() : 0.0;
 
         // ── Variabile: netto mensile storico nelle categorie NON pianificate ──
+        // Esclude i movimenti straordinari: la mediana serve a dire "quanto succede di solito",
+        // e un episodio irripetibile (rate di un acquisto una tantum, un rimborso non ricorrente)
+        // non fa parte del "di solito".
         String notInCat = schedCatIds.isEmpty() ? ""
-            : " AND (category_id IS NULL OR category_id NOT IN ("
+            : " AND (t.category_id IS NULL OR t.category_id NOT IN ("
               + schedCatIds.stream().map(String::valueOf).collect(Collectors.joining(",")) + "))";
         List<Map<String, Object>> varRows = queryList(
-            "SELECT strftime('%Y-%m', date) AS ym, " +
-            "SUM(CASE WHEN type='income'  THEN amount ELSE 0 END) AS inc, " +   // niente ABS: vedi sopra
-            "SUM(CASE WHEN type='expense' THEN amount ELSE 0 END) AS exp " +
-            "FROM transactions WHERE date >= ? AND date < ? AND type IN ('income','expense')" + notInCat +
-            " AND COALESCE((SELECT excluded_from_budget FROM categories WHERE id=transactions.category_id),0)=0" +
+            "SELECT strftime('%Y-%m', t.date) AS ym, " +
+            "SUM(CASE WHEN t.type='income'  THEN t.amount ELSE 0 END) AS inc, " +   // niente ABS: vedi sopra
+            "SUM(CASE WHEN t.type='expense' THEN t.amount ELSE 0 END) AS exp " +
+            "FROM transactions t WHERE t.date >= ? AND t.date < ? AND t.type IN ('income','expense')" + notInCat +
+            " AND COALESCE((SELECT excluded_from_budget FROM categories WHERE id=t.category_id),0)=0" +
+            notOneoff("t") +
             " GROUP BY ym ORDER BY ym", histFrom, histToExcl);
 
         List<Double> varNets = new ArrayList<>(), varIncs = new ArrayList<>(), varExps = new ArrayList<>();
@@ -5371,9 +5545,21 @@ public class Database {
         }
         double variableNet = fcMedian(varNets), variableInc = fcMedian(varIncs), variableExp = fcMedian(varExps);
 
-        // dispersione robusta (1.4826 × MAD) sul netto storico reale
+        // ── Dispersione robusta (1.4826 × MAD) — sullo storico SENZA gli straordinari ──
+        // La banda misura quanto può sbagliare la proiezione: un evento che per definizione non
+        // si ripete non è incertezza futura. Sui dati reali l'estinzione del mutuo e i rimborsi
+        // una tantum gonfiavano σ da ~1.850 a ~2.470 €/mese, cioè la forbice a 12 mesi da
+        // ±10.500 a ±14.100. Il grafico continua invece a disegnare `history`, che resta reale.
+        List<Map<String, Object>> historyClean = queryList(
+            "SELECT strftime('%Y-%m', t.date) AS ym, " +
+            "SUM(CASE WHEN t.type='income'  THEN t.amount ELSE 0 END) AS income, " +
+            "SUM(CASE WHEN t.type='expense' THEN t.amount ELSE 0 END) AS expense " +
+            "FROM transactions t WHERE t.date >= ? AND t.date < ? AND t.type IN ('income','expense') " +
+            "  AND COALESCE((SELECT excluded_from_budget FROM categories WHERE id=t.category_id),0)=0" +
+            notOneoff("t") +
+            " GROUP BY ym ORDER BY ym", histFrom, histToExcl);
         List<Double> histNets = new ArrayList<>();
-        for (var r : history) histNets.add(num(r.get("income")) - num(r.get("expense")));
+        for (var r : historyClean) histNets.add(num(r.get("income")) - num(r.get("expense")));
         double medHist = fcMedian(histNets);
         List<Double> absDev = new ArrayList<>();
         for (double v : histNets) absDev.add(Math.abs(v - medHist));
@@ -5458,6 +5644,8 @@ public class Database {
         res.put("scheduled_future", schedFuture);
         res.put("recurring", recurringList);
         res.put("lumpy_events", lumpyEvents);
+        // Movimenti straordinari: già marcati + candidati proposti, per il pannello di conferma
+        res.put("oneoff_candidates", forecastOneoffCandidates(histFrom, histToExcl));
         if (includePortfolio) res.put("portfolio", getForecastPortfolioEvents(horizonMonths));
         return res;
     }

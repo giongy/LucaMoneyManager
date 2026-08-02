@@ -3417,6 +3417,9 @@ async function _runForecastSaldo() {
   const incomes  = history.map(r => Number(r.income));
   const expenses = history.map(r => Number(r.expense));
   const nets     = months.map((_, i) => incomes[i] - expenses[i]);
+  // Mediana dei netti storici: riferimento robusto per la colonna "insolito" della tabella
+  const medNet   = (() => { const s = [...nets].sort((a,b) => a-b); const m = s.length >> 1;
+                            return s.length ? (s.length % 2 ? s[m] : (s[m-1] + s[m]) / 2) : 0; })();
 
   // ── Componenti dal motore ──
   const dispersion  = Number(engine.dispersion) || 0;
@@ -3425,6 +3428,7 @@ async function _runForecastSaldo() {
   const variableExp = Number(engine.variable_expense) || 0;
   const recurring   = engine.recurring || [];
   const lumpyEvents = engine.lumpy_events || [];
+  const oneoffCands = engine.oneoff_candidates || [];
   const schedByYm = {};
   for (const s of (engine.scheduled_future || []))
     schedByYm[s.ym] = { rec: Number(s.recurring_net) || 0, lumpy: Number(s.lumpy_net) || 0 };
@@ -3475,14 +3479,21 @@ async function _runForecastSaldo() {
   const finalDelta = finalBal - baseToday;
   const finalColor = finalDelta >= 0 ? 'var(--income)' : 'var(--expense)';
 
-  // ── Metriche "mese tipico" (ricorrenti normalizzate + variabile) ──
+  // ── Metriche "mese tipico" (ricorrenti + eventi annuali ammortizzati + variabile) ──
+  // ⚠️ Gli eventi annuali/una-tantum vanno inclusi: escluderli faceva leggere +1.601 €/mese
+  // mentre la proiezione ne usava +961 (gli eventi valgono −640 €/mese su 12), e il "tasso di
+  // risparmio" diceva 32% dove la Salute Finanziaria, sugli stessi dati, diceva 4,7%.
+  // Su orizzonti corti la quota annuale non è rappresentativa: lo dichiariamo sotto le card.
   let recIncMonthly = 0, recExpMonthly = 0;
   for (const r of recurring) {
     const v = Number(r.monthly_amount) || 0;
     if (r.type === 'income') recIncMonthly += v; else recExpMonthly += -v;
   }
-  const typIncome  = recIncMonthly + variableInc;
-  const typExpense = recExpMonthly + variableExp;
+  const _hz      = Math.max(1, horizonMonths);
+  const lumpyInc = lumpyEvents.reduce((s,e) => s + Math.max(0,  Number(e.amount)), 0) / _hz;
+  const lumpyExp = lumpyEvents.reduce((s,e) => s + Math.max(0, -Number(e.amount)), 0) / _hz;
+  const typIncome  = recIncMonthly + variableInc + lumpyInc;
+  const typExpense = recExpMonthly + variableExp + lumpyExp;
   const typicalNet = typIncome - typExpense;
   const netColor   = typicalNet >= 0 ? 'var(--income)' : 'var(--expense)';
   const savingsRate = typIncome > 0 ? (typicalNet / typIncome) * 100 : 0;
@@ -3530,6 +3541,49 @@ async function _runForecastSaldo() {
           ? `<div style="font-size:11px;color:var(--txt3);padding:5px 0;text-align:center">+ altri ${_lumpyHidden} eventi più avanti (inclusi nel totale)</div>`
           : '')
     : `<div style="font-size:12px;color:var(--txt3);padding:2px 0">Nessun evento annuale/una-tantum nel periodo.</div>`;
+
+  // ── Pannello "Movimenti straordinari" ────────────────────────────────────
+  // Mostra i movimenti fuori scala RISPETTO ALLA LORO CATEGORIA (4.550 € sono enormi per un
+  // mobile, normali per uno stipendio) e quelli già marcati, per poterli smarcare.
+  // Il rilevatore propone, l'utente decide: solo lui sa se un movimento si ripeterà.
+  const marcati  = oneoffCands.filter(c => c.oneoff);
+  const proposti = oneoffCands.filter(c => !c.oneoff);
+  const oneoffRow = c => {
+    const amt = Number(c.amount) * (c.type === 'income' ? 1 : -1);
+    return `
+    <div style="display:flex;align-items:center;gap:10px;padding:5px 0;border-bottom:1px solid var(--border);font-size:12px;min-width:0">
+      <span style="color:var(--txt2);white-space:nowrap;font-variant-numeric:tabular-nums">${esc(String(c.date))}</span>
+      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1">
+        <b style="color:var(--txt);font-weight:600">${esc(c.category || 'Senza categoria')}</b>
+        <span style="color:var(--txt2)"> · ${esc(c.description || '—')}</span>
+      </span>
+      <span style="color:var(--txt2);font-size:11px;white-space:nowrap" title="Importo tipico di questa categoria">
+        tipico ${fmt.currency(c.typical)}</span>
+      <span style="font-variant-numeric:tabular-nums;font-weight:600;white-space:nowrap;color:${amt>=0?'var(--income)':'var(--expense)'}">${signCur(amt)}</span>
+      <button class="btn btn-xs ${c.oneoff?'btn-primary':'btn-ghost'}" style="white-space:nowrap"
+              onclick="_fcToggleOneoff(${c.id}, ${c.oneoff ? 'false' : 'true'})">
+        ${c.oneoff ? '✓ straordinario' : 'è un episodio'}</button>
+    </div>`;
+  };
+  const oneoffHtml = (marcati.length || proposti.length) ? `
+    <div class="card" style="padding:16px 18px;margin-bottom:16px">
+      <div style="font-size:13px;font-weight:600;margin-bottom:4px">🎯 Movimenti straordinari</div>
+      <div style="font-size:11px;color:var(--txt2);margin-bottom:10px;max-width:900px">
+        Movimenti molto fuori scala rispetto alla <em>loro</em> categoria. Marcarli li toglie da ciò che
+        viene <strong>estrapolato in avanti</strong> — mediana della spesa variabile, forbice, mese tipico,
+        struttura spese — ma li lascia in saldi, budget, report e nella linea storica del grafico:
+        i soldi si sono mossi davvero, quello che non va proiettato è la loro ripetizione.
+        Nessuna esclusione automatica: decidi tu, perché solo tu sai se una cosa si ripeterà.
+      </div>
+      ${marcati.length ? `
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--txt2);margin:8px 0 2px">
+          Esclusi dalle stime (${marcati.length})</div>
+        ${marcati.map(oneoffRow).join('')}` : ''}
+      ${proposti.length ? `
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--warn);margin:12px 0 2px">
+          Candidati — attualmente <u>dentro</u> le stime (${proposti.length})</div>
+        ${proposti.map(oneoffRow).join('')}` : ''}
+    </div>` : '';
 
   // Header di colonna con totale a destra
   const fcColHeader = (title, total) => `
@@ -3585,6 +3639,8 @@ async function _runForecastSaldo() {
       </div>
     </div>
 
+    ${oneoffHtml}
+
     <div class="card" style="padding:16px;margin-bottom:16px">
       <div style="font-size:14px;font-weight:600;margin-bottom:14px">Andamento ${modeLabel} — storico &amp; previsione</div>
       <canvas id="fcChartCanvas" style="max-height:340px"></canvas>
@@ -3597,6 +3653,11 @@ async function _runForecastSaldo() {
       ${_fcCard('Tasso di risparmio', savingsRate.toFixed(0)+'%', savingsRate>=0?'var(--income)':'var(--expense)')}
       ${runwayMonths != null ? _fcCard('Autonomia (runway)', runwayMonths+' mesi', 'var(--warn)') : ''}
     </div>
+    <div style="font-size:11px;color:var(--txt2);margin:-8px 0 16px">
+      Il mese tipico include gli eventi annuali/una-tantum spalmati sui ${horizonMonths} mesi di orizzonte
+      (${signCur(-lumpyExp + lumpyInc)}/mese)${horizonMonths < 12 ? ' — su un orizzonte più corto di un anno la quota annuale può non essere rappresentativa: prova a estendere l\'orizzonte a 12 mesi' : ''}.
+      Gli straordinari marcati non ci entrano.
+    </div>
 
     ${(() => {
       const cats = expSplit?.categories || [];
@@ -3606,20 +3667,30 @@ async function _runForecastSaldo() {
       const saltuarie  = cats.filter(c => c.frequency  < 0.40);
       const col = (title, color, list) => {
         if (!list.length) return '';
-        const rows = list.slice(0, 10).map(c =>
-          `<div style="display:flex;justify-content:space-between;padding:3px 0;border-bottom:1px solid var(--border);font-size:11px">
-            <span style="color:var(--txt)">${esc(c.name)}</span>
-            <span style="color:${color};font-weight:600;white-space:nowrap;margin-left:8px">${fmt.currency(c.avg_monthly)}/m</span>
+        // Le voci "irregolari" (media molto sopra la mediana) sono quelle dove il costo medio
+        // mensile è fatto da pochi movimenti grossi, non da una spesa ripetibile: va detto,
+        // altrimenti un acquisto una tantum si legge come "spesa fissa di ogni mese".
+        const rows = list.slice(0, 10).map(c => `
+          <div style="padding:3px 0;border-bottom:1px solid var(--border);font-size:11px">
+            <div style="display:flex;justify-content:space-between;gap:8px">
+              <span style="color:var(--txt);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(c.name)}</span>
+              <span style="color:${color};font-weight:600;white-space:nowrap">${fmt.currency(c.avg_monthly)}/m</span>
+            </div>
+            ${c.irregular ? `<div style="color:var(--txt2);font-size:10px">⚠ importi irregolari — in un mese tipico ${fmt.currency(c.typical_monthly)}</div>` : ''}
           </div>`).join('');
         const totAvg = list.reduce((s, c) => s + Number(c.avg_monthly), 0);
-        return `<div>
+        return `<div style="min-width:0">
           <div style="font-size:11px;font-weight:700;color:${color};margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">${title}</div>
           ${rows}
           <div style="font-size:11px;color:var(--txt2);margin-top:5px;text-align:right">Totale: <b style="color:${color}">${fmt.currency(totAvg)}/m</b></div>
         </div>`;
       };
       return `<div class="card" style="padding:16px;margin-bottom:16px">
-        <div style="font-size:13px;font-weight:600;margin-bottom:14px;color:var(--txt2)">Struttura spese per categoria</div>
+        <div style="font-size:13px;font-weight:600;margin-bottom:4px;color:var(--txt2)">Struttura spese per categoria</div>
+        <div style="font-size:11px;color:var(--txt2);margin-bottom:12px">
+          Costo medio mensile su ${expSplit?.months || histMonths} mesi completati, straordinari esclusi.
+          Le colonne dividono per <em>quanto spesso</em> la categoria compare, non per quanto costa.
+        </div>
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:20px">
           ${col('Fisse (ogni mese)',   'var(--income)',  fisse)}
           ${col('Periodiche (40-75%)', 'var(--warn)',    periodiche)}
@@ -3642,7 +3713,10 @@ async function _runForecastSaldo() {
           </tr></thead>
           <tbody>
             ${months.map((m, i) => {
-              const unusual = dispersion > 0 && Math.abs(nets[i] - (typicalNet)) > 2 * dispersion;
+              // Base = mediana dei TUOI mesi, non il mese tipico del modello: la colonna dice
+              // "insolito rispetto al tuo solito", e confrontarlo con una stima costruita su
+              // pianificate e ammortamenti rispondeva a un'altra domanda.
+              const unusual = dispersion > 0 && Math.abs(nets[i] - medNet) > 2 * dispersion;
               return `<tr style="border-bottom:1px solid var(--border)">
                 <td style="padding:5px 8px;font-weight:600">${m}</td>
                 <td style="padding:5px 8px;text-align:right;color:var(--income)">${fmt.currency(incomes[i])}</td>
@@ -3677,6 +3751,17 @@ async function _runForecastSaldo() {
   const _css       = getComputedStyle(document.documentElement);
   const _accentCol = _css.getPropertyValue('--accent').trim() || '#4a9eff';
   const _txt2Col   = _css.getPropertyValue('--txt2').trim()   || '#888';
+  const _txtCol    = _css.getPropertyValue('--txt').trim()    || '#ccc';
+  const _cc        = chartColors();   // tick/grid già risolti per tema
+  // Chart.js disegna su canvas: "var(--x)" non lo risolve e restava una stringa letterale, così
+  // assi, griglia e legenda cadevano sui default di Chart.js (griglia nera, testo grigio) invece
+  // di seguire il tema. La banda era azzurra fissa: unico elemento blu su fondo beige.
+  const _bandCol   = (() => {
+    const h = _accentCol.replace('#','');
+    if (h.length !== 6) return 'rgba(120,180,255,0.22)';
+    const n = parseInt(h, 16);
+    return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},0.20)`;
+  })();
 
   // Su orizzonti lunghi (fino a 10 anni) i pallini si sovrappongono: rimpiccioliscili/toglili
   const _pointR = allLabels.length > 90 ? 0 : (allLabels.length > 48 ? 1.5 : 3);
@@ -3706,8 +3791,10 @@ async function _runForecastSaldo() {
       datasets: [
         { label: 'Saldo storico', data: dsHist, borderColor: _txt2Col, borderWidth: 2,
           backgroundColor: 'transparent', pointRadius: _pointR, pointHitRadius: 8, tension: 0.3, spanGaps: false, fill: false },
-        { label: '_ciHigh', data: dsHigh, borderColor: 'transparent',
-          backgroundColor: 'rgba(120,180,255,0.28)', pointRadius: 0, tension: 0.3, spanGaps: false, fill: 2 },
+        // Etichetta visibile: prima si chiamava "_ciHigh" ed era filtrata dalla legenda, quindi
+        // a schermo restava un'area colorata di cui non si sapeva il significato.
+        { label: 'Forbice (dispersione storica)', data: dsHigh, borderColor: 'transparent',
+          backgroundColor: _bandCol, pointRadius: 0, tension: 0.3, spanGaps: false, fill: 2 },
         { label: '_ciLow', data: dsLow, borderColor: 'transparent',
           backgroundColor: 'transparent', pointRadius: 0, tension: 0.3, spanGaps: false, fill: false },
         { label: 'Saldo previsto', data: dsProj, borderColor: _accentCol, borderWidth: 2.5,
@@ -3718,7 +3805,7 @@ async function _runForecastSaldo() {
       responsive: true,
       interaction: { mode: 'index', intersect: false },
       plugins: {
-        legend: { labels: { color: 'var(--txt)', filter: item => !item.text.startsWith('_') } },
+        legend: { labels: { color: _txtCol, filter: item => !item.text.startsWith('_') } },
         tooltip: { callbacks: { label: ctx => {
           if (ctx.dataset.label.startsWith('_')) return null;
           const v = ctx.parsed.y;
@@ -3726,15 +3813,32 @@ async function _runForecastSaldo() {
         } } },
       },
       scales: {
-        x: { ticks: { color:'var(--txt2)', maxTicksLimit:14 }, grid:{ color:'var(--border)' } },
-        y: { ticks: { color:'var(--txt2)', callback: v => fmt.currency(v) }, grid:{ color:'var(--border)' },
+        x: { ticks: { color:_cc.tick, maxTicksLimit:14 }, grid:{ color:_cc.grid } },
+        y: { ticks: { color:_cc.tick, callback: v => fmt.currency(v) }, grid:{ color:_cc.grid },
              suggestedMin: yMin - yPad, suggestedMax: yMax + yPad },
       },
     },
   });
-  if (_savedScrollY > 0) requestAnimationFrame(() => window.scrollTo(0, _savedScrollY));
+  // Il contenitore che scorre è #analyticsContent, non la finestra: window.scrollTo era un no-op
+  if (_savedScrollY > 0) requestAnimationFrame(() => {
+    const c = document.getElementById('analyticsContent');
+    if (c) c.scrollTop = _savedScrollY;
+  });
 }
 
+
+// Marca/smarca un movimento come straordinario e ricalcola la previsione.
+// Scrive sul DB (tag di sistema "oneoff"), quindi la scelta resta anche dopo un riavvio e
+// si propaga all'app Android: il tag vive nello stesso database condiviso.
+async function _fcToggleOneoff(id, on) {
+  try {
+    await api.setTransactionOneoff(id, on);
+    toast(on ? 'Movimento escluso dalle stime' : 'Movimento riportato nelle stime');
+    await _runForecastSaldo();
+  } catch (e) {
+    toast('Errore: ' + ((e && e.message) || e), 'error');
+  }
+}
 
 // ── Helper UI ─────────────────────────────────────────────────────────────────
 // Helper di rendering per la Previsione Saldo: _fcCard = card riepilogativa (metrica chiave).

@@ -517,6 +517,8 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             case "getForecastEngine" -> db.getForecastEngine(
                 p.get("hist_months").getAsInt(), p.get("horizon_months").getAsInt(),
                 p.has("include_portfolio") && p.get("include_portfolio").getAsBoolean());
+            case "setTransactionOneoff" -> db.setTransactionOneoff(
+                p.get("id").getAsInt(), p.get("oneoff").getAsBoolean());
 
             // ─── Portafoglio ───────────────────────────────────────────────
             case "getPortfolio"             -> db.getPortfolio();

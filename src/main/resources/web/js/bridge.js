@@ -240,6 +240,8 @@ const api = {
   getForecastExpenseSplit:(months)    => callJava('getForecastExpenseSplit', {months}),
   getForecastEngine:(histMonths, horizonMonths, includePortfolio) =>
     callJava('getForecastEngine', { hist_months: histMonths, horizon_months: horizonMonths, include_portfolio: includePortfolio }),
+  // Marca/smarca un movimento come straordinario: resta nei saldi e nei report, esce dalle stime
+  setTransactionOneoff:(id, oneoff) => callJava('setTransactionOneoff', { id, oneoff }),
 
   // Resoconti
   getExpenseNatureReport: p => callJava('getExpenseNatureReport', p || {}),

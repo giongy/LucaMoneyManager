@@ -201,9 +201,21 @@ function toast(msg, type='success') {
 }
 
 // ── Salute Finanziaria — calcolo score 0-100 ────────────────────────────────
-// Single source of truth: usata sia dal widget dashboard che dalla pagina analytics.
+// Single source of truth della tab "Salute Finanziaria" di Analytics.
 // Input: balRows = [{ym, income, expense}, ...] (N mesi), accounts = lista conti.
 // Output: oggetto con score + tutti gli intermedi (necessari per UI dettaglio analytics).
+//
+// ⚠️ Regola di onestà del punteggio: una componente che il periodo NON permette di calcolare
+// non vale 0 — 0 significa "pessimo", non "non lo so" — e non riceve nemmeno un valore di
+// comodo. Viene esclusa dal punteggio, che resta su base 100 rinormalizzando sui soli punti
+// realmente in gioco (`applicable` dice quali). Se i mesi sono troppo pochi o il periodo è
+// vuoto, `score` è null: meglio nessun numero che un numero inventato.
+// Senza queste soglie un singolo mese dava 81/100 "Ottima" (trend 7/16 e riserva 14/14
+// regalati) e un periodo senza movimenti dava 21/100 con "riserva 99+ mesi".
+const HEALTH_MIN_MONTHS       = 3;   // sotto: nessun punteggio (una finestra da 3 mesi non esiste)
+const HEALTH_MIN_MONTHS_TREND = 6;   // il trend confronta due metà: servono ≥3 mesi per parte
+const HEALTH_MIN_MONTHS_VOL   = 4;   // una semi-deviazione su 3 punti è rumore, non variabilità
+
 function computeHealthScore(balRows, accounts) {
   const incomes  = balRows.map(r => r.income  || 0);
   const expenses = balRows.map(r => r.expense || 0);
@@ -214,11 +226,12 @@ function computeHealthScore(balRows, accounts) {
   const totalExpense   = expenses.reduce((a, b) => a + b, 0);
   const totalSavings   = totalIncome - totalExpense;
   const avgSavingsRate = totalIncome > 0 ? (totalSavings / totalIncome) * 100 : 0;
+  const hasData        = totalIncome !== 0 || totalExpense !== 0;
 
   // 1. Tasso risparmio (0–46 pt) — 8 soglie
   const scoreSavings = avgSavingsRate >= 20 ? 46 : avgSavingsRate >= 15 ? 40 : avgSavingsRate >= 10 ? 33 : avgSavingsRate >= 7 ? 26 : avgSavingsRate >= 5 ? 18 : avgSavingsRate >= 3 ? 11 : avgSavingsRate > 0 ? 5 : avgSavingsRate === 0 ? 0 : avgSavingsRate >= -5 ? -8 : avgSavingsRate >= -10 ? -15 : -23;
 
-  // 2. Stabilità mensile (0–14 pt) — finestre rolling di 3 mesi (robusta alle spese annuali lumpy)
+  // 2. Stabilità del risparmio (0–14 pt) — finestre rolling di 3 mesi (robusta alle spese lumpy)
   // Una grossa uscita pianificata in un mese (tasse, assicurazione, IMU) non conta come
   // "fallimento" se i mesi adiacenti la assorbono: valutiamo la somma mobile su 3 mesi.
   const posMonths = savings.filter(s => s > 0).length;   // per-month: usata per i chip e per i floor del trend
@@ -234,19 +247,27 @@ function computeHealthScore(balRows, accounts) {
   const expDiv = expQ3 - expQ1;
   const expMedian = expDiv > 0 ? expSorted.slice(expQ1, expQ3).reduce((a, b) => a + b, 0) / expDiv : 0;
 
-  // 3. Riserva di emergenza (0–10 pt)
-  // Riserva = liquidità immediata (conti non-investimento) + investimenti scontati (haircut):
+  // 3. Riserva di emergenza (0–14 pt)
+  // Riserva = liquidità immediata + debito carte (negativo) + investimenti scontati (haircut):
   // in una crisi gli asset investiti possono valere meno, c'è tassazione e serve tempo per
   // venderli — ma restano una riserva reale, quindi contano (al netto dello sconto) per chi
   // sceglie di investire la liquidità invece di tenerla ferma.
+  // Le carte di credito sono tenute separate: il saldo va sottratto (è un debito da pagare),
+  // ma chiamarlo "liquidità" come facevamo prima era falso — l'UI lo mostra su una riga sua.
   const INVEST_HAIRCUT = 0.75;
-  const liquidAccs     = accounts.filter(a => a.type !== 'investment' && !a.is_closed);
+  const sumBal         = accs => accs.reduce((s, a) => s + (a.balance || 0), 0);
+  const liquidAccs     = accounts.filter(a => a.type !== 'investment' && a.type !== 'credit' && !a.is_closed);
+  const cardAccs       = accounts.filter(a => a.type === 'credit' && !a.is_closed);
   const investAccs     = accounts.filter(a => a.type === 'investment' && !a.is_closed);
-  const cashBalance    = liquidAccs.reduce((s, a) => s + (a.balance || 0), 0);
-  const investBalance  = investAccs.reduce((s, a) => s + (a.balance || 0), 0);
+  const liquidBalance  = sumBal(liquidAccs);
+  const cardBalance    = sumBal(cardAccs);              // normalmente negativo: è un debito
+  const investBalance  = sumBal(investAccs);
+  const cashBalance    = liquidBalance + cardBalance;   // "conti non-investimento", al netto delle carte
   const reserveBalance = cashBalance + investBalance * INVEST_HAIRCUT;
-  const runwayMonths   = expMedian > 0 ? reserveBalance / expMedian : (reserveBalance > 0 ? 99 : 0);
-  const scoreRunway    = runwayMonths >= 6 ? 14 : runwayMonths >= 3 ? 10 : runwayMonths >= 1.5 ? 6 : runwayMonths >= 0.5 ? 3 : 0;
+  // Senza una spesa tipica il runway non esiste: null, non 99 (che valeva 14/14 su un periodo vuoto)
+  const runwayMonths   = expMedian > 0 ? reserveBalance / expMedian : null;
+  const scoreRunway    = runwayMonths === null ? 0
+    : runwayMonths >= 6 ? 14 : runwayMonths >= 3 ? 10 : runwayMonths >= 1.5 ? 6 : runwayMonths >= 0.5 ? 3 : 0;
 
   // 4. Trend del risparmio (0–16 pt) — confronto robusto mediana 2ª metà vs 1ª metà del periodo.
   // Più stabile della regressione OLS su pochi mesi: un singolo mese-outlier non sposta il risultato.
@@ -260,6 +281,14 @@ function computeHealthScore(balRows, accounts) {
   const trendMonths  = (n - trendHalf) || 1;   // ~distanza tra i centri delle due metà
   const savSlope     = trendHalf > 0 ? (savMedSecond - savMedFirst) / trendMonths : 0;   // €/mese (robusto)
   const savSlopePct  = incMedian > 0 ? savSlope / incMedian * 100 : 0;
+  // Stesso confronto sulle MEDIE invece che sulle mediane: la mediana di 3 mesi ignora i due
+  // estremi, quindi può dichiarare una crescita che sui totali non c'è. L'UI mostra entrambi
+  // i numeri — il punteggio resta sulla mediana (robusta), ma chi legge vede lo scarto.
+  const _mean        = arr => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
+  const savAvgFirst  = _mean(savings.slice(0, trendHalf));
+  const savAvgSecond = _mean(savings.slice(n - trendHalf));
+  const savSlopeAvg  = trendHalf > 0 ? (savAvgSecond - savAvgFirst) / trendMonths : 0;
+  const savSlopeAvgPct = incMedian > 0 ? savSlopeAvg / incMedian * 100 : 0;
   const scoreIncTrendRaw = savSlopePct > 3 ? 16 : savSlopePct > 1 ? 13 : savSlopePct >= 0 ? 7 : savSlopePct > -1 ? 6 : savSlopePct > -3 ? 2 : 0;
   const scoreIncTrend = (posPct === 1 && avgSavingsRate >= 10) ? Math.max(scoreIncTrendRaw, 7)
     : (posPct >= 0.75 && avgSavingsRate >= 5) ? Math.max(scoreIncTrendRaw, 5) : scoreIncTrendRaw;
@@ -270,26 +299,58 @@ function computeHealthScore(balRows, accounts) {
   const incCV      = incMedian > 0 ? incStddev / incMedian * 100 : 100;
   const scoreVol   = n < 2 ? 0 : incCV < 3 ? 10 : incCV < 6 ? 9 : incCV < 12 ? 7 : incCV < 20 ? 4 : incCV < 30 ? 1 : 0;
 
-  const score      = Math.min(100, scoreSavings + scorePos + scoreRunway + scoreIncTrend + scoreVol);
+  // ── Applicabilità: cosa il periodo permette davvero di misurare ───────────
+  // Il punteggio si rinormalizza sui soli punti in gioco: se una componente è esclusa, i suoi
+  // punti spariscono dal denominatore invece di pesare come uno 0. Con tutte le componenti
+  // attive (il caso normale, ≥6 mesi con dati) maxApplicable = 100 e il punteggio è identico
+  // alla somma secca di prima — nessuna sorpresa sui periodi lunghi.
+  const applicable = {
+    savings: hasData,
+    pos:     roll3Total > 0,
+    runway:  runwayMonths !== null,
+    trend:   n >= HEALTH_MIN_MONTHS_TREND,
+    vol:     n >= HEALTH_MIN_MONTHS_VOL && incMedian > 0,
+  };
+  const parts = [
+    ['savings', scoreSavings,  46],
+    ['pos',     scorePos,      14],
+    ['runway',  scoreRunway,   14],
+    ['trend',   scoreIncTrend, 16],
+    ['vol',     scoreVol,      10],
+  ];
+  const maxApplicable = parts.reduce((s, [k, , max]) => s + (applicable[k] ? max : 0), 0);
+  const gotApplicable = parts.reduce((s, [k, got])  => s + (applicable[k] ? got : 0), 0);
+
+  // noScoreReason: 'nodata' (nessun movimento) | 'short' (troppo pochi mesi) | null (calcolabile)
+  const noScoreReason = !hasData ? 'nodata' : n < HEALTH_MIN_MONTHS ? 'short' : maxApplicable === 0 ? 'nodata' : null;
+  const score   = noScoreReason ? null : Math.min(100, Math.round(gotApplicable / maxApplicable * 100));
+  // partial = punteggio su base ridotta: l'UI deve dichiararlo, non spacciarlo per pieno
+  const partial = !noScoreReason && maxApplicable < 100;
+
   // Variabili di tema anche per le fasce intermedie: i gialli/arancio fissi erano
   // tarati sui fondi scuri e sul chiaro scendevano a 1.4:1 (il punteggio è a 52px,
   // ma la soglia per il testo grande resta 3:1 e non era raggiunta).
-  const scoreColor = score >= 75 ? 'var(--income)' : score >= 50 ? 'var(--warn)' : score >= 30 ? 'var(--orange)' : 'var(--expense)';
-  const scoreLabel = score >= 75 ? 'Ottima' : score >= 60 ? 'Buona' : score >= 45 ? 'Discreta' : score >= 30 ? 'Sufficiente' : score >= 0 ? 'Attenzione' : 'Critica';
+  const scoreColor = score === null ? 'var(--txt3)'
+    : score >= 75 ? 'var(--income)' : score >= 50 ? 'var(--warn)' : score >= 30 ? 'var(--orange)' : 'var(--expense)';
+  const scoreLabel = score === null ? 'Non calcolabile'
+    : score >= 75 ? 'Ottima' : score >= 60 ? 'Buona' : score >= 45 ? 'Discreta' : score >= 30 ? 'Sufficiente' : score >= 0 ? 'Attenzione' : 'Critica';
 
   return {
     // arrays
     incomes, expenses, savings, n,
     // totali
-    totalIncome, totalExpense, totalSavings, avgSavingsRate,
+    totalIncome, totalExpense, totalSavings, avgSavingsRate, hasData,
     // componenti
     scoreSavings, scorePos, scoreRunway, scoreIncTrend, scoreVol,
-    // aggregato
-    score, scoreColor, scoreLabel,
+    // aggregato (score può essere null: vedi noScoreReason)
+    score, scoreColor, scoreLabel, applicable, maxApplicable, gotApplicable, noScoreReason, partial,
+    minMonths: HEALTH_MIN_MONTHS, minMonthsTrend: HEALTH_MIN_MONTHS_TREND, minMonthsVol: HEALTH_MIN_MONTHS_VOL,
     // dettaglio
     posMonths, posPct, roll3Pos, roll3Total, roll3Pct,
-    expMedian, cashBalance, investBalance, reserveBalance, liquidAccs, investAccs, runwayMonths, investHaircut: INVEST_HAIRCUT,
+    expMedian, cashBalance, liquidBalance, cardBalance, investBalance, reserveBalance,
+    liquidAccs, cardAccs, investAccs, runwayMonths, investHaircut: INVEST_HAIRCUT,
     incMedian, savSlope, savSlopePct, savMedFirst, savMedSecond, trendHalf,
+    savAvgFirst, savAvgSecond, savSlopeAvg, savSlopeAvgPct,
     incStddev, incCV,
   };
 }

@@ -2266,7 +2266,11 @@ tr.tx-selected td { background:rgba(124,124,255,.07); }
 [data-theme="glassy"] .sticky-first-col tbody tr.analytics-subtotal td:first-child { background:#1c2230 !important; }
 [data-theme="glassy"] .sticky-first-col tbody tr:hover td:first-child,
 [data-theme="glassy"] .sticky-first-col tbody tr.analytics-section-header td:first-child { background:#232a3a !important; }
-.health-desc { font-size:13px; color:var(--txt3); }
+/* Testo esplicativo della tab Salute Finanziaria: è il corpo del testo della pagina, non una
+   didascalia. Con --txt3 il contrasto su --bg3 (le card) era 2.63:1 su carta, 3.03 glassy,
+   3.24 petrolio, 3.84 nebbia — tutti sotto il minimo AA di 4.5 a 13px. Con --txt2 sta a
+   4.77–5.87 in tutti e quattro i temi. */
+.health-desc { font-size:13px; color:var(--txt2); }
 .score-badge { font-size:11px; font-weight:700; padding:2px 8px; border-radius:20px; border:1px solid currentColor; }
 .card-section { background:var(--bg3); border-radius:12px; padding:16px; }
 .flex-center-8 { display:flex; align-items:center; gap:8px; }

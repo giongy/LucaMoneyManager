@@ -1278,8 +1278,21 @@ async function renderAnalyticsForecast(token) {
   // tab è interna — due click sui preset d'orizzonte — non fra tab diverse).
 }
 
+// Escludi il mese in corso dalla tab Salute (default: sì).
+// Il mese corrente è parziale per definizione, e le metriche della Salute non lo sanno: nei
+// test, includere un 2 agosto da 2 giorni faceva scendere il punteggio da 71 a 61 e crollare
+// la stabilità delle entrate da 7/10 a 0/10 — un peggioramento inventato dal calendario.
+let _healthExcludeCurrent = true;
+
+function _toggleHealthCurrentMonth() {
+  _healthExcludeCurrent = !_healthExcludeCurrent;
+  _renderCurrentAnalyticsTab();
+}
+
 // Tab "Salute Finanziaria": score 0-100 (via utils.computeHealthScore) con dettaglio di tutte
-// le componenti (tasso risparmio, mesi positivi, riserva, trend, stabilità entrate) e spiegazioni.
+// le componenti (tasso risparmio, stabilità del risparmio, riserva, trend, stabilità entrate).
+// Ogni numero dichiara il periodo su cui è calcolato e le componenti non misurabili sul periodo
+// scelto vengono escluse invece di valere 0 (vedi computeHealthScore in utils.js).
 async function renderAnalyticsHealth(token) {
   const el = document.getElementById('analyticsContent');
   if (!el) return;
@@ -1292,10 +1305,23 @@ async function renderAnalyticsHealth(token) {
   ]);
   if (_analyticsRenderStale(token)) return;  // periodo/tab cambiato durante l'await: annulla
 
-  // Allinea i dati ai mesi selezionati dall'utente
+  // ── Mese in corso ─────────────────────────────────────────────────────────
+  const today       = new Date();
+  const _ymOf       = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+  const curYm       = _ymOf(today);
+  const prevYm      = _ymOf(new Date(today.getFullYear(), today.getMonth()-1, 1));
+  const dayOfMonth  = today.getDate();
+  const daysInMonth = new Date(today.getFullYear(), today.getMonth()+1, 0).getDate();
+  const hasCurMonth = monthCols.length > 0 && monthCols[monthCols.length-1].ym === curYm;
+  // Non si esclude l'unico mese del periodo: resterebbe niente da valutare
+  const excludedCur = hasCurMonth && _healthExcludeCurrent && monthCols.length > 1;
+  const cols        = excludedCur ? monthCols.slice(0, -1) : monthCols;
+  const curLabel    = hasCurMonth ? monthCols[monthCols.length-1].label : '';
+
+  // Allinea i dati ai mesi effettivamente valutati
   const byYm = {};
   for (const r of balRowsRaw) byYm[r.ym] = r;
-  const aligned = monthCols.map(m => ({
+  const aligned = cols.map(m => ({
     ym: m.ym,
     income:  byYm[m.ym]?.income  || 0,
     expense: byYm[m.ym]?.expense || 0,
@@ -1307,14 +1333,18 @@ async function renderAnalyticsHealth(token) {
     incomes, expenses, savings, n,
     totalIncome, totalExpense, totalSavings, avgSavingsRate,
     scoreSavings, scorePos, scoreRunway, scoreIncTrend, scoreVol,
-    score, scoreColor, scoreLabel,
+    score, scoreColor, scoreLabel, applicable, maxApplicable, noScoreReason, partial,
+    minMonths, minMonthsTrend, minMonthsVol,
     posMonths, posPct, roll3Pos, roll3Total, roll3Pct,
-    expMedian, cashBalance, investBalance, reserveBalance, liquidAccs, investAccs, runwayMonths, investHaircut,
-    incMedian, savSlope, savSlopePct, savMedFirst, savMedSecond, trendHalf,
+    expMedian, liquidBalance, cardBalance, investBalance, reserveBalance, cardAccs, runwayMonths, investHaircut,
+    incMedian, savSlopePct, savMedFirst, savMedSecond, trendHalf,
+    savAvgFirst, savAvgSecond, savSlopeAvgPct,
     incStddev, incCV,
   } = computeHealthScore(aligned, accounts);
 
   const cc = chartColors();
+  // Chart.js disegna su canvas: le var(--x) del CSS non le risolve, servono già risolte
+  const cssVar = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
   // ── Colori badge componenti ───────────────────────────────────────────────
   const colS = scoreSavings >= 33 ? 'var(--income)' : scoreSavings >= 18 ? 'var(--warn)' : 'var(--expense)';
@@ -1324,77 +1354,169 @@ async function renderAnalyticsHealth(token) {
   const colV = scoreVol >= 7 ? 'var(--income)' : scoreVol >= 4 ? 'var(--warn)' : 'var(--expense)';
 
   // ── Dati grafici dettaglio ────────────────────────────────────────────────
-  const monthlyRates = monthCols.map((_,i) => incomes[i] > 0 ? +(savings[i] / incomes[i] * 100).toFixed(2) : 0);
-  const savRegLine   = monthCols.map((_,i) => i < trendHalf ? savMedFirst : savMedSecond);
-  const labels       = monthCols.map(m => m.label);
+  // null (non 0) per i mesi senza entrate: una barra a 0% direbbe "pareggio", non "nessun dato"
+  const monthlyRates = cols.map((_,i) => incomes[i] > 0 ? +(savings[i] / incomes[i] * 100).toFixed(2) : null);
+  // Con n dispari il mese centrale non entra in nessuna delle due metà: lo lasciamo scoperto
+  // invece di attribuirlo alla seconda, come faceva la vecchia linea a gradino.
+  const savRegLine   = cols.map((_,i) => i < trendHalf ? savMedFirst : (i >= n - trendHalf ? savMedSecond : null));
+  const labels       = cols.map(m => m.label);
 
   // Runway display + posizione marker (clamp visivo a 0..12 mesi)
-  const runwayDisplay = !isFinite(runwayMonths) || runwayMonths >= 99 ? '99+' : runwayMonths.toFixed(1);
-  const runwayClamped = Math.max(0, Math.min(12, isFinite(runwayMonths) ? runwayMonths : 12));
+  const runwayDisplay = runwayMonths === null ? 'n/d'
+    : !isFinite(runwayMonths) || runwayMonths >= 99 ? '99+' : runwayMonths.toFixed(1);
+  const runwayClamped = runwayMonths === null || !isFinite(runwayMonths)
+    ? 12 : Math.max(0, Math.min(12, runwayMonths));
   const runwayPos     = (runwayClamped / 12) * 100;
+  const runwayOffScale = runwayMonths !== null && runwayMonths > 12;
+
+  // ── Contesto del periodo (intestazione + avvisi) ──────────────────────────
+  const periodLabel = cols.length ? `${cols[0].label} → ${cols[cols.length-1].label}` : '—';
+  // La riserva è una foto di OGGI: su un periodo storico va detto, altrimenti sembra il
+  // patrimonio di allora diviso per le spese di allora.
+  const isHistorical = cols.length > 0 && cols[cols.length-1].ym < prevYm;
+  const flag = (txt, col) => `<span style="font-size:11px;font-weight:600;padding:2px 9px;border-radius:20px;border:1px solid ${col};color:${col}">${txt}</span>`;
+  const miniBtn = (txt, fn) => `<button class="btn btn-xs btn-ghost" style="font-size:11px;padding:2px 8px" onclick="${fn}">${txt}</button>`;
+
+  // Quando il punteggio non esiste affatto il messaggio grande spiega già tutto: elencare qui
+  // le componenti escluse sarebbe rumore.
+  const notMeasured = [];
+  if (!noScoreReason) {
+    if (!applicable.trend)  notMeasured.push(`trend (servono ${minMonthsTrend} mesi)`);
+    if (!applicable.vol)    notMeasured.push(`stabilità entrate (servono ${minMonthsVol} mesi)`);
+    if (!applicable.runway) notMeasured.push('riserva (spesa tipica non calcolabile)');
+  }
+
+  const periodBar = `
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px;padding:9px 14px;background:var(--bg3);border-radius:10px">
+      <span style="font-size:12px;color:var(--txt2)">Periodo analizzato</span>
+      <strong style="font-size:14px">${periodLabel}</strong>
+      <span style="font-size:12px;color:var(--txt2)">· ${n} ${n===1?'mese':'mesi'}</span>
+      ${(excludedCur || hasCurMonth || notMeasured.length || (isHistorical && !noScoreReason))
+        ? '<div style="width:1px;height:16px;background:var(--border)"></div>' : ''}
+      ${excludedCur
+        ? flag(`${curLabel} in corso: escluso`, 'var(--txt2)') + miniBtn('includilo', '_toggleHealthCurrentMonth()')
+        : ''}
+      ${hasCurMonth && !excludedCur
+        ? flag(`⚠ ${curLabel} è in corso: ${dayOfMonth} giorni su ${daysInMonth}, dati parziali`, 'var(--warn)')
+          + (monthCols.length > 1 ? miniBtn('escludilo', '_toggleHealthCurrentMonth()') : '')
+        : ''}
+      ${notMeasured.length ? flag(`non misurato: ${notMeasured.join(' · ')}`, 'var(--txt2)') : ''}
+      ${isHistorical && !noScoreReason ? flag('la riserva usa i saldi di oggi', 'var(--txt2)') : ''}
+    </div>`;
+
+  // ── Stato "nessun punteggio": periodo vuoto o troppo corto ────────────────
+  // Prima di uscire distruggiamo i grafici della resa precedente: i canvas non esistono più.
+  if (noScoreReason) {
+    if (_healthRateChart) _healthRateChart.destroy();
+    if (_healthIncChart)  _healthIncChart.destroy();
+    if (_healthVolChart)  _healthVolChart.destroy();
+    _healthRateChart = _healthIncChart = _healthVolChart = null;
+
+    const msg = noScoreReason === 'nodata'
+      ? `Nessun movimento registrato in questo periodo: non c'è niente da valutare.`
+      : `Servono almeno ${minMonths} mesi per un punteggio che significhi qualcosa — con meno dati
+         ogni componente misurerebbe il caso, non le tue abitudini. Allarga il periodo dai controlli qui sopra.`;
+    el.innerHTML = `
+      <div id="healthReport" style="padding-bottom:24px">
+        ${periodBar}
+        <div class="card-section" style="text-align:center;padding:28px 20px">
+          <div style="font-size:38px;font-weight:700;color:var(--txt3);line-height:1">—</div>
+          <div style="font-size:15px;font-weight:700;color:var(--txt3);margin:4px 0 10px">Punteggio non calcolabile</div>
+          <div class="health-desc" style="max-width:620px;margin:0 auto">${msg}</div>
+        </div>
+        ${totalIncome || totalExpense ? `
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:16px">
+            ${[['Entrate totali', fmt.currency(totalIncome), 'var(--income)'],
+               ['Uscite totali',  fmt.currency(totalExpense), 'var(--expense)'],
+               ['Risparmio netto', fmt.currency(totalSavings), totalSavings>=0?'var(--income)':'var(--expense)']
+              ].map(([l,v,c])=>`
+              <div style="padding:14px 16px;background:var(--bg3);border-radius:12px">
+                <div style="font-size:11px;color:var(--txt2);margin-bottom:4px">${l}</div>
+                <div style="font-size:22px;font-weight:700;color:${c}">${v}</div>
+                <div style="font-size:11px;color:var(--txt2);margin-top:2px">${periodLabel}</div>
+              </div>`).join('')}
+          </div>` : ''}
+      </div>`;
+    return;
+  }
+
+  // ── Finestre mobili di 3 mesi: quelle che danno i punti della stabilità ───
+  // Le disegniamo sotto ai mesi che coprono (grid-column i..i+2) su 3 righe sfalsate: le
+  // finestre k e k+3 non si sovrappongono mai, quindi 3 righe bastano per qualunque n.
+  const roll3Windows = [];
+  for (let i = 0; i + 3 <= n; i++) {
+    const sum = savings[i] + savings[i+1] + savings[i+2];
+    roll3Windows.push({
+      i, sum, ok: sum > 0,
+      label: `${cols[i].label.split(' ')[0]}–${cols[i+2].label.split(' ')[0]}`,
+      title: `${cols[i].label} → ${cols[i+2].label}: ${fmt.currency(sum)} — ${sum > 0 ? 'positiva' : 'negativa'}`,
+    });
+  }
+
+  // ── Scomposizione compatta del punteggio ──────────────────────────────────
+  // Solo etichetta, barra, punti e una riga di dettaglio: le spiegazioni lunghe (soglie,
+  // motivazioni) stanno nelle card sotto, dove c'è anche il grafico. Prima erano ripetute
+  // qui parola per parola, raddoppiando il testo della pagina.
+  const comps = [
+    { key:'savings', label:'Tasso di risparmio',      got:scoreSavings,  max:46, col:colS,
+      detail:`${avgSavingsRate.toFixed(1)}% delle entrate risparmiato nel periodo`,
+      off:'nessun movimento nel periodo' },
+    { key:'pos',     label:'Stabilità del risparmio', got:scorePos,      max:14, col:colP,
+      detail:`${roll3Pos} ${roll3Total===1?'finestra':'finestre'} di 3 mesi ${roll3Pos===1?'positiva':'positive'} su ${roll3Total} (${(roll3Pct*100).toFixed(0)}%)`,
+      off:`servono almeno 3 mesi per avere una finestra` },
+    { key:'runway',  label:'Riserva di emergenza',    got:scoreRunway,   max:14, col:colR,
+      detail:`${runwayDisplay} mesi coperti dalla riserva disponibile`,
+      off:'spesa mensile tipica non calcolabile' },
+    { key:'trend',   label:'Trend del risparmio',     got:scoreIncTrend, max:16, col:colI,
+      detail:`${savSlopePct>=0?'+':''}${savSlopePct.toFixed(1)}% del reddito al mese (mediane)`,
+      off:`servono almeno ${minMonthsTrend} mesi: due metà da confrontare` },
+    { key:'vol',     label:'Stabilità delle entrate', got:scoreVol,      max:10, col:colV,
+      detail:`Semi-CV ${incCV.toFixed(1)}% sotto il reddito tipico`,
+      off:`servono almeno ${minMonthsVol} mesi` },
+  ];
 
   // ── HTML ──────────────────────────────────────────────────────────────────
   el.innerHTML = `
     <div id="healthReport" style="padding-bottom:24px">
 
+      ${periodBar}
+
       <!-- Score principale -->
-      <div style="display:grid;grid-template-columns:auto 1fr;gap:16px;margin-bottom:16px;align-items:stretch">
-        <div style="text-align:center;padding:20px 28px;background:var(--bg3);border-radius:12px;min-width:120px;display:flex;flex-direction:column;justify-content:center">
+      <div style="display:grid;grid-template-columns:auto 1fr;gap:16px;margin-bottom:16px;align-items:start">
+        <div style="text-align:center;padding:20px 28px;background:var(--bg3);border-radius:12px;min-width:132px">
           <div style="font-size:52px;font-weight:700;color:${scoreColor};line-height:1">${score}</div>
-          <div style="font-size:12px;color:var(--txt3);margin-top:2px">/ 100</div>
+          <div style="font-size:12px;color:var(--txt2);margin-top:2px">/ 100</div>
           <div style="font-size:15px;font-weight:700;color:${scoreColor};margin-top:6px">${scoreLabel}</div>
+          ${partial ? `<div style="font-size:10px;color:var(--txt2);margin-top:8px;line-height:1.35">
+            su ${maxApplicable} pt<br>misurabili</div>` : ''}
         </div>
-        <!-- Scomposizione score -->
-        <div class="card-section" style="padding:16px 20px;display:flex;flex-direction:column;gap:10px">
-          <div style="font-size:12px;font-weight:600;color:var(--txt2);margin-bottom:2px">Come è calcolato il punteggio</div>
-          ${[
-            {
-              label: 'Tasso di risparmio',
-              desc:  `Quota media di entrate risparmiata negli ultimi ${n} mesi. ≥20% = eccellente (46 pt) · ≥15% = ottimo · ≥10% = buono · ≥5% = sufficiente · ≤3% = scarso · =0% = nullo · <0% = penalità (fino a −23 pt).`,
-              got: scoreSavings, max: 46,
-              detail: `${avgSavingsRate.toFixed(1)}% medio → ${scoreSavings}/46 pt`,
-              col: scoreSavings>=33?'var(--income)':scoreSavings>=18?'var(--warn)':'var(--expense)'
-            },
-            {
-              label: 'Stabilità mensile',
-              desc:  `Quota di finestre mobili di 3 mesi chiuse in positivo (somma risparmio &gt; 0). Usare 3 mesi invece del singolo mese evita che una grossa spesa annuale pianificata (tasse, assicurazione) conti come "fallimento" se i mesi vicini la assorbono. 100% = ottimo · ≥75% = buono · &lt;40% = attenzione.`,
-              got: scorePos, max: 14,
-              detail: `${roll3Pos}/${roll3Total} finestre di 3 mesi positive (${(roll3Pct*100).toFixed(0)}%) → ${scorePos}/14 pt`,
-              col: scorePos>=11?'var(--income)':scorePos>=5?'var(--warn)':'var(--expense)'
-            },
-            {
-              label: 'Riserva di emergenza',
-              desc:  `Mesi di vita coperti dalla riserva disponibile — liquidità (conti non-investimento) più investimenti scontati al ${(investHaircut*100).toFixed(0)}% — divisa per la spesa di un mese tipico (media interquartile su ${n} mesi: scarta il 25% più alto e più basso per ignorare outlier come tasse o vacanze). ≥6 mesi = ottimo (14 pt) · ≥3 = buono · ≥1.5 = sufficiente · ≥0.5 = scarso · &lt;0.5 = critico.`,
-              got: scoreRunway, max: 14,
-              detail: `${fmt.currency(reserveBalance)} riserva ÷ ${fmt.currency(expMedian)}/mese tipico = <strong>${runwayDisplay} mesi</strong> → ${scoreRunway}/14 pt`,
-              col: scoreRunway>=10?'var(--income)':scoreRunway>=6?'var(--warn)':'var(--expense)'
-            },
-            {
-              label: 'Trend del risparmio',
-              desc:  `Confronto robusto tra la mediana del risparmio mensile della seconda metà del periodo e quella della prima metà (più stabile di una regressione: un singolo mese-outlier non lo sposta). Normalizzato sul reddito mediano. Crescita &gt;+3%/mese = ottimo · stabile = sufficiente · calo &gt;−3%/mese = critico. Se tutti i mesi sono positivi e risparmi ≥10%, il punteggio minimo è 7 — un calo di tendenza conta meno quando sei sempre in attivo.`,
-              got: scoreIncTrend, max: 16,
-              detail: `mediana ${fmt.currency(savMedFirst)} → ${fmt.currency(savMedSecond)} (${savSlopePct>=0?'+':''}${savSlopePct.toFixed(1)}%/mese del reddito) → ${scoreIncTrend}/16 pt`,
-              col: scoreIncTrend>=13?'var(--income)':scoreIncTrend>=6?'var(--warn)':'var(--expense)'
-            },
-            {
-              label: 'Stabilità delle entrate',
-              desc:  `Semi-deviazione rispetto alla media interquartile (solo mesi sotto il reddito tipico — i bonus non spostano il riferimento). Semi-CV &lt; 3% = ottimo (10 pt) · &lt; 12% = buono · ≥ 30% = variabile.`,
-              got: scoreVol, max: 10,
-              detail: `Semi-CV ${incCV.toFixed(1)}% → ${scoreVol}/10 pt`,
-              col: scoreVol>=7?'var(--income)':scoreVol>=4?'var(--warn)':'var(--expense)'
-            },
-          ].map(c=>`
-            <div>
-              <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:3px">
-                <span style="font-size:12px;font-weight:600">${c.label}</span>
-                <span style="font-size:12px;font-weight:700;color:${c.col}">${c.got}<span style="color:var(--txt3);font-weight:400">/${c.max}</span></span>
-              </div>
-              <div style="height:5px;background:var(--border);border-radius:3px;margin-bottom:4px">
-                <div style="width:${Math.max(0,c.got/c.max*100).toFixed(0)}%;height:100%;background:${c.col};border-radius:3px"></div>
-              </div>
-              <div class="health-desc">${c.desc}</div>
-              <div class="health-desc" style="color:var(--txt2);margin-top:1px">${c.detail}</div>
-            </div>`).join('')}
+        <!-- Scomposizione score (compatta: il dettaglio sta nelle card sotto) -->
+        <div class="card-section" style="padding:16px 20px">
+          <div style="font-size:12px;font-weight:600;color:var(--txt2);margin-bottom:10px">Come è calcolato il punteggio</div>
+          <!-- auto-fill: 2-3 colonne su finestra larga, 1 su stretta. Niente larghezze fisse,
+               così la card non resta mezza vuota e la pagina non scrolla mai in orizzontale. -->
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(430px,1fr));gap:11px 26px">
+            ${comps.map(c => {
+              const on  = applicable[c.key];
+              const col = on ? c.col : 'var(--txt3)';
+              return `
+              <div style="min-width:0">
+                <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin-bottom:3px">
+                  <span style="font-size:12px;font-weight:600;color:${on?'var(--txt)':'var(--txt3)'}">${c.label}</span>
+                  <span style="font-size:12px;font-weight:700;color:${col};white-space:nowrap">
+                    ${on ? `${c.got}<span style="color:var(--txt2);font-weight:400">/${c.max}</span>` : 'escluso'}</span>
+                </div>
+                <div style="height:6px;background:var(--border);border-radius:3px;overflow:hidden;margin-bottom:4px">
+                  ${on ? `<div style="width:${Math.max(0,c.got/c.max*100).toFixed(0)}%;height:100%;background:${col};border-radius:3px"></div>` : ''}
+                </div>
+                <div style="font-size:12px;color:var(--txt2)">${on ? c.detail : c.off}</div>
+              </div>`;
+            }).join('')}
+          </div>
+          ${partial ? `<div class="health-desc" style="margin-top:2px;padding-top:8px;border-top:1px solid var(--border)">
+            Le componenti escluse non valgono 0: sparirebbe la differenza tra "va male" e "non lo so".
+            Il punteggio è rapportato ai <strong>${maxApplicable} punti</strong> effettivamente misurabili su questo periodo.
+          </div>` : ''}
         </div>
       </div>
 
@@ -1407,14 +1529,18 @@ async function renderAnalyticsHealth(token) {
           ['Tasso risparmio', avgSavingsRate.toFixed(1)+'%', avgSavingsRate>=15?'var(--income)':avgSavingsRate>=0?'var(--warn)':'var(--expense)'],
         ].map(([label,val,col])=>`
           <div style="padding:14px 16px;background:var(--bg3);border-radius:12px">
-            <div style="font-size:11px;color:var(--txt3);margin-bottom:4px">${label}</div>
+            <div style="font-size:11px;color:var(--txt2);margin-bottom:4px">${label}</div>
             <div style="font-size:22px;font-weight:700;color:${col}">${val}</div>
-            <div style="font-size:11px;color:var(--txt3);margin-top:2px">ultimi ${n} mesi</div>
+            <div style="font-size:11px;color:var(--txt2);margin-top:2px">${periodLabel}</div>
           </div>`).join('')}
       </div>
 
-      <!-- Riga 1: Tasso risparmio + Stabilità mensile -->
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+      <!-- Riga 1: Tasso risparmio + Stabilità del risparmio, 30/70.
+           La striscia dei mesi + finestre è la cosa più larga della pagina (12 mesi ≈ 985px):
+           a metà larghezza scrollava sempre, mentre il grafico a sinistra di spazio ne avanzava.
+           minmax(0,·) e non "3fr 7fr" secco: con min-width:auto la striscia allargherebbe la
+           propria colonna schiacciando l'altra card invece di scorrere. -->
+      <div style="display:grid;grid-template-columns:minmax(0,4fr) minmax(0,6fr);gap:16px;margin-bottom:16px">
 
         <!-- Tasso di risparmio -->
         <div class="card-section">
@@ -1423,71 +1549,103 @@ async function renderAnalyticsHealth(token) {
             <div class="score-badge" style="color:${colS}">${scoreSavings > 0 ? '+' : ''}${scoreSavings} / 46 pt</div>
           </div>
           <div class="health-desc" style="margin-bottom:10px">
-            Percentuale di entrate risparmiata ogni mese. Media: <strong style="color:${avgSavingsRate>=10?'var(--income)':avgSavingsRate>=0?'var(--warn)':'var(--expense)'}">${avgSavingsRate.toFixed(1)}%</strong>.
+            Percentuale di entrate risparmiata ogni mese. Sul periodo intero (risparmio totale ÷ entrate totali):
+            <strong style="color:${avgSavingsRate>=10?'var(--income)':avgSavingsRate>=0?'var(--warn)':'var(--expense)'}">${avgSavingsRate.toFixed(1)}%</strong>.
             Soglie: ≥20% ottimo · ≥10% buono · ≥5% sufficiente · &lt;0% penalizza il punteggio.
           </div>
           <div style="height:150px"><canvas id="healthRateChart"></canvas></div>
         </div>
 
-        <!-- Stabilità mensile -->
+        <!-- Stabilità del risparmio -->
         <div class="card-section">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-            <div style="font-size:13px;font-weight:600">Stabilità mensile</div>
-            <div class="score-badge" style="color:${colP}">${scorePos} / 14 pt</div>
+            <div style="font-size:13px;font-weight:600">Stabilità del risparmio</div>
+            <div class="score-badge" style="color:${applicable.pos?colP:'var(--txt3)'}">${applicable.pos?`${scorePos} / 14 pt`:'esclusa'}</div>
+          </div>
+          <!-- Due numeri diversi, entrambi dichiarati: i mesi positivi (informativo) e le
+               finestre di 3 mesi (quelle che danno i punti). Prima la card diceva "3 su 5"
+               mostrando 7 riquadri mensili, e sembrava un errore di conteggio. -->
+          <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
+            <div style="flex:1;min-width:150px;padding:8px 12px;background:var(--bg4);border-radius:8px">
+              <div style="font-size:11px;color:var(--txt2)">Mesi chiusi in positivo</div>
+              <div style="font-size:15px;font-weight:700">${posMonths} su ${n}
+                <span style="font-size:11px;font-weight:400;color:var(--txt2)">(${(posPct*100).toFixed(0)}%)</span></div>
+            </div>
+            <div style="flex:1;min-width:150px;padding:8px 12px;background:var(--bg4);border-radius:8px;border:1px solid ${applicable.pos?colP:'var(--border)'}">
+              <div style="font-size:11px;color:var(--txt2)">Finestre di 3 mesi positive → punti</div>
+              <div style="font-size:15px;font-weight:700;color:${applicable.pos?colP:'var(--txt3)'}">
+                ${applicable.pos ? `${roll3Pos} su ${roll3Total} <span style="font-size:11px;font-weight:400;color:var(--txt2)">(${(roll3Pct*100).toFixed(0)}%)</span>` : 'n/d'}</div>
+            </div>
           </div>
           <div class="health-desc" style="margin-bottom:12px">
-            Finestre mobili di 3 mesi chiuse in positivo: <strong style="color:${colP}">${roll3Pos} su ${roll3Total}</strong> (${(roll3Pct*100).toFixed(0)}%).
-            Valutare 3 mesi alla volta evita che una grossa spesa annuale (tasse, assicurazione) penalizzi se i mesi vicini la assorbono.
-            100% = 14 pt · ≥90% = 13 · ≥75% = 11 · ≥60% = 8 · ≥40% = 5 · ≥20% = 2 · &lt;20% = 0 pt.
-            <span style="color:var(--txt3)">I riquadri sotto mostrano comunque il singolo mese.</span>
+            ${applicable.pos
+              ? `Su ${n} mesi ci sono <strong>${roll3Total} ${roll3Total===1?'finestra':'finestre'}</strong> mobili di 3 mesi consecutivi
+                 (${roll3Windows.slice(0,2).map(w=>w.label).join(', ')}${roll3Total>2?', …':''}):
+                 il punteggio conta quante chiudono con risparmio complessivo positivo.
+                 Valutare 3 mesi alla volta evita che una grossa spesa annuale (tasse, assicurazione) conti come fallimento
+                 se i mesi vicini la assorbono. 100% = 14 pt · ≥90% = 13 · ≥75% = 11 · ≥60% = 8 · ≥40% = 5 · ≥20% = 2 · &lt;20% = 0 pt.`
+              : `Con ${n} ${n===1?'mese':'mesi'} non esiste nessuna finestra di 3 mesi consecutivi: la componente è esclusa dal punteggio.`}
           </div>
-          <div style="display:flex;flex-wrap:wrap;gap:6px">
-            ${monthCols.map((m,i) => {
-              const s = savings[i];
-              const pos = s > 0;
-              const bg  = pos ? 'rgba(63,185,80,.15)' : 'rgba(248,81,73,.15)';
-              const brd = pos ? 'rgba(63,185,80,.5)'  : 'rgba(248,81,73,.5)';
-              const tc  = pos ? 'var(--income)' : 'var(--expense)';
-              return `<div title="${m.label}: ${fmt.currency(s)}" style="padding:5px 10px;border-radius:8px;background:${bg};border:1px solid ${brd};min-width:52px;text-align:center">
-                <div style="font-size:11px;font-weight:600;color:${tc}">${pos?'▲':'▼'} ${m.label}</div>
-                <div style="font-size:10px;color:${tc};margin-top:2px">${fmt.currency(s)}</div>
-              </div>`;
-            }).join('')}
+          <div style="overflow-x:auto;padding-bottom:2px">
+            <div style="display:grid;grid-template-columns:repeat(${n},minmax(72px,1fr));gap:3px;min-width:${n*75}px">
+              ${cols.map((m,i) => {
+                const s = savings[i];
+                const kind = s > 0 ? 'pos' : s < 0 ? 'neg' : 'zero';
+                const bg  = kind==='pos' ? 'rgba(63,185,80,.15)' : kind==='neg' ? 'rgba(248,81,73,.15)' : 'var(--bg4)';
+                const brd = kind==='pos' ? 'rgba(63,185,80,.5)'  : kind==='neg' ? 'rgba(248,81,73,.5)'  : 'var(--border)';
+                const tc  = kind==='pos' ? 'var(--income)' : kind==='neg' ? 'var(--expense)' : 'var(--txt2)';
+                const arw = kind==='pos' ? '▲' : kind==='neg' ? '▼' : '=';
+                return `<div title="${esc(m.label)}: ${fmt.currency(s)}" style="grid-row:1;padding:5px 4px;border-radius:8px;background:${bg};border:1px solid ${brd};text-align:center">
+                  <div style="font-size:11px;font-weight:600;color:${tc}">${arw} ${m.label}</div>
+                  <div style="font-size:10px;color:${tc};margin-top:2px">${fmt.currency(s)}</div>
+                </div>`;
+              }).join('')}
+              ${roll3Windows.map((w,k) => `
+                <div title="${esc(w.title)}" style="grid-column:${w.i+1} / span 3;grid-row:${2 + (k%3)};display:flex;align-items:center;justify-content:center;gap:6px;height:19px;margin-top:3px;border-radius:5px;background:${w.ok?'rgba(63,185,80,.12)':'rgba(248,81,73,.12)'};border:1px solid ${w.ok?'rgba(63,185,80,.45)':'rgba(248,81,73,.45)'};font-size:10px;font-weight:600;color:${w.ok?'var(--income)':'var(--expense)'};white-space:nowrap;overflow:hidden">
+                  <span>${w.ok?'✓':'✗'}</span><span>${w.label}</span><span style="font-weight:400">${fmt.currency(w.sum)}</span>
+                </div>`).join('')}
+            </div>
           </div>
         </div>
       </div>
 
-      <!-- Riga 2: Trend spese + Trend entrate -->
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+      <!-- Riga 2: Riserva di emergenza + Trend del risparmio -->
+      <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;margin-bottom:16px">
 
         <!-- Riserva di emergenza -->
         <div class="card-section">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
             <div style="font-size:13px;font-weight:600">Riserva di emergenza</div>
-            <div class="score-badge" style="color:${colR}">${scoreRunway} / 14 pt</div>
+            <div class="score-badge" style="color:${applicable.runway?colR:'var(--txt3)'}">${applicable.runway?`${scoreRunway} / 14 pt`:'esclusa'}</div>
           </div>
           <div class="health-desc" style="margin-bottom:14px">
-            Mesi di vita coperti dalla <strong>riserva disponibile</strong> — liquidità (conti non-investimento)
-            più gli investimenti scontati al ${(investHaircut*100).toFixed(0)}% (in una crisi possono valere meno e richiedono tempo/tasse per essere venduti) —
-            divisa per la spesa di un mese tipico. Indica la tua <em>resilienza</em>: quanto duri se le entrate si fermano.
+            Mesi di vita coperti dalla <strong>riserva disponibile</strong> divisa per la spesa di un mese tipico.
+            Indica la tua <em>resilienza</em>: quanto duri se le entrate si fermano.
+            Gli investimenti contano scontati al ${(investHaircut*100).toFixed(0)}%: in una crisi possono valere meno e richiedono tempo/tasse per essere venduti.
             Soglie: ≥6 mesi ottimo · ≥3 buono · ≥1.5 sufficiente · &lt;0.5 critico.
+            ${isHistorical ? `<strong style="color:var(--warn)">Attenzione: saldi di oggi, non di ${cols[cols.length-1].label}</strong> — i conti non hanno storico giornaliero, quindi questa parte non segue il periodo scelto.` : ''}
           </div>
 
           <div style="display:flex;align-items:center;gap:18px;margin-bottom:14px">
             <div style="text-align:center;min-width:90px">
-              <div style="font-size:34px;font-weight:700;color:${colR};line-height:1">${runwayDisplay}</div>
-              <div style="font-size:11px;color:var(--txt3);margin-top:3px">mesi</div>
+              <div style="font-size:34px;font-weight:700;color:${applicable.runway?colR:'var(--txt3)'};line-height:1">${runwayDisplay}</div>
+              <div style="font-size:11px;color:var(--txt2);margin-top:3px">mesi</div>
             </div>
-            <div style="flex:1">
-              <div style="position:relative;height:16px;display:flex;border-radius:8px;overflow:hidden">
+            <!-- Il marker sta FUORI dal contenitore con overflow:hidden: dentro veniva tagliato
+                 e sopra i 12 mesi restava invisibile (1px su 3 a schermo). -->
+            <div style="flex:1;position:relative">
+              <div style="display:flex;height:16px;border-radius:8px;overflow:hidden">
                 <div style="flex:0.5;background:rgba(248,81,73,.55)"  title="Critico (&lt;0.5 mesi)"></div>
                 <div style="flex:1;background:rgba(240,136,62,.55)"   title="Scarso (0.5–1.5 mesi)"></div>
                 <div style="flex:1.5;background:rgba(232,168,56,.55)" title="Sufficiente (1.5–3 mesi)"></div>
                 <div style="flex:3;background:rgba(99,179,90,.5)"     title="Buono (3–6 mesi)"></div>
                 <div style="flex:6;background:rgba(63,185,80,.6)"     title="Ottimo (≥6 mesi)"></div>
-                <div style="position:absolute;top:-4px;bottom:-4px;width:3px;background:var(--txt);left:calc(${runwayPos.toFixed(2)}% - 1.5px);box-shadow:0 0 4px rgba(0,0,0,.6);border-radius:2px"></div>
               </div>
-              <div style="position:relative;height:14px;margin-top:4px;font-size:10px;color:var(--txt3)">
+              ${applicable.runway ? `
+                <div title="${runwayDisplay} mesi" style="position:absolute;top:-4px;height:24px;width:3px;background:var(--txt);left:${runwayPos.toFixed(2)}%;transform:translateX(-50%);box-shadow:0 0 4px rgba(0,0,0,.6);border-radius:2px"></div>
+                ${runwayOffScale ? `<div style="position:absolute;top:-19px;right:0;font-size:10px;font-weight:600;color:var(--income);white-space:nowrap">${runwayDisplay} mesi ▸ fuori scala</div>` : ''}
+              ` : ''}
+              <div style="position:relative;height:14px;margin-top:4px;font-size:10px;color:var(--txt2)">
                 <span style="position:absolute;left:0">0</span>
                 <span style="position:absolute;left:12.5%;transform:translateX(-50%)">1.5</span>
                 <span style="position:absolute;left:25%;transform:translateX(-50%)">3</span>
@@ -1497,18 +1655,25 @@ async function renderAnalyticsHealth(token) {
             </div>
           </div>
 
+          <!-- Scomposizione della riserva: le carte di credito su una riga propria. Sommate
+               ai conti sotto la voce "liquidi" facevano passare un debito per liquidità. -->
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:12px;padding-top:10px;border-top:1px solid var(--border)">
             <div>
-              <div style="color:var(--txt3);font-size:10px;margin-bottom:2px">Riserva disponibile</div>
-              <div style="font-weight:600;color:${reserveBalance>=0?'var(--income)':'var(--expense)'}">${fmt.currency(reserveBalance)}</div>
-              <div style="font-size:10px;color:var(--txt3);margin-top:1px">
-                ${fmt.currency(cashBalance)} liquidi${investBalance>0?` + ${fmt.currency(investBalance*investHaircut)} invest. (${(investHaircut*100).toFixed(0)}% di ${fmt.currency(investBalance)})`:''}
+              <div style="color:var(--txt2);font-size:10px;margin-bottom:2px">Riserva disponibile (saldi di oggi)</div>
+              <div style="font-weight:600;font-size:14px;color:${reserveBalance>=0?'var(--income)':'var(--expense)'}">${fmt.currency(reserveBalance)}</div>
+              <div style="font-size:10px;color:var(--txt2);margin-top:3px;line-height:1.6">
+                <div>Liquidità sui conti: <strong>${fmt.currency(liquidBalance)}</strong></div>
+                ${cardAccs.length ? `<div>Debito carte di credito: <strong style="color:${cardBalance<0?'var(--expense)':'inherit'}">${fmt.currency(cardBalance)}</strong></div>` : ''}
+                ${investBalance ? `<div>Investimenti al ${(investHaircut*100).toFixed(0)}%: <strong>${fmt.currency(investBalance*investHaircut)}</strong> <span style="opacity:.8">(di ${fmt.currency(investBalance)})</span></div>` : ''}
               </div>
             </div>
             <div>
-              <div style="color:var(--txt3);font-size:10px;margin-bottom:2px">Spesa mensile tipica</div>
-              <div style="font-weight:600">${fmt.currency(expMedian)}<span style="font-weight:400;color:var(--txt3)">/mese</span></div>
-              <div style="font-size:10px;color:var(--txt3);margin-top:1px">media interquartile ultimi ${n} mesi</div>
+              <div style="color:var(--txt2);font-size:10px;margin-bottom:2px">Spesa mensile tipica</div>
+              <div style="font-weight:600;font-size:14px">${fmt.currency(expMedian)}<span style="font-weight:400;color:var(--txt2)">/mese</span></div>
+              <div style="font-size:10px;color:var(--txt2);margin-top:3px;line-height:1.6">
+                media interquartile su ${n} ${n===1?'mese':'mesi'} (${periodLabel}):<br>
+                scarta il 25% più alto e il 25% più basso per ignorare mesi anomali come tasse o vacanze
+              </div>
             </div>
           </div>
         </div>
@@ -1517,17 +1682,31 @@ async function renderAnalyticsHealth(token) {
         <div class="card-section">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
             <div style="font-size:13px;font-weight:600">Trend del risparmio</div>
-            <div class="score-badge" style="color:${colI}">${scoreIncTrend} / 16 pt</div>
+            <div class="score-badge" style="color:${applicable.trend?colI:'var(--txt3)'}">${applicable.trend?`${scoreIncTrend} / 16 pt`:'escluso'}</div>
           </div>
-          <div class="health-desc" style="margin-bottom:10px">
-            Confronto robusto tra la <strong>mediana del risparmio mensile</strong> della seconda metà del periodo e quella della prima metà
-            (più stabile di una regressione: un singolo mese-outlier non lo sposta).
-            Mediana: <strong>${fmt.currency(savMedFirst)}</strong> → <strong>${fmt.currency(savMedSecond)}</strong>, pari a
-            <strong style="color:${savSlopePct>=0?'var(--income)':'var(--expense)'}">${savSlopePct>=0?'+':''}${savSlopePct.toFixed(1)}% del reddito/mese</strong>.
-            La linea a gradino indica i due livelli mediani.
-            ${(posPct===1&&avgSavingsRate>=10)?'<em style="color:var(--income)">Tutti i mesi in attivo con risparmio ≥10%: punteggio minimo garantito a 7.</em>':(posPct>=0.75&&avgSavingsRate>=5)?'<em style="color:var(--warn)">Situazione complessivamente positiva: punteggio minimo garantito a 5.</em>':''}
-          </div>
-          <div style="height:150px"><canvas id="healthIncChart"></canvas></div>
+          ${applicable.trend ? `
+            <div class="health-desc" style="margin-bottom:10px">
+              Confronto tra la <strong>mediana del risparmio mensile</strong> della seconda metà del periodo e quella della prima metà
+              (più stabile di una regressione: un singolo mese-outlier non lo sposta).
+              Mediana: <strong>${fmt.currency(savMedFirst)}</strong> → <strong>${fmt.currency(savMedSecond)}</strong>, pari a
+              <strong style="color:${savSlopePct>=0?'var(--income)':'var(--expense)'}">${savSlopePct>=0?'+':''}${savSlopePct.toFixed(1)}% del reddito/mese</strong>
+              — è questo che dà i punti.
+              <!-- Il confronto sulle medie è il controllo di realtà: la mediana di pochi mesi ignora
+                   gli estremi e può dichiarare una crescita che sui totali non c'è. -->
+              Sulle <strong>medie</strong> (che tengono conto anche dei mesi estremi) lo stesso confronto vale
+              <strong style="color:${savSlopeAvgPct>=0?'var(--income)':'var(--expense)'}">${savSlopeAvgPct>=0?'+':''}${savSlopeAvgPct.toFixed(1)}%</strong>
+              (${fmt.currency(savAvgFirst)} → ${fmt.currency(savAvgSecond)})${Math.abs(savSlopePct-savSlopeAvgPct) > 2 ? ': i due numeri divergono, quindi la tendenza dipende da pochi mesi e va presa con cautela' : ''}.
+              La linea a gradino indica i due livelli mediani.
+              ${(posPct===1&&avgSavingsRate>=10)?'<em style="color:var(--income)">Tutti i mesi in attivo con risparmio ≥10%: punteggio minimo garantito a 7.</em>':(posPct>=0.75&&avgSavingsRate>=5)?'<em style="color:var(--warn)">Situazione complessivamente positiva: punteggio minimo garantito a 5.</em>':''}
+            </div>
+            <div style="height:150px"><canvas id="healthIncChart"></canvas></div>
+          ` : `
+            <div class="health-desc" style="padding:22px 4px">
+              Il trend confronta due metà del periodo: con ${n} ${n===1?'mese':'mesi'} ogni metà avrebbe
+              ${Math.floor(n/2)||0} ${Math.floor(n/2)===1?'mese':'mesi'}, e la differenza misurerebbe il caso.
+              Servono almeno <strong>${minMonthsTrend} mesi</strong>: fino ad allora la componente è esclusa dal punteggio
+              invece di valere 0.
+            </div>`}
         </div>
       </div>
 
@@ -1535,26 +1714,32 @@ async function renderAnalyticsHealth(token) {
       <div class="card-section" style="margin-bottom:16px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
           <div style="font-size:13px;font-weight:600">Stabilità delle entrate</div>
-          <div class="score-badge" style="color:${colV}">${scoreVol} / 10 pt</div>
+          <div class="score-badge" style="color:${applicable.vol?colV:'var(--txt3)'}">${applicable.vol?`${scoreVol} / 10 pt`:'esclusa'}</div>
         </div>
-        <div style="display:grid;grid-template-columns:auto auto auto 1fr;gap:16px;align-items:center;margin-bottom:12px">
-          <div>
-            <div style="font-size:26px;font-weight:700;color:${colV}">${incCV.toFixed(1)}%</div>
-            <div style="font-size:10px;color:var(--txt3)">Semi-CV (downside)</div>
+        ${applicable.vol ? `
+          <div style="display:grid;grid-template-columns:auto auto auto 1fr;gap:16px;align-items:center;margin-bottom:12px">
+            <div>
+              <div style="font-size:26px;font-weight:700;color:${colV}">${incCV.toFixed(1)}%</div>
+              <div style="font-size:10px;color:var(--txt2)">Semi-CV (al ribasso)</div>
+            </div>
+            <div style="width:1px;height:40px;background:var(--border)"></div>
+            <div>
+              <div style="font-size:20px;font-weight:600;color:var(--txt2)">− ${fmt.currency(incStddev)}</div>
+              <div style="font-size:10px;color:var(--txt2)">Semi-deviazione</div>
+            </div>
+            <div class="health-desc" style="padding-left:8px">
+              Variabilità delle entrate <em>al ribasso</em> rispetto alla media interquartile di <strong>${fmt.currency(incMedian)}/mese</strong> (reddito tipico).
+              I mesi con bonus non spostano il riferimento e non penalizzano — conta solo quanto scendi sotto il tuo reddito abituale.
+              Semi-CV &lt; 3% = ottimo · &lt; 12% = buono · &lt; 20% = discreto · ≥ 30% = variabile.
+            </div>
           </div>
-          <div style="width:1px;height:40px;background:var(--border)"></div>
-          <div>
-            <div style="font-size:20px;font-weight:600;color:var(--txt2)">− ${fmt.currency(incStddev)}</div>
-            <div style="font-size:10px;color:var(--txt3)">Semi-deviazione</div>
-          </div>
-          <div class="health-desc" style="padding-left:8px">
-            Variabilità delle entrate <em>al ribasso</em> rispetto alla media interquartile di <strong>${fmt.currency(incMedian)}/mese</strong> (reddito tipico).
-            I mesi con bonus non spostano il riferimento e non penalizzano — conta solo quanto scendi sotto il tuo reddito abituale.
-            Semi-CV &lt; 3% = ottimo · &lt; 12% = buono · &lt; 20% = discreto · ≥ 30% = variabile.
-            ${n < 2 ? ' &nbsp;<em style="color:var(--expense)">Dati insufficienti: servono almeno 2 mesi.</em>' : ''}
-          </div>
-        </div>
-        <div style="height:150px"><canvas id="healthVolChart"></canvas></div>
+          <div style="height:150px"><canvas id="healthVolChart"></canvas></div>
+        ` : `
+          <div class="health-desc" style="padding:16px 4px">
+            Con ${n} ${n===1?'mese':'mesi'} una semi-deviazione misura rumore, non variabilità del reddito.
+            Servono almeno <strong>${minMonthsVol} mesi</strong>: fino ad allora la componente è esclusa dal punteggio
+            invece di valere 0 — che avrebbe significato "entrate pessimamente instabili" quando in realtà non si sa.
+          </div>`}
       </div>
 
 
@@ -1574,7 +1759,8 @@ async function renderAnalyticsHealth(token) {
       const avg = chart.data.datasets[1].data[0];
       if (avg == null) return;
       const y = yScale.getPixelForValue(avg);
-      const color = avg >= 10 ? 'rgba(63,185,80,.95)' : avg >= 5 ? 'rgba(232,168,56,.95)' : 'rgba(248,81,73,.95)';
+      // Colori dal tema: il giallo fisso su fondo chiaro (carta) era illeggibile
+      const color = cssVar(avg >= 10 ? '--income' : avg >= 5 ? '--warn' : '--expense');
       ctx.save();
       ctx.font = 'bold 10px sans-serif';
       ctx.fillStyle = color;
@@ -1594,7 +1780,7 @@ async function renderAnalyticsHealth(token) {
           backgroundColor: monthlyRates.map(r => r>=0?'rgba(63,185,80,.55)':'rgba(248,81,73,.55)'),
           borderColor:      monthlyRates.map(r => r>=0?'rgba(63,185,80,1)' :'rgba(248,81,73,1)'),
           borderWidth:1, order:1 },
-        { type:'line', label:'Media', data:Array(n).fill(+avgSavingsRate.toFixed(1)),
+        { type:'line', label:'Media periodo', data:Array(n).fill(+avgSavingsRate.toFixed(1)),
           borderColor: avgSavingsRate>=10?'rgba(63,185,80,.85)':avgSavingsRate>=5?'rgba(232,168,56,.85)':'rgba(248,81,73,.85)',
           borderDash:[6,3], pointRadius:0, borderWidth:2, order:0, noLabels:true },
       ]
@@ -1607,14 +1793,16 @@ async function renderAnalyticsHealth(token) {
         tooltip:{ filter: item => item.datasetIndex === 0, callbacks:{ label: ctx => ` ${ctx.parsed.y.toFixed(1)}%` } }
       },
       scales:{
-        x:{ ticks:{color:cc.tick,font:{size:10}}, grid:{color:cc.grid} },
+        // autoSkip attivo: in una card stretta 12 etichette si sovrapporrebbero. maxRotation:0
+        // le tiene dritte — meglio saltarne una che leggerle di traverso.
+        x:{ ticks:{color:cc.tick,font:{size:10},maxRotation:0,minRotation:0}, grid:{color:cc.grid} },
         y:{ ticks:{color:cc.tick, callback:v=>v+'%'}, grid:{color:cc.grid} }
       }
     }
   });
 
-  // Trend risparmio — barre colorate + regressione tratteggiata
-  _healthIncChart = new Chart(document.getElementById('healthIncChart'), {
+  // Trend risparmio — barre colorate + livelli mediani a gradino (solo se il periodo lo consente)
+  if (applicable.trend) _healthIncChart = new Chart(document.getElementById('healthIncChart'), {
     type:'bar',
     data:{
       labels,
@@ -1623,32 +1811,35 @@ async function renderAnalyticsHealth(token) {
           backgroundColor: savings.map(s => s>=0?'rgba(63,185,80,.5)':'rgba(248,81,73,.5)'),
           borderColor:      savings.map(s => s>=0?'rgba(63,185,80,.9)':'rgba(248,81,73,.9)'),
           borderWidth:1 },
-        { type:'line', label:'Tendenza', data:savRegLine,
-          borderColor:'rgba(255,200,80,.75)', borderDash:[6,3],
-          pointRadius:0, stepped:'middle', fill:false, borderWidth:2 }
+        // Colore dal tema: il giallo chiaro fisso spariva sui fondi chiari (carta, nebbia)
+        { type:'line', label:'Mediana per metà periodo', data:savRegLine,
+          borderColor:cssVar('--accent'), borderDash:[6,3],
+          pointRadius:0, stepped:'middle', fill:false, borderWidth:2, spanGaps:false }
       ]
     },
     options:{
       responsive:true, maintainAspectRatio:false,
       plugins:{ legend:{ labels:{color:cc.tick,boxWidth:12} }, tooltip:{ callbacks:{ label:ctx=>` ${ctx.dataset.label}: ${fmt.currency(ctx.parsed.y)}` } } },
-      scales:{ x:{ticks:{color:cc.tick,font:{size:10}},grid:{color:cc.grid}}, y:{ticks:{color:cc.tick,callback:v=>fmt.currency(v)},grid:{color:cc.grid}} }
+      scales:{ x:{ticks:{color:cc.tick,font:{size:10},autoSkip:false,maxRotation:0,minRotation:0},grid:{color:cc.grid}}, y:{ticks:{color:cc.tick,callback:v=>fmt.currency(v)},grid:{color:cc.grid}} }
     }
   });
 
-  // Stabilità entrate — barre mensili + linea media + fasce ±1σ
-  _healthVolChart = new Chart(document.getElementById('healthVolChart'), {
+  // Stabilità entrate — barre mensili + reddito tipico + soglia semi-deviazione.
+  // Niente fill: la banda rossa piena copriva quasi tutta l'area e nascondeva le barre, cioè
+  // il dato. Ed è una semi-deviazione, non una σ: il nome della serie ora lo dice.
+  if (applicable.vol) _healthVolChart = new Chart(document.getElementById('healthVolChart'), {
     type:'bar',
     data:{
       labels,
       datasets:[
         { label:'Entrate', data:incomes,
           backgroundColor:'rgba(63,185,80,.4)', borderColor:'rgba(63,185,80,.7)', borderWidth:1 },
-        { type:'line', label:'Mediana', data:Array(n).fill(incMedian),
-          borderColor:'rgba(232,168,56,.85)', borderDash:[5,3],
+        { type:'line', label:'Reddito tipico (media interquartile)', data:Array(n).fill(incMedian),
+          borderColor:'rgba(232,168,56,.95)', borderDash:[5,3],
           pointRadius:0, fill:false, borderWidth:2 },
-        { type:'line', label:'Soglia −1σ', data:Array(n).fill(Math.max(0, incMedian-incStddev)),
-          borderColor:'rgba(248,81,73,.85)', borderDash:[3,4],
-          pointRadius:0, fill:'origin', backgroundColor:'rgba(248,81,73,.08)', borderWidth:2 },
+        { type:'line', label:'Soglia semi-deviazione', data:Array(n).fill(Math.max(0, incMedian-incStddev)),
+          borderColor:'rgba(248,81,73,.9)', borderDash:[3,4],
+          pointRadius:0, fill:false, borderWidth:2 },
       ]
     },
     options:{
@@ -1657,7 +1848,7 @@ async function renderAnalyticsHealth(token) {
         legend:{ labels:{ color:cc.tick, boxWidth:12 } },
         tooltip:{ callbacks:{ label:ctx=>` ${ctx.dataset.label}: ${fmt.currency(ctx.parsed.y)}` } }
       },
-      scales:{ x:{ticks:{color:cc.tick,font:{size:10}},grid:{color:cc.grid}}, y:{ticks:{color:cc.tick,callback:v=>fmt.currency(v)},grid:{color:cc.grid}} }
+      scales:{ x:{ticks:{color:cc.tick,font:{size:10},autoSkip:false,maxRotation:0,minRotation:0},grid:{color:cc.grid}}, y:{ticks:{color:cc.tick,callback:v=>fmt.currency(v)},grid:{color:cc.grid}} }
     }
   });
 

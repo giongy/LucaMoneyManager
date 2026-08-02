@@ -689,6 +689,10 @@ function initCatPicker(inputId, hiddenId, listId) {
 function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [], onAfterSave = null, saveOverride = null) {
   const isEdit = tx != null && tx.id != null;
   const initType = tx?.type || defaultType;
+  // Stato "straordinario": tx.tags porta solo id/nome/colore (vedi parseTags), quindi la
+  // system_key va risolta dall'elenco tag completo, che invece ce l'ha.
+  const oneoffTagId = tags.find(t => t.system_key === 'oneoff')?.id;
+  const isOneoff = oneoffTagId != null && (tx?.tags || []).some(t => Number(t.id) === Number(oneoffTagId));
   const expCats = categories.filter(c=>c.type==='expense');
   const incCats = categories.filter(c=>c.type==='income');
   // Categoria di sistema dei trasferimenti: nel modale non è selezionabile (il cat-picker
@@ -784,8 +788,22 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
         <label class="form-label">Tag</label>
         <div class="tag-selector" id="tagSelector">
           ${tags.filter(t=>!t.is_system).map(t=>`<span class="tag-chip" data-tag-id="${t.id}" style="--tc:${esc(t.color)}">${esc(t.name)}</span>`).join('')}
-          ${tags.filter(t=>t.is_system && (tx?.tags||[]).some(tt=>Number(tt.id)===t.id)).map(t=>`<span class="tag-chip" data-tag-id="${t.id}" style="--tc:${esc(t.color)}" title="Tag di sistema — puoi solo rimuoverlo">${esc(t.name)} 🔒</span>`).join('')}
+          ${tags.filter(t=>t.is_system && t.system_key!=='oneoff' && (tx?.tags||[]).some(tt=>Number(tt.id)===t.id)).map(t=>`<span class="tag-chip" data-tag-id="${t.id}" style="--tc:${esc(t.color)}" title="Tag di sistema — puoi solo rimuoverlo">${esc(t.name)} 🔒</span>`).join('')}
           <span class="tag-chip tag-chip-new" id="tagChipNew">+ nuovo</span>
+        </div>
+      </div>
+      <!-- "Straordinario" ha un controllo suo invece del chip di sistema: serve la spiegazione
+           di cosa comporta, e il chip col lucchetto si poteva solo togliere, non mettere. -->
+      <div class="form-group">
+        <label class="flex-center-8" style="cursor:pointer;font-weight:normal">
+          <input type="checkbox" id="f_oneoff" ${isOneoff ? 'checked' : ''}>
+          <span>🎯 Movimento straordinario</span>
+        </label>
+        <div class="settings-hint" style="margin-top:2px">
+          Un episodio che non si ripeterà (un acquisto una tantum, un rimborso non ricorrente).
+          Resta nei saldi, nel budget e nei report, ma esce dalle <strong>proiezioni</strong>:
+          mediana della spesa variabile, forbice e mese tipico della Previsione Saldo.
+          Vale a qualunque importo — la soglia dei 500 € riguarda solo i suggerimenti automatici.
         </div>
         <div class="tag-new-row" id="tagNewRow" style="display:none">
           <input class="form-control" id="tagNewName" placeholder="Nome tag" style="flex:1">
@@ -912,6 +930,8 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
       account_id:    parseInt(document.getElementById('f_account').value),
       to_account_id: type==='transfer' ? parseInt(document.getElementById('f_toAccount').value)||null : null,
       tag_ids:       [...selectedTagIds],
+      // Applicato dopo tag_ids lato Java, quindi vince sulla presenza del tag nell'elenco
+      oneoff:        !!document.getElementById('f_oneoff')?.checked,
       color: document.getElementById('f_color_use')?.checked
                ? document.getElementById('f_color').value : null,
       reconciled: parseInt(document.querySelector('input[name="f_reconciled"]:checked')?.value ?? '1'),

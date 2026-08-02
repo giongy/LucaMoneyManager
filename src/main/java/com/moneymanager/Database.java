@@ -2713,7 +2713,14 @@ public class Database {
         return Map.of("id", id, "deleted", true);
     }
 
-    /** Sostituisce tutti i tag di una transazione con quelli passati in p.tag_ids. */
+    /**
+     * Sostituisce tutti i tag di una transazione con quelli passati in p.tag_ids, poi applica
+     * l'eventuale flag p.oneoff (movimento straordinario).
+     * <p>
+     * La DELETE è volutamente totale: il modale rimanda indietro anche i tag di sistema che la
+     * transazione già possiede (li mostra col lucchetto, deselezionabili), quindi una DELETE
+     * parziale toglierebbe la possibilità di rimuoverli.
+     */
     private void saveTags(long txId, JsonObject p) throws SQLException {
         execute("DELETE FROM transaction_tags WHERE transaction_id=?", txId);
         if (p.has("tag_ids") && p.get("tag_ids").isJsonArray()) {
@@ -2722,6 +2729,20 @@ public class Database {
                         txId, el.getAsInt());
             }
         }
+        // Flag straordinario dal modale. Applicato DOPO gli inserimenti così vince sempre sul
+        // contenuto di tag_ids, ed è opzionale: le chiamate che non lo mandano (import da
+        // telefono, undo di una delete, duplica) lasciano la marcatura decisa da tag_ids.
+        if (p.has("oneoff") && !p.get("oneoff").isJsonNull())
+            applyOneoffTag(txId, p.get("oneoff").getAsBoolean());
+    }
+
+    /** Aggiunge o toglie il tag di sistema "oneoff" a una transazione. */
+    private void applyOneoffTag(long txId, boolean oneoff) throws SQLException {
+        Integer tagId = getSystemTagIdByKey("oneoff");
+        if (tagId == null) { ensureSystemTags(); tagId = getSystemTagIdByKey("oneoff"); }
+        if (tagId == null) return;   // DB senza il tag di sistema: non è motivo per far fallire il salvataggio
+        if (oneoff) execute("INSERT OR IGNORE INTO transaction_tags(transaction_id,tag_id) VALUES(?,?)", txId, tagId);
+        else        execute("DELETE FROM transaction_tags WHERE transaction_id=? AND tag_id=?", txId, tagId);
     }
 
     /**
@@ -5298,11 +5319,9 @@ public class Database {
 
     /** Marca (o smarca) una transazione come movimento straordinario. Ritorna lo stato finale. */
     public Map<String, Object> setTransactionOneoff(int txId, boolean oneoff) throws SQLException {
-        Integer tagId = getSystemTagIdByKey("oneoff");
-        if (tagId == null) { ensureSystemTags(); tagId = getSystemTagIdByKey("oneoff"); }
-        if (tagId == null) throw new SQLException("Tag di sistema 'oneoff' non disponibile");
-        if (oneoff) execute("INSERT OR IGNORE INTO transaction_tags(transaction_id,tag_id) VALUES(?,?)", txId, tagId);
-        else        execute("DELETE FROM transaction_tags WHERE transaction_id=? AND tag_id=?", txId, tagId);
+        if (getSystemTagIdByKey("oneoff") == null) ensureSystemTags();
+        if (getSystemTagIdByKey("oneoff") == null) throw new SQLException("Tag di sistema 'oneoff' non disponibile");
+        applyOneoffTag(txId, oneoff);
         touchSyncMeta();
         logger.log(oneoff ? "STRAORDINARIO ON" : "STRAORDINARIO OFF", "tx:" + txId);
         return Map.of("ok", true, "id", txId, "oneoff", oneoff);

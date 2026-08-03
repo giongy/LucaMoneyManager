@@ -656,20 +656,22 @@ window._exportCatMonthPdf = () => {
   });
 };
 
-/* ─── Analytics: Confronto Periodi (categorie/macrocategorie A vs B) ──────────
-   Confronta lo stesso insieme di categorie (o macrocategorie) fra due intervalli
-   di tempo. L'utente sceglie il Periodo A; il Periodo B viene inizializzato allo
-   stesso periodo dell'anno precedente e resta poi liberamente modificabile.
-   Livello di dettaglio: Macrocategorie (radici) oppure Categorie. */
+/* ─── Analytics: Confronto Periodi (macrocategorie A vs B, con drill-down) ─────
+   Confronta lo stesso insieme di macrocategorie fra due intervalli di tempo.
+   L'utente sceglie il Periodo A; il Periodo B viene inizializzato allo stesso
+   periodo dell'anno precedente e resta poi liberamente modificabile.
+   Ogni riga si apre col chevron ▶ (o doppio click) mostrando le sue categorie,
+   come le righe padre del Budget. */
 
 // Stato dedicato (indipendente dal confronto Bilancio Mensile).
 // A differenza degli altri tab Analytics (granularità mensile), qui i periodi hanno
 // granularità al GIORNO: startDate/endDate sono stringhe "YYYY-MM-DD".
 let _catCmpA       = null;             // { startDate, endDate } — periodo principale
 let _catCmpB       = null;             // { startDate, endDate } — periodo di confronto
-let _catCmpGroupBy = 'parent';         // 'parent' | 'category'
 let _catCmpSort    = { col: 'delta', dir: -1 };  // col: 'name'|'a'|'b'|'delta'|'pct'
-let _catCmpCache   = null;             // ultime righe caricate dal backend
+let _catCmpCache   = null;             // righe a livello macrocategoria (le righe della tabella)
+let _catCmpDetail  = null;             // righe a livello categoria — contenuto del drill-down
+let _catCmpOpen    = new Set();        // id delle macrocategorie espanse (come le righe padre del Budget)
 
 // Sposta una data "YYYY-MM-DD" di N anni tenendo lo stesso giorno/mese.
 // Il 29/02 in un anno non bisestile viene normalizzato al 28/02 (JS Date lo fa da sé
@@ -702,8 +704,8 @@ function _catCmpInitDefaults() {
   }
 }
 
-// Tab "Confronto Periodi": disegna i controlli (2 periodi con date complete + grado di dettaglio)
-// e la tabella. Le date sono selezionabili al giorno tramite <input type="date">.
+// Tab "Confronto Periodi": disegna i controlli (i 2 periodi, con date complete) e la
+// tabella. Le date sono selezionabili al giorno tramite <input type="date">.
 async function renderAnalyticsCatCompare(token) {
   const el = document.getElementById('analyticsContent');
   if (!el) return;
@@ -715,29 +717,29 @@ async function renderAnalyticsCatCompare(token) {
   const dateInput = (id, val) => `<input type="date" class="form-control" id="${id}" value="${val}"
         ${minDate?`min="${minDate}"`:''} max="${maxDate}" style="font-size:12px;padding:3px 6px">`;
 
+  // ⚠️ white-space:nowrap sulle etichette: senza, "Periodo A"/"Periodo B" vanno a capo
+  // appena la barra si stringe e le pillole diventano alte il doppio, sfasando in verticale
+  // tutta la riga dei controlli.
+  const lbl = 'font-size:12px;color:var(--txt2);white-space:nowrap';
   el.innerHTML = `
     <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px;padding:8px 10px;background:var(--bg2);border:1px solid var(--border);border-radius:8px">
       <div style="display:flex;gap:4px;align-items:center;background:rgba(106,183,255,.10);border:1px solid rgba(106,183,255,.35);padding:4px 8px;border-radius:6px">
-        <span style="font-size:12px;font-weight:600;color:var(--accent)">Periodo A</span>
-        <label style="font-size:12px;color:var(--txt2)">Da</label>
+        <span style="font-size:12px;font-weight:600;color:var(--accent);white-space:nowrap">Periodo A</span>
+        <label style="${lbl}">Da</label>
         ${dateInput('ccAStart', _catCmpA.startDate)}
-        <label style="font-size:12px;color:var(--txt2)">A</label>
+        <label style="${lbl}">A</label>
         ${dateInput('ccAEnd', _catCmpA.endDate)}
       </div>
       <span style="color:var(--txt3);font-weight:700">vs</span>
       <div style="display:flex;gap:4px;align-items:center;background:rgba(188,140,255,.10);border:1px solid rgba(188,140,255,.35);padding:4px 8px;border-radius:6px">
-        <span style="font-size:12px;font-weight:600;color:var(--purple)">Periodo B</span>
-        <label style="font-size:12px;color:var(--txt2)">Da</label>
+        <span style="font-size:12px;font-weight:600;color:var(--purple);white-space:nowrap">Periodo B</span>
+        <label style="${lbl}">Da</label>
         ${dateInput('ccBStart', _catCmpB.startDate)}
-        <label style="font-size:12px;color:var(--txt2)">A</label>
+        <label style="${lbl}">A</label>
         ${dateInput('ccBEnd', _catCmpB.endDate)}
       </div>
-      <div style="width:1px;height:20px;background:var(--border)"></div>
-      <div style="display:flex;gap:2px;align-items:center">
-        <span style="font-size:12px;color:var(--txt2);margin-right:4px">Dettaglio:</span>
-        <button class="btn btn-xs ${_catCmpGroupBy==='parent'?'btn-primary':'btn-ghost'}" id="ccGroupParent">Macrocategorie</button>
-        <button class="btn btn-xs ${_catCmpGroupBy==='category'?'btn-primary':'btn-ghost'}" id="ccGroupCat">Categorie</button>
-      </div>
+      <button class="btn btn-xs btn-ghost hidden" id="ccExpandAll" onclick="_catCmpToggleAll()"
+              style="margin-left:auto;white-space:nowrap"></button>
     </div>
     <div id="ccTable"><p style="padding:20px;color:var(--txt2)">Caricamento…</p></div>`;
 
@@ -763,18 +765,69 @@ async function renderAnalyticsCatCompare(token) {
   };
   ['ccAStart','ccAEnd'].forEach(id => document.getElementById(id).onchange = () => onChange(true));
   ['ccBStart','ccBEnd'].forEach(id => document.getElementById(id).onchange = () => onChange(false));
-  document.getElementById('ccGroupParent').onclick = () => { _catCmpGroupBy = 'parent';   _runAnalyticsRender(t => renderAnalyticsCatCompare(t)); };
-  document.getElementById('ccGroupCat').onclick    = () => { _catCmpGroupBy = 'category'; _runAnalyticsRender(t => renderAnalyticsCatCompare(t)); };
 
-  // Carica i dati e disegna la tabella (date già in formato YYYY-MM-DD, passate as-is al backend)
+  // Due letture dello stesso confronto: le macrocategorie (le righe della tabella) e le
+  // categorie (il contenuto dei drill-down). Il dettaglio si carica subito insieme alle
+  // macro, non alla prima apertura: così il chevron risponde all'istante e non serve uno
+  // stato "in caricamento" dentro la tabella.
   const rows = await api.getCategoryComparison(
     _catCmpA.startDate, _catCmpA.endDate,
-    _catCmpB.startDate, _catCmpB.endDate,
-    _catCmpGroupBy);
-  if (_analyticsRenderStale(token)) return;  // periodo/tab/dettaglio cambiato durante l'await: annulla
-  _catCmpCache = rows;
+    _catCmpB.startDate, _catCmpB.endDate, 'parent');
+  if (_analyticsRenderStale(token)) return;  // periodo/tab cambiato durante l'await: annulla
+  const detail = await api.getCategoryComparison(
+    _catCmpA.startDate, _catCmpA.endDate,
+    _catCmpB.startDate, _catCmpB.endDate, 'category');
+  if (_analyticsRenderStale(token)) return;
+  _catCmpCache  = rows;
+  _catCmpDetail = detail;
   _renderCatCmpTable();
 }
+
+// Allinea il bottone "Espandi/Comprimi tutto" allo stato di apertura corrente.
+// Il bottone vive nella barra dei controlli, che viene disegnata UNA volta per periodo,
+// mentre lo stato cambia a ogni click sui chevron: senza questa sincronizzazione (chiamata
+// da _renderCatCmpTable, cioè a ogni ridisegno della tabella) l'etichetta resterebbe
+// indietro. Si nasconde se non c'è niente da espandere.
+function _catCmpSyncExpandBtn() {
+  const btn = document.getElementById('ccExpandAll');
+  if (!btn) return;
+  const expandable = (_catCmpCache || []).filter(r => _catCmpHasKids(r.id));
+  btn.classList.toggle('hidden', expandable.length === 0);
+  if (!expandable.length) return;
+  const allOpen = expandable.every(r => _catCmpOpen.has(r.id));
+  btn.textContent = allOpen ? '▲ Comprimi tutto' : '▼ Espandi tutto';
+  btn.title = `${allOpen ? 'Chiude' : 'Apre'} il dettaglio di tutte le macrocategorie`;
+}
+
+// Apre o chiude tutte le macrocategorie in un colpo solo (come il comando omonimo del
+// Budget): se sono già tutte aperte il comando chiude, altrimenti apre tutto.
+window._catCmpToggleAll = () => {
+  const ids = (_catCmpCache || []).map(r => r.id).filter(id => _catCmpHasKids(id));
+  if (ids.length && ids.every(id => _catCmpOpen.has(id))) _catCmpOpen.clear();
+  else ids.forEach(id => _catCmpOpen.add(id));
+  _renderCatCmpTable();
+};
+
+// Dettaglio (categorie) di una macrocategoria. Una transazione registrata direttamente
+// sulla macro produce una riga con parent_id nullo e id uguale a quello della macro:
+// finisce sotto sé stessa, ed è corretto — è la quota non ripartita del suo totale.
+// Se però quella riga è l'UNICO dettaglio non c'è niente da aprire: ripeterebbe la
+// riga padre. Da qui passano sia il chevron che "Espandi tutto", che devono essere
+// d'accordo su quali macro siano espandibili.
+function _catCmpKidsOf(id) {
+  const k = (_catCmpDetail || []).filter(d => (d.parent_id || d.id) === id);
+  return (k.length === 1 && k[0].id === id) ? [] : k;
+}
+const _catCmpHasKids = id => _catCmpKidsOf(id).length > 0;
+
+// Apre/chiude il dettaglio categorie di una macrocategoria. Le macro aperte restano
+// tali al cambio di periodo (gli id non cambiano): si confrontano più periodi sullo
+// stesso drill-down senza doverlo riaprire ogni volta.
+window._catCmpToggle = id => {
+  if (_catCmpOpen.has(id)) _catCmpOpen.delete(id);
+  else _catCmpOpen.add(id);
+  _renderCatCmpTable();
+};
 
 // Cambia colonna/direzione di ordinamento della tabella Confronto Periodi e ridisegna.
 window._sortCatCmp = col => {
@@ -784,27 +837,20 @@ window._sortCatCmp = col => {
 };
 
 // Disegna la tabella del Confronto Periodi da _catCmpCache: una sezione Uscite e una Entrate,
-// con Δ valore, Δ %, e la riga più "virtuosa" evidenziata (uscite: max risparmio; entrate: max crescita).
+// con Δ valore e Δ %. Il verde/rosso segue il verso giusto per sezione: per le uscite è
+// buono calare, per le entrate è buono crescere.
 function _renderCatCmpTable() {
   const el = document.getElementById('ccTable');
   if (!el || !_catCmpCache) return;
 
-  const detailLabel = _catCmpGroupBy === 'parent' ? 'Macrocategoria' : 'Categoria';
   const dPct = (a, b) => b ? ((a - b) / Math.abs(b)) * 100 : null;  // null se base B = 0 (crescita indefinita)
-  // Il link "Andamento Categoria" ha senso solo per singola categoria: quel tab non aggrega le
-  // figlie di una macrocategoria. In modalità Macrocategorie il nome resta testo semplice.
-  const linkable = _catCmpGroupBy === 'category';
 
   const sortRows = arr => {
     const { col, dir } = _catCmpSort;
     return [...arr].sort((x, y) => {
-      if (col === 'name') {
-        // Ordina prima per macrocategoria (parent), poi per categoria a parità di macro.
-        // In modalità Macrocategorie parent_name è assente → si ordina direttamente per nome.
-        const pc = String(x.parent_name || '').localeCompare(String(y.parent_name || ''));
-        if (pc !== 0) return dir * pc;
-        return dir * String(x.name).localeCompare(String(y.name));
-      }
+      // Righe macro e righe figlie non si mescolano mai (sortRows è chiamata separatamente
+      // sulle une e sulle altre), quindi il confronto per nome basta a sé stesso.
+      if (col === 'name') return dir * String(x.name).localeCompare(String(y.name));
       if (col === 'a')    return dir * (x.total_a - y.total_a);
       if (col === 'b')    return dir * (x.total_b - y.total_b);
       if (col === 'delta')return dir * ((x.total_a - x.total_b) - (y.total_a - y.total_b));
@@ -826,35 +872,29 @@ function _renderCatCmpTable() {
   };
   const thS = 'cursor:pointer;user-select:none';
 
-  // "Virtuosità": per le uscite risparmiare (Δ<0) è virtuoso; per le entrate crescere (Δ>0) lo è.
-  // Individua la riga più virtuosa di ciascuna sezione (deve avere un miglioramento reale).
-  const bestId = (rows, isExpense) => {
-    let best = null, bestVal = 0;
-    for (const r of rows) {
-      const delta = r.total_a - r.total_b;
-      const score = isExpense ? -delta : delta;  // >0 = miglioramento
-      if (score > bestVal) { bestVal = score; best = r.id; }
-    }
-    return best;
-  };
-
   const renderSection = (rows, label, isExpense) => {
     if (!rows.length) return '';
     const sorted = sortRows(rows);
-    const winner = bestId(rows, isExpense);
     const totA = rows.reduce((s,r)=>s+r.total_a, 0);
     const totB = rows.reduce((s,r)=>s+r.total_b, 0);
     const totDelta = totA - totB, totPct = dPct(totA, totB);
 
-    // Scala della barra: max |Δ%| della sezione (come nel tab Scostamenti del budget),
-    // così la barra riempie proporzionalmente. I null (base B=0) non entrano nella scala.
-    const maxPct = Math.max(1, ...rows.map(r => { const p = dPct(r.total_a, r.total_b); return p==null ? 0 : Math.abs(p); }));
+    // Scala della barra: max |Δ%| dell'insieme confrontato (come nel tab Scostamenti del
+    // budget), così la barra riempie proporzionalmente. I null (base B=0) non entrano.
+    // ⚠️ La barra confronta sempre righe dello STESSO livello: le macro fra macro, e le
+    // figlie di una macro fra sorelle (scala locale, ricalcolata per ogni drill-down).
+    // Mettere tutti i livelli sulla stessa scala sembra più coerente ma non lo è: basta
+    // una figlia esplosa (+27.000% su una base quasi nulla) per azzerare visivamente ogni
+    // altra barra della sezione. La domanda che la barra deve saper rispondere è "chi si è
+    // mosso di più fra questi", e "questi" cambia a seconda del livello che si sta leggendo.
+    const scaleOf = arr => Math.max(1, ...arr.map(r => { const p = dPct(r.total_a, r.total_b); return p==null ? 0 : Math.abs(p); }));
+    const maxPct = scaleOf(rows);
 
     // Cella "Δ %": numero + barra ancorata a destra, verde se virtuoso / rosso altrimenti.
-    const pctCell = (pct, good) => {
+    const pctCell = (pct, good, scale = maxPct) => {
       const col = pct==null ? 'var(--txt3)' : (good ? 'var(--income)' : 'var(--expense)');
       const barBg = good ? 'rgba(63,185,80,.65)' : 'rgba(248,81,73,.65)';
-      const barW  = pct==null ? 0 : Math.min(100, Math.abs(pct)/maxPct*100).toFixed(1);
+      const barW  = pct==null ? 0 : Math.min(100, Math.abs(pct)/scale*100).toFixed(1);
       const pctStr = pct==null ? '—' : (pct>=0?'+':'')+pct.toFixed(1)+'%';
       return `<td>
         <div class="flex-center-8">
@@ -866,26 +906,57 @@ function _renderCatCmpTable() {
       </td>`;
     };
 
-    let html = `<tr class="analytics-section-header"><td colspan="5">${label}</td></tr>`;
-    for (const r of sorted) {
+    // Nome: icona colorata + nome. Il link ad "Andamento Categoria" ha senso solo sulle
+    // righe figlie, che sono singole categorie: quel tab non aggrega le figlie di una
+    // macro, quindi il nome della macro resta testo semplice.
+    const nameOf = (r, asLink) =>
+      `<span style="color:${esc(r.color)}">${esc(r.icon || '')}</span> ${asLink
+        ? `<a href="#" onclick="_catCmpToTrend(${r.id});return false" style="color:inherit;text-decoration:none;border-bottom:1px dashed var(--txt3)" title="Vedi andamento nel periodo (inizio B → fine A)">${esc(r.name)}</a>`
+        : esc(r.name)}`;
+
+    // Le 4 colonne numeriche, identiche per riga macro e riga figlia (`scale`: vedi sopra,
+    // le figlie usano la scala delle sorelle, non quella delle macro).
+    const valueCells = (r, scale) => {
       const delta = r.total_a - r.total_b;
       const pct = dPct(r.total_a, r.total_b);
       // Segno del "bene": uscita in calo o entrata in crescita = verde
       const good = isExpense ? delta <= 0 : delta >= 0;
       const deltaCol = delta === 0 ? 'var(--txt3)' : (good ? 'var(--income)' : 'var(--expense)');
-      const isWin = r.id === winner;
-      const winStyle = isWin
-        ? 'background:rgba(63,185,80,.14);box-shadow:inset 3px 0 0 var(--income)'
-        : '';
-      html += `<tr style="${winStyle}">
-        <td class="analytics-cat-name">${r.parent_name ? `<span style="color:var(--txt3);font-size:11px">${esc(r.parent_name)} ›</span> ` : ''}<span style="color:${esc(r.color)}">${esc(r.icon || '')}</span> ${linkable
-          ? `<a href="#" onclick="_catCmpToTrend(${r.id});return false" style="color:inherit;text-decoration:none;border-bottom:1px dashed var(--txt3)" title="Vedi andamento nel periodo (inizio B → fine A)">${esc(r.name)}</a>`
-          : esc(r.name)}</td>
-        <td class="text-right">${r.total_a ? fmt.currency(r.total_a) : '<span style="color:var(--txt3)">—</span>'}</td>
+      return `<td class="text-right">${r.total_a ? fmt.currency(r.total_a) : '<span style="color:var(--txt3)">—</span>'}</td>
         <td class="text-right" style="opacity:.85">${r.total_b ? fmt.currency(r.total_b) : '<span style="color:var(--txt3)">—</span>'}</td>
         <td class="text-right" style="color:${deltaCol};font-weight:600">${delta>=0?'+':''}${fmt.currency(delta)}</td>
-        ${pctCell(pct, good)}
+        ${pctCell(pct, good, scale)}`;
+    };
+
+    // Slot fisso del chevron: presente anche vuoto sulle macro senza dettaglio,
+    // altrimenti i nomi non si allineano in colonna.
+    const slot = 'display:inline-block;width:15px;padding:0;margin-right:3px;text-align:left;vertical-align:baseline';
+
+    let html = `<tr class="analytics-section-header"><td colspan="5">${label}</td></tr>`;
+    for (const r of sorted) {
+      const kids = _catCmpKidsOf(r.id);
+      const open = _catCmpOpen.has(r.id);
+      // Doppio click sulla riga = stessa azione del chevron (come nel Budget).
+      const twist = kids.length
+        ? `<button class="btn-budget-toggle" style="${slot}" onclick="_catCmpToggle(${r.id})"
+             title="${open?'Nascondi':'Mostra'} le categorie di ${esc(r.name)}">${open?'▼':'▶'}</button>`
+        : `<span style="${slot}"></span>`;
+      html += `<tr ${kids.length?`ondblclick="_catCmpToggle(${r.id})"`:''}>
+        <td class="analytics-cat-name">${twist}${nameOf(r, false)}</td>
+        ${valueCells(r, maxPct)}
       </tr>`;
+      // Righe figlie: il filetto verticale a sinistra le lega visivamente alla macro
+      // aperta (l'indentazione da sola, con l'alternanza di sfondo, non basta a leggerle
+      // come un blocco).
+      if (open) {
+        const kidScale = scaleOf(kids);
+        for (const k of sortRows(kids)) {
+          html += `<tr class="cc-detail-row">
+            <td class="analytics-cat-name" style="padding-left:19px"><span style="display:inline-block;border-left:2px solid var(--border);padding-left:13px">${nameOf(k, true)}</span></td>
+            ${valueCells(k, kidScale)}
+          </tr>`;
+        }
+      }
     }
     const gGood = isExpense ? totDelta <= 0 : totDelta >= 0;
     html += `<tr class="analytics-subtotal">
@@ -901,10 +972,7 @@ function _renderCatCmpTable() {
   const expenses = _catCmpCache.filter(r => r.type === 'expense');
   const incomes  = _catCmpCache.filter(r => r.type === 'income');
 
-  // Formatta "YYYY-MM-DD" → "gg/mm/aaaa"
-  const fmtDate = d => `${d.slice(8,10)}/${d.slice(5,7)}/${d.slice(0,4)}`;
-  const lblA = `${fmtDate(_catCmpA.startDate)} → ${fmtDate(_catCmpA.endDate)}`;
-  const lblB = `${fmtDate(_catCmpB.startDate)} → ${fmtDate(_catCmpB.endDate)}`;
+  _catCmpSyncExpandBtn();
 
   if (!expenses.length && !incomes.length) {
     el.innerHTML = '<p style="padding:20px;color:var(--txt2)">Nessuna transazione nei periodi selezionati.</p>';
@@ -912,14 +980,9 @@ function _renderCatCmpTable() {
   }
 
   el.innerHTML = `
-    <p style="font-size:12px;color:var(--txt3);margin:0 0 8px">
-      <span style="color:var(--accent);font-weight:600">A</span> = ${lblA} &nbsp;·&nbsp;
-      <span style="color:var(--purple);font-weight:600">B</span> = ${lblB}
-      &nbsp;·&nbsp; riga evidenziata = più virtuosa (uscita in calo / entrata in crescita)
-    </p>
     <table class="analytics-table">
       <thead><tr>
-        <th style="${thS}" onclick="_sortCatCmp('name')">${detailLabel}${arrow('name')}</th>
+        <th style="${thS}" onclick="_sortCatCmp('name')">Macrocategoria${arrow('name')}</th>
         <th class="text-right" style="${thS};color:var(--accent)" onclick="_sortCatCmp('a')">Periodo A${arrow('a')}</th>
         <th class="text-right" style="${thS};color:var(--purple)" onclick="_sortCatCmp('b')">Periodo B${arrow('b')}</th>
         <th class="text-right" style="${thS}" onclick="_sortCatCmp('delta')">Δ Valore${arrow('delta')}</th>

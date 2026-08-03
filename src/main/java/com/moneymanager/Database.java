@@ -5803,7 +5803,9 @@ public class Database {
      *  Somma per categoria (uscite ed entrate, split inclusi) il totale in [fromA,toA] e in [fromB,toB].
      *  groupBy = "parent": aggrega alla macrocategoria radice (le figlie confluiscono nel parent,
      *  i parent senza figlie restano sé stessi); "category": una riga per ciascuna categoria.
-     *  Restituisce righe con { id, name, type, color, icon, parent_name, total_a, total_b }. */
+     *  Restituisce righe con { id, name, type, color, icon, parent_name, parent_id, total_a, total_b }.
+     *  parent_id serve al drill-down del report: con groupBy="category" permette di riagganciare
+     *  ogni categoria alla riga macro corrispondente senza dover confrontare i nomi. */
     public List<Map<String, Object>> getCategoryComparison(
             String fromA, String toA, String fromB, String toB, String groupBy) throws SQLException {
         Connection c = beginQuery();  // guardia: l'auto-release non chiude finché non facciamo endQuery()
@@ -5825,7 +5827,7 @@ public class Database {
                 WHERE COALESCE((SELECT excluded_from_budget FROM categories WHERE id=ts.category_id),0)=0
                   AND t.type IN ('expense','income')
             )
-            SELECT %s AS id, %s AS name, %s AS type, %s AS color, %s AS icon, %s AS parent_name,
+            SELECT %s AS id, %s AS name, %s AS type, %s AS color, %s AS icon, %s AS parent_name, %s AS parent_id,
                    SUM(CASE WHEN ca.date >= ? AND ca.date <= ? THEN ABS(ca.amount) ELSE 0 END) AS total_a,
                    SUM(CASE WHEN ca.date >= ? AND ca.date <= ? THEN ABS(ca.amount) ELSE 0 END) AS total_b
             FROM cat_amounts ca
@@ -5842,6 +5844,7 @@ public class Database {
                 byParent ? "COALESCE(root.color, c.color)"      : "c.color",
                 byParent ? "COALESCE(root.icon, c.icon)"        : "c.icon",
                 byParent ? "NULL"                               : "p.name",
+                byParent ? "NULL"                               : "c.parent_id",
                 byParent ? "COALESCE(c.parent_id, c.id)"        : "c.id");
         try (PreparedStatement ps = c.prepareStatement(sql)) {
             // Pre-filtro sull'unione dei due intervalli [min(from), max(to)] per ridurre le righe

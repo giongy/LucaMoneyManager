@@ -2242,6 +2242,10 @@ tr.tx-selected td { background:rgba(124,124,255,.07); }
 .analytics-table td.analytics-cat-name { color:var(--txt2); }
 .analytics-table tbody tr:nth-child(even) td { background:rgba(255,255,255,.025); }
 .analytics-table tbody tr:hover td { background:var(--bg3); }
+/* Confronto Periodi: righe di dettaglio aperte sotto una macrocategoria. Un filo più
+   piccole della riga padre, così il drill-down si legge come subordinato senza bisogno
+   di uno sfondo dedicato (che litigherebbe con l'alternanza pari/dispari). */
+.analytics-table tbody tr.cc-detail-row td { font-size:11.5px; }
 .analytics-cat-name { font-size:var(--fs-md,12px); min-width:160px; }
 .analytics-total { font-weight:600; border-left:2px solid var(--border) !important; }
 .analytics-avg  { font-weight:700; color:var(--accent) !important; }

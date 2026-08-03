@@ -412,7 +412,13 @@ html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy
   --orange:   #ff9b5e;
   --txt:      #ecf0f6;
   --txt2:     #9ca8b8;
-  --txt3:     #6d7888;
+  /* --txt3 è il grigio dei sottotesti (percentuali dei budget, "/ totale" accanto agli
+     importi, unità e didascalie a 10-11px). In glassy le card sono TRASPARENTI: il testo
+     poggia sul gradiente del body schiarito appena del 5%, non su una superficie opaca —
+     il fondo effettivo è ~#252b3a. A #6d7888 il contrasto stava a 3,1:1, sotto il minimo
+     AA di 4,5 proprio dove il testo è più piccolo. Schiarito a 4,8:1, restando comunque
+     distinguibile da --txt2 (stessa scelta già fatta per Nebbia). */
+  --txt3:     #8d97a7;
   --shadow:   0 8px 32px rgba(0,0,0,.55);
 }
 /* Sfondo con gradiente diagonale per dare profondità visibile attraverso il blur.

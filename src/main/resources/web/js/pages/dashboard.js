@@ -440,10 +440,10 @@ function _dashWidgetDefs(dashYear) {
         <th>Data</th><th>Descrizione</th><th>Categoria</th><th>Conto</th><th class="text-right">Importo</th>
       </tr></thead><tbody id="recentRows"></tbody></table></div>` },
 
-    donut: { title: '🍩 Spese del mese', tall: true, id: 'dashMonthDonutCard',
+    donut: { title: 'Uscite del mese corrente', tall: true, id: 'dashMonthDonutCard',
       attrs: `style="cursor:pointer" onclick="_analyticsTab='catmonth';navigate('analytics')" title="Uscite per categoria — mese corrente"`, html: `
       <div class="card-header">
-        <span class="card-title">🍩 Spese del mese</span>
+        <span class="card-title">Uscite del mese corrente</span>
         <span style="font-size:11px;color:var(--txt3);font-weight:400" id="dashMonthDonutTot"></span>
       </div>
       <div id="dashMonthDonutBody" style="flex:1;display:flex;flex-direction:column;padding:4px 16px 12px;min-height:0"></div>` },

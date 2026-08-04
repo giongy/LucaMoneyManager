@@ -23,11 +23,16 @@ async function renderCategories() {
     return children.filter(c => c.parent_id === parentId);
   }
 
+  // Quante sottocategorie sono marcate per Android: se sono zero l'app mostra tutto
+  // (vedi DbHelper.getSubCategories), e il messaggio in cima alla pagina lo dice.
+  const mobileTotal = children.filter(c => c.mobile_favorite).length;
+
   // Renderizza una lista di categorie parent con le rispettive sottocategorie annidate.
   function renderTree(list) {
     return list.map(p => {
       const kids = childrenOf(p.id);
       const isTransfer = p.type === 'transfer';
+      const mobileKids = kids.filter(k => k.mobile_favorite).length;
       return `
         <div class="cat-parent">
           <div class="cat-row cat-parent-row">
@@ -37,6 +42,7 @@ async function renderCategories() {
             <span class="badge ${typeCls(p.type)}">${typeLabel(p.type)}</span>
             ${p.expense_nature ? `<span class="nature-badge nature-${p.expense_nature}">${{essenziale:'🟢 Essenziale',variabile:'🟡 Variabile',superflua:'🔴 Superflua'}[p.expense_nature]||''}</span>` : ''}
             ${p.excluded_from_budget ? `<span class="badge" style="background:var(--txt3);color:#fff;font-size:10px" title="Esclusa da budget, report, dashboard e previsioni">🚫 Esclusa</span>` : ''}
+            ${mobileKids ? `<span class="badge" style="background:#3fb95022;color:#3fb950;font-size:10px" title="${mobileKids} sottocategorie proposte dall'app Android">📱 ${mobileKids}</span>` : ''}
             <span class="cat-sub-count">${kids.length} sottocategorie</span>
             <div class="cat-actions">
               ${!isTransfer ? `
@@ -58,6 +64,9 @@ async function renderCategories() {
                   ${k.excluded_from_budget ? `<span class="badge" style="background:var(--txt3);color:#fff;font-size:10px" title="Esclusa da budget, report, dashboard e previsioni">🚫</span>` : ''}
                   <span class="cat-inherited">eredita ${typeLabel(k.type)}</span>
                   <div class="cat-actions">
+                    <button class="btn btn-ghost btn-icon cat-mobile-btn ${k.mobile_favorite ? 'active' : ''}"
+                            onclick="toggleCategoryMobile(${k.id}, ${k.mobile_favorite ? 0 : 1})"
+                            title="${k.mobile_favorite ? 'Proposta dall\'app Android — clicca per toglierla' : 'Non proposta dall\'app Android — clicca per aggiungerla'}">📱</button>
                     <button class="btn btn-ghost btn-icon" onclick="editCategory(${k.id})" title="Modifica">✏️</button>
                     <button class="btn btn-ghost btn-icon" onclick="deleteCategory(${k.id})" title="Elimina">🗑️</button>
                   </div>
@@ -75,6 +84,13 @@ async function renderCategories() {
         <button class="btn btn-primary" onclick="addMainCategory('expense')">＋ Uscita</button>
         <button class="btn btn-secondary" onclick="addMainCategory('income')">＋ Entrata</button>
       </div>
+    </div>
+
+    <div class="settings-hint" style="margin:0 0 14px">
+      📱 sulle sottocategorie = proposta dall'app Android in inserimento.
+      ${mobileTotal
+        ? `Ne hai marcate <b>${mobileTotal}</b>: sul telefono compaiono solo quelle.`
+        : `Nessuna marcata: sul telefono compaiono <b>tutte</b> le sottocategorie.`}
     </div>
 
     <div class="cats-section-title">📤 Uscite</div>
@@ -100,6 +116,15 @@ async function renderCategories() {
       </div>
     </div>` : ''}
     </div>`;
+}
+
+// Accende/spegne il flag "proposta dall'app Android" su una sottocategoria, direttamente
+// dalla lista: marcarne una decina dal modale sarebbe inutilmente lento.
+async function toggleCategoryMobile(id, on) {
+  try {
+    await api.setCategoryMobile(id, !!on);
+    renderCategories();
+  } catch(e) { toast(e.message, 'error'); }
 }
 
 // Apre il modale per una nuova categoria principale del tipo dato (income/expense).
@@ -241,6 +266,17 @@ async function showCategoryModal(cat, type, parentId) {
           Le transazioni di questa categoria restano visibili e muovono il saldo del conto, ma non vengono conteggiate in budget, report, dashboard e previsioni. Utile ad es. per l'addebito del capital gain.
         </div>
       </div>
+      ${isChild ? `
+      <div class="form-group" style="grid-column:1/-1">
+        <label class="form-label" style="display:flex;align-items:center;gap:8px;cursor:pointer">
+          <input id="c_mobile" type="checkbox" ${cat?.mobile_favorite ? 'checked' : ''} style="width:auto;margin:0">
+          📱 Usabile dall'app Android
+        </label>
+        <div style="font-size:11px;color:var(--txt3);margin-top:4px">
+          Nell'inserimento da telefono compaiono solo le sottocategorie marcate così — l'elenco resta
+          corto e la spesa si registra in pochi tocchi. Se non ne marchi nessuna, l'app le mostra tutte.
+        </div>
+      </div>` : ''}
       ${type === 'expense' ? `
       <div class="form-group" style="grid-column:1/-1">
         <label class="form-label">Natura spesa</label>
@@ -266,6 +302,11 @@ async function showCategoryModal(cat, type, parentId) {
                         ? parseInt(document.getElementById('c_parent').value) : null,
       expense_nature: document.getElementById('c_nature')?.value || null,
       excluded_from_budget: document.getElementById('c_excluded')?.checked ? 1 : 0,
+      // La casella c'è solo sulle sottocategorie: senza di essa si conserva il valore attuale,
+      // altrimenti modificare una categoria principale azzererebbe un flag messo altrove.
+      mobile_favorite: document.getElementById('c_mobile')
+                         ? (document.getElementById('c_mobile').checked ? 1 : 0)
+                         : (cat?.mobile_favorite ? 1 : 0),
     };
     if (!data.name) { toast('Inserisci un nome', 'error'); return false; }
     try {

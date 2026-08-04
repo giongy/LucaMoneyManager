@@ -889,6 +889,9 @@ public class Database {
                 parent_id            INTEGER REFERENCES categories(id) ON DELETE CASCADE,
                 expense_nature       TEXT,
                 excluded_from_budget INTEGER DEFAULT 0,
+                -- Categoria proposta dall'app Android in inserimento (vedi v23): serve a mostrare
+                -- lì solo le poche categorie che si usano fuori casa, non tutto l'elenco.
+                mobile_favorite      INTEGER DEFAULT 0,
                 created_at           TEXT    DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE IF NOT EXISTS transactions (
@@ -1101,7 +1104,7 @@ public class Database {
         }
     }
 
-    private static final int SCHEMA_VERSION = 22;
+    private static final int SCHEMA_VERSION = 23;
 
     /**
      * Migrazioni incrementali dello schema per DB creati con versioni precedenti.
@@ -1145,8 +1148,16 @@ public class Database {
             catch (SQLException ignored) {}
         }
 
-        // ── v23+: aggiungere qui i blocchi futuri, es.:
-        //   if (currentVersion < 23) { try { executePlain("ALTER TABLE ..."); } catch (SQLException ignored) {} }
+        // ── v23: categories.mobile_favorite — segna le categorie che l'app Android propone
+        // in inserimento. Fuori casa se ne usano poche (spesa, benzina, bar): filtrare l'elenco
+        // accorcia lo scorrimento. Default 0; se nessuna è marcata Android mostra tutto.
+        if (currentVersion < 23) {
+            try { executePlain("ALTER TABLE categories ADD COLUMN mobile_favorite INTEGER DEFAULT 0"); }
+            catch (SQLException ignored) {}
+        }
+
+        // ── v24+: aggiungere qui i blocchi futuri, es.:
+        //   if (currentVersion < 24) { try { executePlain("ALTER TABLE ..."); } catch (SQLException ignored) {} }
 
         // Segna il DB come aggiornato all'ultima versione
         executePlain("DELETE FROM schema_version");
@@ -1669,9 +1680,10 @@ public class Database {
             if (parent != null) type = (String) parent.get("type");
         }
         int excluded = intVal(p, "excluded_from_budget") != null && intVal(p, "excluded_from_budget") != 0 ? 1 : 0;
+        int mobile   = intVal(p, "mobile_favorite") != null && intVal(p, "mobile_favorite") != 0 ? 1 : 0;
         long id = execute(
-            "INSERT INTO categories(name,type,icon,color,parent_id,expense_nature,excluded_from_budget) VALUES(?,?,?,?,?,?,?)",
-            str(p,"name"), type, str(p,"icon"), str(p,"color"), parentId, str(p,"expense_nature"), excluded);
+            "INSERT INTO categories(name,type,icon,color,parent_id,expense_nature,excluded_from_budget,mobile_favorite) VALUES(?,?,?,?,?,?,?,?)",
+            str(p,"name"), type, str(p,"icon"), str(p,"color"), parentId, str(p,"expense_nature"), excluded, mobile);
         logger.log("CATEGORIA AGGIUNTA", "id:" + id, "nome:" + str(p,"name"), "tipo:" + type);
         return queryOne("SELECT * FROM categories WHERE id=?", id);
     }
@@ -1689,10 +1701,24 @@ public class Database {
             if (parent != null) type = (String) parent.get("type");
         }
         int excluded = intVal(p, "excluded_from_budget") != null && intVal(p, "excluded_from_budget") != 0 ? 1 : 0;
-        execute("UPDATE categories SET name=?,type=?,icon=?,color=?,parent_id=?,expense_nature=?,excluded_from_budget=? WHERE id=?",
-                str(p,"name"), type, str(p,"icon"), str(p,"color"), parentId, str(p,"expense_nature"), excluded, id);
+        int mobile   = intVal(p, "mobile_favorite") != null && intVal(p, "mobile_favorite") != 0 ? 1 : 0;
+        execute("UPDATE categories SET name=?,type=?,icon=?,color=?,parent_id=?,expense_nature=?,excluded_from_budget=?,mobile_favorite=? WHERE id=?",
+                str(p,"name"), type, str(p,"icon"), str(p,"color"), parentId, str(p,"expense_nature"), excluded, mobile, id);
         logger.log("CATEGORIA MODIFICATA", "id:" + id, "nome:" + str(p,"name"), "tipo:" + type);
         return queryOne("SELECT * FROM categories WHERE id=?", id);
+    }
+
+    /**
+     * Attiva/disattiva il flag "usabile da Android" su una categoria — toggle rapido dalla lista,
+     * senza aprire il modale (marcarne una decina a mano sarebbe tedioso).
+     * Ha senso solo sulle sottocategorie: l'app Android propone unicamente quelle.
+     */
+    public Map<String, Object> setCategoryMobile(int id, boolean on) throws SQLException {
+        execute("UPDATE categories SET mobile_favorite=? WHERE id=?", on ? 1 : 0, id);
+        Map<String, Object> row = queryOne("SELECT * FROM categories WHERE id=?", id);
+        logger.log("CATEGORIA ANDROID", "id:" + id,
+                   "nome:" + DbLogger.s(row != null ? row.get("name") : null), "attiva:" + on);
+        return row;
     }
 
     /** Elimina una categoria (figlie in cascata); vieta di eliminare Trasferimento. */

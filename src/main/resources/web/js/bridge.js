@@ -110,6 +110,7 @@ const api = {
   updateCategory:   async data => { api._invalidateCategories(); return callJava('updateCategory',  data); },
   deleteCategory:   async id   => { api._invalidateCategories(); return callJava('deleteCategory',  {id}); },
   reassignCategory: async data => { api._invalidateCategories(); return callJava('reassignCategory', data); },
+  setCategoryMobile:async (id,on) => { api._invalidateCategories(); return callJava('setCategoryMobile', {id,on}); },
   getCategoryUsage: id => callJava('getCategoryUsage', {id}),
 
   // Tag (cache in-session: invalidata ad ogni modifica)

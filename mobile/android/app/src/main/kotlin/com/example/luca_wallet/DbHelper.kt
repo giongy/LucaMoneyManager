@@ -223,14 +223,28 @@ object DbHelper {
         }
     }
 
+    /**
+     * Sottocategorie proponibili in inserimento. Da telefono se ne usano poche (spesa, benzina,
+     * bar): sul desktop si marcano con `categories.mobile_favorite` e qui si mostrano solo quelle,
+     * così l'elenco resta corto. Se non ne è marcata nessuna — o il DB è ancora a uno schema
+     * precedente alla v23, senza quella colonna — si ricade sull'elenco completo: meglio scorrere
+     * che restare senza categorie.
+     */
     fun getSubCategories(type: String): List<Category> {
         if (!isConfigured) return emptyList()
         ensureOpen()
+        val favorites = try { querySubCategories(type, onlyMobile = true) }
+                        catch (_: Exception) { emptyList() }   // colonna assente: DB pre-v23
+        return favorites.ifEmpty { querySubCategories(type, onlyMobile = false) }
+    }
+
+    private fun querySubCategories(type: String, onlyMobile: Boolean): List<Category> {
+        val mobileFilter = if (onlyMobile) "AND c.mobile_favorite = 1" else ""
         return db!!.rawQuery("""
             SELECT c.id, c.name, p.name
             FROM categories c
             JOIN categories p ON c.parent_id = p.id
-            WHERE c.type = ?
+            WHERE c.type = ? $mobileFilter
             ORDER BY p.name ASC, c.name ASC
         """.trimIndent(), arrayOf(type)).use { c ->
             buildList {

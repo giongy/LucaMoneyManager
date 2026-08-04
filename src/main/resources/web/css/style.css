@@ -1838,6 +1838,11 @@ tr.tx-selected td { background:rgba(124,124,255,.07); }
 .cat-inherited { font-size:var(--fs-sm,11px); color:var(--txt3); flex:1; }
 .cat-indent { color:var(--txt3); font-size:var(--fs-lg,13px); margin-left:10px; }
 .cat-actions { display:flex; gap:4px; margin-left:auto; }
+/* Interruttore "usabile da Android": spento resta visibile ma smorzato (l'emoji va desaturata
+   a mano, l'opacità da sola la lascia comunque colorata), acceso si stacca con un alone verde. */
+.cat-mobile-btn { filter:grayscale(1); opacity:.35; }
+.cat-mobile-btn:hover { opacity:.7; }
+.cat-mobile-btn.active { filter:none; opacity:1; background:#3fb95022; }
 .cat-children { border-top:1px solid var(--border); }
 .nature-cat-row { cursor:pointer; transition:background .12s; }
 .nature-cat-row:hover { background:var(--bg3); }

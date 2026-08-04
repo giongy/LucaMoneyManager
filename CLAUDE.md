@@ -30,7 +30,7 @@ Due piattaforme: **desktop (primaria)** e **Android (secondaria)**, database SQL
 ```
 JS Frontend (js/pages/*.js, 14 moduli)
     ↓  cefQuery (payload JSON in Base64)      ↑ stessa API anche via HTTP LAN (WebServer)
-Bridge.java (~1075 LOC) — dispatch 134 operazioni
+Bridge.java (~1075 LOC) — dispatch 135 operazioni
     ↓
 Database.java (~5460 LOC) — tutte le query JDBC
     ↓
@@ -55,9 +55,9 @@ Le query girano deliberatamente **fuori** dal lock (per non serializzarle): è p
 
 ---
 
-## Schema DB (v22, 22 tabelle)
+## Schema DB (v23, 22 tabelle)
 
-- **Core:** `accounts` (3 stati: `is_closed`, `is_hidden` — nascosto ⇒ sempre chiuso; per le carte anche `payment_day`, `payment_account_id`, `auto_settle` — vedi "Saldo automatico carte"), `categories` (gerarchiche, `expense_nature`), `transactions` (`reconciled`, `attachment_path`, `color`), `transaction_splits`, `transaction_tags`, `tags` (`is_system`, `system_key`)
+- **Core:** `accounts` (3 stati: `is_closed`, `is_hidden` — nascosto ⇒ sempre chiuso; per le carte anche `payment_day`, `payment_account_id`, `auto_settle` — vedi "Saldo automatico carte"), `categories` (gerarchiche, `expense_nature`, `mobile_favorite` — vedi "Categorie per Android"), `transactions` (`reconciled`, `attachment_path`, `color`), `transaction_splits`, `transaction_tags`, `tags` (`is_system`, `system_key`)
 - **Budget:** `budgets`, `budget_config` (master_amount mensile/annuale)
 - **Pianificate:** `scheduled_transactions` (`portfolio_id`, `original_start_date`), `scheduled_transaction_tags`
 - **Portfolio:** `portfolio` (equity/bond: `asset_type`, `face_value`, `maturity_date`, `coupon_*`, `country`), `portfolio_transactions`
@@ -106,6 +106,23 @@ riscrivere l'importo a ogni avvio non altera nessuna previsione.
 
 Il modale manuale "Chiudi mese" (`accounts.js`) resta disponibile in parallelo, per scelta:
 è l'utente a decidere se saldare a mano.
+
+---
+
+## Categorie per Android (`categories.mobile_favorite`, v23)
+
+Da telefono si inseriscono solo poche voci ricorrenti (spesa, benzina, bar): scorrere tutto
+l'elenco costa tempo. Le sottocategorie marcate `mobile_favorite=1` sono le uniche proposte
+dall'app Android in inserimento.
+
+- **Si marca sul desktop**, pagina Categorie: interruttore 📱 sulla riga della sottocategoria
+  (`setCategoryMobile`, toggle immediato) o casella nel modale di modifica.
+- **Solo sulle sottocategorie**: `DbHelper.getSubCategories` fa `JOIN` sul parent, quindi una
+  categoria principale non compare comunque su Android.
+- ⚠️ **Fallback obbligatorio**: nessuna marcata → l'app mostra **tutte** le sottocategorie.
+  Senza questo, aggiornare l'app prima di marcare qualcosa lascerebbe il picker vuoto e
+  impedirebbe di inserire. Stesso fallback se la colonna manca (DB pre-v23): la query filtrata
+  è in `try`, l'errore ricade sull'elenco completo.
 
 ---
 

@@ -12,6 +12,17 @@
 // (e quindi riaprirli). Volutamente non persistito: torna OFF ad ogni rientro nella pagina.
 let _accShowHidden = false;
 
+// ── Storico saldi (sparkline card, riepilogo, grafici laterali) ─────────────
+// Una sola chiamata a getAccountBalanceHistory serve TUTTA la pagina: le sparkline
+// delle card, la variazione del riepilogo e i due riquadri della colonna destra.
+// Ricaricare 24 mesi ad ogni loadAccountCards costa quanto la stessa query in
+// Analisi → Saldo Conti; in cambio i micro-grafici restano allineati ai saldi
+// subito dopo ogni modifica, senza una seconda fonte di verità da invalidare.
+const ACC_HIST_MONTHS = 24;
+let _accHist       = null;   // { months:[ym], byAccount:{id:{ym:saldo}} }
+let _accSideMonths = 6;      // finestra dei grafici laterali (3/6/9/12/24 mesi)
+let _accTrendChart = null;
+
 async function renderAccounts() {
   const pg = document.getElementById('pg-accounts');
   pg.innerHTML = `
@@ -25,7 +36,11 @@ async function renderAccounts() {
         <button class="btn btn-primary" id="btnAddAcc">+ Nuovo Conto</button>
       </div>
     </div>
-    <div class="accounts-grid" id="accountsGrid"></div>`;
+    <div id="accSummary"></div>
+    <div class="accounts-layout">
+      <div class="accounts-grid" id="accountsGrid"></div>
+      <aside class="accounts-side" id="accountsSide"></aside>
+    </div>`;
   document.getElementById('btnAddAcc').onclick = () => showAccountModal(null);
   document.getElementById('chkShowHidden').onchange = e => {
     _accShowHidden = e.target.checked;
@@ -34,17 +49,93 @@ async function renderAccounts() {
   loadAccountCards();
 }
 
-// HTML di una card conto: icona, nome, badge (preferito/chiuso), saldo e azioni
-// (per le carte di credito aggiunge "Chiudi mese").
+// ── Storico saldi: indicizzazione e serie ───────────────────────────────────
+
+// Trasforma la risposta di getAccountBalanceHistory (lista piatta di righe
+// account_id/ym/balance) in un indice per accesso diretto.
+function _accHistIndex(raw) {
+  const months = [...new Set(raw.monthly.map(r => r.ym))].sort();
+  const byAccount = {};
+  for (const r of raw.monthly) (byAccount[r.account_id] ||= {})[r.ym] = r.balance;
+  return { months, byAccount };
+}
+
+// Serie degli ultimi n saldi mensili di un conto (ultimo elemento = mese corrente).
+function _accSeries(id, n) {
+  if (!_accHist) return [];
+  const map = _accHist.byAccount[id] || {};
+  return _accHist.months.slice(-n).map(ym => map[ym] ?? 0);
+}
+
+// Serie del patrimonio complessivo: somma mese per mese dei conti passati.
+function _accTotalSeries(accounts, n) {
+  if (!_accHist) return [];
+  const months = _accHist.months.slice(-n);
+  return months.map(ym =>
+    accounts.reduce((s, a) => s + (_accHist.byAccount[a.id]?.[ym] ?? 0), 0));
+}
+
+// Sparkline compatta (area sfumata + linea) di una serie di saldi.
+// Scala su min/max dei soli dati, non su 0: i saldi vivono lontano dallo zero e
+// includerlo appiattirebbe la linea fino a renderla inutile.
+let _accSparkSeq = 0;
+function _accSparkSvg(vals, color, w = 78, h = 26) {
+  if (!vals || vals.length < 2) return '';
+  const min = Math.min(...vals), max = Math.max(...vals);
+  const flat = (max - min) < 1e-9;
+  const range = flat ? 1 : max - min;
+  const pad = 3;
+  const stepX = w / (vals.length - 1);
+  const yOf = v => flat ? (h / 2).toFixed(1)
+                        : (h - pad - ((v - min) / range) * (h - 2 * pad)).toFixed(1);
+  const pts = vals.map((v, i) => `${(i * stepX).toFixed(1)},${yOf(v)}`).join(' ');
+  const gid = `accspark${_accSparkSeq++}`;   // id unico: più gradienti convivono nella stessa pagina
+  return `<svg class="acc-spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true">
+    <defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="${color}" stop-opacity=".38"/>
+      <stop offset="100%" stop-color="${color}" stop-opacity="0"/>
+    </linearGradient></defs>
+    <polygon points="0,${h} ${pts} ${w},${h}" fill="url(#${gid})"/>
+    <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5"
+              stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>`;
+}
+
+// HTML di una card conto: icona, nome, badge (preferito/chiuso), sparkline 12 mesi,
+// saldo con variazione sul mese scorso e azioni (per le carte aggiunge "Chiudi mese").
+// Sui conti chiusi la sparkline non compare: la loro storia è ferma, il micro-grafico
+// mostrerebbe solo una riga piatta che ruba spazio.
 function _accountCardHtml(a) {
   const badges = [a.is_favorite ? '⭐' : '', a.is_closed ? '🔒' : '', a.is_hidden ? '🙈' : ''].filter(Boolean).join(' ');
-  return `<div class="account-card${a.is_closed ? ' account-card-closed' : ''}" data-id="${a.id}" data-type="${a.type}" draggable="true" style="--acc-color:${esc(a.color)}">
+  const color  = a.color || '#58a6ff';
+  const series = a.is_closed ? [] : _accSeries(a.id, 12);
+  // Nota: per i conti investment lo storico ricostruisce le sole variazioni di quantità
+  // (il prezzo usato è quello corrente per tutti i mesi), quindi la linea mostra gli
+  // acquisti/vendite, non l'andamento del mercato.
+  const spark  = _accSparkSvg(series, color);
+
+  let deltaHtml = '';
+  if (series.length >= 2) {
+    const d = series.at(-1) - series.at(-2);
+    if (Math.abs(d) >= 0.005) {
+      const prev = Math.abs(series.at(-2));
+      const pct  = prev > 0.005 ? ` (${d > 0 ? '+' : '−'}${(Math.abs(d) / prev * 100).toFixed(1)}%)` : '';
+      deltaHtml = `<div class="acc-delta" style="color:${d > 0 ? 'var(--income)' : 'var(--expense)'}"
+        title="Variazione rispetto alla fine del mese scorso${pct}">${d > 0 ? '▲' : '▼'} ${fmt.currency(Math.abs(d))}</div>`;
+    }
+  }
+
+  return `<div class="account-card${a.is_closed ? ' account-card-closed' : ''}" data-id="${a.id}" data-type="${a.type}" draggable="true" style="--acc-color:${esc(color)}">
     <span class="acc-drag-handle" title="Trascina per riordinare">⠿</span>
     <div class="account-icon">${esc(a.icon)}</div>
     <div class="acc-info">
       <div class="account-name">${esc(a.name)}${badges ? ` <span style="font-size:11px;font-weight:400">${badges}</span>` : ''}</div>
     </div>
-    <div class="account-balance" style="color:${a.is_closed ? 'var(--txt3)' : esc(a.color)}">${fmt.currency(a.balance)}</div>
+    ${spark ? `<div class="acc-spark-wrap" title="Saldo negli ultimi 12 mesi">${spark}</div>` : ''}
+    <div class="acc-bal-col">
+      <div class="account-balance" style="color:${a.is_closed ? 'var(--txt3)' : esc(color)}">${fmt.currency(a.balance)}</div>
+      ${deltaHtml}
+    </div>
     <div class="account-actions">
       ${a.type === 'credit' ? `<button class="btn btn-ghost btn-icon" onclick="closeCreditMonth(${a.id})">💳 Chiudi mese</button>` : ''}
       <button class="btn btn-ghost btn-icon" onclick="editAccount(${a.id})">✏️</button>
@@ -58,7 +149,13 @@ function _accountCardHtml(a) {
 async function loadAccountCards() {
   const grid = document.getElementById('accountsGrid');
   if (!grid) return;
-  const all = await api.getAccounts();
+  // Lo storico è opzionale: se la query fallisce la pagina resta pienamente usabile,
+  // perde solo sparkline, variazioni e grafici laterali.
+  const [all, rawHist] = await Promise.all([
+    api.getAccounts(),
+    api.getAccountBalanceHistory(ACC_HIST_MONTHS).catch(() => null),
+  ]);
+  _accHist = rawHist?.monthly ? _accHistIndex(rawHist) : null;
 
   // Il toggle "Mostra nascosti" compare solo se c'è davvero qualcosa di nascosto.
   const hiddenCount = all.filter(isAccountHidden).length;
@@ -66,6 +163,8 @@ async function loadAccountCards() {
   if (lbl) lbl.style.display = hiddenCount ? '' : 'none';
 
   const accounts = _accShowHidden ? all : all.filter(a => !isAccountHidden(a));
+  _renderAccSummary(accounts);
+  _renderAccSide(accounts);
   if (!accounts.length) {
     grid.innerHTML = hiddenCount
       ? `<div class="empty-state"><div class="empty-icon">🙈</div><p>Tutti i conti sono nascosti. Usa "Mostra nascosti" per rivederli.</p></div>`
@@ -181,6 +280,172 @@ async function loadAccountCards() {
     });
   });
 }
+
+// ── Riepilogo in testa alla pagina ──────────────────────────────────────────
+//
+// Patrimonio netto (liquidità + investimenti − debito carte), variazione sul mese
+// scorso e barra di composizione per conto. Le carte di credito hanno saldo negativo,
+// quindi entrano nella somma con il segno giusto senza casi speciali.
+function _renderAccSummary(accounts) {
+  const el = document.getElementById('accSummary');
+  if (!el) return;
+  if (!accounts.length) { el.innerHTML = ''; return; }
+
+  const sum    = f => accounts.filter(f).reduce((s, a) => s + (a.balance || 0), 0);
+  const liquid = sum(a => a.type !== 'investment' && a.type !== 'credit');
+  const invest = sum(a => a.type === 'investment');
+  const cards  = sum(a => a.type === 'credit');
+  const net    = liquid + invest + cards;
+
+  // Variazione sul mese scorso, dalla stessa serie che alimenta le sparkline.
+  const tot = _accTotalSeries(accounts, 2);
+  let deltaHtml = '<span class="acc-sum-delta" style="color:var(--txt3)">—</span>';
+  if (tot.length === 2) {
+    const d = tot[1] - tot[0];
+    const prev = Math.abs(tot[0]);
+    const pct  = prev > 0.005 ? ` (${d >= 0 ? '+' : '−'}${(Math.abs(d) / prev * 100).toFixed(1)}%)` : '';
+    deltaHtml = `<span class="acc-sum-delta" style="color:${d >= 0 ? 'var(--income)' : 'var(--expense)'}">
+      ${d >= 0 ? '▲' : '▼'} ${fmt.currency(Math.abs(d))}${pct}</span>
+      <span class="acc-sum-delta-note">rispetto a fine mese scorso</span>`;
+  }
+
+  const kpi = (label, value, color, title) => `
+    <div class="acc-kpi" ${title ? `title="${title}"` : ''}>
+      <div class="acc-kpi-label">${label}</div>
+      <div class="acc-kpi-value" style="color:${color}">${fmt.currency(value)}</div>
+    </div>`;
+
+  // Composizione: solo i saldi positivi (un debito non "compone" il patrimonio, lo erode).
+  const pos    = accounts.filter(a => (a.balance || 0) > 0).sort((x, y) => y.balance - x.balance);
+  const posTot = pos.reduce((s, a) => s + a.balance, 0);
+  const comp = posTot > 0 ? `
+    <div class="acc-comp-bar">
+      ${pos.map(a => `<span class="acc-comp-seg" style="width:${(a.balance / posTot * 100).toFixed(2)}%;background:${esc(a.color || '#58a6ff')}"
+        title="${esc(a.name)} · ${fmt.currency(a.balance)} · ${(a.balance / posTot * 100).toFixed(1)}%"></span>`).join('')}
+    </div>
+    <div class="acc-comp-legend">
+      ${pos.filter(a => a.balance / posTot >= 0.005).map(a => `<span class="acc-comp-item" title="${fmt.currency(a.balance)}">
+        <i style="background:${esc(a.color || '#58a6ff')}"></i>${esc(a.name)}
+        <b>${(a.balance / posTot * 100).toFixed(1)}%</b></span>`).join('')}
+    </div>` : '';
+
+  el.innerHTML = `
+    <div class="acc-summary">
+      <div class="acc-sum-top">
+        <div class="acc-sum-net">
+          <div class="acc-kpi-label">Patrimonio netto</div>
+          <div class="acc-sum-value">${fmt.currencyRich(net)}</div>
+          <div class="acc-sum-deltarow">${deltaHtml}</div>
+        </div>
+        <div class="acc-kpi-row">
+          ${kpi('Liquidità', liquid, 'var(--accent)', 'Conti correnti, risparmio e contanti')}
+          ${invest !== 0 ? kpi('Investimenti', invest, 'var(--accent2)', 'Valore di mercato del portfolio') : ''}
+          ${cards  !== 0 ? kpi('Debito carte', cards, 'var(--expense)', 'Saldo delle carte di credito, ancora da addebitare') : ''}
+        </div>
+      </div>
+      ${comp}
+    </div>`;
+}
+
+// ── Colonna destra: andamento del patrimonio + variazione per conto ─────────
+//
+// Riempie lo spazio che la griglia delle card lascia libero. I dati vengono dallo
+// stesso storico già caricato: nessuna query aggiuntiva quando si cambia finestra.
+function _renderAccSide(accounts) {
+  const el = document.getElementById('accountsSide');
+  if (!el) return;
+  // destroy() PRIMA di riscrivere innerHTML: dopo, l'istanza avrebbe perso il
+  // riferimento al proprio canvas e resterebbe appesa con i suoi listener.
+  if (_accTrendChart) { _accTrendChart.destroy(); _accTrendChart = null; }
+  if (!accounts.length) { el.innerHTML = ''; return; }
+  if (!_accHist) {
+    el.innerHTML = `<div class="acc-side-card"><p class="text-muted" style="margin:0;font-size:var(--fs-md,12px)">
+      Storico saldi non disponibile.</p></div>`;
+    return;
+  }
+
+  const n      = Math.min(_accSideMonths, _accHist.months.length);
+  const months = _accHist.months.slice(-n);
+  const totals = _accTotalSeries(accounts, n);
+
+  // Variazione sul periodo, conto per conto: dal primo all'ultimo mese della finestra.
+  const rows = accounts.map(a => {
+    const s = _accSeries(a.id, n);
+    return { a, delta: s.length >= 2 ? s.at(-1) - s[0] : 0 };
+  }).filter(r => Math.abs(r.delta) >= 0.005).sort((x, y) => y.delta - x.delta);
+  const maxAbs = Math.max(...rows.map(r => Math.abs(r.delta)), 1);
+
+  const rangeBtn = m => `<button type="button" class="acc-range-btn${_accSideMonths === m ? ' on' : ''}"
+    onclick="_accSetSideRange(${m})">${m}M</button>`;
+
+  el.innerHTML = `
+    <div class="acc-side-card">
+      <div class="acc-side-head">
+        <span class="acc-side-title">Andamento patrimonio</span>
+        <div class="acc-range-toggle">${[3, 6, 9, 12, 24].map(rangeBtn).join('')}</div>
+      </div>
+      <div class="acc-chart-wrap"><canvas id="accTrendChart"></canvas></div>
+    </div>
+    <div class="acc-side-card">
+      <div class="acc-side-head"><span class="acc-side-title">Variazione ultimi ${n} mesi</span></div>
+      ${rows.length ? `<div class="acc-var-list">
+        ${rows.map(r => `
+          <div class="acc-var-row" title="${esc(r.a.name)}: ${fmt.currency(r.delta)} in ${n} mesi">
+            <span class="acc-var-name">${esc(r.a.icon || '')} ${esc(r.a.name)}</span>
+            <span class="acc-var-track">
+              <span class="acc-var-fill" style="width:${(Math.abs(r.delta) / maxAbs * 100).toFixed(1)}%;
+                background:${r.delta >= 0 ? 'var(--income)' : 'var(--expense)'}"></span>
+            </span>
+            <span class="acc-var-val" style="color:${r.delta >= 0 ? 'var(--income)' : 'var(--expense)'}">
+              ${r.delta >= 0 ? '+' : '−'}${fmt.currency(Math.abs(r.delta))}</span>
+          </div>`).join('')}
+      </div>` : `<p class="text-muted" style="margin:0;font-size:var(--fs-md,12px)">Nessuna variazione nel periodo.</p>`}
+    </div>`;
+
+  const ctx = document.getElementById('accTrendChart');
+  if (!ctx) return;
+  const cc     = chartColors();
+  const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#58a6ff';
+  const labels = months.map(ym => {
+    const [y, m] = ym.split('-').map(Number);
+    return new Date(y, m - 1, 1).toLocaleDateString('it-IT', { month: 'short', year: '2-digit' });
+  });
+  // Asse Y compatto ("174,7 mila €"): il formato per esteso occuperebbe metà riquadro.
+  const compact = new Intl.NumberFormat('it-IT', { notation: 'compact', maximumFractionDigits: 1 });
+
+  _accTrendChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        data: totals.map(v => Math.round(v * 100) / 100),
+        borderColor: accent,
+        backgroundColor: accent + '26',
+        fill: true, tension: .3, borderWidth: 2,
+        pointRadius: n <= 12 ? 2.5 : 0, pointHoverRadius: 5,
+      }],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: c => fmt.currency(c.parsed.y) } },
+      },
+      scales: {
+        x: { ticks: { color: cc.tick, font: { size: 10 }, maxRotation: 0, autoSkipPadding: 12 }, grid: { display: false } },
+        y: { ticks: { color: cc.tick, font: { size: 10 }, callback: v => compact.format(v) + ' €' }, grid: { color: cc.grid } },
+      },
+    },
+  });
+}
+
+// Cambia la finestra dei grafici laterali. Lo storico caricato è già di 24 mesi:
+// si ridisegna soltanto, senza tornare al database.
+window._accSetSideRange = async m => {
+  _accSideMonths = m;
+  const all = await api.getAccounts();
+  _renderAccSide(_accShowHidden ? all : all.filter(a => !isAccountHidden(a)));
+};
 
 // Totale delle spese (esclusi i trasferimenti) su una carta di credito in un dato mese.
 async function _creditCardMonthTotal(cardId, y, m) {

@@ -967,8 +967,62 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 }
 .filter-bar .form-control { width:auto; }
 
+/* ─── Conti — riepilogo patrimonio ────────────────────────────────────────── */
+/* Barra in testa alla pagina: patrimonio netto grande, KPI per tipo e composizione
+   per conto. Il gradiente resta molto tenue (accent all'8%) perché la card sta sopra
+   una lista già colorata dai bordi dei conti: di più e la pagina diventa rumorosa. */
+.acc-summary {
+  background:linear-gradient(135deg, color-mix(in srgb, var(--accent) 8%, var(--bg2)), var(--bg2) 60%);
+  border:1px solid var(--border); border-radius:var(--radius);
+  padding:14px 18px; margin-bottom:18px;
+}
+.acc-sum-top { display:flex; align-items:flex-start; justify-content:space-between; gap:20px; flex-wrap:wrap; }
+.acc-sum-value { font-size:30px; font-weight:800; line-height:1.15; letter-spacing:-.5px; color:var(--txt); }
+.acc-sum-deltarow { display:flex; align-items:baseline; gap:6px; margin-top:3px; flex-wrap:wrap; }
+.acc-sum-delta { font-size:var(--fs-md,12px); font-weight:700; }
+.acc-sum-delta-note { font-size:var(--fs-sm,11px); color:var(--txt3); }
+.acc-kpi-row { display:flex; gap:10px; flex-wrap:wrap; }
+.acc-kpi {
+  background:var(--bg3); border:1px solid var(--border); border-radius:10px;
+  padding:7px 14px; min-width:118px;
+}
+.acc-kpi-label { font-size:var(--fs-sm,11px); font-weight:700; text-transform:uppercase; letter-spacing:.6px; color:var(--txt3); }
+.acc-kpi-value { font-size:var(--fs-xl,16px); font-weight:700; margin-top:2px; white-space:nowrap; }
+.acc-comp-bar {
+  display:flex; height:9px; border-radius:5px; overflow:hidden;
+  margin-top:14px; background:var(--bg3); gap:1px;
+}
+.acc-comp-seg { display:block; min-width:2px; }
+.acc-comp-legend { display:flex; flex-wrap:wrap; gap:4px 14px; margin-top:8px; }
+.acc-comp-item { display:flex; align-items:center; gap:5px; font-size:var(--fs-sm,11px); color:var(--txt2); white-space:nowrap; }
+.acc-comp-item i { width:8px; height:8px; border-radius:2px; flex-shrink:0; }
+.acc-comp-item b { color:var(--txt3); font-weight:600; }
+
 /* ─── Conto card ──────────────────────────────────────────────────────────── */
-.accounts-grid { display:flex; flex-direction:column; gap:20px; max-width:680px; }
+/* Due colonne: le card a sinistra (larghezza invariata), i grafici a destra.
+   flex-wrap manda la colonna destra sotto quando la finestra è stretta. */
+.accounts-layout { display:flex; gap:18px; align-items:flex-start; flex-wrap:wrap; }
+.accounts-grid { display:flex; flex-direction:column; gap:20px; flex:1 1 560px; max-width:680px; }
+.accounts-side { flex:1 1 320px; min-width:300px; display:flex; flex-direction:column; gap:14px; }
+.acc-side-card { background:var(--bg2); border:1px solid var(--border); border-radius:var(--radius); padding:12px 14px; }
+.acc-side-head { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px; }
+.acc-side-title { font-size:var(--fs-sm,11px); font-weight:700; text-transform:uppercase; letter-spacing:.6px; color:var(--txt3); }
+.acc-range-toggle { display:flex; gap:4px; }
+.acc-range-btn {
+  padding:2px 9px; font-size:var(--fs-sm,11px); font-weight:600; cursor:pointer;
+  border:1px solid var(--border); border-radius:12px; background:transparent; color:var(--txt3);
+  transition:background .15s, color .15s;
+}
+.acc-range-btn.on { background:var(--accent); border-color:var(--accent); color:#fff; }
+.acc-chart-wrap { height:190px; }
+.acc-var-list { display:flex; flex-direction:column; gap:6px; }
+.acc-var-row { display:flex; align-items:center; gap:8px; font-size:var(--fs-md,12px); }
+.acc-var-name  { flex:0 0 34%; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--txt2); }
+.acc-var-track { flex:1; height:7px; border-radius:4px; background:var(--bg3); overflow:hidden; }
+.acc-var-fill  { display:block; height:100%; border-radius:4px; }
+/* Larghezza fissa: coi valori a larghezza variabile le tracce finivano a x diverse,
+   e il confronto fra barre — l'unico scopo della lista — diventava impreciso. */
+.acc-var-val   { flex:0 0 92px; text-align:right; font-weight:700; font-size:var(--fs-sm,11px); white-space:nowrap; }
 .accounts-section-label { font-size:var(--fs-sm,11px); font-weight:700; text-transform:uppercase; letter-spacing:.6px; color:var(--txt3); margin-bottom:8px; padding-left:2px; display:flex; align-items:center; gap:6px; }
 .accounts-section-grid  { display:flex; flex-direction:column; gap:6px; }
 .accounts-section.sec-dragging  { opacity:.4; }
@@ -989,8 +1043,19 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 .account-icon    { font-size:18px; flex-shrink:0; }
 .acc-info        { flex:1; min-width:0; }
 .account-name    { font-size:var(--font-size,13px); font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+/* Sparkline: si comprime prima di tutto il resto (min-width:0) e sparisce sotto i
+   1000px, dove la card non ha più spazio per saldo, variazione e azioni insieme. */
+.acc-spark-wrap  { flex:0 1 78px; min-width:0; display:flex; align-items:center; opacity:.9; }
+/* pointer-events:none: l'SVG non deve intercettare nulla dentro una card che è sia
+   cliccabile sia draggable. Tooltip e click restano sul wrapper. */
+.acc-spark       { display:block; overflow:visible; pointer-events:none; }
+.acc-bal-col     { display:flex; flex-direction:column; align-items:flex-end; gap:1px; flex-shrink:0; }
 .account-balance { font-size:15px; font-weight:700; white-space:nowrap; flex-shrink:0; }
+.acc-delta       { font-size:var(--fs-xs,10px); font-weight:600; white-space:nowrap; line-height:1.2; }
 .account-actions { display:flex; gap:4px; flex-shrink:0; }
+/* Sotto i 1100px la colonna destra è già andata a capo e la card si stringe:
+   la sparkline è il primo elemento sacrificabile (saldo e azioni no). */
+@media (max-width: 1100px) { .acc-spark-wrap { display:none; } }
 .account-actions .btn { padding:3px 7px; font-size:var(--fs-sm,11px); }
 
 /* ─── Dashboard layout ───────────────────────────────────────────────────── */

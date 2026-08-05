@@ -1304,6 +1304,10 @@ async function renderDashboard() {
 // ripetere dei numeri scritti accanto). Le barre reggono entrambi gli estremi d'uso —
 // 3-4 categorie a inizio mese senza lasciare un buco verticale, 20-25 a fine mese senza
 // che "Altro" diventi la voce dominante.
+//
+// Click a due livelli: ogni riga apre le Transazioni del mese filtrate sulla sua categoria
+// (stopPropagation), la riga di coda su tutte le categorie che aggrega insieme; header e
+// spazio vuoto restano sull'onclick della card → Analytics/categorie del mese.
 const _SHARE_FALLBACK = ['#58a6ff','#3fb950','#ff7b72','#e3b341','#bc8cff','#79c0ff','#56d364','#ffa657','#f78166','#d2a8ff'];
 function _renderDashMonthDonut(budgetYear) {
   const body = document.getElementById('dashMonthDonutBody');
@@ -1339,7 +1343,7 @@ function _renderDashMonthDonut(budgetYear) {
     .map(([id, total]) => {
       const c = catMap[id];
       const budget = budgetOf(c.id);
-      return { name: c.name, icon: c.icon || '📁', color: c.color, total, budget, over: budget > 0 && total > budget };
+      return { id: c.id, name: c.name, icon: c.icon || '📁', color: c.color, total, budget, over: budget > 0 && total > budget };
     })
     .sort((a, b) => b.total - a.total);
 
@@ -1371,7 +1375,7 @@ function _renderDashMonthDonut(budgetYear) {
   if (items.length > MAX_ROWS) {
     const head = MAX_ROWS - 1;
     const rest = items.slice(head);
-    other = { count: rest.length, total: rest.reduce((s, i) => s + i.total, 0) };
+    other = { count: rest.length, total: rest.reduce((s, i) => s + i.total, 0), ids: rest.map(i => i.id) };
     items = items.slice(0, head);
   }
 
@@ -1388,7 +1392,9 @@ function _renderDashMonthDonut(budgetYear) {
   body.innerHTML = `
     <div class="dshare-list">
       ${items.map((it, i) => `
-        <div class="dshare${it.over ? ' dshare-over' : ''}" title="${esc(it.name)} — ${esc(fmt.currency(it.total))}${it.budget > 0 ? ` di ${esc(fmt.currency(it.budget))} a budget` : ''}">
+        <div class="dshare dshare-click${it.over ? ' dshare-over' : ''}"
+             onclick="event.stopPropagation();navigateToCategoryTx(${it.id})"
+             title="${esc(it.name)} — ${esc(fmt.currency(it.total))}${it.budget > 0 ? ` di ${esc(fmt.currency(it.budget))} a budget` : ''} · clicca per le transazioni del mese">
           <span class="dshare-icon">${esc(it.icon)}</span>
           <span class="dshare-name">${esc(it.name)}</span>
           <span class="dshare-track">
@@ -1398,7 +1404,9 @@ function _renderDashMonthDonut(budgetYear) {
           <span class="dshare-amt">${fmt.currency(it.total)}</span>
         </div>`).join('')}
       ${other ? `
-        <div class="dshare dshare-other" title="Categorie minori aggregate">
+        <div class="dshare dshare-other dshare-click"
+             onclick="event.stopPropagation();navigateToCategoryTx([${other.ids.join(',')}])"
+             title="Categorie minori aggregate — clicca per le transazioni del mese">
           <span class="dshare-icon">•</span>
           <span class="dshare-name">Altre ${other.count} categorie</span>
           <span class="dshare-track">

@@ -135,6 +135,9 @@ const RANGE_DEFAULTS = [
   {v:'14d',       l:'Ultime 2 settimane'},
   {v:'30d',       l:'Ultimi 30 giorni'},
   {v:'cur_month', l:'Mese corrente a oggi'},
+  // Mese intero (fino all'ultimo giorno, date future comprese): nessun caso dedicato in
+  // rangeToFilter, '0M..0M' è già il formato avanzato "inizio mese corrente → fine mese corrente".
+  {v:'0M..0M',    l:'Mese corrente (intero)'},
   {v:'prev_month',l:'Mese precedente'},
   {v:'3m',        l:'Ultimi 3 mesi'},
   {v:'6m',        l:'Ultimi 6 mesi'},
@@ -149,9 +152,14 @@ const RANGE_DEFAULTS = [
 function buildRangeOptions(presets, includeEmpty, selected) {
   const list = [...RANGE_DEFAULTS];
   if (presets && presets.length) {
-    // Inserisce i preset prima di 'all' e 'custom'
+    // Inserisce i preset prima di 'all' e 'custom'.
+    // Scarta quelli che ripetono una chiave già predefinita (es. un '0M..0M' creato a mano
+    // in Periodi): due <option> con lo stesso value mostrerebbero due voci apparentemente
+    // diverse per lo stesso periodo, e la selezione ricadrebbe sempre sulla prima.
+    const known = new Set(RANGE_DEFAULTS.map(o => o.v));
     const idx = list.findIndex(o => o.v === 'all');
-    list.splice(idx, 0, ...presets.map(p => ({v: p.range_key, l: p.label})));
+    list.splice(idx, 0, ...presets.filter(p => !known.has(p.range_key))
+                               .map(p => ({v: p.range_key, l: p.label})));
   }
   const opts = list.map(o => `<option value="${o.v}"${selected===o.v?' selected':''}>${o.l}</option>`).join('');
   return includeEmpty ? `<option value="">Nessun filtro data</option>${opts}` : opts;
@@ -167,6 +175,22 @@ let _selectedTxIds = new Set();  // multi-select per bulk operations
 function navigateToAccountTx(accountId) {
   const range = preferredRange(accountId);
   txFilters = { range, ...rangeToFilter(range), account_id: String(accountId) };
+  if (currentPage === 'transactions') renderTransactions();
+  else navigate('transactions');
+}
+
+// Apre la pagina Transazioni filtrata sul mese corrente e su una o più categorie
+// (dal widget "Uscite del mese corrente" della dashboard: la singola voce passa un id,
+// la riga di coda "Altre N categorie" passa l'array degli id che aggrega).
+// Range '0M..0M' (mese intero) e non 'cur_month': il widget somma TUTTO il mese, comprese le
+// date future (pianificate già registrate), mentre 'cur_month' si ferma a oggi — i due totali
+// non coinciderebbero e la pagina sembrerebbe aver perso delle righe.
+function navigateToCategoryTx(cat) {
+  const ids = Array.isArray(cat) ? cat.map(Number) : null;
+  txFilters = {
+    range: '0M..0M', ...rangeToFilter('0M..0M'),
+    ...(ids ? { category_ids: ids } : { category_id: String(cat) }),
+  };
   if (currentPage === 'transactions') renderTransactions();
   else navigate('transactions');
 }
@@ -206,6 +230,14 @@ async function renderTransactions() {
           ${accounts.filter(isAccountVisible).map(a=>`<option value="${a.id}" ${String(a.id)===String(txFilters.account_id)?'selected':''}>${a.icon} ${a.name}</option>`).join('')}
         </select>
         <select class="form-control" id="txCategory">
+          ${/* Selezione multipla (arrivo dalla riga "Altre N categorie" del widget dashboard):
+                il select è a scelta singola e senza questa voce mostrerebbe "Tutte le categorie"
+                mentre la tabella è filtrata — sembrerebbe un elenco incompleto senza motivo.
+                Gli id stanno nel data-ids e non in txFilters: così la voce resta riselezionabile
+                anche dopo essere passati per "Tutte le categorie". */''}
+          ${txFilters.category_ids?.length
+            ? `<option value="__multi__" data-ids="${txFilters.category_ids.join(',')}" selected>🗂️ ${txFilters.category_ids.length} categorie minori</option>`
+            : ''}
           <option value="">Tutte le categorie</option>
           ${(() => {
             const parents = categories.filter(c => !c.parent_id && c.type !== 'transfer');
@@ -272,12 +304,21 @@ async function renderTransactions() {
     const from  = document.getElementById('txFrom').value;
     const to    = document.getElementById('txTo').value;
     const accountId = document.getElementById('txAccount').value || undefined;
+    // Voce "N categorie minori": non è una categoria vera, gli id viaggiano nel suo data-ids.
+    // Va letta qui e non da txFilters perché toccare un altro filtro (tipo, conto, ricerca…)
+    // ricostruisce txFilters da zero: senza questo la selezione multipla sparirebbe al primo
+    // ritocco di qualunque altro filtro.
+    const catSel  = document.getElementById('txCategory');
+    const catOpt  = catSel.selectedOptions[0];
+    const multiIds = catSel.value === '__multi__' && catOpt?.dataset.ids
+      ? catOpt.dataset.ids.split(',').map(Number) : null;
     txFilters = {
       range,
       ...rangeToFilter(range, from, to),
       type:        document.getElementById('txType').value,
       account_id:  accountId,
-      category_id: document.getElementById('txCategory').value  || undefined,
+      ...(multiIds ? { category_ids: multiIds } : {}),
+      category_id: multiIds ? undefined : (catSel.value || undefined),
       tag_id:         document.getElementById('txTag').value            || undefined,
       has_attachment: document.getElementById('txHasAttachment').value  || undefined,
       search:         document.getElementById('txSearch').value,
@@ -337,6 +378,11 @@ function saveTxFiltersAsReport() {
   if (txFilters.type)         f.type        = txFilters.type;
   if (txFilters.account_id)   f.account_id  = parseInt(txFilters.account_id);
   if (txFilters.category_id)  f.category_id = parseInt(txFilters.category_id);
+  // I resoconti hanno una sola categoria (il loro modale ha un select singolo): una selezione
+  // multipla non è rappresentabile e verrebbe persa in silenzio, salvando un resoconto più
+  // largo di quello che si vede a schermo. Meglio dirlo.
+  if (txFilters.category_ids?.length)
+    toast('Il filtro su più categorie non si può salvare in un resoconto: verrà salvato senza filtro categoria', 'error');
   if (txFilters.tag_id)        f.tag_ids        = [parseInt(txFilters.tag_id)];
   if (txFilters.search)        f.search         = txFilters.search;
   if (txFilters.has_attachment) f.has_attachment = txFilters.has_attachment;
@@ -511,9 +557,12 @@ function renderTxBodyAndHeaders() {
   // Nome categoria filtrata (per mostrare la voce giusta negli split filtrati).
   // esc() perché viene da textContent (già decodificato) e torna dentro innerHTML: senza,
   // un nome categoria con < o & verrebbe re-interpretato come markup.
+  // Con più categorie filtrate insieme non esiste UNA voce del select da mostrare: il nome
+  // giusto è quello dello split che ha fatto match, che il backend restituisce riga per riga.
   const filterCatLabel = esc(txFilters.category_id
     ? document.querySelector(`#txCategory option[value="${txFilters.category_id}"]`)?.textContent?.trim() || ''
     : '');
+  const splitCatLabel = t => esc(t.filtered_split_category_name || '') || filterCatLabel;
   tbody.innerHTML = sorted.length ? sorted.map(t => {
     const isRec = t.reconciled == 1;
     const isSel = t.id === _selectedTxId;
@@ -540,7 +589,7 @@ function renderTxBodyAndHeaders() {
       <td><span class="badge badge-${t.type}">${t.type==='income'?'Entrata':t.type==='expense'?'Uscita':'Trasferimento'}</span></td>
       <td class="td-tags">${(t.tags&&t.tags.length)?t.tags.map(tg=>`<span class="tag-inline" style="--tc:${esc(tg.color)}">${esc(tg.name)}</span>`).join(''):''}</td>
       <td>${isSplitFiltered
-        ? `<span class="cat-chip" style="opacity:.8;font-size:11px" title="${esc(t.splits_summary||'')}">${filterCatLabel} <span style="opacity:.6;font-size:10px">(÷ split)</span></span>`
+        ? `<span class="cat-chip" style="opacity:.8;font-size:11px" title="${esc(t.splits_summary||'')}">${splitCatLabel(t)} <span style="opacity:.6;font-size:10px">(÷ split)</span></span>`
         : t.split_count > 0
           ? `<span class="cat-chip" style="opacity:.8;font-size:11px" title="${esc(t.splits_summary||'')}">÷ ${esc(t.splits_summary||`${t.split_count} voci`)}</span>`
           : `${esc(t.category_icon||'')} ${esc(t.parent_category_name ? t.parent_category_name + ' : ' + t.category_name : (t.category_name||'-'))}`

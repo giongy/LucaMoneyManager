@@ -290,7 +290,23 @@ nemmeno aprire il file:
 PIXEL 9EC59A9D  #e9edf3 #e9edf3 #e9edf3     <- nebbia (chiaro grigio-azzurro)
 PIXEL 82FE213E  #f4ede0 #f4ede0 #f4ede0     <- carta  (beige)
 PIXEL A64FB224  #16292f #0c191d #16292f     <- petrolio (teal scuro)
+PIXEL A4E0F03C  #222732 #222c40 #212631     <- vetro/glassy (blu-grigio scuro)
 ```
+
+⚠️ **Su vetro i campioni NON coincidono con `--bg`, e non è un errore.** Negli altri tre temi
+`--bg2`/`--bg3` sono colori solidi, quindi il campione corrisponde a un valore che trovi nel CSS.
+Su vetro sono trasparenze (`rgba(255,255,255,.045)` e `.085`) composte sopra la base `#161b25`:
+il campione mostra il **risultato della composizione**, mai il fondo nudo.
+`#161b25` + 4,5% di bianco = `#21262f`, che è quanto si legge sopra.
+
+Corollario pratico: per sapere quale tema è attivo **non dedurlo dai colori** — chiedilo:
+
+```powershell
+.\tools\screenshot.ps1 -Port 7891 -Probe -Js "document.documentElement.dataset.theme"
+```
+
+Vale doppio perché nebbia non imposta `data-theme` (resta stringa vuota) e i temi personalizzati
+valgono `c:<id>`: sono gli unici due casi in cui la risposta non è il nome di un tema built-in.
 
 ### Limiti (importanti)
 

@@ -1,43 +1,47 @@
-# Maven
+# ─── Build ──────────────────────────────────────────────────────────────────
 target/
 dist/
 *.class
 
-# Database (dati personali, non in repo)
+# ─── Dati personali (mai nel repo) ──────────────────────────────────────────
+# Il DB reale vive su OneDrive; luca.db in root e' la copia di sviluppo.
 *.db
-*.db.bak
 *.db-shm
 *.db-wal
-
-# Coda pendenti dal telefono (dati runtime locali, non in repo)
+*.db.bak
+*.db.bak-*
+backups/
+allegati/
+# Coda pendenti dal telefono: dati runtime locali
 pending.jsonl
 
-# Log di avvio
+# ─── Configurazione locale della macchina ───────────────────────────────────
+# Contiene db.path e la porta HTTP: e' diverso su ogni installazione.
+settings.properties
+
+# ─── Log ────────────────────────────────────────────────────────────────────
 *.log
 run*.log
 debug.log
 
-# IntelliJ / VSCode
+# ─── Artefatti di verifica e diagnostica ────────────────────────────────────
+# PNG di screenshot.ps1 / check-ui.ps1 / interact.ps1. Usa-e-getta: build.bat
+# li cancella a ogni deploy (fase 6).
+tools/screenshots/
+# Dump di `mvn dependency:tree`, rigenerabile su richiesta
+deps.txt
+
+# ─── IDE ────────────────────────────────────────────────────────────────────
 .idea/
 *.iml
 .vscode/
 .VSCodeCounter/
 
-# Claude Code (configurazione locale, ma i comandi di progetto sono versionati)
+# ─── Claude Code ────────────────────────────────────────────────────────────
+# Config locale esclusa, ma i comandi di progetto sono versionati.
 .claude/*
 !.claude/commands/
 
-# Screenshot generati da tools/screenshot.ps1 (artefatti di verifica, non codice)
-tools/screenshots/
-
-# OS
+# ─── OS ─────────────────────────────────────────────────────────────────────
 Thumbs.db
 .DS_Store
-
-# JCEF cache (scaricato automaticamente, ~200MB)
-%APPDATA%/LucaMoneyManager/jcef/
-settings.properties
-allegati/
-deps.txt
-backups/
-luca.db.bak-*

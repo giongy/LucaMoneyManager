@@ -2,7 +2,7 @@
 :: ============================================================================
 ::  LucaMoneyManager - build script
 :: ----------------------------------------------------------------------------
-::  Pipeline in 5 fasi:
+::  Pipeline in 6 fasi:
 ::    1. Maven        -> compila il fat JAR in target\moneymanager-<ver>.jar
 ::    2. jlink        -> crea un JRE custom (solo i moduli che servono)
 ::    3. jpackage     -> impacchetta JAR + JRE in un .exe nativo (dist\build\)
@@ -10,6 +10,7 @@
 ::                       (App.findWebDir() la cerca a runtime)
 ::    5. Deploy / ZIP -> sincronizza il pacchetto in DEPLOY (e opzionalmente
 ::                       crea uno ZIP distribuibile)
+::    6. Pulizia      -> svuota tools\screenshots (artefatti di verifica)
 :: ============================================================================
 setlocal
 
@@ -132,6 +133,18 @@ if errorlevel 1 ( echo [ERRORE] Creazione ZIP fallita. & pause & exit /b 1 )
 echo       OK - %DIST%\LucaMoneyManager-distrib.zip
 
 :fine
+:: -- 6) Pulizia artefatti di verifica ----------------------------------------
+:: tools\screenshots\ raccoglie i PNG prodotti da screenshot.ps1 / check-ui.ps1 /
+:: interact.ps1 durante le verifiche grafiche. Sono usa-e-getta e si accumulano
+:: (decine di MB), quindi si buttano a ogni deploy: da qui in avanti il codice e'
+:: in produzione e gli scatti si riferiscono a una versione precedente - tenerli
+:: significa solo rischiare di confrontarsi con un'immagine vecchia.
+:: La cartella non va ricreata: screenshot.ps1 la rifa' da solo se manca.
+if exist "%ROOT%tools\screenshots" (
+    rmdir /s /q "%ROOT%tools\screenshots"
+    echo       OK - screenshot di verifica ripuliti
+)
+
 echo.
 echo  ----------------------------------------
 echo   Build completata.

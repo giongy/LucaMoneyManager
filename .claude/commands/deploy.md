@@ -13,7 +13,7 @@ Esegui in sequenza, fermandoti e segnalando subito se un passo fallisce:
   - Altrimenti generane uno in **italiano** seguendo i conventional commit del progetto (`feat(...)`, `fix(...)`, `perf(...)`, `refactor(...)`, `docs(...)`), ricavandolo dal diff.
   - Termina sempre il messaggio con:
     ```
-    Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>
+    Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
     ```
   - Se il messaggio ha parentesi o caratteri speciali, scrivilo in un file temporaneo e usa `git commit -F`, **non** here-string PowerShell nel tool Bash.
 
@@ -27,7 +27,8 @@ Esegui in sequenza, fermandoti e segnalando subito se un passo fallisce:
   & cmd.exe /c 'chcp 850 >nul & "D:\LucaMoneyManager\build.bat" < nul'
   ```
 - NON usare `2>&1` (in PowerShell 5.1 incapsula lo stderr nativo come errore).
-- La build fa: fat JAR → jlink (JRE custom) → jpackage (`LucaMoneyManager.exe`) → copia `web/` → deploy con robocopy in `D:\Luca Money Manager App` (DB/settings/backup/log esclusi e protetti).
+- La build fa: fat JAR → jlink (JRE custom) → jpackage (`LucaMoneyManager.exe`) → copia `web/` → deploy con robocopy in `D:\Luca Money Manager App` (DB/settings/backup/log esclusi e protetti) → **pulizia di `tools\screenshots\`**.
+- La pulizia degli screenshot è automatica (fase 6 di `build.bat`): non serve cancellarli a mano, e non c'è niente da salvare prima: sono artefatti usa-e-getta di verifica grafica.
 
 ## 4. Report finale
 Riassumi: hash del commit, esito push, e conferma `Build completata` + deploy in `D:\Luca Money Manager App`. Riporta fedelmente eventuali errori reali (non l'errore cosmetico di decodifica, ormai risolto rendendo `build.bat` ASCII puro).

@@ -3,6 +3,20 @@
 App di gestione finanze personali sviluppata da Luca per uso personale.
 Due piattaforme: **desktop (primaria)** e **Android (secondaria)**, database SQLite condiviso via OneDrive.
 
+### Dove sta la documentazione
+
+| File | Cosa contiene |
+|---|---|
+| `CLAUDE.md` (questo) | Contesto, convenzioni e **invarianti da non violare**. Resta in root: è quello che viene caricato in automatico. |
+| `README.md` | Presentazione pubblica su GitHub (in inglese). Resta in root per convenzione. |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Mappa del flusso: avvio, bridge, router, DB, tray, WebServer, build. Da leggere prima di toccare il codice. |
+| [docs/AUDIT_JAVA_2026-07.md](docs/AUDIT_JAVA_2026-07.md) | Audit dei 52 finding Java + rilettura indipendente. **Storico, non aggiornare** |
+| [docs/AUDIT_ROBUSTEZZA_JAVA.md](docs/AUDIT_ROBUSTEZZA_JAVA.md) · [docs/AUDIT-RESOURCES.md](docs/AUDIT-RESOURCES.md) | Altri audit datati. Stessa regola: sono fotografie, non documentazione viva. |
+
+⚠️ I file `AUDIT*` sono **registri storici**: descrivono lo stato a una certa data e vanno letti come
+tali. La documentazione da tenere aggiornata è solo questa terna: `CLAUDE.md`, `README.md`,
+`docs/ARCHITECTURE.md`.
+
 ---
 
 ## Piattaforme
@@ -11,7 +25,7 @@ Due piattaforme: **desktop (primaria)** e **Android (secondaria)**, database SQL
 - **Linguaggio:** Java 25, Maven 3.x
 - **UI:** JCEF v146 (Chromium embedded) + Swing per dialogs/titlebar/splash
 - **Frontend:** Vanilla JS puro (`src/main/resources/web/`, modulare in `js/pages/*.js`), no React/Vue
-- **Versione:** 1.20.1 — output `target/moneymanager-1.20.1.jar` (fat JAR, web/ esclusa)
+- **Versione:** 1.20.2 — output `target/moneymanager-1.20.2.jar` (fat JAR, web/ esclusa)
 - **Web assets:** serviti da filesystem (cartella `web/` accanto al `.exe` in produzione, `target/classes/web/` in IDE)
 - **DB path:** `%APPDATA%\LucaMoneyManager\data.db` (`%APPDATA%` = `...\Roaming`)
 - **Build:** `mvn package` oppure `build.bat`
@@ -30,16 +44,18 @@ Due piattaforme: **desktop (primaria)** e **Android (secondaria)**, database SQL
 ```
 JS Frontend (js/pages/*.js, 14 moduli)
     ↓  cefQuery (payload JSON in Base64)      ↑ stessa API anche via HTTP LAN (WebServer)
-Bridge.java (~1075 LOC) — dispatch 135 operazioni
+Bridge.java (~1080 LOC) — dispatch 136 operazioni (+4 dialog nativi fuori dispatch)
     ↓
-Database.java (~5460 LOC) — tutte le query JDBC
+Database.java (~5890 LOC) — tutte le query JDBC
     ↓
 SQLite
 ```
 
-**Classi Java:** `App` (entry point), `MainWindow` (Swing + JCEF), `Bridge` (dispatch JS↔Java), `Database` (JDBC), `Settings` (preferenze utente), `IconFactory` (generazione .ico), `SplashWindow` (splash Swing 700ms), `TrayManager` (system tray), `SingleInstance` (lock istanza unica), `WebServer` (serve web/ da filesystem), `DbLogger` (logging query), `ContextMenuHandler` (menu tasto destro nativo: ricarica/zoom/devtools)
+**Classi Java:** `App` (entry point), `MainWindow` (Swing + JCEF), `Bridge` (dispatch JS↔Java), `Database` (JDBC), `Settings` (preferenze utente), `IconFactory` (icona app + tray per stato DB), `SplashWindow` (splash Swing 70%×70%, fade 350ms), `TrayManager` (system tray), `SingleInstance` (lock istanza unica), `WebServer` (serve web/ da filesystem + bridge LAN), `DbLogger` (logging query), `ContextMenuHandler` (menu tasto destro nativo: modifica/zoom/devtools)
 
-**Moduli JS pagine** (LOC indicativi): `analytics` (3555), `portfolio` (2100), `budget` (1985), `settings` (1785), `transactions` (1395), `scheduled` (1060), `dashboard` (970), `accounts` (510), `notes` (360), `categories` (280), `forecasts` (240), `logviewer` (210), `ranges` (195), `tags` (105)
+**Moduli JS pagine** (LOC indicativi): `analytics` (3915), `portfolio` (2100), `budget` (1985), `settings` (1785), `transactions` (1470), `dashboard` (1460), `scheduled` (1075), `accounts` (825), `notes` (360), `categories` (320), `forecasts` (240), `logviewer` (210), `ranges` (195), `tags` (105)
+
+**Moduli JS di supporto** (non pagine, caricati prima): `bridge` (`callJava` + oggetto `api`), `utils` (formattazione, `evalAmount`, colori grafici per tema), `calculator` (calcolatrice nei campi importo), `ui-shell` (modali, drag titlebar, maniglie di resize), `router` (`navigate`/`renderPage`), `sidebar`, `init` (bootstrap).
 
 ### Connessione DB — invariante da rispettare
 
@@ -139,12 +155,42 @@ dall'app Android in inserimento.
 
 ---
 
-## UI — Tema light
+## UI — Temi
 
-Il tema light **non deve essere bianco puro** — l'utente lo trova aggressivo.
-- Gerarchia obbligatoria: `bg3 < bg < bg2` (cards più chiare dello sfondo, mai #fff)
-- Valori approvati: `bg=#dce0e7`, `bg2=#e9ecf2`, `bg3=#d0d5dc`
-- Badge mensile/annuale in light richiedono override con colori solidi (le trasparenze dark non funzionano)
+Quattro temi built-in, più quelli personalizzati dall'utente. **Il default è chiaro** (Nebbia):
+il tema scuro non è più il riferimento, ed è la causa della maggior parte delle trappole qui sotto.
+
+| Tema | Chiave | Dove vive | `--bg` |
+|---|---|---|---|
+| 🌁 Nebbia (default) | `nebbia` | `:root` — **nessun** `data-theme` | `#dce1e8` |
+| 📜 Carta | `carta` | `[data-theme="carta"]` | `#ece5d8` |
+| 🛢️ Petrolio | `petrolio` | `[data-theme="petrolio"]` | `#0f1e23` |
+| 🪟 Vetro | `glassy` | `[data-theme="glassy"]` | `#161b25` |
+
+Nebbia e Carta sono chiari; Petrolio e Vetro scuri. I temi personalizzati (chiave `c:<id>`)
+applicano le proprie variabili **inline** su `<html>`, quindi vincono su qualsiasi regola di tema.
+`applyTheme()` ([settings.js](src/main/resources/web/js/pages/settings.js)) migra le chiavi
+storiche: `dark`→`nebbia`, e `salvia`/`cristallo`/`nebula`/`twilight`/`chiaro`→`petrolio`.
+
+**Regole da rispettare:**
+
+- **Mai bianco puro** sui temi chiari — l'utente lo trova aggressivo.
+- **Gerarchia obbligatoria `bg3 < bg < bg2`**: le card (`bg2`) sono più chiare dello sfondo (`bg`),
+  `bg3` è il livello più scuro (header tabella, righe alternate, hover). C'è anche `bg4`.
+- ⚠️ **Molte regole base hanno colori fissi nati quando il default era scuro** (toast su fondo
+  scuro, `color:#000` sulle superfici d'accento, trasparenze bianche per hover). Servono ancora a
+  Petrolio e Vetro, quindi restano: Nebbia e Carta le neutralizzano in blocchi di override
+  dedicati. Aggiungendo una regola con un colore fisso, verifica che regga su **tutti e quattro**.
+- ⚠️ **Il selettore del default elenca in negativo gli altri temi**
+  (`html:not(:where([data-theme="carta"],...))`) e non `:not([data-theme])`: `applyTheme` imposta
+  `dataset.theme = ""` — attributo **presente ma vuoto** — quindi `:not([data-theme])` non
+  farebbe mai match. **Aggiungendo un tema built-in va aggiornata ogni occorrenza di quella lista.**
+- Badge mensile/annuale sui temi chiari richiedono override con colori solidi (le trasparenze
+  pensate per i temi scuri non funzionano).
+
+Il commento in testa a [style.css](src/main/resources/web/css/style.css) tiene il dettaglio completo,
+incluso il perché di `:where()` e cosa si rompe in silenzio se cala la specificità (testo dei bottoni
+primari nero su blu, 3.79:1 — nessun altro sintomo visibile). Dopo aver toccato i temi, `check-ui.ps1`.
 
 ---
 
@@ -213,6 +259,25 @@ ritorno, come nella console del browser):
 ```js
 getComputedStyle(document.querySelector('.btn-primary')).color   // "rgb(255, 255, 255)"
 ```
+
+### Pilotare l'app davvero: `interact.ps1`
+
+`screenshot.ps1 -Js` chiama le funzioni dell'app **scavalcando l'interfaccia**: verifica che la
+logica sia giusta, non che un bottone sia collegato a quella logica. `tools\interact.ps1` inietta
+invece eventi veri via CDP `Input.*` — indistinguibili da mouse e tastiera reali. Serve per menu
+contestuali (richiedono un vero tasto destro con coordinate), handler agganciati per delega,
+dialog, hover, focus, scorciatoie.
+
+```powershell
+.\tools\interact.ps1 -Port 7891 -Do "goto transactions; rightclick #txBody tr; expect #ctxMenu; shot menu"
+.\tools\interact.ps1 -Port 7891 -DoFile .\mio-flusso.txt      # un'azione per riga, per i flussi lunghi
+```
+
+Azioni (`-Do`, una per riga o separate da `;`): `goto` · `click` · `rightclick` · `dblclick` ·
+`hover` · `type` · `key` · `wait` · `shot` · `expect`/`expectnot` (verificano la visibilità e
+stampano l'esito) · `eval`. Il selettore è CSS normale; `<css>|<testo>` sceglie il primo elemento
+che contiene quel testo (es. `click .ctx-item|Duplica`).
+⚠️ `eval` deve stare su una riga sua: è l'unica azione in cui i `;` non separano, appartengono al JS.
 
 ### Leggere l'esito: la riga `PIXEL`
 

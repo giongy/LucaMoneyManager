@@ -10,17 +10,26 @@ A personal finance desktop application built with Java + Chromium (JCEF), backed
 ## Features
 
 ### Dashboard
-The home screen gives a full picture of your finances at a glance:
-- **Account balances** — all accounts shown with current balance, grouped by type
-- **Budget widget** — current month's spending bubbles per category, with totals (actual vs. budget) for expenses, income, and net
+The home screen gives a full picture of your finances at a glance, through nine widgets:
+- **Account balances** — all accounts with their current balance, grouped by type
+- **Budget bubbles** — current month's spending per category, with totals (actual vs. budget) for expenses, income, and net
 - **Upcoming scheduled transactions** — next recurring payments and income, with due dates
-- **Recent transactions** — latest movements across all accounts
 - **Budget vs Reality chart** — monthly trend comparing planned vs. actual net balance
+- **Top spending categories** and **recent transactions**
+- **This month's expenses** — proportional bars, each row clickable to drill into the transactions behind it
+- **Yearly income/expense chart** and **monthly savings**
+
+**The layout is yours:** widgets can be dragged between rows, resized to any width, and rows given
+their own height. The arrangement is saved and restored on the next launch.
 
 ### Accounts
 - Multiple account types: checking, savings, credit card, cash, investment, loan
 - Custom emoji icons, colors, and currency per account
-- Balance history tracking
+- Balance history tracking, net-worth summary and per-account sparklines
+- Closed and hidden accounts, to retire an old account without deleting it
+- **Automatic credit card settlement** — for cards with auto-settle enabled, a scheduled transfer
+  from the paying account is created for the last closed month's total, on the card's payment day.
+  The amount realigns itself as soon as a new expense is recorded on the card.
 - Reconciliation workflow (verified / unverified transactions)
 
 ### Transactions
@@ -83,8 +92,12 @@ The home screen gives a full picture of your finances at a glance:
 - Cross-filters by category tree, date range, and year
 - Powered by Chart.js with responsive rendering
 
+### Notes
+- Rich text notes with a Quill editor (the editor is loaded on demand, not at startup)
+- Pinning, per-note colour, tag filtering and search
+
 ### Settings
-- **Themes** — dark, light, and fully customizable color themes
+- **Themes** — four built-in (🌁 Nebbia, 📜 Carta, 🛢️ Petrolio, 🪟 Vetro) plus fully customizable colour themes
 - **Backup** — automatic backup on close with configurable directory and retention count
 - **Attachments** — configurable storage directory
 - **HTTP server** — optional LAN web server for remote access
@@ -97,24 +110,26 @@ The home screen gives a full picture of your finances at a glance:
 ## Architecture
 
 ```
-JS Frontend (Vanilla JS, ~8000 LOC)
-    ↓  cefQuery (JSON payload, Base64-encoded)
-Bridge.java — dispatches 40+ operations
+JS Frontend (Vanilla JS, ~18,000 LOC across 21 modules)
+    ↓  cefQuery (JSON payload, Base64-encoded)   ↑ same API over HTTP on the LAN
+Bridge.java — dispatches 136 operations
     ↓
 Database.java — all JDBC queries
     ↓
-SQLite (schema v12, 13+ tables)
+SQLite (schema v23, 22 tables)
 ```
 
 **Tech stack:**
-- Java 21, Maven
+- Java 25, Maven
 - JCEF v146 (Chromium Embedded Framework)
 - Swing (window chrome, system tray, dialogs)
 - SQLite via JDBC
-- Chart.js (charts)
+- Chart.js (charts), Quill (notes editor, lazy-loaded)
 - No JS framework — pure Vanilla JS
 
-**Database tables:** `accounts`, `categories`, `transactions`, `transaction_splits`, `transaction_tags`, `tags`, `budgets`, `budget_config`, `scheduled_transactions`, `portfolio`, `portfolio_transactions`, `app_settings`, `schema_version`, `sync_meta`
+**Database tables:** `accounts`, `categories`, `transactions`, `transaction_splits`, `transaction_tags`, `tags`, `budgets`, `budget_config`, `scheduled_transactions`, `scheduled_transaction_tags`, `portfolio`, `portfolio_transactions`, `forecasts`, `forecast_categories`, `notes`, `note_tags`, `reports`, `range_presets`, `app_settings`, `schema_version`, `sync_meta`, `imported_pending`
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full startup sequence, bridge protocol, and database lifecycle.
 
 ---
 
@@ -122,9 +137,14 @@ SQLite (schema v12, 13+ tables)
 
 A lightweight Android app (Kotlin, Material Design 3, min SDK 26) sharing the same SQLite database via OneDrive:
 - Account balance overview with favorites
-- Quick transaction entry with category picker
+- Quick transaction entry with a category picker (shortened to the categories flagged as mobile favourites on the desktop)
 - Home screen widget (account balances)
 - Periodic background sync via WorkManager
+
+**The phone never writes to the shared database.** It opens a local copy read-only and appends new
+entries to a `pending.jsonl` queue next to the database; the desktop imports the queue at startup,
+skipping entries it has already seen. This avoids two writers on a OneDrive-synced file — the
+situation that produces conflict copies and, at worst, a corrupted database.
 
 ---
 
@@ -134,6 +154,7 @@ A lightweight Android app (Kotlin, Material Design 3, min SDK 26) sharing the sa
 mvn package
 ```
 
-Output: `target/moneymanager-*.jar` (fat JAR, includes all dependencies)
+Output: `target/moneymanager-*.jar` (fat JAR, includes all dependencies — the `web/` folder is
+served from disk, so HTML/CSS/JS can be edited without recompiling)
 
-**Requirements:** Java 21+, Maven 3.x
+**Requirements:** Java 25, Maven 3.x

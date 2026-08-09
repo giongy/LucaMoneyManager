@@ -13,7 +13,7 @@ async function renderLogViewer() {
         <input class="form-control" id="logSearch" placeholder="🔍 Filtra..." style="width:220px">
         <button class="btn btn-ghost" id="btnLogRefresh" title="Aggiorna">↻ Aggiorna</button>
         <button class="btn btn-ghost" id="btnLogPurgeSystem"
-                title="Elimina dal log le voci di sistema (avvio, backup, manutenzione), mantenendo le operazioni utente">🗑️ Voci sistema</button>
+                title="Elimina dal log le voci di sistema (avvio, backup, manutenzione), mantenendo le operazioni utente">🗑️ Cancella voci sistema</button>
       </div>
     </div>
     <div class="card" style="flex:1;display:flex;flex-direction:column;min-height:0">

@@ -11,8 +11,9 @@ const MONTHS_SHORT = ['Gen','Feb','Mar','Apr','Mag','Giu','Lug','Ago','Set','Ott
 let budgetYear = new Date().getFullYear();
 let _budgetTab = 'grid';
 let _budgetAndamentoChart = null;
-let _budgetMeseSort  = 'rimasto';
-let _budgetMeseMonth = new Date().getMonth() + 1;
+let _budgetMeseSort    = 'rimasto';
+let _budgetMeseSortDir = 'asc';
+let _budgetMeseMonth   = new Date().getMonth() + 1;
 
 // Disegna la pagina Budget: barra tab (Budget/Andamento/Scostamenti/Mese), navigazione anno,
 // azioni della griglia (comprimi, solo rossi, solo mese corrente, cancella anno, genera) e contenitori.
@@ -114,8 +115,9 @@ let _budgetOnlyRed = false;
 let _budgetOnlyCurrentMonth = false;
 let _budgetDetailNavList = [];
 let _budgetDetailNavIdx  = 0;
-let _budgetScostTab  = 'uscite';
-let _budgetScostSort = 'pct';
+let _budgetScostTab     = 'uscite';
+let _budgetScostSort    = 'pct';
+let _budgetScostSortDir = 'desc';
 
 // Carica i dati budget dell'anno (in _budgetData) e renderizza la vista della tab attiva.
 async function loadBudgetTable() {
@@ -652,9 +654,59 @@ function _wireBudgetAndDrag() {
   });
 }
 
+/* ─── Ordinamento da header di tabella (Scostamenti / Mese) ──────────────── */
+// Una "colonna ordinabile" è { get, dir0 }: `get` estrae il valore dalla riga, `dir0` è la
+// direzione del primo click — quella utile per quella colonna (numeri: peggiore/più grande in
+// cima; testo: A-Z). Click successivi sulla stessa colonna invertono il verso.
+
+// Confronto generico: stringhe con localeCompare (accenti), numeri per differenza.
+const _cmpVal = (a, b) => typeof a === 'string' ? a.localeCompare(b) : a - b;
+
+// Comparatore per la colonna/verso attivi. Fallback sulla colonna di default se la chiave
+// salvata non esiste (es. criterio rimosso in una versione precedente).
+function _budgetSorter(cols, key, dir, fallback) {
+  const col  = cols[key] || cols[fallback];
+  const sign = dir === 'asc' ? 1 : -1;
+  return (a, b) => sign * _cmpVal(col.get(a), col.get(b));
+}
+
+// <th> cliccabile, stesse classi di Transazioni e Pianificate (.th-sort / .th-sort-active /
+// .sort-ind). Le tabelle sono generate come stringhe HTML, quindi l'handler è un onclick che
+// chiama la funzione globale passata in `call`.
+// ⚠️ Lo `style` passato non deve contenere `color`: il colore lo danno la regola globale `th`
+// e le classi — un color inline vincerebbe su :hover e su .th-sort-active.
+function _budgetSortTh(label, key, o) {
+  const active = key === o.cur;
+  const arrow  = active ? (o.dir === 'asc' ? '▲' : '▼') : '';
+  return `<th class="th-sort${active ? ' th-sort-active' : ''}" style="${o.style};text-align:${o.align || 'left'}${o.extra || ''}"
+    title="Ordina per ${label}" onclick="${o.call}('${key}')">${label}<span class="sort-ind">${arrow}</span></th>`;
+}
+
 /* ─── Budget Scostamenti YTD ─────────────────────────────────────────────── */
 // Tab "Scostamenti": classifica le categorie per scostamento budget/reale da inizio anno,
-// separate Uscite/Entrate e ordinabili (per %, valore, ecc.).
+// separate Uscite/Entrate e ordinabili cliccando l'intestazione di colonna.
+
+// Colonne ordinabili. Budget/Reale usano il valore assoluto: il segno dipende solo da
+// uscita/entrata, ordinare per importo con segno metterebbe in cima la spesa più piccola.
+// Diff sale (asc): il più negativo — cioè lo sforo peggiore — resta primo.
+const _SCOST_COLS = {
+  macro:  { get: r => (r.parent ? r.parent.name : 'ÿ'), dir0: 'asc'  },  // 'ÿ' = senza macro in fondo
+  cat:    { get: r => r.cat.name,                       dir0: 'asc'  },
+  budget: { get: r => Math.abs(r.bYTD),                 dir0: 'desc' },
+  reale:  { get: r => Math.abs(r.rYTD),                 dir0: 'desc' },
+  diff:   { get: r => r.diff,                           dir0: 'asc'  },
+  pct:    { get: r => r.pct,                            dir0: 'desc' },
+};
+
+// Click sull'header: stessa colonna → inverte, colonna nuova → parte dalla sua direzione utile.
+window._budgetScostSetSort = key => {
+  _budgetScostSortDir = key === _budgetScostSort
+    ? (_budgetScostSortDir === 'asc' ? 'desc' : 'asc')
+    : _SCOST_COLS[key].dir0;
+  _budgetScostSort = key;
+  renderBudgetScostamenti();
+};
+
 function renderBudgetScostamenti() {
   const el = document.getElementById('budgScostWrap');
   if (!el || !_budgetData) return;
@@ -690,15 +742,8 @@ function renderBudgetScostamenti() {
   const expRows = allRows.filter(r=>r.cat.type==='expense');
   const incRows = allRows.filter(r=>r.cat.type==='income');
 
-  const sortFn = rows => [...rows].sort((a,b) => {
-    switch (_budgetScostSort) {
-      case 'pct':    return b.pct - a.pct;          // worst first (expense: più sforato; income: più guadagnato)
-      case 'diff':   return a.diff - b.diff;         // più negativo (expense: sforato) / meno positivo (income)
-      case 'budget': return Math.abs(b.bYTD)-Math.abs(a.bYTD); // budget più alto prima
-      case 'cat':    return a.cat.name.localeCompare(b.cat.name);
-      default:       return b.pct - a.pct;
-    }
-  });
+  const scostCmp = _budgetSorter(_SCOST_COLS, _budgetScostSort, _budgetScostSortDir, 'pct');
+  const sortFn = rows => [...rows].sort(scostCmp);
 
   const activeRows = sortFn(_budgetScostTab==='uscite' ? expRows : incRows);
 
@@ -722,51 +767,48 @@ function renderBudgetScostamenti() {
   const _scostGoodLabel = _budgetScostTab === 'uscite' ? 'Risparmiato' : 'Sopra target';
   const _scostBadLabel  = _budgetScostTab === 'uscite' ? 'Sforato'     : 'Sotto target';
 
-  const thS = 'padding:7px 10px;border-bottom:2px solid var(--border);color:var(--txt2);font-weight:600;white-space:nowrap';
+  // Nessun `color` nel th: lo dà la regola globale, così le classi di ordinamento possono vincerlo.
+  const thS = 'padding:7px 10px;border-bottom:2px solid var(--border);font-weight:600;white-space:nowrap';
   const tdS = 'padding:5px 10px;border-bottom:1px solid var(--border);white-space:nowrap';
+  const thOpt = { style: thS, cur: _budgetScostSort, dir: _budgetScostSortDir, call: '_budgetScostSetSort' };
+
+  // Il selettore Uscite/Entrate sta in linea col titolo, non in fondo a destra: titolo, totali
+  // e riepilogo qui sotto cambiano tutti con la selezione, quindi il comando deve stare accanto
+  // a ciò che governa. Il conteggio nei bottoni dice quante righe c'è di là senza doverci andare.
+  const scostBtn = (key, label, count) => `
+    <button class="btn btn-xs ${_budgetScostTab===key?'btn-primary':'btn-ghost'}"
+      style="border-radius:0${key==='entrate'?';border-left:1px solid var(--border)':''}"
+      onclick="_budgetScostTab='${key}';renderBudgetScostamenti()">${label}
+      <span style="opacity:.65;font-weight:400">${count}</span></button>`;
 
   el.innerHTML = `
-    <div style="padding:14px 0 6px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
-      <div>
-        <h3 style="margin:0 0 6px;font-size:15px">Scostamenti YTD fino a <b>${untilName} ${budgetYear}</b></h3>
-        <div style="font-size:13px;color:var(--txt2)">
-          Budget YTD <b>${fmt.currency(totB)}</b> &nbsp;|&nbsp; Reale YTD <b>${fmt.currency(totR)}</b> &nbsp;|&nbsp;
-          <span style="color:${totCol}"><b>Diff ${totD>=0?'+':''}${fmt.currency(totD)}</b></span>
-        </div>
-        <div style="display:flex;gap:16px;margin-top:5px;font-size:12px;flex-wrap:wrap">
-          <span style="color:var(--income)">▲ ${_scostGoodLabel} <b>${fmt.currency(_scostGoodSum)}</b> <span style="color:var(--txt3)">· ${_scostGood.length} cat.</span></span>
-          <span style="color:var(--expense)">▼ ${_scostBadLabel} <b>${fmt.currency(_scostBadSum)}</b> <span style="color:var(--txt3)">· ${_scostBad.length} cat.</span></span>
+    <div style="padding:14px 0 6px">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:6px">
+        <h3 style="margin:0;font-size:15px">Scostamenti YTD fino a <b>${untilName} ${budgetYear}</b></h3>
+        <div style="display:flex;gap:0;border:1px solid var(--border);border-radius:6px;overflow:hidden;flex-shrink:0">
+          ${scostBtn('uscite',  '🔴 Uscite',  expRows.length)}
+          ${scostBtn('entrate', '🟢 Entrate', incRows.length)}
         </div>
       </div>
-      <div style="display:flex;align-items:center;gap:10px">
-        <div style="display:flex;gap:0;border:1px solid var(--border);border-radius:6px;overflow:hidden">
-          <button class="btn btn-xs ${_budgetScostTab==='uscite'?'btn-primary':'btn-ghost'}" style="border-radius:0"
-            onclick="_budgetScostTab='uscite';renderBudgetScostamenti()">🔴 Uscite</button>
-          <button class="btn btn-xs ${_budgetScostTab==='entrate'?'btn-primary':'btn-ghost'}" style="border-radius:0;border-left:1px solid var(--border)"
-            onclick="_budgetScostTab='entrate';renderBudgetScostamenti()">🟢 Entrate</button>
-        </div>
-        <div style="display:flex;align-items:center;gap:6px">
-          <span style="font-size:12px;color:var(--txt2)">Ordina per:</span>
-          <select class="form-control" style="font-size:12px;padding:3px 8px;width:auto"
-            onchange="_budgetScostSort=this.value;renderBudgetScostamenti()">
-            <option value="pct"    ${_budgetScostSort==='pct'   ?'selected':''}>%</option>
-            <option value="diff"   ${_budgetScostSort==='diff'  ?'selected':''}>Diff</option>
-            <option value="budget" ${_budgetScostSort==='budget'?'selected':''}>Budget</option>
-            <option value="cat"    ${_budgetScostSort==='cat'   ?'selected':''}>Categoria</option>
-          </select>
-        </div>
+      <div style="font-size:13px;color:var(--txt2)">
+        Budget YTD <b>${fmt.currency(totB)}</b> &nbsp;|&nbsp; Reale YTD <b>${fmt.currency(totR)}</b> &nbsp;|&nbsp;
+        <span style="color:${totCol}"><b>Diff ${totD>=0?'+':''}${fmt.currency(totD)}</b></span>
+      </div>
+      <div style="display:flex;gap:16px;margin-top:5px;font-size:12px;flex-wrap:wrap">
+        <span style="color:var(--income)">▲ ${_scostGoodLabel} <b>${fmt.currency(_scostGoodSum)}</b> <span style="color:var(--txt3)">· ${_scostGood.length} cat.</span></span>
+        <span style="color:var(--expense)">▼ ${_scostBadLabel} <b>${fmt.currency(_scostBadSum)}</b> <span style="color:var(--txt3)">· ${_scostBad.length} cat.</span></span>
       </div>
     </div>
     <div style="overflow-x:auto">
       <table style="width:100%;border-collapse:collapse;font-size:13px">
         <thead><tr>
           <th style="${thS};text-align:right;width:32px">#</th>
-          <th style="${thS};text-align:left">Macro-cat</th>
-          <th style="${thS};text-align:left">Categoria</th>
-          <th style="${thS};text-align:right">Budget YTD</th>
-          <th style="${thS};text-align:right">Reale YTD</th>
-          <th style="${thS};text-align:right">Diff</th>
-          <th style="${thS};text-align:right">%</th>
+          ${_budgetSortTh('Macro-cat',  'macro',  thOpt)}
+          ${_budgetSortTh('Categoria',  'cat',    thOpt)}
+          ${_budgetSortTh('Budget YTD', 'budget', {...thOpt, align:'right'})}
+          ${_budgetSortTh('Reale YTD',  'reale',  {...thOpt, align:'right'})}
+          ${_budgetSortTh('Diff',       'diff',   {...thOpt, align:'right'})}
+          ${_budgetSortTh('%',          'pct',    {...thOpt, align:'right'})}
           <th style="${thS};text-align:left;min-width:220px">Scostamento</th>
         </tr></thead>
         <tbody>${activeRows.map((r,i) => {
@@ -963,6 +1005,29 @@ window._tmSwitchTab = id => {
 /* ─── Budget Mese Corrente ───────────────────────────────────────────────── */
 // Tab "Mese": analisi del singolo mese selezionato — categorie con budget/speso/rimasto,
 // zone colore e barre, navigazione mese e accesso al treemap.
+
+// Colonne ordinabili, condivise dalle due tabelle (Uscite ed Entrate si riordinano insieme:
+// le chiavi sono semantiche, non legate all'etichetta — "spent" è Speso di qua e Incassato di là).
+// Rimasto sale (asc): gli sfori, che sono negativi, restano in cima.
+// pctUsed vale Infinity quando c'è spesa senza budget: va normalizzato, altrimenti due righe
+// infinite darebbero Infinity-Infinity = NaN e un comparatore incoerente.
+const _MESE_COLS = {
+  cat:     { get: r => r.cat.name,                                     dir0: 'asc'  },
+  budget:  { get: r => r.budget,                                       dir0: 'desc' },
+  spent:   { get: r => r.spent,                                        dir0: 'desc' },
+  rimasto: { get: r => r.remaining,                                    dir0: 'asc'  },
+  usage:   { get: r => r.pctUsed === Infinity ? 1e12 : r.pctUsed,      dir0: 'desc' },
+};
+
+// Click sull'header: stessa colonna → inverte, colonna nuova → parte dalla sua direzione utile.
+window._budgetMeseSetSort = key => {
+  _budgetMeseSortDir = key === _budgetMeseSort
+    ? (_budgetMeseSortDir === 'asc' ? 'desc' : 'asc')
+    : _MESE_COLS[key].dir0;
+  _budgetMeseSort = key;
+  renderBudgetMese();
+};
+
 function renderBudgetMese() {
   const el = document.getElementById('budgMeseWrap');
   if (!el || !_budgetData) return;
@@ -987,24 +1052,15 @@ function renderBudgetMese() {
     const pctUsed  = budget > 0 ? (spent / budget) * 100 : (spent > 0 ? Infinity : 0);
     // remaining: expense = budget - spent (positivo = libero); income = spent - budget (positivo = extra)
     const remaining = isExp ? budget - spent : spent - budget;
-    const absOver   = remaining < 0 ? Math.abs(remaining) : 0;
     const parent    = cat.parent_id ? catById[cat.parent_id] : null;
-    return { cat, parent, budget, spent, remaining, pctUsed, absOver, isExp };
+    return { cat, parent, budget, spent, remaining, pctUsed, isExp };
   }).filter(r => r !== null);
 
   const expRows = allRows.filter(r => r.cat.type === 'expense');
   const incRows = allRows.filter(r => r.cat.type === 'income');
 
-  const sortRows = rows => [...rows].sort((a, b) => {
-    switch (_budgetMeseSort) {
-      case 'rimasto': return a.remaining - b.remaining; // più negativo (sforo) prima
-      case 'usage':   return b.pctUsed - a.pctUsed;
-      case 'abs':     return b.absOver - a.absOver;
-      case 'budget':  return b.budget - a.budget;
-      case 'cat':     return a.cat.name.localeCompare(b.cat.name);
-      default:       return b.pctUsed - a.pctUsed;
-    }
-  });
+  const meseCmp = _budgetSorter(_MESE_COLS, _budgetMeseSort, _budgetMeseSortDir, 'rimasto');
+  const sortRows = rows => [...rows].sort(meseCmp);
 
   // Totali per le card di riepilogo
   const expBudget  = expRows.reduce((s, r) => s + r.budget, 0);
@@ -1014,8 +1070,10 @@ function renderBudgetMese() {
   const incSpent   = incRows.reduce((s, r) => s + r.spent, 0);
   const incUnder   = incRows.filter(r => r.remaining < 0).length;
 
-  const thS = 'padding:6px 10px;border-bottom:2px solid var(--border);color:var(--txt2);font-weight:600;white-space:nowrap;font-size:12px';
+  // Nessun `color` nel th: lo dà la regola globale, così le classi di ordinamento possono vincerlo.
+  const thS = 'padding:6px 10px;border-bottom:2px solid var(--border);font-weight:600;white-space:nowrap;font-size:12px';
   const tdS = 'padding:5px 10px;border-bottom:1px solid var(--border);white-space:nowrap;font-size:13px';
+  const thOpt = { style: thS, cur: _budgetMeseSort, dir: _budgetMeseSortDir, call: '_budgetMeseSetSort' };
 
   const makeRows = (rows, isExpSide) => sortRows(rows).map(r => {
     const pct = r.pctUsed === Infinity ? 999 : r.pctUsed;
@@ -1057,19 +1115,6 @@ function renderBudgetMese() {
   const incRemaining = incSpent - incBudget;
   const expRemColor  = expRemaining >= 0 ? 'var(--income)' : 'var(--expense)';
   const incRemColor  = incRemaining >= 0 ? 'var(--income)' : 'var(--expense)';
-
-  const sortSelect = `
-    <div style="display:flex;align-items:center;gap:6px">
-      <span style="font-size:12px;color:var(--txt2)">Ordina:</span>
-      <select class="form-control" style="font-size:12px;padding:3px 8px;width:auto"
-        onchange="_budgetMeseSort=this.value;renderBudgetMese()">
-        <option value="rimasto" ${_budgetMeseSort==='rimasto'?'selected':''}>Rimasto</option>
-        <option value="usage"   ${_budgetMeseSort==='usage' ?'selected':''}>% usato</option>
-        <option value="abs"     ${_budgetMeseSort==='abs'   ?'selected':''}>Sforamento €</option>
-        <option value="budget"  ${_budgetMeseSort==='budget'?'selected':''}>Budget</option>
-        <option value="cat"     ${_budgetMeseSort==='cat'   ?'selected':''}>Categoria</option>
-      </select>
-    </div>`;
 
   // ── Pacing del mese corrente: % mese trascorso vs % budget uscite usato ──
   // Mostrato solo se stiamo guardando il mese in corso (per i mesi chiusi non ha senso).
@@ -1130,7 +1175,6 @@ function renderBudgetMese() {
         <span style="font-size:14px;color:var(--txt2);font-weight:600">${budgetYear}</span>
         <button class="btn btn-primary" style="font-size:13px;padding:6px 14px" onclick="_showBudgetMeseTreemap()">📊 Treemap</button>
       </div>
-      ${sortSelect}
     </div>
 
     ${pacingBanner}
@@ -1157,11 +1201,11 @@ function renderBudgetMese() {
         <div style="overflow-x:auto">
           <table style="width:100%;border-collapse:collapse;font-size:13px">
             <thead><tr>
-              <th style="${thS};text-align:left">Categoria</th>
-              <th style="${thS};text-align:right">Budget</th>
-              <th style="${thS};text-align:right">Speso</th>
-              <th style="${thS};text-align:right">Rimasto</th>
-              <th style="${thS};text-align:left;min-width:130px">Utilizzo</th>
+              ${_budgetSortTh('Categoria', 'cat',     thOpt)}
+              ${_budgetSortTh('Budget',    'budget',  {...thOpt, align:'right'})}
+              ${_budgetSortTh('Speso',     'spent',   {...thOpt, align:'right'})}
+              ${_budgetSortTh('Rimasto',   'rimasto', {...thOpt, align:'right'})}
+              ${_budgetSortTh('Utilizzo',  'usage',   {...thOpt, extra:';min-width:130px'})}
             </tr></thead>
             <tbody>${makeRows(expRows, true)}</tbody>
           </table>
@@ -1188,11 +1232,11 @@ function renderBudgetMese() {
         <div style="overflow-x:auto">
           <table style="width:100%;border-collapse:collapse;font-size:13px">
             <thead><tr>
-              <th style="${thS};text-align:left">Categoria</th>
-              <th style="${thS};text-align:right">Budget</th>
-              <th style="${thS};text-align:right">Incassato</th>
-              <th style="${thS};text-align:right">Diff</th>
-              <th style="${thS};text-align:left;min-width:130px">Utilizzo</th>
+              ${_budgetSortTh('Categoria', 'cat',     thOpt)}
+              ${_budgetSortTh('Budget',    'budget',  {...thOpt, align:'right'})}
+              ${_budgetSortTh('Incassato', 'spent',   {...thOpt, align:'right'})}
+              ${_budgetSortTh('Diff',      'rimasto', {...thOpt, align:'right'})}
+              ${_budgetSortTh('Utilizzo',  'usage',   {...thOpt, extra:';min-width:130px'})}
             </tr></thead>
             <tbody>${makeRows(incRows, false)}</tbody>
           </table>

@@ -469,7 +469,11 @@ html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy
   background-color: #1c2230;
   color: var(--txt);
 }
-/* Popover flottanti (category picker, tag dropdown, tooltip bubble, context menu): sfondo opaco — non hanno nulla dietro */
+/* Popover flottanti (category picker, tag dropdown, tooltip bubble, context menu,
+   calcolatrice): sfondo opaco — non hanno nulla dietro.
+   La calcolatrice in particolare galleggia su un overlay trasparente ai click
+   (.calc-overlay, pointer-events:none): col --bg2 semi-trasparente del tema si
+   leggeva attraverso il modale sottostante. */
 [data-theme="glassy"] .cat-picker-list,
 [data-theme="glassy"] .sched-tag-dropdown,
 [data-theme="glassy"] #dash-tooltip,
@@ -477,7 +481,8 @@ html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy
 [data-theme="glassy"] #portfolio-ctx-menu,
 [data-theme="glassy"] #sched-ctx-menu,
 [data-theme="glassy"] #shortcutsPanel,
-[data-theme="glassy"] .nav-sub-flyout {
+[data-theme="glassy"] .nav-sub-flyout,
+[data-theme="glassy"] .calc-panel {
   background: rgba(28,34,48,.96) !important;
   border-color: rgba(255,255,255,.14);
   backdrop-filter: blur(10px) saturate(130%);

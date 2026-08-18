@@ -298,10 +298,12 @@ function _renderDashAccountsWidget(accounts) {
   const visibleAccounts = accounts.filter(isAccountVisible);
   const investBalance = visibleAccounts.filter(a => a.type === 'investment').reduce((s,a) => s + (a.balance||0), 0);
   const contiBalance  = visibleAccounts.filter(a => a.type !== 'investment').reduce((s,a) => s + (a.balance||0), 0);
-  const bondNominal   = visibleAccounts.reduce((s,a) => s + (a.bond_nominal||0), 0);
-  const bondMarket    = visibleAccounts.reduce((s,a) => s + (a.bond_market||0), 0);
   // Valore investimenti con i bond conteggiati a 100 (a scadenza) invece che a prezzo di mercato.
-  const investBalanceAt100 = investBalance - bondMarket + bondNominal;
+  const investBalanceAt100 = visibleAccounts.filter(a => a.type === 'investment')
+                                            .reduce((s,a) => s + accountBalance100(a), 0);
+  // Se non c'è nessuna obbligazione, "a 100" e valore di mercato coincidono: si mostra
+  // il saldo secco, senza tooltip né riga "valore reale".
+  const hasBonds = visibleAccounts.some(accountHasBonds);
   const visGrouped = {};
   visibleAccounts.forEach(a => { (visGrouped[a.type] = visGrouped[a.type] || []).push(a); });
   const visOrderedTypes = [...new Set([..._accTypeOrder.filter(t => visGrouped[t]), ...Object.keys(visGrouped)])];
@@ -322,10 +324,10 @@ function _renderDashAccountsWidget(accounts) {
                 <span class="acc-name">${esc(a.name)}</span>
               </td>
               <td class="acc-bal ${a.balance<0?'neg':''}" style="color:${a.balance<0?'var(--expense)':esc(a.color||'var(--accent)')}"
-                  ${a.type==='investment' && a.bond_nominal>0 ? `title="Valore con bond a scadenza (a 100). Valore di mercato attuale: ${fmt.currency(a.balance)}"` : ''}>
-                ${a.type==='investment' && a.bond_nominal>0 ? fmt.currency((a.balance||0) - (a.bond_market||0) + (a.bond_nominal||0)) : fmt.currency(a.balance)}
+                  ${accountHasBonds(a) ? `title="Valore con bond a scadenza (a 100). Valore di mercato attuale: ${fmt.currency(a.balance)}"` : ''}>
+                ${fmt.currency(accountBalance100(a))}
                 ${a.type==='credit'?`<span id="cc-cur-${a.id}" style="display:block;font-size:11px;color:var(--txt2);font-weight:400"></span>`:''}
-                ${a.type==='investment' && a.bond_nominal>0 ? `<span style="display:block;font-size:10px;color:var(--txt3);font-weight:400">valore reale ${fmt.currency(a.balance)}</span>` : ''}
+                ${accountHasBonds(a) ? `<span style="display:block;font-size:10px;color:var(--txt3);font-weight:400">valore reale ${fmt.currency(a.balance)}</span>` : ''}
               </td>
               <td onclick="event.stopPropagation()">
                 <div class="acc-quick-btns">
@@ -345,10 +347,10 @@ function _renderDashAccountsWidget(accounts) {
                 <span class="acc-bal" style="font-size:13px;font-weight:700;color:${contiBalance<0?'var(--expense)':'var(--income)'}">${fmt.currency(contiBalance)}</span>
               </div>
               ${investBalance !== 0 ? `
-              <div style="display:flex;align-items:baseline;gap:6px" ${bondNominal>0?`title="Valore investimenti con bond a scadenza (a 100). Valore di mercato attuale: ${fmt.currency(investBalance)}"`:''}>
+              <div style="display:flex;align-items:baseline;gap:6px" ${hasBonds?`title="Valore investimenti con bond a scadenza (a 100). Valore di mercato attuale: ${fmt.currency(investBalance)}"`:''}>
                 <span style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--txt3)">Investimenti</span>
-                <span class="acc-bal" style="font-size:13px;font-weight:700;color:var(--accent2)">${fmt.currency(bondNominal>0?investBalanceAt100:investBalance)}</span>
-                ${bondNominal>0?`<span style="font-size:10px;color:var(--txt3)">· valore reale ${fmt.currency(investBalance)}</span>`:''}
+                <span class="acc-bal" style="font-size:13px;font-weight:700;color:var(--accent2)">${fmt.currency(investBalanceAt100)}</span>
+                ${hasBonds?`<span style="font-size:10px;color:var(--txt3)">· valore reale ${fmt.currency(investBalance)}</span>`:''}
               </div>` : ''}
             </div>
           </td>

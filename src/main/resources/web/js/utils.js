@@ -108,6 +108,17 @@ const isAccountVisible = a =>
   isAccountHidden(a) ? false : (_accFavoritesOnly ? (a.is_favorite && !a.is_closed) : true);
 const isAccountActive  = a => !a.is_closed && !a.is_hidden;
 
+// Saldo di un conto con le obbligazioni valutate "a 100" (valore di rimborso a scadenza)
+// invece che al prezzo di mercato: si sostituisce bond_market con bond_nominal, campi che
+// getAccounts espone già separati proprio per questo. È la convenzione con cui l'app mostra
+// il patrimonio ovunque (Saldo Totale in Dashboard, Patrimonio netto in Conti): usare qui
+// a.balance grezzo fa divergere i due totali della stessa cifra.
+// Sui conti non-investment bond_market e bond_nominal valgono 0 → la formula è neutra.
+const accountBalance100 = a => (a.balance || 0) - (a.bond_market || 0) + (a.bond_nominal || 0);
+// true se il conto ha davvero obbligazioni: discrimina quando serve mostrare anche il
+// valore di mercato reale accanto al saldo a 100.
+const accountHasBonds   = a => (a.bond_nominal || 0) > 0;
+
 /* ─── Calculator helper ────────────────────────────────────────────────────── */
 /** Valuta una semplice espressione +/- (es. "40+10.30", "100-49.70").
  *  Accetta sia virgola che punto come separatore decimale.

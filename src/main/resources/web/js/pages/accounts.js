@@ -129,15 +129,16 @@ function _accountCardHtml(a) {
     <span class="acc-drag-handle" title="Trascina per riordinare">⠿</span>
     <div class="account-icon">${esc(a.icon)}</div>
     <div class="acc-info">
-      <div class="account-name">${esc(a.name)}${badges ? ` <span style="font-size:11px;font-weight:400">${badges}</span>` : ''}</div>
+      <div class="account-name">${esc(a.name)}${badges ? ` <span style="font-size:11px;font-weight:400">${badges}</span>` : ''}${a.type === 'credit' ? ` <button class="btn btn-ghost btn-icon" onclick="closeCreditMonth(${a.id})">💳 Chiudi mese</button>` : ''}</div>
     </div>
     ${spark ? `<div class="acc-spark-wrap" title="Saldo negli ultimi 12 mesi">${spark}</div>` : ''}
     <div class="acc-bal-col">
-      <div class="account-balance" style="color:${a.is_closed ? 'var(--txt3)' : esc(color)}">${fmt.currency(a.balance)}</div>
+      <div class="account-balance" style="color:${a.is_closed ? 'var(--txt3)' : esc(color)}"
+           ${accountHasBonds(a) ? `title="Obbligazioni valutate a 100 (rimborso a scadenza). Valore di mercato attuale: ${fmt.currency(a.balance)}"` : ''}
+        >${fmt.currency(accountBalance100(a))}</div>
       ${deltaHtml}
     </div>
     <div class="account-actions">
-      ${a.type === 'credit' ? `<button class="btn btn-ghost btn-icon" onclick="closeCreditMonth(${a.id})">💳 Chiudi mese</button>` : ''}
       <button class="btn btn-ghost btn-icon" onclick="editAccount(${a.id})">✏️</button>
       <button class="btn btn-ghost btn-icon" onclick="deleteAccount(${a.id})">🗑️</button>
     </div>
@@ -291,7 +292,9 @@ function _renderAccSummary(accounts) {
   if (!el) return;
   if (!accounts.length) { el.innerHTML = ''; return; }
 
-  const sum    = f => accounts.filter(f).reduce((s, a) => s + (a.balance || 0), 0);
+  // accountBalance100: le obbligazioni contano al valore di rimborso, come il
+  // "Saldo Totale" della Dashboard (vedi utils.js).
+  const sum    = f => accounts.filter(f).reduce((s, a) => s + accountBalance100(a), 0);
   const liquid = sum(a => a.type !== 'investment' && a.type !== 'credit');
   const invest = sum(a => a.type === 'investment');
   const cards  = sum(a => a.type === 'credit');
@@ -316,17 +319,20 @@ function _renderAccSummary(accounts) {
     </div>`;
 
   // Composizione: solo i saldi positivi (un debito non "compone" il patrimonio, lo erode).
-  const pos    = accounts.filter(a => (a.balance || 0) > 0).sort((x, y) => y.balance - x.balance);
-  const posTot = pos.reduce((s, a) => s + a.balance, 0);
+  // Stessa base del patrimonio qui sopra (bond a 100), altrimenti le percentuali
+  // non sommerebbero al totale mostrato.
+  const pos    = accounts.map(a => ({ a, bal: accountBalance100(a) }))
+                         .filter(x => x.bal > 0).sort((x, y) => y.bal - x.bal);
+  const posTot = pos.reduce((s, x) => s + x.bal, 0);
   const comp = posTot > 0 ? `
     <div class="acc-comp-bar">
-      ${pos.map(a => `<span class="acc-comp-seg" style="width:${(a.balance / posTot * 100).toFixed(2)}%;background:${esc(a.color || '#58a6ff')}"
-        title="${esc(a.name)} · ${fmt.currency(a.balance)} · ${(a.balance / posTot * 100).toFixed(1)}%"></span>`).join('')}
+      ${pos.map(({ a, bal }) => `<span class="acc-comp-seg" style="width:${(bal / posTot * 100).toFixed(2)}%;background:${esc(a.color || '#58a6ff')}"
+        title="${esc(a.name)} · ${fmt.currency(bal)} · ${(bal / posTot * 100).toFixed(1)}%"></span>`).join('')}
     </div>
     <div class="acc-comp-legend">
-      ${pos.filter(a => a.balance / posTot >= 0.005).map(a => `<span class="acc-comp-item" title="${fmt.currency(a.balance)}">
+      ${pos.filter(x => x.bal / posTot >= 0.005).map(({ a, bal }) => `<span class="acc-comp-item" title="${fmt.currency(bal)}">
         <i style="background:${esc(a.color || '#58a6ff')}"></i>${esc(a.name)}
-        <b>${(a.balance / posTot * 100).toFixed(1)}%</b></span>`).join('')}
+        <b>${(bal / posTot * 100).toFixed(1)}%</b></span>`).join('')}
     </div>` : '';
 
   el.innerHTML = `
@@ -339,7 +345,7 @@ function _renderAccSummary(accounts) {
         </div>
         <div class="acc-kpi-row">
           ${kpi('Liquidità', liquid, 'var(--accent)', 'Conti correnti, risparmio e contanti')}
-          ${invest !== 0 ? kpi('Investimenti', invest, 'var(--accent2)', 'Valore di mercato del portfolio') : ''}
+          ${invest !== 0 ? kpi('Investimenti', invest, 'var(--accent2)', 'Portfolio: azioni a valore di mercato, obbligazioni a 100') : ''}
           ${cards  !== 0 ? kpi('Debito carte', cards, 'var(--expense)', 'Saldo delle carte di credito, ancora da addebitare') : ''}
         </div>
       </div>

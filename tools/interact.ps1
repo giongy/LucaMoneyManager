@@ -22,6 +22,7 @@
 #    hover <selettore>        solo spostamento del mouse
 #    type <testo>             digita nell'elemento con focus
 #    key <tasto>              Escape | Enter | Tab | Delete | ArrowDown | ...
+#                             con modificatori: Alt+ArrowLeft, Ctrl+Shift+F
 #    wait <ms>                pausa esplicita
 #    shot <nome>              screenshot in tools/screenshots/
 #    expect <selettore>       verifica che l'elemento sia VISIBILE (esito EXPECT)
@@ -207,15 +208,25 @@ $KEYS = @{
   "ArrowLeft" = @{ code="ArrowLeft";  key="ArrowLeft";  vk=37 }
   "ArrowRight"= @{ code="ArrowRight"; key="ArrowRight"; vk=39 }
 }
+# Modificatori: maschera di bit del CDP (Alt=1, Ctrl=2, Meta=4, Shift=8).
+# Si scrivono come prefissi: "Alt+ArrowLeft", "Ctrl+Shift+F".
+$MODS = @{ "alt"=1; "ctrl"=2; "control"=2; "meta"=4; "cmd"=4; "shift"=8 }
 function Send-Key([string]$name) {
+  $mask = 0
+  $parts = $name -split '\+'
+  while ($parts.Count -gt 1 -and $MODS.ContainsKey($parts[0].ToLower())) {
+    $mask = $mask -bor $MODS[$parts[0].ToLower()]
+    $parts = $parts[1..($parts.Count-1)]
+  }
+  $name = ($parts -join '+')
   if ($KEYS.ContainsKey($name)) {
     $k = $KEYS[$name]
-    Send-Cdp "Input.dispatchKeyEvent" @{ type="rawKeyDown"; code=$k.code; key=$k.key; windowsVirtualKeyCode=$k.vk; nativeVirtualKeyCode=$k.vk } | Out-Null
-    Send-Cdp "Input.dispatchKeyEvent" @{ type="keyUp";      code=$k.code; key=$k.key; windowsVirtualKeyCode=$k.vk; nativeVirtualKeyCode=$k.vk } | Out-Null
+    Send-Cdp "Input.dispatchKeyEvent" @{ type="rawKeyDown"; code=$k.code; key=$k.key; windowsVirtualKeyCode=$k.vk; nativeVirtualKeyCode=$k.vk; modifiers=$mask } | Out-Null
+    Send-Cdp "Input.dispatchKeyEvent" @{ type="keyUp";      code=$k.code; key=$k.key; windowsVirtualKeyCode=$k.vk; nativeVirtualKeyCode=$k.vk; modifiers=$mask } | Out-Null
   } else {
     # tasto singolo (es. "R", "V", "?") -> char event
-    Send-Cdp "Input.dispatchKeyEvent" @{ type="keyDown"; text=$name; key=$name } | Out-Null
-    Send-Cdp "Input.dispatchKeyEvent" @{ type="keyUp";   key=$name } | Out-Null
+    Send-Cdp "Input.dispatchKeyEvent" @{ type="keyDown"; text=$name; key=$name; modifiers=$mask } | Out-Null
+    Send-Cdp "Input.dispatchKeyEvent" @{ type="keyUp";   key=$name; modifiers=$mask } | Out-Null
   }
 }
 

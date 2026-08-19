@@ -25,7 +25,7 @@ tali. La documentazione da tenere aggiornata è solo questa terna: `CLAUDE.md`, 
 - **Linguaggio:** Java 25, Maven 3.x
 - **UI:** JCEF v146 (Chromium embedded) + Swing per dialogs/titlebar/splash
 - **Frontend:** Vanilla JS puro (`src/main/resources/web/`, modulare in `js/pages/*.js`), no React/Vue
-- **Versione:** 1.20.2 — output `target/moneymanager-1.20.2.jar` (fat JAR, web/ esclusa)
+- **Versione:** 1.20.6 — output `target/moneymanager-1.20.6.jar` (fat JAR, web/ esclusa)
 - **Web assets:** serviti da filesystem (cartella `web/` accanto al `.exe` in produzione, `target/classes/web/` in IDE)
 - **DB path:** `%APPDATA%\LucaMoneyManager\data.db` (`%APPDATA%` = `...\Roaming`)
 - **Build:** `mvn package` oppure `build.bat`
@@ -277,6 +277,7 @@ Azioni (`-Do`, una per riga o separate da `;`): `goto` · `click` · `rightclick
 `hover` · `type` · `key` · `wait` · `shot` · `expect`/`expectnot` (verificano la visibilità e
 stampano l'esito) · `eval`. Il selettore è CSS normale; `<css>|<testo>` sceglie il primo elemento
 che contiene quel testo (es. `click .ctx-item|Duplica`).
+`key` accetta i modificatori come prefisso (`key Alt+ArrowLeft`, `key Ctrl+Shift+F`).
 ⚠️ `eval` deve stare su una riga sua: è l'unica azione in cui i `;` non separano, appartengono al JS.
 
 ### Leggere l'esito: la riga `PIXEL`

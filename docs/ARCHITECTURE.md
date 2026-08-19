@@ -225,7 +225,7 @@ eseguono in ordine:
 │ 6. utils.js               fmt.currency/date, evalAmount, …     │
 │ 7. calculator.js          calcolatrice nei campi importo       │
 │ 8. ui-shell.js            modale, titlebar drag, resize handles│
-│ 9. router.js              navigate(), renderPage()             │
+│ 9. router.js              navigate(), renderPage(), cronologia │
 │ 10. sidebar.js            updateSidebar(), reports list        │
 ├─────────────────────────── PAGINE ────────────────────────────┤
 │ 11-24.  dashboard, transactions, budget, portfolio,            │
@@ -315,6 +315,29 @@ navigate('budgets')
        ├─ currentPage = 'budgets'
        └─ renderPage('budgets')   ──►   renderBudgets()  (in pages/budget.js)
 ```
+
+### Cronologia indietro/avanti
+Sempre in [router.js](../src/main/resources/web/js/router.js): uno stack lineare stile browser
+(`_histStack` / `_histIdx`, max 50 voci, solo in memoria). `navigate()` appende una voce e tronca
+il ramo "avanti"; le due frecce in sidebar (sopra la data), `←`/`→`, `Alt+←`/`Alt+→` e i tasti
+laterali del mouse lo scorrono con `histGo(±1)`.
+
+Le frecce **nude** si fermano quando il focus è in un campo di testo o in una select (`←`/`→` lì
+muovono il cursore o cambiano voce); quelle con **Alt** valgono anche lì, perché Alt non serve a
+scrivere. Entrambe si fermano con un pannello aperto sopra la pagina — modale, guida scorciatoie,
+calcolatrice, editor dei temi (`_histBlocked()`): cambiare pagina lascerebbe il pannello appeso
+sulla pagina sbagliata.
+
+Ogni voce porta con sé lo **stato** della pagina, non solo il nome — `txFilters` per Transazioni,
+la tab per Budget/Reports/Pianificate, il filtro salvato per la pagina Filtri (tabella
+`_HIST_STATE`): tornare su Transazioni senza i filtri con cui la si era lasciata mostrerebbe un
+elenco diverso da quello da cui si è usciti. Lo snapshot si aggiorna sia all'arrivo sia **all'uscita**
+dalla pagina, perché filtri e tab cambiano anche stando fermi sulla stessa pagina.
+
+⚠️ Le variabili di stato vivono nei moduli di pagina, caricati **dopo** `router.js`: `_HIST_STATE`
+le legge/scrive solo a runtime e sempre dentro `try/catch` — un modulo assente darebbe
+`ReferenceError`, e un dettaglio di stato non deve poter rompere la navigazione.
+Aggiungendo una pagina con filtri o tab propri, va aggiunta la sua riga in `_HIST_STATE`.
 
 ### Anatomia di un modulo pagina
 Ogni file `js/pages/*.js` segue lo stesso pattern:
@@ -572,7 +595,7 @@ Disabilitabile con `http.enabled=0` in `settings.properties`.
 | Comando | Cosa fa |
 |---------|---------|
 | `mvn exec:java` | Avvio diretto in IDE/CLI, mainClass `com.moneymanager.App` |
-| `mvn package` | Fat JAR via maven-shade-plugin → `target/moneymanager-1.20.2.jar` (esclude `web/`) |
+| `mvn package` | Fat JAR via maven-shade-plugin → `target/moneymanager-1.20.6.jar` (esclude `web/`) |
 | `build.bat` | Wrapper interattivo Maven (chiede i passi) |
 | `prepare-package` | Genera `target/icon.ico` invocando `IconFactory.main()` |
 

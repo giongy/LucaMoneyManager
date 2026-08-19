@@ -565,6 +565,31 @@ input,select,textarea { font-family:inherit; }
 /* flex-basis 0 + min-height 0: gli spacer riempiono lo spazio quando c'è,
    ma collassano quando la sidebar deve scorrere (finestra bassa). */
 .sidebar-spacer { flex:1 1 0; min-height:0; }
+
+/* Cronologia di navigazione: una pillola sottile divisa in due segmenti, sopra
+   la data. Larga e bassa di proposito — deve leggersi come una linea di comando
+   sola, non come due bottoni. Solo variabili di tema: nessun colore fisso,
+   quindi regge su tutti e quattro i temi. */
+.sidebar-histnav {
+  display:flex; width:100%; max-width:176px; margin:0 auto 8px;
+  border:1px solid var(--border); border-radius:999px;
+  background:color-mix(in srgb, var(--bg3) 60%, transparent);
+  overflow:hidden;                      /* i segmenti seguono gli angoli tondi */
+}
+.histnav-btn {
+  flex:1 1 0; display:flex; align-items:center; justify-content:center;
+  height:19px; padding:0;
+  background:transparent; border:0; color:var(--txt3);
+  transition:background .15s, color .15s, opacity .15s;
+}
+/* Divisorio fra i due segmenti: inset invece di un bordo, così non aggiunge
+   larghezza e non altera l'allineamento delle due metà. */
+.histnav-btn + .histnav-btn { box-shadow:inset 1px 0 0 var(--border); }
+.histnav-btn:hover:not(:disabled) { background:var(--bg4); color:var(--accent); }
+/* Spento = non c'è dove andare: resta visibile (l'ingombro non salta) ma inerte. */
+.histnav-btn:disabled { opacity:.3; cursor:default; }
+.histnav-icon { width:13px; height:13px; stroke:currentColor; stroke-width:2; }
+
 .sidebar-date {
   text-align:center; padding:2px 10px; user-select:none;
   line-height:1.1;

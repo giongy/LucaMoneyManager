@@ -101,6 +101,18 @@
 
     </nav>
     <div class="sidebar-spacer"></div>
+    <!-- Cronologia di navigazione: torna alla pagina precedente / rifà avanti (router.js).
+         Anche Alt+← / Alt+→ e i tasti laterali del mouse. -->
+    <div class="sidebar-histnav">
+      <button type="button" class="histnav-btn" id="histBack" onclick="histBack()" disabled
+              aria-label="Indietro" title="Nessuna pagina precedente">
+        <i data-lucide="chevron-left" class="histnav-icon"></i>
+      </button>
+      <button type="button" class="histnav-btn" id="histFwd" onclick="histForward()" disabled
+              aria-label="Avanti" title="Nessuna pagina successiva">
+        <i data-lucide="chevron-right" class="histnav-icon"></i>
+      </button>
+    </div>
     <div class="sidebar-date" id="sidebarDate"></div>
     <div class="sidebar-spacer"></div>
     <div class="sidebar-accounts" id="sidebarAccounts"></div>

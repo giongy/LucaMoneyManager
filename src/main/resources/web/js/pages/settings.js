@@ -1520,6 +1520,21 @@ function showShortcutsHelp() {
         </div>
       </div>
       <div class="sc-group">
+        <div class="sc-group-title">Navigazione</div>
+        <div class="sc-row">
+          <span class="sc-desc">Pagina precedente (anche tasto laterale del mouse)</span>
+          <span class="sc-keys"><kbd>←</kbd> <span style="opacity:.6">o</span> <kbd>Alt</kbd> + <kbd>←</kbd></span>
+        </div>
+        <div class="sc-row">
+          <span class="sc-desc">Pagina successiva (anche tasto laterale del mouse)</span>
+          <span class="sc-keys"><kbd>→</kbd> <span style="opacity:.6">o</span> <kbd>Alt</kbd> + <kbd>→</kbd></span>
+        </div>
+        <div class="sc-row">
+          <span class="sc-desc">Con il cursore in un campo valgono solo quelle con <kbd>Alt</kbd></span>
+          <span class="sc-keys"></span>
+        </div>
+      </div>
+      <div class="sc-group">
         <div class="sc-group-title">Interfaccia</div>
         <div class="sc-row">
           <span class="sc-desc">Mostra questa guida</span>

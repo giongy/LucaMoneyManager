@@ -944,23 +944,29 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 /* ─── Cat picker ──────────────────────────────────────────────────────────── */
 .cat-picker { position:relative; }
 .cat-picker-list {
-  position:absolute; right:0; top:calc(100% + 2px); z-index:9999;
-  background:var(--bg2); border:1px solid var(--border); border-radius:6px;
-  max-height:220px; overflow-y:auto; box-shadow:0 4px 16px rgba(0,0,0,.5);
-  display:none;
-  /* Ancorata a destra: si allarga verso sinistra (colonna importo) fino al testo più
-     lungo, senza uscire dalla modale (min = larghezza input, tetto ~larghezza modale) */
+  position:absolute; right:0; top:calc(100% + 4px); z-index:9999;
+  background:var(--bg2); border:1px solid var(--border); border-radius:8px;
+  max-height:264px; overflow-y:auto; box-shadow:0 8px 24px rgba(0,0,0,.22);
+  display:none; padding:4px;
+  /* Larghezza: dal testo più lungo (max-content) con pavimento sull'input.
+     ⚠️ Lato di ancoraggio e max-width li riscrive initCatPicker (transactions.js) a ogni
+     apertura, misurando lo spazio dentro .modal-body: il picker sta nella colonna destra
+     in Transazioni e nella sinistra in Pianificate, e un lato fisso sborda in uno dei due
+     casi — il modale, essendo scrollabile, ritaglia la parte fuori e mangia l'inizio dei
+     nomi. I valori qui sotto sono solo il ripiego per un picker fuori da un modale. */
   min-width:100%; width:max-content; max-width:min(520px, 88vw);
 }
 .cat-picker-item {
-  padding:7px 12px; cursor:pointer; font-size:var(--font-size,13px); color:var(--txt);
-  white-space:nowrap;
+  padding:7px 10px; border-radius:6px; cursor:pointer;
+  font-size:var(--font-size,13px); color:var(--txt); white-space:nowrap;
 }
 .cat-picker-item:hover, .cat-picker-item.active { background:var(--bg4); }
-.cat-picker-empty { padding:10px 12px; color:var(--txt3); font-size:var(--fs-md,12px); }
+/* Percorso della categoria padre: in secondo piano rispetto alla foglia */
+.cat-picker-path { color:var(--txt3); }
+.cat-picker-empty { padding:10px; color:var(--txt3); font-size:var(--fs-md,12px); }
 .cat-picker-sep {
-  padding:4px 12px; font-size:var(--fs-sm,11px); color:var(--txt3);
-  border-top:1px solid var(--border); margin-top:2px;
+  padding:7px 10px 5px; font-size:var(--fs-sm,11px); color:var(--txt3);
+  border-top:1px solid var(--border); margin:4px 2px 2px;
   cursor:default; user-select:none;
 }
 

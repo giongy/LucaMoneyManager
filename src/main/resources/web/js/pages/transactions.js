@@ -635,6 +635,15 @@ window.toggleReconciled = async (id, newVal) => {
   refreshNotices();  // il badge 🔔 deve riflettere la transazione appena verificata
 };
 
+// Disegna una voce del picker: "Parent › 🏠 Foglia" col percorso in grigio, così l'occhio
+// cade sulla foglia — che è quella che si sceglie — invece che sul prefisso ripetuto su
+// ogni riga. Escapa qui perché il risultato finisce in innerHTML.
+function _catItemHtml(label) {
+  const i = label.indexOf(' › ');
+  return i < 0 ? esc(label)
+    : `<span class="cat-picker-path">${esc(label.slice(0, i))} ›</span> ${esc(label.slice(i + 3))}`;
+}
+
 // Inizializza un selettore di categoria ad autocomplete: input testuale + lista filtrabile
 // con navigazione da tastiera. Espone input._catPickerSetItems(items, keepId) per (ri)popolarlo.
 // Scrive l'id scelto nell'input nascosto hiddenId.
@@ -648,24 +657,42 @@ function initCatPicker(inputId, hiddenId, listId) {
 
   const hide = () => { list.style.display = 'none'; activeIdx = -1; };
 
+  // Sceglie da che lato aprire la lista e quanto può allargarsi, misurando lo spazio
+  // dentro il modale. Serve perché il picker sta nella colonna destra (Transazioni) e
+  // nella sinistra (Pianificate): un lato fisso in CSS sborda in uno dei due casi, e
+  // .modal-body è scrollabile — quindi ritaglia la parte fuori invece di lasciarla
+  // uscire, mangiandosi l'inizio dei nomi di categoria.
+  const place = () => {
+    const box = list.closest('.modal-body') || document.documentElement;
+    const br = box.getBoundingClientRect(), ir = input.getBoundingClientRect();
+    const PAD = 10;
+    const spaceRight = br.right - PAD - ir.left;   // aprendo a destra dal bordo sinistro dell'input
+    const spaceLeft  = ir.right - (br.left + PAD); // aprendo a sinistra dal bordo destro dell'input
+    const toRight = spaceRight >= spaceLeft;
+    list.style.left  = toRight ? '0'    : 'auto';
+    list.style.right = toRight ? 'auto' : '0';
+    list.style.maxWidth = Math.round(Math.min(520, Math.max(ir.width, toRight ? spaceRight : spaceLeft))) + 'px';
+  };
+
   const renderList = filtered => {
     activeIdx = -1;
     const selectables = filtered.filter(it => !it.separator);
     if (!selectables.length) {
       list.innerHTML = '<div class="cat-picker-empty">Nessuna categoria trovata</div>';
     } else {
-      // label contiene nomi di categoria (testo utente): va escapata qui, dove finisce in
-      // innerHTML. Alla sorgente non si può, perché la stessa label viene assegnata a
-      // input.value in selectById, dove le entità HTML si vedrebbero a schermo.
+      // label contiene nomi di categoria (testo utente): va escapata qui (in _catItemHtml),
+      // dove finisce in innerHTML. Alla sorgente non si può, perché la stessa label viene
+      // assegnata a input.value in selectById, dove le entità HTML si vedrebbero a schermo.
       list.innerHTML = filtered.map(it =>
         it.separator
           ? `<div class="cat-picker-sep">${esc(it.label)}</div>`
-          : `<div class="cat-picker-item" data-id="${it.id}">${esc(it.label)}</div>`
+          : `<div class="cat-picker-item" data-id="${it.id}">${_catItemHtml(it.label)}</div>`
       ).join('');
       list.querySelectorAll('.cat-picker-item').forEach(el => {
         el.onmousedown = e => { e.preventDefault(); selectById(Number(el.dataset.id)); };
       });
     }
+    place();
     list.style.display = 'block';
   };
 
@@ -679,7 +706,10 @@ function initCatPicker(inputId, hiddenId, listId) {
   // Called by updateCatSelect to reset items and pre-select
   input._catPickerSetItems = (newItems, keepId) => {
     items = newItems;
-    const sel = items.find(i => i.id == keepId);
+    // ⚠️ Senza la guardia su keepId, `i.id == keepId` con keepId null pesca la riga
+    // separatore (id undefined, e undefined == null è vero): il campo nasceva scritto
+    // "── tutte le categorie ──" con l'id nascosto a "undefined".
+    const sel = keepId == null ? null : items.find(i => !i.separator && i.id == keepId);
     hidden.value = sel ? sel.id : '';
     input.value  = sel ? sel.label : '';
     hide();

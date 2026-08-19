@@ -2331,6 +2331,46 @@ tr.tx-selected td { background:rgba(124,124,255,.07); }
    piccole della riga padre, così il drill-down si legge come subordinato senza bisogno
    di uno sfondo dedicato (che litigherebbe con l'alternanza pari/dispari). */
 .analytics-table tbody tr.cc-detail-row td { font-size:11.5px; }
+
+/* Confronto Periodi: messa a fuoco del drill-down ────────────────────────────
+   Aprire una macro non basta a poterla leggere: la tabella resta piena di macro
+   chiuse con importi dello stesso ordine di grandezza e le figlie ci si perdono
+   dentro. Tre segnali, che servono insieme:
+   1) `.cc-dim` — con almeno un gruppo aperto, le macro ancora chiuse sbiadiscono;
+      l'hover le riporta a piena intensità, quindi restano consultabili;
+   2) `.cc-group` — barretta verticale sul bordo sinistro, del colore della macro
+      (`--cc-rail`, inline sulla riga: è lo stesso colore dell'icona). Con più
+      gruppi aperti si vede a colpo d'occhio dove finisce uno e comincia l'altro;
+   3) `.cc-group-head` in grassetto e `.cc-group-end` (ultima figlia) che chiude
+      il blocco con un filetto dello stesso colore, smorzato.
+   ⚠️ Niente `background` su queste righe: lo zebra `:nth-child(even)` ha override
+   per tema con specificità (0,2,4) e sovrascriverlo qui vorrebbe dire duplicarli
+   in tutti e quattro i temi. La velatura si ottiene invece con un `box-shadow`
+   inset a raggio enorme, che copre lo sfondo qualunque esso sia restando SOTTO il
+   testo: stessa resa su fondo chiaro e scuro, zero interferenze con zebra e hover. */
+.analytics-table tbody tr.cc-dim td { opacity:.45; transition:opacity .12s ease; }
+.analytics-table tbody tr.cc-dim:hover td { opacity:1; }
+.analytics-table tbody tr.cc-group td { --cc-veil:color-mix(in srgb, var(--cc-rail, var(--accent)) 8%, transparent); box-shadow:inset 0 0 0 9999px var(--cc-veil); }
+/* Riga di testa: stessa velatura, più densa, così il gruppo ha un capo evidente. */
+.analytics-table tbody tr.cc-group-head td { --cc-veil:color-mix(in srgb, var(--cc-rail, var(--accent)) 22%, transparent); font-weight:600; }
+/* La barretta va aggiunta alla velatura, non al posto suo: due ombre sulla stessa cella. */
+.analytics-table tbody tr.cc-group td:first-child {
+  box-shadow: inset 3px 0 0 var(--cc-rail, var(--accent)), inset 0 0 0 9999px var(--cc-veil);
+}
+.analytics-table tbody tr.cc-group-end td { border-bottom-color:color-mix(in srgb, var(--cc-rail, var(--border)) 45%, transparent); }
+/* Asterisco "la voce contiene movimenti straordinari" (Confronto Periodi). Su --warn perché
+   è un'avvertenza sulla lettura del dato, non un giudizio sul dato: niente rosso/verde, che
+   in questa tabella significano già "peggiorato"/"migliorato". */
+.cc-oneoff { color:var(--warn); font-weight:700; margin-left:3px; cursor:help; }
+/* Importi cliccabili del Confronto Periodi (→ Transazioni di quella categoria in quel periodo).
+   Nessun segno permanente: sono due colonne di cifre fitte e sottolinearle tutte le renderebbe
+   illeggibili. L'affordance sta nel cursore e nella sottolineatura all'hover, con la cella
+   evidenziata perché in una riga si capisca QUALE dei due periodi si sta per aprire. */
+.analytics-table tbody td.cc-drill { cursor:pointer; }
+.analytics-table tbody td.cc-drill:hover {
+  text-decoration:underline dotted; text-underline-offset:3px;
+  box-shadow:inset 0 0 0 9999px color-mix(in srgb, var(--accent) 14%, transparent);
+}
 .analytics-cat-name { font-size:var(--fs-md,12px); min-width:160px; }
 .analytics-total { font-weight:600; border-left:2px solid var(--border) !important; }
 .analytics-avg  { font-weight:700; color:var(--accent) !important; }

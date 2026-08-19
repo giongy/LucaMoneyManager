@@ -820,6 +820,27 @@ function _catCmpKidsOf(id) {
 }
 const _catCmpHasKids = id => _catCmpKidsOf(id).length > 0;
 
+// Categorie che compongono il totale di una riga macro: la macro stessa più tutte le figlie che
+// hanno movimenti nella finestra confrontata. Serve al drill-down verso Transazioni, il cui filtro
+// per categoria NON discende la gerarchia: passando il solo id della macro si vedrebbero le sole
+// transazioni registrate direttamente su di essa e l'elenco non sommerebbe al numero cliccato.
+// (Sulle righe di dettaglio l'id è già quello giusto da solo: vedi la chiamata in renderSection.)
+function _catCmpDrillIds(id) {
+  const kids = (_catCmpDetail || []).filter(d => (d.parent_id || d.id) === id).map(d => d.id);
+  return [...new Set([id, ...kids])];
+}
+
+// Dal Confronto Periodi → Transazioni: elenco filtrato sulle categorie della riga e sul periodo
+// della colonna cliccata (A o B). Gli id arrivano già risolti da chi disegna la riga, così la
+// stessa funzione serve righe macro e righe di dettaglio senza dover indovinare quale sia quale
+// (una macro con movimenti registrati direttamente su di sé compare in entrambi i livelli con
+// lo stesso id, e i due click devono filtrare in modo diverso).
+window._catCmpToTx = (ids, period) => {
+  const p = period === 'B' ? _catCmpB : _catCmpA;
+  if (!p || !ids?.length) return;
+  navigateToCategoryTx(ids.length === 1 ? ids[0] : ids, p.startDate, p.endDate);
+};
+
 // Apre/chiude il dettaglio categorie di una macrocategoria. Le macro aperte restano
 // tali al cambio di periodo (gli id non cambiano): si confrontano più periodi sullo
 // stesso drill-down senza doverlo riaprire ogni volta.
@@ -844,6 +865,26 @@ function _renderCatCmpTable() {
   if (!el || !_catCmpCache) return;
 
   const dPct = (a, b) => b ? ((a - b) / Math.abs(b)) * 100 : null;  // null se base B = 0 (crescita indefinita)
+
+  // Date dei due periodi in chiaro: finiscono nel tooltip degli importi cliccabili, così prima
+  // di lasciare la pagina si sa su quale finestra si sta per atterrare.
+  const periodLabelA = `${fmt.date(_catCmpA.startDate)} → ${fmt.date(_catCmpA.endDate)}`;
+  const periodLabelB = `${fmt.date(_catCmpB.startDate)} → ${fmt.date(_catCmpB.endDate)}`;
+
+  // Asterisco "straordinari": la voce contiene almeno un movimento marcato 🎯 straordinario
+  // (tag di sistema `oneoff`) in uno dei due periodi. È la risposta alla domanda che nasce
+  // guardando un +27.737%: cambio di abitudine o episodio isolato? Il tooltip dice quanta parte
+  // del totale è episodica, e in quale periodo.
+  // ⚠️ Annota, non corregge: total_a/total_b restano comprensivi degli straordinari, perché
+  // quei soldi si sono mossi davvero (stessa regola di `notOneoff` lato Java).
+  const oneoffMark = r => {
+    const oa = Number(r.oneoff_a) || 0, ob = Number(r.oneoff_b) || 0;
+    if (!oa && !ob) return '';
+    const parts = [];
+    if (oa) parts.push(`Periodo A ${fmt.currency(oa)}`);
+    if (ob) parts.push(`Periodo B ${fmt.currency(ob)}`);
+    return `<span class="cc-oneoff" title="Di cui movimenti straordinari 🎯 — ${parts.join(' · ')}">*</span>`;
+  };
 
   const sortRows = arr => {
     const { col, dir } = _catCmpSort;
@@ -906,24 +947,33 @@ function _renderCatCmpTable() {
       </td>`;
     };
 
-    // Nome: icona colorata + nome. Il link ad "Andamento Categoria" ha senso solo sulle
-    // righe figlie, che sono singole categorie: quel tab non aggrega le figlie di una
-    // macro, quindi il nome della macro resta testo semplice.
+    // Nome: icona colorata + nome (+ eventuale asterisco degli straordinari). Il link ad
+    // "Andamento Categoria" ha senso solo sulle righe figlie, che sono singole categorie:
+    // quel tab non aggrega le figlie di una macro, quindi il nome della macro resta testo semplice.
     const nameOf = (r, asLink) =>
       `<span style="color:${esc(r.color)}">${esc(r.icon || '')}</span> ${asLink
         ? `<a href="#" onclick="_catCmpToTrend(${r.id});return false" style="color:inherit;text-decoration:none;border-bottom:1px dashed var(--txt3)" title="Vedi andamento nel periodo (inizio B → fine A)">${esc(r.name)}</a>`
-        : esc(r.name)}`;
+        : esc(r.name)}${oneoffMark(r)}`;
 
     // Le 4 colonne numeriche, identiche per riga macro e riga figlia (`scale`: vedi sopra,
     // le figlie usano la scala delle sorelle, non quella delle macro).
-    const valueCells = (r, scale) => {
+    // `ids`: le categorie da passare a Transazioni cliccando un importo (vedi _catCmpDrillIds).
+    const valueCells = (r, scale, ids) => {
       const delta = r.total_a - r.total_b;
       const pct = dPct(r.total_a, r.total_b);
       // Segno del "bene": uscita in calo o entrata in crescita = verde
       const good = isExpense ? delta <= 0 : delta >= 0;
       const deltaCol = delta === 0 ? 'var(--txt3)' : (good ? 'var(--income)' : 'var(--expense)');
-      return `<td class="text-right">${r.total_a ? fmt.currency(r.total_a) : '<span style="color:var(--txt3)">—</span>'}</td>
-        <td class="text-right" style="opacity:.85">${r.total_b ? fmt.currency(r.total_b) : '<span style="color:var(--txt3)">—</span>'}</td>
+      // Importo cliccabile → Transazioni di QUELLA categoria in QUEL periodo (la colonna dice
+      // quale). Solo se il totale non è zero: un elenco vuoto non spiega niente. Il doppio click
+      // non deve arrivare alla riga, che lo interpreterebbe come apri/chiudi il drill-down.
+      const drill = (total, period, extraStyle) => total
+        ? `<td class="text-right cc-drill" style="${extraStyle}" onclick="_catCmpToTx([${ids}],'${period}')"
+               ondblclick="event.stopPropagation()"
+               title="Vedi le transazioni: ${esc(r.name)} · Periodo ${period} (${period === 'A' ? periodLabelA : periodLabelB})">${fmt.currency(total)}</td>`
+        : `<td class="text-right" style="${extraStyle}"><span style="color:var(--txt3)">—</span></td>`;
+      return `${drill(r.total_a, 'A', '')}
+        ${drill(r.total_b, 'B', 'opacity:.85')}
         <td class="text-right" style="color:${deltaCol};font-weight:600">${delta>=0?'+':''}${fmt.currency(delta)}</td>
         ${pctCell(pct, good, scale)}`;
     };
@@ -932,30 +982,40 @@ function _renderCatCmpTable() {
     // altrimenti i nomi non si allineano in colonna.
     const slot = 'display:inline-block;width:15px;padding:0;margin-right:3px;text-align:left;vertical-align:baseline';
 
+    // Con un drill-down aperto la sezione resta piena di macro chiuse con numeri dello stesso
+    // ordine di grandezza: il dettaglio che si sta leggendo ci si perde dentro. Se almeno una
+    // macro è aperta le altre sbiadiscono (`.cc-dim`; l'hover le riporta a piena intensità) e
+    // ogni gruppo aperto prende una barretta laterale del colore della propria macrocategoria
+    // — lo stesso dell'icona — così più gruppi aperti restano distinguibili fra loro.
+    const anyOpen = sorted.some(r => _catCmpOpen.has(r.id));
+
     let html = `<tr class="analytics-section-header"><td colspan="5">${label}</td></tr>`;
     for (const r of sorted) {
       const kids = _catCmpKidsOf(r.id);
       const open = _catCmpOpen.has(r.id);
+      const rail = esc(r.color || '#6ab7ff');   // colore della barretta di gruppo
       // Doppio click sulla riga = stessa azione del chevron (come nel Budget).
       const twist = kids.length
-        ? `<button class="btn-budget-toggle" style="${slot}" onclick="_catCmpToggle(${r.id})"
+        ? `<button class="btn-budget-toggle" style="${slot}${open?`;color:${rail}`:''}" onclick="_catCmpToggle(${r.id})"
              title="${open?'Nascondi':'Mostra'} le categorie di ${esc(r.name)}">${open?'▼':'▶'}</button>`
         : `<span style="${slot}"></span>`;
-      html += `<tr ${kids.length?`ondblclick="_catCmpToggle(${r.id})"`:''}>
+      const rowCls = open ? 'cc-group cc-group-head' : (anyOpen ? 'cc-dim' : '');
+      html += `<tr class="${rowCls}" style="--cc-rail:${rail}" ${kids.length?`ondblclick="_catCmpToggle(${r.id})"`:''}>
         <td class="analytics-cat-name">${twist}${nameOf(r, false)}</td>
-        ${valueCells(r, maxPct)}
+        ${valueCells(r, maxPct, _catCmpDrillIds(r.id))}
       </tr>`;
-      // Righe figlie: il filetto verticale a sinistra le lega visivamente alla macro
-      // aperta (l'indentazione da sola, con l'alternanza di sfondo, non basta a leggerle
-      // come un blocco).
+      // Righe figlie: la barretta di gruppo sul bordo sinistro della tabella (stesso colore
+      // della macro) le lega alla riga di testa, e l'ultima chiude il blocco con un filetto.
+      // L'indentazione da sola, con l'alternanza di sfondo, non basta a leggerle come blocco.
       if (open) {
         const kidScale = scaleOf(kids);
-        for (const k of sortRows(kids)) {
-          html += `<tr class="cc-detail-row">
-            <td class="analytics-cat-name" style="padding-left:19px"><span style="display:inline-block;border-left:2px solid var(--border);padding-left:13px">${nameOf(k, true)}</span></td>
-            ${valueCells(k, kidScale)}
+        const kidRows = sortRows(kids);
+        kidRows.forEach((k, i) => {
+          html += `<tr class="cc-group cc-detail-row${i === kidRows.length-1 ? ' cc-group-end' : ''}" style="--cc-rail:${rail}">
+            <td class="analytics-cat-name" style="padding-left:32px">${nameOf(k, true)}</td>
+            ${valueCells(k, kidScale, [k.id])}
           </tr>`;
-        }
+        });
       }
     }
     const gGood = isExpense ? totDelta <= 0 : totDelta >= 0;
@@ -979,6 +1039,12 @@ function _renderCatCmpTable() {
     return;
   }
 
+  // La legenda dell'asterisco compare solo se un asterisco c'è davvero (altrimenti spiegherebbe
+  // un simbolo assente). Si guardano anche le righe di dettaglio: un episodio può stare in una
+  // sola figlia mentre la macro è chiusa, ma basta aprirla per vederlo.
+  const hasOneoff = [...(_catCmpCache || []), ...(_catCmpDetail || [])]
+    .some(r => (Number(r.oneoff_a) || 0) || (Number(r.oneoff_b) || 0));
+
   el.innerHTML = `
     <table class="analytics-table">
       <thead><tr>
@@ -992,7 +1058,11 @@ function _renderCatCmpTable() {
         ${renderSection(expenses, 'Uscite', true)}
         ${renderSection(incomes,  'Entrate', false)}
       </tbody>
-    </table>`;
+    </table>
+    ${hasOneoff ? `<p style="margin:10px 2px 0;font-size:11.5px;color:var(--txt2)">
+      <span class="cc-oneoff">*</span> la voce include movimenti marcati 🎯 <strong>straordinari</strong>:
+      lo scostamento può essere un episodio isolato, non un cambio di abitudine.
+      Passa sul simbolo per vedere quanto pesano e in quale periodo.</p>` : ''}`;
 }
 
 let _analyticsBalanceChart = null;

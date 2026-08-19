@@ -181,14 +181,18 @@ function navigateToAccountTx(accountId) {
 
 // Apre la pagina Transazioni filtrata sul mese corrente e su una o più categorie
 // (dal widget "Uscite del mese corrente" della dashboard: la singola voce passa un id,
-// la riga di coda "Altre N categorie" passa l'array degli id che aggrega).
-// Range '0M..0M' (mese intero) e non 'cur_month': il widget somma TUTTO il mese, comprese le
-// date future (pianificate già registrate), mentre 'cur_month' si ferma a oggi — i due totali
-// non coinciderebbero e la pagina sembrerebbe aver perso delle righe.
-function navigateToCategoryTx(cat) {
+// la riga di coda "Altre N categorie" passa l'array degli id che aggrega; dal Confronto Periodi:
+// la riga macro passa macro + figlie, la riga di dettaglio il solo id della categoria).
+// Senza from/to il range è '0M..0M' (mese intero) e non 'cur_month': il widget somma TUTTO il
+// mese, comprese le date future (pianificate già registrate), mentre 'cur_month' si ferma a oggi
+// — i due totali non coinciderebbero e la pagina sembrerebbe aver perso delle righe.
+// Con from/to (Confronto Periodi) il range diventa 'custom' sulle due date esatte del periodo
+// cliccato: la barra dei filtri le mostra e restano modificabili a mano.
+function navigateToCategoryTx(cat, from, to) {
   const ids = Array.isArray(cat) ? cat.map(Number) : null;
+  const range = (from && to) ? 'custom' : '0M..0M';
   txFilters = {
-    range: '0M..0M', ...rangeToFilter('0M..0M'),
+    range, ...rangeToFilter(range, from, to),
     ...(ids ? { category_ids: ids } : { category_id: String(cat) }),
   };
   if (currentPage === 'transactions') renderTransactions();
@@ -394,8 +398,16 @@ function saveTxFiltersAsReport() {
 function _renderTxSummaryBar(rows, summary) {
   const el = document.getElementById('txSummaryBar');
   if (!el) return;
-  const income  = rows.filter(t => t.type === 'income').reduce((s,t) => s + t.amount, 0);
-  const expense = rows.filter(t => t.type === 'expense').reduce((s,t) => s + t.amount, 0);
+  // Stessa regola con cui la tabella mostra l'importo di riga (vedi `displayAmt` in
+  // renderTxBodyAndHeaders): filtrando per categoria, di una transazione divisa conta la sola
+  // quota che ricade nel filtro, non l'importo pieno. Sommare `amount` faceva dire alla barra
+  // un totale diverso da quello delle righe che ha sopra — e diverso dal numero da cui si è
+  // arrivati (Confronto Periodi, widget della dashboard), che la quota la conta giusta.
+  // `filtered_split_amount` esiste SOLO quando c'è un filtro categoria: senza, si ricade
+  // sull'importo pieno e la barra si comporta esattamente come prima.
+  const amtOf = t => (t.split_count > 0 && t.filtered_split_amount != null) ? t.filtered_split_amount : t.amount;
+  const income  = rows.filter(t => t.type === 'income').reduce((s,t) => s + amtOf(t), 0);
+  const expense = rows.filter(t => t.type === 'expense').reduce((s,t) => s + amtOf(t), 0);
   const net     = income - expense;
   const sep     = `<span style="color:var(--txt3);margin:0 4px">|</span>`;
   const val     = (v, id='') => `<span ${id?`id="${id}"`:''} style="color:${v>=0?'var(--income)':'var(--expense)'}">${fmt.currency(v)}</span>`;

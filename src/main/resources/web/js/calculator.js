@@ -24,30 +24,61 @@
   let _targetInput = null;  // campo importo agganciato (null in standalone)
   let _pos        = null;   // {left, top} posizione salvata del pannello (null = da centrare)
 
+  // ─── Display: dimensione del testo e vista sulla coda ───────────────────────
+  // Il pannello ha larghezza fissa: con espressioni lunghe (es. 123+345+456+…)
+  // il testo sforava a destra e le ultime cifre digitate uscivano dalla vista.
+  // Due difese, in quest'ordine: si rimpicciolisce il carattere finché
+  // l'espressione ci sta (fino a 13px, sotto cui si leggerebbe peggio della
+  // riga di anteprima), e se nemmeno così basta si scorre il display in fondo.
+  const _FONT_STEPS = [20, 18, 17, 16, 15, 14, 13];   // px: si usa il primo che ci sta
+
+  function _fitFont() {
+    for (const px of _FONT_STEPS) {
+      _display.style.fontSize = px + 'px';
+      // La larghezza del campo non dipende dal font (pannello a misura fissa),
+      // quindi basta il confronto contenuto/contenitore.
+      if (_display.scrollWidth <= _display.clientWidth) break;
+    }
+  }
+
+  // Rimette il fuoco sul display col cursore in fondo e la coda dell'espressione
+  // in vista: i tasti a schermo inseriscono sempre in coda, ed è lì che guarda
+  // l'utente. Usata al posto di _display.focus() nelle azioni del tastierino.
+  function _focusEnd() {
+    _display.focus();
+    const n = _display.value.length;
+    try { _display.setSelectionRange(n, n); } catch (_) { /* campo non selezionabile */ }
+    _display.scrollLeft = _display.scrollWidth;
+  }
+
   // ─── Anteprima / valutazione ───────────────────────────────────────────────
   // Aggiorna la riga di anteprima col risultato dell'espressione corrente.
   function _updatePreview() {
     const raw = _display.value.trim();
-    if (!raw) { _preview.textContent = ''; return; }
-    const r = evalAmount(raw, true);   // consenti risultati negativi in anteprima
-    _preview.textContent = (r == null) ? '—' : fmt.currency(r);
+    if (!raw) {
+      _preview.textContent = '';
+    } else {
+      const r = evalAmount(raw, true);   // consenti risultati negativi in anteprima
+      _preview.textContent = (r == null) ? '—' : fmt.currency(r);
+    }
+    _fitFont();   // l'espressione è cambiata: ricalcola la dimensione del carattere
   }
 
   // ─── Manipolazione del display ──────────────────────────────────────────────
   function _append(ch) {
     _display.value += ch;
     _updatePreview();
-    _display.focus();
+    _focusEnd();
   }
   function _backspace() {
     _display.value = _display.value.slice(0, -1);
     _updatePreview();
-    _display.focus();
+    _focusEnd();
   }
   function _clear() {
     _display.value = '';
     _updatePreview();
-    _display.focus();
+    _focusEnd();
   }
 
   // Valuta l'espressione e la sostituisce col risultato numerico (tasto =).
@@ -58,7 +89,7 @@
     // Numero "pulito": max 2 decimali, senza zeri superflui.
     _display.value = String(Math.round(r * 100) / 100);
     _updatePreview();
-    _display.focus();
+    _focusEnd();
     return r;
   }
 
@@ -242,13 +273,16 @@
     // In modalità agganciata: precarica l'eventuale valore/espressione già presente
     // così l'utente può continuare a modificarla (es. "40+10" già digitato).
     _display.value = _targetInput ? (_targetInput.value || '').trim() : '';
-    _updatePreview();
 
     // Il tasto OK ha senso solo quando c'è un campo di destinazione.
     _panel.querySelector('.calc-ok').style.display = _targetInput ? '' : 'none';
     _panel.classList.toggle('calc-standalone', !_targetInput);
 
     document.getElementById('calcOverlay').classList.add('open');
+
+    // Anteprima dopo l'apertura: _fitFont() misura il display, e a pannello
+    // nascosto (overlay display:none) tutte le misure varrebbero zero.
+    _updatePreview();
 
     // Posiziona il pannello: riusa la posizione scelta dall'utente (drag) se presente,
     // altrimenti lo centra nel viewport. Fatto dopo l'add di 'open' così offsetWidth è valido.

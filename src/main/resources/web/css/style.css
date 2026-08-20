@@ -929,6 +929,8 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 }
 .calc-close:hover { background:var(--bg4); color:var(--txt); }
 
+/* font-size: valore di partenza; calculator.js lo riduce inline (_fitFont) quando
+   l'espressione non ci sta, fino a 13px, poi scorre il campo sulla coda. */
 .calc-display {
   width:100%; padding:8px 10px; border-radius:8px;
   border:1px solid var(--border); background:var(--bg3); color:var(--txt);

@@ -62,14 +62,29 @@
      e 2.57:1 su bg3, sotto il minimo AA di 4.5 proprio dove il testo è più
      piccolo. Scurito a 4.98:1 sulle card, restando distinguibile da --txt2. */
   --txt3:     #5a6675;
-  --shadow:   0 8px 32px rgba(30,45,65,.16);
+  /* Ombre corte: due strati ravvicinati (contatto + diffusione breve) invece di un
+     unico alone da 32px. Su fondo chiaro l'alone lungo si legge come una macchia
+     grigia e appesantisce: le card devono staccarsi, non galleggiare. */
+  --shadow:       0 1px 2px rgba(30,45,65,.07), 0 6px 16px rgba(30,45,65,.09);
+  --shadow-hover: 0 2px 4px rgba(30,45,65,.10), 0 10px 22px rgba(30,45,65,.13);
+  /* Linea di separazione fra righe di tabella. Il colore pieno di --border, ripetuto
+     su decine di righe, produce un reticolo pesante: qui basta un accenno. I temi
+     scuri la ridefiniscono più marcata (su fondo scuro un 45% sparirebbe). */
+  --row-line: color-mix(in srgb, var(--border) 45%, transparent);
   --radius:    14px;
+  /* Raggi coerenti per famiglia: card grandi 14, controlli 8, pill 7. Prima i badge
+     erano a 20px (pillola piena) accanto a bottoni da 6 — l'accostamento più datato. */
+  --radius-ctl:  8px;
+  --radius-pill: 7px;
+  /* Freccia dei <select>, ridisegnata al posto di quella di sistema (vedi la regola
+     `select:not([multiple])`). Tratto grigio-blu scuro: pensato per i due temi chiari. */
+  --chevron: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%235a6675' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
   --fs-xs:     10px;
   --fs-sm:     11px;
   --fs-md:     12px;
   --font-size: 13px;
   --fs-lg:     13px;
-  --fs-xl:     16px;
+  --fs-xl:     18px;
   --sidebar:   236px;
   --titlebar:  44px;
   --dash-gap:  10px;
@@ -200,7 +215,8 @@ html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy
 
 /* ─── Carta theme (carta calda, beige pergamena) ─────────────────────────── */
 [data-theme="carta"] th { background: var(--bg3); }
-[data-theme="carta"] td { border-bottom-color: #c4b9a8; }
+/* (il separatore di riga di Carta è ora --row-line, definito col resto delle variabili
+   del tema: era un bruno pieno #c4b9a8, adesso lo stesso bruno accennato al 55%) */
 [data-theme="carta"] .budget-row-child td { background: var(--bg); }
 [data-theme="carta"] .budget-row-parent td { background: var(--bg2); }
 [data-theme="carta"] .budget-gestione-badge.monthly { background: #d4e4f4; color: #1a4a7a; border-color: #1a4a7a55; }
@@ -244,7 +260,9 @@ html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy
   --txt:      #241a08;
   --txt2:     #5c4a2c;
   --txt3:     #8a7860;
-  --shadow:   0 8px 32px rgba(0,0,0,.10);
+  --shadow:       0 1px 2px rgba(90,70,40,.07), 0 6px 16px rgba(90,70,40,.10);
+  --shadow-hover: 0 2px 4px rgba(90,70,40,.10), 0 10px 22px rgba(90,70,40,.14);
+  --row-line: color-mix(in srgb, #c4b9a8 55%, transparent);
 }
 /* Grana di carta: texture di fibra fatta con gradienti CSS ripetuti (niente SVG:
    JCEF non renderizza feTurbulence). Micro-trama incrociata a bassissima opacità
@@ -304,7 +322,11 @@ html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy
   --txt2:     #9db3b8;
   --txt3:     #6a848a;
   --radius:   14px;
-  --shadow:   0 8px 32px rgba(0,0,0,.45);
+  --shadow:       0 1px 2px rgba(0,0,0,.30), 0 6px 16px rgba(0,0,0,.38);
+  --shadow-hover: 0 2px 5px rgba(0,0,0,.35), 0 10px 24px rgba(0,0,0,.45);
+  /* Su fondo scuro un separatore al 45% sparirebbe: qui serve più corpo. */
+  --row-line: color-mix(in srgb, var(--border) 78%, transparent);
+  --chevron: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239db3b8' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
 }
 /* Sfondo: petrolio scuro con un alito di teal/arancio agli angoli per profondità. */
 [data-theme="petrolio"] body,
@@ -419,7 +441,10 @@ html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy
      AA di 4,5 proprio dove il testo è più piccolo. Schiarito a 4,8:1, restando comunque
      distinguibile da --txt2 (stessa scelta già fatta per Nebbia). */
   --txt3:     #8d97a7;
-  --shadow:   0 8px 32px rgba(0,0,0,.55);
+  --shadow:       0 1px 2px rgba(0,0,0,.35), 0 8px 20px rgba(0,0,0,.42);
+  --shadow-hover: 0 2px 5px rgba(0,0,0,.40), 0 12px 28px rgba(0,0,0,.50);
+  --row-line: color-mix(in srgb, var(--border) 85%, transparent);
+  --chevron: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239ca8b8' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
 }
 /* Sfondo con gradiente diagonale per dare profondità visibile attraverso il blur.
    NB: niente background-attachment:fixed — costringerebbe a ricalcolare il blur dietro
@@ -521,7 +546,12 @@ html { scroll-behavior: smooth; }
 body { font-family:'Segoe UI',system-ui,sans-serif; background:var(--bg); color:var(--txt); font-size:var(--font-size,13px);
        -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility; }
 
-/* Tabular nums per allineamento perfetto delle cifre in colonna */
+/* Tabular nums per allineamento perfetto delle cifre in colonna.
+   Esteso a TUTTE le celle di tabella e ai campi importo: prima valeva solo per le
+   colonne marcate .text-right, quindi gli importi erano già a posto ma le date
+   (08/08 sotto 11/08…) e le colonne numeriche non marcate ballavano di un pixel
+   per riga. La feature agisce solo sulle cifre: sul testo non cambia nulla. */
+td, th, input[type=number], input[type=date], input[type=text],
 .stat-value, .acc-bal, .amount-income, .amount-expense, .text-right,
 td.text-right, th.text-right, .stat-sub, .score-badge {
   font-variant-numeric: tabular-nums;
@@ -539,6 +569,24 @@ textarea:focus {
 a { text-decoration:none; color:inherit; cursor:pointer; }
 button { cursor:pointer; font-family:inherit; }
 input,select,textarea { font-family:inherit; }
+
+/* ─── Select: chevron proprio al posto di quello di sistema ──────────────── */
+/* I <select> nativi disegnano la freccia con lo stile di Windows: dentro un'interfaccia
+   tutta a tema stonano, e non seguono il tema chiaro/scuro. appearance:none la toglie e
+   la ridisegna con un SVG inline; il colore del tratto sta in --chevron (i temi scuri la
+   ridefiniscono più chiara, vedi i rispettivi blocchi) perché dentro un data-URI
+   currentColor non è disponibile: il tratto va scritto nell'SVG stesso.
+   ⚠️ background-image è !important perché molti select ricevono dal JS uno stile inline
+   `background:var(--bg3)`: la shorthand inline azzererebbe l'immagine e il select
+   resterebbe SENZA freccia, peggio di prima.
+   Esclusi i select a lista aperta (multiple/size): lì la freccia non esiste. */
+select:not([multiple]):not([size]) {
+  appearance:none; -webkit-appearance:none;
+  background-image: var(--chevron) !important;
+  background-repeat:no-repeat !important;
+  background-position:right 9px center !important;
+  padding-right:26px;
+}
 
 /* ─── Layout principale ──────────────────────────────────────────────────── */
 .app { display:flex; height:100vh; }
@@ -780,20 +828,26 @@ input,select,textarea { font-family:inherit; }
 ::-webkit-scrollbar-corner { background:transparent; }
 
 /* ─── Card ───────────────────────────────────────────────────────────────── */
+/* ⚠️ Niente seconda ombra colorata qui: c'era un alone viola fisso
+   (rgba(124,124,255,.08)) nato quando l'accento del tema scuro era viola. Sui temi
+   attuali tingeva le card di lilla. La profondità la dà --shadow, che ogni tema
+   definisce con la propria dominante. */
 .card {
   background:var(--bg2); border:1px solid var(--border);
   border-radius:var(--radius); padding:14px;
-  box-shadow:var(--shadow), 0 4px 20px rgba(124,124,255,.08);
+  box-shadow:var(--shadow);
 }
 .card[onclick] { cursor:pointer; transition:transform .15s ease, box-shadow .15s ease, border-color .15s ease; }
 .card[onclick]:hover { transform:translateY(-2px);
-  box-shadow:0 6px 22px rgba(0,0,0,.22), 0 4px 22px color-mix(in srgb, var(--accent) 18%, transparent);
+  box-shadow:var(--shadow-hover), 0 4px 22px color-mix(in srgb, var(--accent) 14%, transparent);
   border-color:color-mix(in srgb, var(--accent) 40%, var(--border)); }
 .card-header {
   display:flex; align-items:center; justify-content:space-between;
   margin-bottom:10px; padding-bottom:8px; border-bottom:1px solid var(--border);
 }
-.card-title { font-size:var(--font-size,13px); font-weight:600; color:var(--txt); }
+/* Titolo di card un punto sopra il corpo: con tutto a 13px la gerarchia si appiattiva
+   e le intestazioni non si distinguevano dal contenuto. */
+.card-title { font-size:14px; font-weight:600; color:var(--txt); letter-spacing:-.01em; }
 .card-header .btn { padding:2px 8px; font-size:var(--fs-sm,11px); }
 
 /* ─── Stat Cards ─────────────────────────────────────────────────────────── */
@@ -807,10 +861,13 @@ input,select,textarea { font-family:inherit; }
 .stat-expense::before { background:var(--expense); }
 .stat-balance::before { background:var(--accent); }
 .stat-net::before     { background:var(--accent2); }
-.stat-card:hover { transform:translateY(-2px); box-shadow:0 6px 18px rgba(0,0,0,.22);
+/* L'ombra di hover era un nero fisso al 22%: corretta sul tema scuro delle origini,
+   una macchia grigia sulle card chiare. Ora segue il tema come quella a riposo. */
+.stat-card:hover { transform:translateY(-2px); box-shadow:var(--shadow-hover);
                    border-color:color-mix(in srgb, var(--accent) 35%, var(--border)); }
 .stat-card:hover::before { opacity:1; width:3px; transition:opacity .15s ease, width .15s ease; }
-.stat-label { font-size:var(--fs-sm,11px); color:var(--txt2); margin-bottom:3px; text-transform:uppercase; letter-spacing:.5px; line-height:1.15; }
+/* Etichetta come vera etichetta: più piccola e più spaziata, così il valore domina. */
+.stat-label { font-size:var(--fs-xs,10px); color:var(--txt2); margin-bottom:3px; text-transform:uppercase; letter-spacing:.09em; line-height:1.15; }
 .stat-value { font-size:24px; font-weight:700; margin-bottom:0; line-height:1.12; letter-spacing:-.3px; }
 .stat-sub   { font-size:var(--fs-sm,11px); color:var(--txt3); line-height:1.1; }
 .stat-income  .stat-value { color:var(--income); }
@@ -825,10 +882,18 @@ input,select,textarea { font-family:inherit; }
 /* ─── Tabella ────────────────────────────────────────────────────────────── */
 .table-wrap { overflow-x:auto; }
 table { width:100%; border-collapse:collapse; }
-th { padding:5px 10px; text-align:left; font-size:var(--font-size,13px); font-weight:600;
-     color:var(--txt2); text-transform:uppercase; letter-spacing:.5px;
+/* Intestazioni: prima erano 13px, la stessa dimensione dei dati, quindi pesavano
+   quanto il contenuto. Rimpicciolite e con più spaziatura fra le lettere si leggono
+   come etichette e lasciano il primo piano ai numeri. */
+th { padding:7px 10px; text-align:left; font-size:var(--fs-sm,11px); font-weight:600;
+     color:var(--txt2); text-transform:uppercase; letter-spacing:.09em;
      border-bottom:1px solid var(--border); white-space:nowrap; }
-td { padding:4px 10px; border-bottom:1px solid var(--border); color:var(--txt2); vertical-align:middle; font-size:var(--fs-lg,13px); }
+/* Righe: separatore accennato (--row-line) invece del bordo pieno. Su una tabella di
+   quaranta righe il colore pieno di --border disegnava un reticolo che competeva con
+   i dati. Il padding sale da 4 a 6px: due pixel di respiro che, con la linea più
+   tenue, rendono la lettura molto più facile senza cambiare la densità in modo
+   sensibile (riga da ~24 a ~28px). */
+td { padding:6px 10px; border-bottom:1px solid var(--row-line); color:var(--txt2); vertical-align:middle; font-size:var(--fs-lg,13px); }
 tr:last-child td { border-bottom:none; }
 tr:hover td { background:var(--bg3); }
 tr.tx-colored:hover td { filter:brightness(1.08); }
@@ -845,17 +910,24 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 }
 
 /* ─── Badge / Pill ───────────────────────────────────────────────────────── */
+/* Pill a contorno invece che a fondo pieno: ripetute su ogni riga, le pastiglie piene
+   facevano massa e coprivano il colore dell'importo, che è l'informazione vera. Il
+   contorno si ricava da currentColor, quindi ogni variante resta del proprio colore
+   senza doverlo ripetere. Raggio 7px come gli altri elementi piccoli: la pillola a
+   20px accanto a bottoni da 8 era l'accostamento più datato dell'interfaccia. */
 .badge {
   display:inline-flex; align-items:center; gap:4px;
-  padding:2px 8px; border-radius:20px; font-size:var(--fs-sm,11px); font-weight:600;
+  padding:1px 7px; border-radius:var(--radius-pill,7px); font-size:var(--fs-xs,10px); font-weight:600;
+  letter-spacing:.02em;
+  box-shadow:inset 0 0 0 1px color-mix(in srgb, currentColor 32%, transparent);
 }
-.badge-income  { background:rgba(63,185,80,.15); color:var(--income); }
-.badge-expense { background:rgba(248,81,73,.15);  color:var(--expense); }
-.badge-transfer{ background:rgba(124,124,255,.15); color:var(--accent); }
+.badge-income  { color:var(--income); }
+.badge-expense { color:var(--expense); }
+.badge-transfer{ color:var(--accent); }
 
 /* ─── Pulsanti ───────────────────────────────────────────────────────────── */
 .btn {
-  padding:6px 13px; border-radius:6px; border:none; font-size:var(--fs-md,12px);
+  padding:6px 13px; border-radius:var(--radius-ctl,8px); border:none; font-size:var(--fs-md,12px);
   font-weight:600; transition:all .15s; display:inline-flex; align-items:center; gap:5px;
 }
 /* Bottone disabilitato: smorzato e non interattivo (no hover). */
@@ -870,19 +942,30 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 .btn-success:hover { filter:brightness(1.15); }
 .btn-ghost   { background:var(--bg4); color:var(--txt2); }
 .btn-ghost:hover { background:var(--border); color:var(--txt); }
-.btn-icon    { padding:4px 7px; border-radius:5px; font-size:var(--font-size,13px); }
+.btn-icon    { padding:4px 7px; border-radius:6px; font-size:var(--font-size,13px); }
 
 /* Colonna azioni transazioni: tiene i due pulsanti (modifica/elimina) sulla stessa riga,
    altrimenti vanno a capo impilandosi e alzano l'altezza di TUTTE le righe. */
 #txTable td.td-actions { white-space:nowrap; }
 #txTable td.td-actions .btn-icon { vertical-align:middle; }
 
+/* Modifica/elimina compaiono al passaggio del mouse sulla riga. Sempre visibili erano
+   due icone per riga — su quaranta righe, ottanta elementi che competevano coi dati.
+   La cella resta larga uguale (opacity, non display): la tabella non si riassesta al
+   passaggio. :focus-within tiene i pulsanti raggiungibili da tastiera, dove l'hover
+   non esiste; nascosti restano comunque cliccabili, quindi nessuna funzione si perde. */
+#txTable td.td-actions .btn-icon { opacity:0; transition:opacity .12s ease; }
+#txTable tbody tr:hover td.td-actions .btn-icon,
+#txTable td.td-actions:focus-within .btn-icon { opacity:.85; }
+#txTable td.td-actions .btn-icon:hover,
+#txTable td.td-actions .btn-icon:focus-visible { opacity:1; }
+
 /* ─── Form ───────────────────────────────────────────────────────────────── */
 .form-group { margin-bottom:12px; }
 .form-label { display:block; font-size:var(--fs-sm,11px); font-weight:600; color:var(--txt2);
               margin-bottom:4px; text-transform:uppercase; letter-spacing:.4px; }
 .form-control {
-  width:100%; padding:7px 10px; border-radius:6px;
+  width:100%; padding:7px 10px; border-radius:var(--radius-ctl,8px);
   border:1px solid var(--border); background:var(--bg3);
   color:var(--txt); font-size:var(--fs-md,12px); transition:border-color .15s;
 }
@@ -1363,6 +1446,17 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 .acc-quick-tra { background:rgba(124,124,255,.85); color:#fff; font-size:var(--fs-sm,11px); }
 .acc-dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; vertical-align:middle; }
 .acc-icon { font-size:var(--fs-lg,13px); margin-right:5px; vertical-align:middle; }
+
+/* ─── Emoji incolonnate ──────────────────────────────────────────────────── */
+/* Le emoji hanno larghezze diverse fra loro (🏦 è più larga di 🔧): messe davanti a un
+   nome, ogni riga fa partire il testo da un punto diverso e la colonna sembra sfrangiata.
+   Larghezza fissa in em (segue la dimensione del testo) + centratura: le icone restano
+   incolonnate e i nomi allineati. Classe generica, applicabile ovunque ci sia
+   un'emoji-icona seguita da testo. */
+.ico {
+  display:inline-block; width:1.3em; text-align:center;
+  flex-shrink:0; font-style:normal;
+}
 .acc-name { font-size:var(--fs-lg,13px); font-weight:500; color:color-mix(in srgb, var(--txt) 65%, var(--txt2)); vertical-align:middle; }
 .acc-bal { font-size:var(--fs-lg,13px); font-weight:700; }
 .acc-total-row td {

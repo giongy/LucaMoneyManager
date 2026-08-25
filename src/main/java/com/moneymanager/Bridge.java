@@ -935,7 +935,10 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
      * Recupera il prezzo di un titolo facendo scraping di Borsa Italiana:
      * cerca il ticker/ISIN, segue il link alla scheda, e ne estrae il prezzo
      * (formato italiano con virgola) provando in ordine 3 pattern di prezzo.
-     * @return mappa con ticker, price (double) e mic (codice mercato)
+     * @return mappa con ticker, price (double) e mic (codice mercato); oppure la mappa
+     *         {ticker, error} di {@link #priceNotFound} quando il titolo non è quotato o la
+     *         sua scheda non espone un prezzo (vedi lì il perché non è un'eccezione).
+     *         Restano eccezioni i guasti veri: rete assente, timeout, sito irraggiungibile.
      */
     private Map<String, Object> doFetchOnlinePrice(String ticker) throws Exception {
         // Step 1: cerca su Borsa Italiana search engine
@@ -962,7 +965,7 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
         }
 
         if (schedaUrl == null)
-            throw new Exception("Titolo non trovato su Borsa Italiana: " + ticker);
+            return priceNotFound(ticker, "titolo non trovato su Borsa Italiana");
 
         // Step 3: carica la scheda e legge il prezzo in formato italiano (virgola decimale).
         // Priorità 0 sull'HTML grezzo (classe -formatPrice del layout attuale, azioni e bond);
@@ -977,13 +980,33 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                 if (!priceMat.find()) {
                     priceMat = PAT_PRICE_PCT.matcher(text);
                     if (!priceMat.find())
-                        throw new Exception("Prezzo non trovato su Borsa Italiana per: " + ticker);
+                        return priceNotFound(ticker, "prezzo non presente sulla scheda di Borsa Italiana");
                 }
             }
         }
 
         double price = Double.parseDouble(priceMat.group(1).replace(".", "").replace(",", "."));
         return Map.of("ticker", ticker, "price", price, "mic", mic);
+    }
+
+    /**
+     * Esito ATTESO di doFetchOnlinePrice: per quel titolo non c'è un prezzo da leggere
+     * (ISIN non quotato su Borsa Italiana, titolo sospeso o delistato, scheda senza quotazione).
+     *
+     * Non è un guasto dell'app, quindi non è un'eccezione: lanciarla la faceva risalire al catch
+     * generico del chiamante — dodici righe di stack trace in app.log e badge errori acceso —
+     * per una cosa che il frontend già gestisce da sé (segna il titolo come "non trovato" e lo
+     * conta nel toast finale di refreshPortfolioPrices). La mappa {ticker, error} viene comunque
+     * trasformata in un throw lato JS da _checkError in bridge.js: per portfolio.js non cambia
+     * nulla, su entrambi i percorsi (JCEF e HTTP/LAN).
+     *
+     * In app.log resta una riga sola, con prefisso [Prezzi] che appLogErrors NON conta come
+     * errore: serve a distinguere "questo titolo non si trova" da "lo scraper si è rotto"
+     * (se falliscono tutti insieme, è cambiato il layout di Borsa Italiana).
+     */
+    private static Map<String, Object> priceNotFound(String ticker, String motivo) {
+        System.out.println("[Prezzi] " + ticker + ": " + motivo);
+        return Map.of("ticker", ticker, "error", "Prezzo non disponibile - " + motivo);
     }
 
     private static String httpGet(String url) throws Exception {
@@ -1043,6 +1066,7 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                 }
                 // Righe informative note (System.out): non sono errori
                 if (l.startsWith("[STARTUP]") || l.startsWith("[SLOW QUERY")
+                        || l.startsWith("[Prezzi]")
                         || l.startsWith("WebServer avviato") || l.startsWith("WebServer disabilitato")) {
                     continue;
                 }

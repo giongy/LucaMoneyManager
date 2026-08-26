@@ -2609,13 +2609,27 @@ tr.tx-selected td { background:rgba(124,124,255,.07); }
 .sync-section-header td { background:var(--bg3); color:var(--txt2); font-weight:700; font-size:.8rem; text-transform:uppercase; letter-spacing:.05em; padding:6px 12px; }
 .sync-subtotal td { background:var(--bg3); font-weight:600; border-top:2px solid var(--border); border-bottom:2px solid var(--border); }
 
-/* ── Tabella transazioni compatta ──────────────────────────────────────── */
-#txTable th  { padding:3px 8px; font-size:var(--fs-sm,11px); }
-#txTable td  { padding:2px 8px; font-size:var(--fs-md,12px); }
+/* ── Tabelle compatte: transazioni e pianificate ────────────────────────────
+   Le due liste lunghe dell'app condividono la stessa densità: riga da ~25px
+   invece dei ~35px del default (th/td generici, 7px e 6px di padding a 13px).
+   ⚠️ Non basta stringere il padding: l'altezza della riga la decide il
+   contenuto più alto, quindi chip, badge e bottoni di riga vanno rimpiccioliti
+   insieme, altrimenti sono loro a tenere su la riga e il padding non si vede. */
+#txTable th,
+#schedTable th  { padding:3px 8px; font-size:var(--fs-sm,11px); }
+#txTable td,
+#schedTable td  { padding:2px 8px; font-size:var(--fs-md,12px); }
 #txTable .badge { padding:1px 6px; font-size:var(--fs-xs,10px); }
 #txTable .btn-reconcile { font-size:var(--fs-md,12px); padding:1px 3px; }
 #txTable .btn-icon  { padding:2px 5px; font-size:var(--fs-sm,11px); }
-#txTable .tag-inline { font-size:var(--fs-xs,10px); padding:1px 5px; }
+#txTable .tag-inline,
+#schedTable .tag-inline { font-size:var(--fs-xs,10px); padding:1px 5px; }
+/* Pianificate: gli elementi che nella lista transazioni non esistono (badge
+   frequenza/giorni e i due bottoni di riga) sulla stessa scala degli altri. */
+#schedTable .sched-freq-badge,
+#schedTable .sched-days-badge { font-size:var(--fs-xs,10px); padding:1px 6px; }
+#schedTable .sched-actions .btn-xs { padding:1px 6px; font-size:var(--fs-xs,10px); }
+#schedTable .sched-actions-wrap { gap:3px; }
 
 .port-storico-row { border-radius:4px; transition:background .15s; }
 .port-storico-collapsed:hover { background:var(--bg3); }

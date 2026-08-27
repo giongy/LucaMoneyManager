@@ -325,6 +325,47 @@ valgono `c:<id>`: sono gli unici due casi in cui la risposta non è il nome di u
 
 ---
 
+## Leggere il DB senza avviare l'app: `db.ps1`
+
+Tutto quanto sopra richiede l'**app accesa**: `screenshot.ps1 -Probe` passa dalle api del
+bridge, quindi a app chiusa non risponde. `tools\db.ps1` legge invece il file SQLite
+direttamente e funziona sempre.
+
+```powershell
+.\tools\db.ps1 "SELECT COUNT(*) FROM transactions"
+.\tools\db.ps1 -Database prod "SELECT * FROM accounts" -Limit 50
+.\tools\db.ps1 -File .\query.sql -Json -Quiet
+```
+
+`-Database local` (default) è `D:\LucaMoneyManager\luca.db`, `prod` è quello su OneDrive;
+accetta anche un path esplicito. Ogni esecuzione stampa in testa **quale DB** ha aperto, con
+dimensione e data di modifica — è l'errore che costa di più. Altre opzioni: `-Limit`
+(default 200), `-Json`, `-Quiet` (niente intestazione, output parsabile).
+
+**Read-only per costruzione**: `tools/DbQuery.java` apre la connessione con
+`SQLiteConfig.setReadOnly(true)`, quindi il driver rifiuta ogni DML (`SQLITE_READONLY`) — non
+è una convenzione da ricordare, è un vincolo. Non disturba il lock dell'app né la
+sincronizzazione OneDrive, e SQLite ammette più lettori: si può interrogare anche ad app
+aperta. Non installa niente: usa il driver `sqlite-jdbc` già dentro `target/moneymanager-*.jar`
+(fallback sulla cache `~/.m2`) e gira in *source-file mode* di Java 25, senza compilazione.
+
+⚠️ Tre trappole già pagate, da non ripetere:
+
+1. Il parametro è **`-Database`, non `-Db`**: `db` è l'alias del parametro comune `-Debug` e
+   PowerShell rifiuta lo script all'avvio per collisione di alias.
+2. `-Dstdout.encoding=UTF-8` sulla riga di comando **non funziona**: PowerShell 5.1 spezza
+   l'argomento sul punto e java non trova la main class. L'UTF-8 lo imposta `DbQuery` da sé su
+   `System.out`/`err`, altrimenti le accentate dei nomi di categorie e conti escono come `?`.
+3. Serve `--enable-native-access=ALL-UNNAMED`, altrimenti Java 25 antepone quattro righe di
+   WARNING a ogni risultato (sqlite-jdbc carica una libreria nativa).
+
+⚠️ **I dati anteriori a marzo 2026 non sono normale amministrazione**: importati da un
+programma precedente, e il 2025 contiene un'eredità e il saldo del mutuo (ottobre 2025 da solo
+vale il 69% delle entrate della finestra ago 25 → lug 26). Qualsiasi analisi su medie, mediane
+o tassi va filtrata da `2026-01-01` in avanti, salvo diverso accordo.
+
+---
+
 ## Funzionalità principali
 
 Dashboard · Conti (tipi, valute, icone emoji, colori) · Transazioni (split, tag, riconciliazione) · Categorie (gerarchiche, colori) · Budget (mensile/annuale, master amount) · Pianificate (ricorrenti, previsioni) · Portfolio (ticker, buy/sell, dividendi) · Report (Chart.js) · Note (editor Quill, lazy-load) · Impostazioni (tema, backup)

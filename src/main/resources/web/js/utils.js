@@ -226,6 +226,45 @@ function toast(msg, type='success') {
 const HEALTH_MIN_MONTHS       = 3;   // sotto: nessun punteggio (una finestra da 3 mesi non esiste)
 const HEALTH_MIN_MONTHS_TREND = 6;   // il trend confronta due metà: servono ≥3 mesi per parte
 const HEALTH_MIN_MONTHS_VOL   = 4;   // una semi-deviazione su 3 punti è rumore, non variabilità
+const HEALTH_MIN_MONTHS_REC   = 4;   // sotto: "mese peggiore" e "mese buono tipico" sono lo stesso dato
+
+// ── Scala del tasso di risparmio: nodi [tasso %, punti] ────────────────────
+// Era una catena di ternari a gradini: dentro una fascia il punteggio non si muoveva, poi
+// al bordo saltava di 7-8 pt. Un 9,9% valeva come un 7,0% (26 pt entrambi), e €200 di spese
+// in meno potevano spostare il punteggio finale di 7 punti su 100. Ora fra due nodi si
+// interpola linearmente: i valori sui nodi sono gli stessi di prima, cambia solo cosa
+// succede in mezzo — niente pianerottoli, niente scalini da rincorrere.
+//
+// Le pendenze restano decrescenti (3,67 → 3,50 → 3,50 → 2,67 → 2,60 pt per punto
+// percentuale): salire dal 3% al 5% vale più che salire dal 10% al 15%.
+// ⚠️ Il massimo è a 15%, non a 20%: con il tetto a 20% il tratto 10→15% valeva 1,4 pt/pp,
+// il più piatto della scala e proprio nella fascia realistica — il punteggio smetteva di
+// rispondere dove serviva di più. Modificando i nodi tenere le pendenze monotone.
+const SAVINGS_ANCHORS = [
+  [-15, -23], [-10, -15], [-5, -8], [0, 0], [3, 11], [5, 18], [7, 25], [10, 33], [15, 46],
+];
+
+// Interpola linearmente x sulla spezzata pts (nodi [x, y] ordinati per x crescente).
+// Fuori dagli estremi appiattisce sul nodo: interpolare vuol dire stare *fra* valori noti,
+// estrapolare la retta darebbe 92 pt a un 30% di risparmio e -60 a un -30%.
+function lerpScale(x, pts) {
+  if (x <= pts[0][0])                 return pts[0][1];
+  if (x >= pts[pts.length - 1][0])    return pts[pts.length - 1][1];
+  for (let i = 1; i < pts.length; i++) {
+    const [x0, y0] = pts[i - 1], [x1, y1] = pts[i];
+    if (x <= x1) return y0 + (x - x0) / (x1 - x0) * (y1 - y0);
+  }
+  return pts[pts.length - 1][1];   // irraggiungibile: i due clamp coprono tutto
+}
+
+// Mediana di un array di numeri (0 se vuoto). A livello di modulo perché serve in due punti
+// della scoring function, e il `const` locale non è hoistato: definirla dentro, più in basso,
+// la renderebbe inaccessibile alle componenti che vengono prima (TDZ).
+const _medianOf = arr => {
+  if (!arr.length) return 0;
+  const s = [...arr].sort((a, b) => a - b), m = s.length >> 1;
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+};
 
 function computeHealthScore(balRows, accounts) {
   const incomes  = balRows.map(r => r.income  || 0);
@@ -239,8 +278,19 @@ function computeHealthScore(balRows, accounts) {
   const avgSavingsRate = totalIncome > 0 ? (totalSavings / totalIncome) * 100 : 0;
   const hasData        = totalIncome !== 0 || totalExpense !== 0;
 
-  // 1. Tasso risparmio (0–46 pt) — 8 soglie
-  const scoreSavings = avgSavingsRate >= 20 ? 46 : avgSavingsRate >= 15 ? 40 : avgSavingsRate >= 10 ? 33 : avgSavingsRate >= 7 ? 26 : avgSavingsRate >= 5 ? 18 : avgSavingsRate >= 3 ? 11 : avgSavingsRate > 0 ? 5 : avgSavingsRate === 0 ? 0 : avgSavingsRate >= -5 ? -8 : avgSavingsRate >= -10 ? -15 : -23;
+  // 1. Tasso risparmio (-23–46 pt) — spezzata continua su SAVINGS_ANCHORS
+  const scoreSavings = hasData ? Math.round(lerpScale(avgSavingsRate, SAVINGS_ANCHORS)) : 0;
+  // Pendenza del tratto in cui cadiamo: quanto vale, qui, un punto percentuale in più.
+  // Serve alla UI per dire "muoverti da dove sei vale tot" al posto della vecchia lista di
+  // soglie — che dopo l'interpolazione descriverebbe scalini non più esistenti.
+  const savingsSlope = (() => {
+    if (avgSavingsRate <= SAVINGS_ANCHORS[0][0]) return 0;   // sotto il primo nodo la scala è piatta
+    for (let i = 1; i < SAVINGS_ANCHORS.length; i++) {
+      const [x0, y0] = SAVINGS_ANCHORS[i - 1], [x1, y1] = SAVINGS_ANCHORS[i];
+      if (avgSavingsRate < x1) return (y1 - y0) / (x1 - x0);
+    }
+    return 0;   // oltre l'ultimo nodo la scala è piatta: nessun punto in più da guadagnare
+  })();
 
   // 2. Stabilità del risparmio (0–14 pt) — finestre rolling di 3 mesi (robusta alle spese lumpy)
   // Una grossa uscita pianificata in un mese (tasse, assicurazione, IMU) non conta come
@@ -258,14 +308,20 @@ function computeHealthScore(balRows, accounts) {
   const expDiv = expQ3 - expQ1;
   const expMedian = expDiv > 0 ? expSorted.slice(expQ1, expQ3).reduce((a, b) => a + b, 0) / expDiv : 0;
 
-  // 3. Riserva di emergenza (0–14 pt)
-  // Riserva = liquidità immediata + debito carte (negativo) + investimenti scontati (haircut):
-  // in una crisi gli asset investiti possono valere meno, c'è tassazione e serve tempo per
-  // venderli — ma restano una riserva reale, quindi contano (al netto dello sconto) per chi
-  // sceglie di investire la liquidità invece di tenerla ferma.
-  // Le carte di credito sono tenute separate: il saldo va sottratto (è un debito da pagare),
-  // ma chiamarlo "liquidità" come facevamo prima era falso — l'UI lo mostra su una riga sua.
-  const INVEST_HAIRCUT = 0.75;
+  // 3. Riserva di emergenza (0–8 pt) — SOLA CASSA, piena a 4 mesi
+  // Prima contava anche gli investimenti scontati al 75% e il pieno stava a 6 mesi. Con un
+  // patrimonio investito di una certa dimensione quel conto dava 20+ mesi: 14 punti su 100
+  // presi sempre, che non misuravano più niente e comprimevano gli altri 86. E lo sconto del
+  // 75% era doppiamente sbagliato su obbligazioni tenute a scadenza — le gonfiava come
+  // liquidità d'emergenza quando venderle in anticipo significa incassare il prezzo di
+  // mercato, non il nominale.
+  // Ora la domanda è una sola e viva: quanto reggo se le entrate si fermano SENZA toccare
+  // gli investimenti. Il pieno è a 4 mesi (non 6) proprio perché il patrimonio investito
+  // giustifica un cuscinetto di cassa più sottile; l'investito resta a video come contesto,
+  // al suo valore pieno, ma non dà punti.
+  // Le carte di credito restano separate: il saldo va sottratto (è un debito da pagare),
+  // ma chiamarlo "liquidità" sarebbe falso — l'UI lo mostra su una riga sua.
+  const RUNWAY_ANCHORS = [[0, 0], [1, 3], [2, 5], [3, 7], [4, 8]];
   const sumBal         = accs => accs.reduce((s, a) => s + (a.balance || 0), 0);
   const liquidAccs     = accounts.filter(a => a.type !== 'investment' && a.type !== 'credit' && !a.is_closed);
   const cardAccs       = accounts.filter(a => a.type === 'credit' && !a.is_closed);
@@ -274,21 +330,43 @@ function computeHealthScore(balRows, accounts) {
   const cardBalance    = sumBal(cardAccs);              // normalmente negativo: è un debito
   const investBalance  = sumBal(investAccs);
   const cashBalance    = liquidBalance + cardBalance;   // "conti non-investimento", al netto delle carte
-  const reserveBalance = cashBalance + investBalance * INVEST_HAIRCUT;
-  // Senza una spesa tipica il runway non esiste: null, non 99 (che valeva 14/14 su un periodo vuoto)
-  const runwayMonths   = expMedian > 0 ? reserveBalance / expMedian : null;
+  const reserveBalance = cashBalance;                   // = ciò che dà punti: gli investimenti sono contesto
+  // Senza una spesa tipica il runway non esiste: null, non 99 (che valeva il pieno su un periodo vuoto)
+  const runwayMonths   = expMedian > 0 ? cashBalance / expMedian : null;
+  // Interpolata come la scala del risparmio: un gradino secco a 4,0 mesi rifarebbe lo stesso
+  // errore di prima (€100 di cassa che spostano 1 punto pieno).
+  // Il massimo si assegna solo a 4 mesi veri: senza il cap, 3,7 mesi arrotondavano a 8/8
+  // mentre la card promette "pieno a 4 mesi". Non è un gradino — fra 7 e 8 c'è un punto solo.
   const scoreRunway    = runwayMonths === null ? 0
-    : runwayMonths >= 6 ? 14 : runwayMonths >= 3 ? 10 : runwayMonths >= 1.5 ? 6 : runwayMonths >= 0.5 ? 3 : 0;
+    : runwayMonths >= 4 ? 8 : Math.min(7, Math.round(lerpScale(runwayMonths, RUNWAY_ANCHORS)));
+  // Mesi coperti contando anche gli investimenti: NON dà punti, serve solo a dire a video
+  // "oltre alla cassa hai anche questo" senza spacciarlo per riserva d'emergenza.
+  const investMonths   = expMedian > 0 ? (cashBalance + investBalance) / expMedian : null;
+
+  // 6. Recupero del mese peggiore (0–6 pt) — la coda, che nessun'altra componente guarda.
+  // Tasso/trend/stabilità sono tre statistiche della STESSA serie (media, deriva, segno) e
+  // descrivono tutte il centro della distribuzione. La fragilità però sta nella coda: quanto
+  // costa un incidente. Qui: il buco del mese peggiore diviso quanto si mette da parte in un
+  // mese buono = mesi di risparmio per tornare al punto di partenza.
+  // Non giudica la spesa (un mese a -6.000 € per le tasse è legittimo): dice che dopo quel
+  // mese non ti puoi permettere il secondo.
+  const worstMonth  = n > 0 ? Math.min(...savings) : 0;
+  const posSavings  = savings.filter(s => s > 0);
+  const medPosSaving = _medianOf(posSavings);
+  const recoveryMonths = worstMonth >= 0 ? 0                       // nessun mese in rosso: niente da recuperare
+    : medPosSaving > 0 ? -worstMonth / medPosSaving
+    : Infinity;                                                    // nessun mese buono: non si recupera mai
+  const RECOVERY_ANCHORS = [[0, 6], [2, 6], [4, 4], [8, 2], [12, 0]];
+  const scoreRecovery = recoveryMonths === Infinity ? 0 : Math.round(lerpScale(recoveryMonths, RECOVERY_ANCHORS));
 
   // 4. Trend del risparmio (0–16 pt) — confronto robusto mediana 2ª metà vs 1ª metà del periodo.
   // Più stabile della regressione OLS su pochi mesi: un singolo mese-outlier non sposta il risultato.
   const incSorted = [...incomes].sort((a, b) => a - b);
   const incQ1 = Math.floor(n * 0.25), incQ3 = Math.ceil(n * 0.75);
   const incMedian = incQ3 > incQ1 ? incSorted.slice(incQ1, incQ3).reduce((a, b) => a + b, 0) / (incQ3 - incQ1) : 0;
-  const _median = arr => { if (!arr.length) return 0; const s = [...arr].sort((a, b) => a - b); const m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
   const trendHalf    = Math.floor(n / 2);
-  const savMedFirst  = _median(savings.slice(0, trendHalf));
-  const savMedSecond = _median(savings.slice(n - trendHalf));
+  const savMedFirst  = _medianOf(savings.slice(0, trendHalf));
+  const savMedSecond = _medianOf(savings.slice(n - trendHalf));
   const trendMonths  = (n - trendHalf) || 1;   // ~distanza tra i centri delle due metà
   const savSlope     = trendHalf > 0 ? (savMedSecond - savMedFirst) / trendMonths : 0;   // €/mese (robusto)
   const savSlopePct  = incMedian > 0 ? savSlope / incMedian * 100 : 0;
@@ -316,19 +394,23 @@ function computeHealthScore(balRows, accounts) {
   // attive (il caso normale, ≥6 mesi con dati) maxApplicable = 100 e il punteggio è identico
   // alla somma secca di prima — nessuna sorpresa sui periodi lunghi.
   const applicable = {
-    savings: hasData,
-    pos:     roll3Total > 0,
-    runway:  runwayMonths !== null,
-    trend:   n >= HEALTH_MIN_MONTHS_TREND,
-    vol:     n >= HEALTH_MIN_MONTHS_VOL && incMedian > 0,
+    savings:  hasData,
+    pos:      roll3Total > 0,
+    runway:   runwayMonths !== null,
+    trend:    n >= HEALTH_MIN_MONTHS_TREND,
+    vol:      n >= HEALTH_MIN_MONTHS_VOL && incMedian > 0,
+    // Il "mese peggiore" di 3 mesi è solo il minimo di tre numeri, e la mediana dei mesi
+    // buoni si appoggerebbe a uno o due valori: sotto i 4 mesi è rumore, non una coda.
+    recovery: hasData && n >= HEALTH_MIN_MONTHS_REC,
   };
   const parts = [
-    ['savings', scoreSavings,  46],
-    ['pos',     scorePos,      14],
-    ['runway',  scoreRunway,   14],
-    ['trend',   scoreIncTrend, 16],
-    ['vol',     scoreVol,      10],
-  ];
+    ['savings',  scoreSavings,  46],
+    ['pos',      scorePos,      14],
+    ['runway',   scoreRunway,    8],
+    ['recovery', scoreRecovery,  6],
+    ['trend',    scoreIncTrend, 16],
+    ['vol',      scoreVol,      10],
+  ];   // 46+14+8+6+16+10 = 100
   const maxApplicable = parts.reduce((s, [k, , max]) => s + (applicable[k] ? max : 0), 0);
   const gotApplicable = parts.reduce((s, [k, got])  => s + (applicable[k] ? got : 0), 0);
 
@@ -351,15 +433,19 @@ function computeHealthScore(balRows, accounts) {
     incomes, expenses, savings, n,
     // totali
     totalIncome, totalExpense, totalSavings, avgSavingsRate, hasData,
+    // scala del tasso di risparmio: nodi e pendenza locale, per disegnarla nella card
+    savingsAnchors: SAVINGS_ANCHORS, savingsSlope,
     // componenti
-    scoreSavings, scorePos, scoreRunway, scoreIncTrend, scoreVol,
+    scoreSavings, scorePos, scoreRunway, scoreRecovery, scoreIncTrend, scoreVol,
+    // recupero del mese peggiore
+    worstMonth, medPosSaving, recoveryMonths, minMonthsRec: HEALTH_MIN_MONTHS_REC,
     // aggregato (score può essere null: vedi noScoreReason)
     score, scoreColor, scoreLabel, applicable, maxApplicable, gotApplicable, noScoreReason, partial,
     minMonths: HEALTH_MIN_MONTHS, minMonthsTrend: HEALTH_MIN_MONTHS_TREND, minMonthsVol: HEALTH_MIN_MONTHS_VOL,
     // dettaglio
     posMonths, posPct, roll3Pos, roll3Total, roll3Pct,
     expMedian, cashBalance, liquidBalance, cardBalance, investBalance, reserveBalance,
-    liquidAccs, cardAccs, investAccs, runwayMonths, investHaircut: INVEST_HAIRCUT,
+    liquidAccs, cardAccs, investAccs, runwayMonths, investMonths,
     incMedian, savSlope, savSlopePct, savMedFirst, savMedSecond, trendHalf,
     savAvgFirst, savAvgSecond, savSlopeAvg, savSlopeAvgPct,
     incStddev, incCV,

@@ -2535,6 +2535,40 @@ tr.tx-selected td { background:rgba(124,124,255,.07); }
 .health-desc { font-size:13px; color:var(--txt2); }
 .score-badge { font-size:11px; font-weight:700; padding:2px 8px; border-radius:20px; border:1px solid currentColor; }
 .card-section { background:var(--bg3); border-radius:12px; padding:16px; }
+
+/* ── Scala del tasso di risparmio (Salute Finanziaria) ──────────────────────
+   Mostra per intero i nodi tasso↔punti e dove cade il periodo, al posto della riga di
+   soglie che ne dichiarava solo 3 su 7. Le etichette sono posizionate in assoluto sulla
+   percentuale del nodo: centrate sborderebbero ai due estremi, quindi la prima si ancora
+   a sinistra e l'ultima a destra invece di essere traslate a metà.
+   ⚠️ Colori: queste sono card su --bg3, non su --bg2. --txt3 a 10px lì sta a 3.85:1,
+   sotto il minimo AA — le etichette usano --txt2 (4.77:1) e --txt per i valori in grassetto. */
+.rate-scale { margin-bottom:12px; }
+.rate-scale-track {
+  position:relative; height:8px; border-radius:5px;
+  background:var(--bg4); border:1px solid var(--border);
+}
+.rate-scale-fill { position:absolute; inset:0 auto 0 0; border-radius:5px 0 0 5px; opacity:.75; }
+.rate-scale-tick {
+  position:absolute; top:-2px; width:1px; height:calc(100% + 4px);
+  background:var(--border); transform:translateX(-50%);
+}
+/* Il bordo colore card ritaglia il pallino dal riempimento: senza, a metà scala si
+   confonderebbe con la barra che ha lo stesso colore. */
+.rate-scale-dot {
+  position:absolute; top:50%; width:11px; height:11px; border-radius:50%;
+  transform:translate(-50%,-50%); border:2px solid var(--bg3);
+  box-shadow:0 0 0 1px var(--border);
+}
+.rate-scale-labels {
+  position:relative; height:27px; margin-top:6px;
+  font-size:10px; line-height:1.3; color:var(--txt2);
+}
+.rate-scale-labels span { position:absolute; top:0; transform:translateX(-50%); white-space:nowrap; text-align:center; }
+.rate-scale-labels span:first-child { transform:none; }
+.rate-scale-labels span:last-child  { transform:translateX(-100%); }
+.rate-scale-labels b { display:block; font-weight:600; color:var(--txt); }
+.rate-scale-note { font-size:11px; color:var(--txt2); line-height:1.45; margin-top:9px; }
 .flex-center-8 { display:flex; align-items:center; gap:8px; }
 
 /* ─── Reports layout ─────────────────────────────────────────────────────── */

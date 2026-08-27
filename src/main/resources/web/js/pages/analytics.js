@@ -1464,12 +1464,13 @@ async function renderAnalyticsHealth(token) {
   // Destructuring di tutti gli intermedi necessari per il rendering downstream
   const {
     incomes, expenses, savings, n,
-    totalIncome, totalExpense, totalSavings, avgSavingsRate,
+    totalIncome, totalExpense, totalSavings, avgSavingsRate, savingsAnchors, savingsSlope,
     scoreSavings, scorePos, scoreRunway, scoreIncTrend, scoreVol,
     score, scoreColor, scoreLabel, applicable, maxApplicable, noScoreReason, partial,
     minMonths, minMonthsTrend, minMonthsVol,
     posMonths, posPct, roll3Pos, roll3Total, roll3Pct,
-    expMedian, liquidBalance, cardBalance, investBalance, reserveBalance, cardAccs, runwayMonths, investHaircut,
+    expMedian, liquidBalance, cardBalance, investBalance, reserveBalance, cardAccs, runwayMonths, investMonths,
+    scoreRecovery, worstMonth, medPosSaving, recoveryMonths, minMonthsRec,
     incMedian, savSlopePct, savMedFirst, savMedSecond, trendHalf,
     savAvgFirst, savAvgSecond, savSlopeAvgPct,
     incStddev, incCV,
@@ -1482,9 +1483,12 @@ async function renderAnalyticsHealth(token) {
   // ── Colori badge componenti ───────────────────────────────────────────────
   const colS = scoreSavings >= 33 ? 'var(--income)' : scoreSavings >= 18 ? 'var(--warn)' : 'var(--expense)';
   const colP = scorePos >= 11 ? 'var(--income)' : scorePos >= 5 ? 'var(--warn)' : 'var(--expense)';
-  const colR = scoreRunway >= 10 ? 'var(--income)' : scoreRunway >= 6 ? 'var(--warn)' : 'var(--expense)';
+  // Soglie sul nuovo massimo di 8 pt (≈3 mesi verde, ≈2 giallo): con le vecchie (10/6) il
+  // verde non si sarebbe mai acceso, essendo 8 il punteggio pieno.
+  const colR = scoreRunway >= 7 ? 'var(--income)' : scoreRunway >= 5 ? 'var(--warn)' : 'var(--expense)';
   const colI = scoreIncTrend >= 13 ? 'var(--income)' : scoreIncTrend >= 6 ? 'var(--warn)' : 'var(--expense)';
   const colV = scoreVol >= 7 ? 'var(--income)' : scoreVol >= 4 ? 'var(--warn)' : 'var(--expense)';
+  const colRec = scoreRecovery >= 5 ? 'var(--income)' : scoreRecovery >= 3 ? 'var(--warn)' : 'var(--expense)';
 
   // ── Dati grafici dettaglio ────────────────────────────────────────────────
   // null (non 0) per i mesi senza entrate: una barra a 0% direbbe "pareggio", non "nessun dato"
@@ -1494,13 +1498,28 @@ async function renderAnalyticsHealth(token) {
   const savRegLine   = cols.map((_,i) => i < trendHalf ? savMedFirst : (i >= n - trendHalf ? savMedSecond : null));
   const labels       = cols.map(m => m.label);
 
-  // Runway display + posizione marker (clamp visivo a 0..12 mesi)
+  // Runway display + posizione marker. La scala visiva finisce a 6 mesi anche se il pieno dei
+  // punti è a 4: mostrare la scala che si chiude esattamente sul massimo darebbe l'idea che
+  // oltre non esista niente. Chi sta a 5 mesi vede che è oltre l'obiettivo, non "al limite".
+  const RUNWAY_SCALE_MAX = 6;
   const runwayDisplay = runwayMonths === null ? 'n/d'
     : !isFinite(runwayMonths) || runwayMonths >= 99 ? '99+' : runwayMonths.toFixed(1);
   const runwayClamped = runwayMonths === null || !isFinite(runwayMonths)
-    ? 12 : Math.max(0, Math.min(12, runwayMonths));
-  const runwayPos     = (runwayClamped / 12) * 100;
-  const runwayOffScale = runwayMonths !== null && runwayMonths > 12;
+    ? RUNWAY_SCALE_MAX : Math.max(0, Math.min(RUNWAY_SCALE_MAX, runwayMonths));
+  const runwayPos     = (runwayClamped / RUNWAY_SCALE_MAX) * 100;
+  const runwayOffScale = runwayMonths !== null && runwayMonths > RUNWAY_SCALE_MAX;
+  // Mesi coperti includendo gli investimenti: contesto, non punteggio
+  const investDisplay = investMonths === null ? 'n/d'
+    : !isFinite(investMonths) || investMonths >= 99 ? '99+' : investMonths.toFixed(1);
+
+  // Recupero del mese peggiore: mesi di risparmio per ripianare il buco più profondo
+  const recoveryDisplay = !applicable.recovery ? 'n/d'
+    : recoveryMonths === 0 ? '0'
+    : !isFinite(recoveryMonths) ? '∞' : recoveryMonths.toFixed(1);
+  const REC_SCALE_MAX = 12;
+  const recoveryClamped = !isFinite(recoveryMonths) ? REC_SCALE_MAX : Math.min(REC_SCALE_MAX, Math.max(0, recoveryMonths));
+  const recoveryPos     = (recoveryClamped / REC_SCALE_MAX) * 100;
+  const recoveryOffScale = isFinite(recoveryMonths) && recoveryMonths > REC_SCALE_MAX;
 
   // ── Contesto del periodo (intestazione + avvisi) ──────────────────────────
   const periodLabel = cols.length ? `${cols[0].label} → ${cols[cols.length-1].label}` : '—';
@@ -1517,6 +1536,7 @@ async function renderAnalyticsHealth(token) {
     if (!applicable.trend)  notMeasured.push(`trend (servono ${minMonthsTrend} mesi)`);
     if (!applicable.vol)    notMeasured.push(`stabilità entrate (servono ${minMonthsVol} mesi)`);
     if (!applicable.runway) notMeasured.push('riserva (spesa tipica non calcolabile)');
+    if (!applicable.recovery) notMeasured.push(`recupero (servono ${minMonthsRec} mesi)`);
   }
 
   const periodBar = `
@@ -1586,6 +1606,41 @@ async function renderAnalyticsHealth(token) {
     });
   }
 
+  // ── Scala del tasso di risparmio ──────────────────────────────────────────
+  // Rimpiazza la vecchia riga "Soglie: ≥20% ottimo · ≥10% buono · ≥5% sufficiente": dichiarava
+  // 3 dei 7 nodi della scala e lasciava invisibili quelli a 3, 7 e 15% — 15 punti su 46 che si
+  // muovevano dove il testo diceva che non succedeva niente. Qui la scala è mostrata intera,
+  // con la posizione attuale sopra, così il badge "x / 46 pt" smette di essere un verdetto
+  // senza metro. Si disegna solo la parte positiva (0→15%): sotto zero il marcatore resta
+  // inchiodato a sinistra e la penalità la spiega la riga di testo.
+  const posAnchors = savingsAnchors.filter(([r]) => r >= 0);
+  const scaleMax   = posAnchors[posAnchors.length - 1][0];
+  const scalePct   = r => Math.max(0, Math.min(100, r / scaleMax * 100));
+  const markerPct  = scalePct(avgSavingsRate);
+  const rateUnder  = avgSavingsRate < 0;
+  const rateOver   = avgSavingsRate >= scaleMax;
+  // Quanto costa, in euro sul periodo, guadagnare un punto percentuale di tasso: rende
+  // concreta la pendenza. 1 pp = 1% delle entrate totali del periodo.
+  const eurPerPp   = totalIncome / 100;
+  const rateNote   = rateOver
+    ? `Sei oltre il massimo della scala: la componente è al pieno dei suoi 46 pt.`
+    : rateUnder
+      ? `Sotto zero la scala penalizza, fino a &minus;23 pt a &minus;15% o meno. Tornare in pari vale ${-scoreSavings} pt.`
+      : `Qui ogni punto percentuale in più vale <strong>${savingsSlope.toFixed(1)} pt</strong>${
+          totalIncome > 0 ? ` — sul periodo, ${fmt.currency(eurPerPp)} di uscite in meno` : ''}.`;
+  const rateScaleHtml = `
+    <div class="rate-scale">
+      <div class="rate-scale-track">
+        <div class="rate-scale-fill" style="width:${markerPct}%;background:${colS}"></div>
+        ${posAnchors.map(([r]) => `<i class="rate-scale-tick" style="left:${scalePct(r)}%"></i>`).join('')}
+        <i class="rate-scale-dot" style="left:${markerPct}%;background:${colS}"></i>
+      </div>
+      <div class="rate-scale-labels">
+        ${posAnchors.map(([r, p]) => `<span style="left:${scalePct(r)}%"><b>${r}%${r === scaleMax ? '+' : ''}</b>${p} pt</span>`).join('')}
+      </div>
+      <div class="rate-scale-note">Fra un nodo e l'altro il punteggio sale con continuità. ${rateNote}</div>
+    </div>`;
+
   // ── Scomposizione compatta del punteggio ──────────────────────────────────
   // Solo etichetta, barra, punti e una riga di dettaglio: le spiegazioni lunghe (soglie,
   // motivazioni) stanno nelle card sotto, dove c'è anche il grafico. Prima erano ripetute
@@ -1597,9 +1652,14 @@ async function renderAnalyticsHealth(token) {
     { key:'pos',     label:'Stabilità del risparmio', got:scorePos,      max:14, col:colP,
       detail:`${roll3Pos} ${roll3Total===1?'finestra':'finestre'} di 3 mesi ${roll3Pos===1?'positiva':'positive'} su ${roll3Total} (${(roll3Pct*100).toFixed(0)}%)`,
       off:`servono almeno 3 mesi per avere una finestra` },
-    { key:'runway',  label:'Riserva di emergenza',    got:scoreRunway,   max:14, col:colR,
-      detail:`${runwayDisplay} mesi coperti dalla riserva disponibile`,
+    { key:'runway',  label:'Riserva di emergenza',    got:scoreRunway,   max:8,  col:colR,
+      detail:`${runwayDisplay} mesi coperti dalla sola cassa`,
       off:'spesa mensile tipica non calcolabile' },
+    { key:'recovery', label:'Recupero del mese peggiore', got:scoreRecovery, max:6, col:colRec,
+      detail: recoveryMonths === 0 ? 'nessun mese chiuso in rosso nel periodo'
+        : !isFinite(recoveryMonths) ? 'nessun mese positivo: il buco non si recupera'
+        : `${recoveryDisplay} mesi buoni per ripianare il mese peggiore`,
+      off:`servono almeno ${minMonthsRec} mesi` },
     { key:'trend',   label:'Trend del risparmio',     got:scoreIncTrend, max:16, col:colI,
       detail:`${savSlopePct>=0?'+':''}${savSlopePct.toFixed(1)}% del reddito al mese (mediane)`,
       off:`servono almeno ${minMonthsTrend} mesi: due metà da confrontare` },
@@ -1684,8 +1744,8 @@ async function renderAnalyticsHealth(token) {
           <div class="health-desc" style="margin-bottom:10px">
             Percentuale di entrate risparmiata ogni mese. Sul periodo intero (risparmio totale ÷ entrate totali):
             <strong style="color:${avgSavingsRate>=10?'var(--income)':avgSavingsRate>=0?'var(--warn)':'var(--expense)'}">${avgSavingsRate.toFixed(1)}%</strong>.
-            Soglie: ≥20% ottimo · ≥10% buono · ≥5% sufficiente · &lt;0% penalizza il punteggio.
           </div>
+          ${rateScaleHtml}
           <div style="height:150px"><canvas id="healthRateChart"></canvas></div>
         </div>
 
@@ -1742,20 +1802,23 @@ async function renderAnalyticsHealth(token) {
         </div>
       </div>
 
-      <!-- Riga 2: Riserva di emergenza + Trend del risparmio -->
+      <!-- Riga 2: le due componenti di resilienza, appaiate di proposito — stesso widget
+           (marcatore su scala a fasce) e stessa domanda vista da due lati: quanto reggo se le
+           entrate si fermano, e quanto mi costa un mese storto. -->
       <div style="display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:16px;margin-bottom:16px">
 
         <!-- Riserva di emergenza -->
         <div class="card-section">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
             <div style="font-size:13px;font-weight:600">Riserva di emergenza</div>
-            <div class="score-badge" style="color:${applicable.runway?colR:'var(--txt3)'}">${applicable.runway?`${scoreRunway} / 14 pt`:'esclusa'}</div>
+            <div class="score-badge" style="color:${applicable.runway?colR:'var(--txt3)'}">${applicable.runway?`${scoreRunway} / 8 pt`:'esclusa'}</div>
           </div>
           <div class="health-desc" style="margin-bottom:14px">
-            Mesi di vita coperti dalla <strong>riserva disponibile</strong> divisa per la spesa di un mese tipico.
-            Indica la tua <em>resilienza</em>: quanto duri se le entrate si fermano.
-            Gli investimenti contano scontati al ${(investHaircut*100).toFixed(0)}%: in una crisi possono valere meno e richiedono tempo/tasse per essere venduti.
-            Soglie: ≥6 mesi ottimo · ≥3 buono · ≥1.5 sufficiente · &lt;0.5 critico.
+            Mesi di vita coperti dalla <strong>sola cassa</strong> (conti liquidi al netto delle carte) divisa per la spesa di un mese tipico:
+            quanto duri se le entrate si fermano <em>senza toccare gli investimenti</em>.
+            Il pieno è a <strong>4 mesi</strong> — soglia bassa di proposito, perché avere un patrimonio investito alle spalle
+            giustifica un cuscinetto di cassa più sottile. Gli investimenti restano qui sotto come contesto, ma non danno punti:
+            titoli tenuti a scadenza non sono liquidità d'emergenza.
             ${isHistorical ? `<strong style="color:var(--warn)">Attenzione: saldi di oggi, non di ${cols[cols.length-1].label}</strong> — i conti non hanno storico giornaliero, quindi questa parte non segue il periodo scelto.` : ''}
           </div>
 
@@ -1767,12 +1830,13 @@ async function renderAnalyticsHealth(token) {
             <!-- Il marker sta FUORI dal contenitore con overflow:hidden: dentro veniva tagliato
                  e sopra i 12 mesi restava invisibile (1px su 3 a schermo). -->
             <div style="flex:1;position:relative">
+              <!-- Fasce sulla scala 0–6 mesi: il verde pieno parte a 4, dove i punti sono al massimo -->
               <div style="display:flex;height:16px;border-radius:8px;overflow:hidden">
-                <div style="flex:0.5;background:rgba(248,81,73,.55)"  title="Critico (&lt;0.5 mesi)"></div>
-                <div style="flex:1;background:rgba(240,136,62,.55)"   title="Scarso (0.5–1.5 mesi)"></div>
-                <div style="flex:1.5;background:rgba(232,168,56,.55)" title="Sufficiente (1.5–3 mesi)"></div>
-                <div style="flex:3;background:rgba(99,179,90,.5)"     title="Buono (3–6 mesi)"></div>
-                <div style="flex:6;background:rgba(63,185,80,.6)"     title="Ottimo (≥6 mesi)"></div>
+                <div style="flex:1;background:rgba(248,81,73,.55)"  title="Critico (&lt;1 mese)"></div>
+                <div style="flex:1;background:rgba(240,136,62,.55)" title="Scarso (1–2 mesi)"></div>
+                <div style="flex:1;background:rgba(232,168,56,.55)" title="Sufficiente (2–3 mesi)"></div>
+                <div style="flex:1;background:rgba(99,179,90,.5)"   title="Buono (3–4 mesi)"></div>
+                <div style="flex:2;background:rgba(63,185,80,.6)"   title="Pieno (≥4 mesi)"></div>
               </div>
               ${applicable.runway ? `
                 <div title="${runwayDisplay} mesi" style="position:absolute;top:-4px;height:24px;width:3px;background:var(--txt);left:${runwayPos.toFixed(2)}%;transform:translateX(-50%);box-shadow:0 0 4px rgba(0,0,0,.6);border-radius:2px"></div>
@@ -1780,10 +1844,9 @@ async function renderAnalyticsHealth(token) {
               ` : ''}
               <div style="position:relative;height:14px;margin-top:4px;font-size:10px;color:var(--txt2)">
                 <span style="position:absolute;left:0">0</span>
-                <span style="position:absolute;left:12.5%;transform:translateX(-50%)">1.5</span>
-                <span style="position:absolute;left:25%;transform:translateX(-50%)">3</span>
-                <span style="position:absolute;left:50%;transform:translateX(-50%)">6</span>
-                <span style="position:absolute;right:0">12+</span>
+                <span style="position:absolute;left:33.3%;transform:translateX(-50%)">2</span>
+                <span style="position:absolute;left:66.7%;transform:translateX(-50%)">4 = pieno</span>
+                <span style="position:absolute;right:0">6+</span>
               </div>
             </div>
           </div>
@@ -1792,12 +1855,14 @@ async function renderAnalyticsHealth(token) {
                ai conti sotto la voce "liquidi" facevano passare un debito per liquidità. -->
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:12px;padding-top:10px;border-top:1px solid var(--border)">
             <div>
-              <div style="color:var(--txt2);font-size:10px;margin-bottom:2px">Riserva disponibile (saldi di oggi)</div>
+              <div style="color:var(--txt2);font-size:10px;margin-bottom:2px">Cassa disponibile (saldi di oggi)</div>
               <div style="font-weight:600;font-size:14px;color:${reserveBalance>=0?'var(--income)':'var(--expense)'}">${fmt.currency(reserveBalance)}</div>
               <div style="font-size:10px;color:var(--txt2);margin-top:3px;line-height:1.6">
                 <div>Liquidità sui conti: <strong>${fmt.currency(liquidBalance)}</strong></div>
                 ${cardAccs.length ? `<div>Debito carte di credito: <strong style="color:${cardBalance<0?'var(--expense)':'inherit'}">${fmt.currency(cardBalance)}</strong></div>` : ''}
-                ${investBalance ? `<div>Investimenti al ${(investHaircut*100).toFixed(0)}%: <strong>${fmt.currency(investBalance*investHaircut)}</strong> <span style="opacity:.8">(di ${fmt.currency(investBalance)})</span></div>` : ''}
+                ${investBalance ? `<div style="opacity:.85;margin-top:3px;padding-top:3px;border-top:1px dashed var(--border)">
+                  Investimenti: <strong>${fmt.currency(investBalance)}</strong> — non conteggiati.
+                  Con quelli i mesi coperti sarebbero <strong>${investDisplay}</strong>.</div>` : ''}
               </div>
             </div>
             <div>
@@ -1811,8 +1876,70 @@ async function renderAnalyticsHealth(token) {
           </div>
         </div>
 
-        <!-- Trend del risparmio -->
+        <!-- Recupero del mese peggiore — l'unica componente che guarda la coda invece del centro -->
         <div class="card-section">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+            <div style="font-size:13px;font-weight:600">Recupero del mese peggiore</div>
+            <div class="score-badge" style="color:${applicable.recovery?colRec:'var(--txt3)'}">${applicable.recovery?`${scoreRecovery} / 6 pt`:'escluso'}</div>
+          </div>
+          ${applicable.recovery ? `
+            <div class="health-desc" style="margin-bottom:14px">
+              Quanti mesi buoni servono per ripianare il buco del mese peggiore. Tasso, trend e stabilità
+              descrivono tutti il <em>centro</em> della stessa serie: questa guarda la <strong>coda</strong>,
+              cioè quanto ti costa un incidente. Non giudica la spesa — un mese in rosso per le tasse è
+              legittimo — dice che dopo quello non ti puoi permettere il secondo.
+              Soglie: ≤2 mesi pieno · 4 buono · 8 sufficiente · ≥12 niente.
+            </div>
+
+            <div style="display:flex;align-items:center;gap:18px;margin-bottom:14px">
+              <div style="text-align:center;min-width:90px">
+                <div style="font-size:34px;font-weight:700;color:${colRec};line-height:1">${recoveryDisplay}</div>
+                <div style="font-size:11px;color:var(--txt2);margin-top:3px">mesi</div>
+              </div>
+              <div style="flex:1;position:relative">
+                <!-- Scala rovesciata: qui il verde sta a sinistra, meno è meglio -->
+                <div style="display:flex;height:16px;border-radius:8px;overflow:hidden">
+                  <div style="flex:2;background:rgba(63,185,80,.6)"   title="Pieno (≤2 mesi)"></div>
+                  <div style="flex:2;background:rgba(99,179,90,.5)"   title="Buono (2–4 mesi)"></div>
+                  <div style="flex:4;background:rgba(232,168,56,.55)" title="Sufficiente (4–8 mesi)"></div>
+                  <div style="flex:4;background:rgba(248,81,73,.55)"  title="Critico (8–12 mesi)"></div>
+                </div>
+                <div title="${recoveryDisplay} mesi" style="position:absolute;top:-4px;height:24px;width:3px;background:var(--txt);left:${recoveryPos.toFixed(2)}%;transform:translateX(-50%);box-shadow:0 0 4px rgba(0,0,0,.6);border-radius:2px"></div>
+                ${recoveryOffScale ? `<div style="position:absolute;top:-19px;right:0;font-size:10px;font-weight:600;color:var(--expense);white-space:nowrap">${recoveryDisplay} mesi ▸ fuori scala</div>` : ''}
+                <div style="position:relative;height:14px;margin-top:4px;font-size:10px;color:var(--txt2)">
+                  <span style="position:absolute;left:0">0</span>
+                  <span style="position:absolute;left:16.7%;transform:translateX(-50%)">2</span>
+                  <span style="position:absolute;left:33.3%;transform:translateX(-50%)">4</span>
+                  <span style="position:absolute;left:66.7%;transform:translateX(-50%)">8</span>
+                  <span style="position:absolute;right:0">12+</span>
+                </div>
+              </div>
+            </div>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;font-size:12px;padding-top:10px;border-top:1px solid var(--border)">
+              <div>
+                <div style="color:var(--txt2);font-size:10px;margin-bottom:2px">Mese peggiore del periodo</div>
+                <div style="font-weight:600;font-size:14px;color:${worstMonth<0?'var(--expense)':'var(--income)'}">${fmt.currency(worstMonth)}</div>
+                <div style="font-size:10px;color:var(--txt2);margin-top:3px;line-height:1.6">
+                  ${worstMonth < 0 ? 'il buco più profondo su ' + n + (n===1?' mese':' mesi') : 'nessun mese chiuso in rosso: niente da recuperare'}
+                </div>
+              </div>
+              <div>
+                <div style="color:var(--txt2);font-size:10px;margin-bottom:2px">Mese buono tipico</div>
+                <div style="font-weight:600;font-size:14px;color:${medPosSaving>0?'var(--income)':'var(--txt2)'}">${fmt.currency(medPosSaving)}</div>
+                <div style="font-size:10px;color:var(--txt2);margin-top:3px;line-height:1.6">
+                  mediana dei soli mesi chiusi in positivo: la capacità di rimborso reale, non la media
+                </div>
+              </div>
+            </div>
+          ` : `<div class="health-desc">Servono almeno ${minMonthsRec} mesi: sotto, "mese peggiore" e "mese buono tipico" finiscono per essere lo stesso dato.<br>
+                <span style="color:var(--txt3)">Componente esclusa dal punteggio, che si rinormalizza su ${maxApplicable} pt.</span></div>`}
+        </div>
+
+      </div>
+
+      <!-- Riga 3: Trend del risparmio (full width) -->
+      <div class="card-section" style="margin-bottom:16px">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
             <div style="font-size:13px;font-weight:600">Trend del risparmio</div>
             <div class="score-badge" style="color:${applicable.trend?colI:'var(--txt3)'}">${applicable.trend?`${scoreIncTrend} / 16 pt`:'escluso'}</div>
@@ -1840,10 +1967,9 @@ async function renderAnalyticsHealth(token) {
               Servono almeno <strong>${minMonthsTrend} mesi</strong>: fino ad allora la componente è esclusa dal punteggio
               invece di valere 0.
             </div>`}
-        </div>
       </div>
 
-      <!-- Riga 3: Stabilità entrate (full width) -->
+      <!-- Riga 4: Stabilità entrate (full width) -->
       <div class="card-section" style="margin-bottom:16px">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
           <div style="font-size:13px;font-weight:600">Stabilità delle entrate</div>

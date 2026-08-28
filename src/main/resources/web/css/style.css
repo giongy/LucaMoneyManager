@@ -408,6 +408,7 @@ html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy
 [data-theme="petrolio"] .budget-row-parent .budget-cat-cell { background: #1a333a !important; }
 [data-theme="petrolio"] .budget-row-child  .budget-cat-cell { background: #132a30 !important; }
 [data-theme="petrolio"] .analytics-table thead th,
+[data-theme="petrolio"] .budget-sync-table thead th,
 [data-theme="petrolio"] #txTable thead th { background: #1a333a !important; }
 /* Badge budget: fondi petrolio saturi con testo chiaro (in scuro le trasparenze rendono). */
 [data-theme="petrolio"] .budget-gestione-badge.monthly { background: #35240f; color: #f0a866; border-color: #5a3d1a; }
@@ -530,6 +531,7 @@ html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy
 [data-theme="glassy"] .budget-row-child  .budget-cat-cell { background: #232a3a !important; }
 /* Stesso problema sulle altre tabelle con thead sticky */
 [data-theme="glassy"] .analytics-table thead th,
+[data-theme="glassy"] .budget-sync-table thead th,
 [data-theme="glassy"] #txTable thead th { background: #1c2230 !important; }
 /* Notifiche flottanti (#noticeStack): effetto vetro come cards/modali */
 [data-theme="glassy"] .overdue-notice {
@@ -2631,28 +2633,48 @@ tr.tx-selected td { background:rgba(124,124,255,.07); }
 .log-key::after { content: ':'; margin-right: 2px; }
 .log-val { color: var(--txt); }
 
-/* ── Budget vs Pianificate ─────────────────────────────────────────────── */
-.budget-sync-table { width:100%; border-collapse:collapse; font-size:.9rem; }
-.budget-sync-table th { padding:8px 12px; text-align:left; color:var(--txt2); font-weight:600; border-bottom:2px solid var(--border); white-space:nowrap; }
-.budget-sync-table td { padding:8px 12px; border-bottom:1px solid var(--border); vertical-align:middle; }
-.budget-sync-table tfoot td { border-top:2px solid var(--border); border-bottom:none; padding-top:10px; }
-.budget-sync-table tbody tr:hover { background:var(--bg3); }
-.budget-sync-table .num { text-align:right; font-variant-numeric:tabular-nums; }
+/* ── Budget vs Pianificate ──────────────────────────────────────────────────
+   Stesso formato delle altre due liste lunghe (transazioni e pianificate): la
+   tabella non ridefinisce più th/td per conto suo (era 8/12px di padding a
+   .9rem, riga da ~34px) ma eredita le regole generiche + il blocco "Tabelle
+   compatte" qui sotto. Restano solo le parti che le sono proprie: righe di
+   sezione, subtotali e colonna azioni. */
+.budget-sync-table .num { text-align:right; }
+/* Colonna categoria: link "silenzioso" come nel resto dell'app — colore ereditato,
+   accento solo all'hover (prima erano due handler inline onmouseover/onmouseout). */
+.sync-cat-link { cursor:pointer; color:inherit; text-decoration:none; }
+.sync-cat-link:hover { color:var(--accent); }
 .sync-row-ok td { color: var(--txt2); }
 .sync-row-ok:hover td { color: var(--txt); }
-.sync-section-header td { background:var(--bg3); color:var(--txt2); font-weight:700; font-size:.8rem; text-transform:uppercase; letter-spacing:.05em; padding:6px 12px; }
-.sync-subtotal td { background:var(--bg3); font-weight:600; border-top:2px solid var(--border); border-bottom:2px solid var(--border); }
+.sync-section-header td { background:var(--bg3); color:var(--txt2); font-weight:700; font-size:var(--fs-xs,10px); text-transform:uppercase; letter-spacing:.09em; padding:2px 8px; }
+.sync-subtotal td { background:var(--bg3); font-weight:700; color:var(--txt); border-top:1px solid var(--border); border-bottom:1px solid var(--border); }
+.sync-actions { text-align:right; white-space:nowrap; }
+.sync-hint { color:var(--txt2); font-size:var(--fs-xs,10px); }
+/* Titolo con il navigatore dell'anno in linea: .month-nav nasce come blocco a sé
+   (margin-bottom 16px, testo 13px), qui deve stare dentro una riga di testo. */
+.vb-title { display:flex; align-items:center; gap:6px; }
+.vb-year-nav { margin-bottom:0; padding:0 4px; gap:2px; }
+.vb-year-nav span { font-size:var(--fs-md,12px); min-width:34px; }
+.vb-year-nav button { font-size:var(--fs-lg,13px); line-height:1; padding:1px 4px; cursor:pointer; }
+.vb-year-nav button:disabled { opacity:.35; cursor:default; background:none; color:var(--txt3); }
+/* Header agganciato in alto: il contenitore che scorre è #schedContent, non la
+   tabella, quindi basta lo sticky sulle th (come nella lista transazioni). */
+.budget-sync-table thead th { position:sticky; top:0; z-index:2; background:var(--bg2); }
 
-/* ── Tabelle compatte: transazioni e pianificate ────────────────────────────
-   Le due liste lunghe dell'app condividono la stessa densità: riga da ~25px
+/* ── Tabelle compatte: transazioni, pianificate e verifica budget ───────────
+   Le liste lunghe dell'app condividono la stessa densità: riga da ~25px
    invece dei ~35px del default (th/td generici, 7px e 6px di padding a 13px).
    ⚠️ Non basta stringere il padding: l'altezza della riga la decide il
    contenuto più alto, quindi chip, badge e bottoni di riga vanno rimpiccioliti
    insieme, altrimenti sono loro a tenere su la riga e il padding non si vede. */
 #txTable th,
-#schedTable th  { padding:3px 8px; font-size:var(--fs-sm,11px); }
+#schedTable th,
+.budget-sync-table th  { padding:3px 8px; font-size:var(--fs-sm,11px); }
 #txTable td,
-#schedTable td  { padding:2px 8px; font-size:var(--fs-md,12px); }
+#schedTable td,
+.budget-sync-table td  { padding:2px 8px; font-size:var(--fs-md,12px); }
+/* Verifica Budget: "Integra" è l'unico elemento alto della riga. */
+.budget-sync-table .btn-xs { padding:1px 6px; font-size:var(--fs-xs,10px); }
 #txTable .badge { padding:1px 6px; font-size:var(--fs-xs,10px); }
 #txTable .btn-reconcile { font-size:var(--fs-md,12px); padding:1px 3px; }
 #txTable .btn-icon  { padding:2px 5px; font-size:var(--fs-sm,11px); }

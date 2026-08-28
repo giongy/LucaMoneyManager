@@ -1742,14 +1742,60 @@ function _countSchedYearOcc(freq, startDate, endDate, year, origStart, fromDate,
   return count;
 }
 
-// Tab "Verifica Budget" (dentro Pianificate): confronta, per categoria, il budget annuale con
-// il totale delle transazioni pianificate previste nell'anno, evidenziando categorie da integrare.
+// Anno esaminato dalla tab "Verifica Budget". Volutamente separato da budgetYear (la
+// pagina Budget): da qui serve poter guardare avanti — sull'anno prossimo la finestra
+// residua copre dodici mesi pieni — senza spostare l'anno della pagina Budget.
+let _vbYear = new Date().getFullYear();
+window._setVbYear = y => { _vbYear = parseInt(y); renderBudgetVsPianificate(); };
+
+// Budget effettivo mese per mese, stessa formula di renderBudgetTable: i mesi con un
+// importo esplicito valgono quello (nei mesi chiusi ci finisce la spesa reale), i mesi
+// liberi si dividono quello che resta del master annuale.
+// ⚠️ È questa ripartizione a rendere superfluo qualsiasi "condono" con lo speso: se i
+// mesi passati sono pinnati al reale, la somma dei mesi futuri È già il budget che resta.
+function _vbBudgetMonths(catId, configMap, monthByCat) {
+  const cfg    = configMap[catId];
+  const stored = monthByCat[catId] || {};
+  const pinned = Object.keys(stored).map(Number);
+  const out = {};
+  for (let m = 1; m <= 12; m++) out[m] = stored[m] ?? 0;
+  if (!cfg || !cfg.master_amount) return out;
+  const pinnedSum   = pinned.reduce((s, m) => s + stored[m], 0);
+  const lockedTotal = cfg.mode === 'annuale' ? cfg.master_amount : cfg.master_amount * 12;
+  const freeCount   = 12 - pinned.length;
+  if (freeCount === 0) return out;
+  const freeVal = Math.max(0, (lockedTotal - pinnedSum) / freeCount);
+  for (let m = 1; m <= 12; m++) if (stored[m] === undefined) out[m] = freeVal;
+  return out;
+}
+
+const _VB_MESI = ['gennaio','febbraio','marzo','aprile','maggio','giugno',
+                  'luglio','agosto','settembre','ottobre','novembre','dicembre'];
+
+// Tab "Verifica Budget" (dentro Pianificate).
+//
+// A cosa serve: budget e pianificate sono due modi di prevedere la stessa cosa. Se il
+// piano è coerente col budget, proiettando in avanti si arriva allo stesso saldo di fine
+// anno. La pagina cerca le categorie dove le due previsioni divergono.
+//
+// Il confronto è sul RESIDUO — dal primo del mese prossimo al 31 dicembre — su entrambi
+// i lati: budget dei mesi che restano contro pianificate che scattano in quei mesi. È la
+// traduzione letterale di "stesso saldo al 31/12", visto che la proiezione delle
+// Pianificate parte dal saldo reale di oggi, che la spesa già fatta la contiene già.
+// Confrontare gli interi anni farebbe invece risultare eternamente scoperte le categorie
+// che non si pianificano (dentista, elettrodomestici, regali: spesa spot).
+//
+// Il verso del giudizio dipende dal tipo, e NON è simmetrico:
+//   • uscite  — pianificare PIÙ del budget è prudente (se poi resti nel budget, a fine
+//               anno ti ritrovi più soldi del previsto); pianificare MENO è ottimista;
+//   • entrate — è l'opposto: pianificare MENO del budget è prudente.
+// Solo il caso ottimista è un problema, ed è l'unico contato in alto.
 async function renderBudgetVsPianificate() {
   const wrap = document.getElementById('schedContent') || document.getElementById('budgPianWrap');
   wrap.innerHTML = '<div style="padding:24px;color:var(--txt2)">Analisi in corso…</div>';
 
   const [budgetData, scheds, accs] = await Promise.all([
-    api.getBudgetYear(budgetYear),
+    api.getBudgetYear(_vbYear),
     api.getScheduled(),
     api.getAccounts()
   ]);
@@ -1762,179 +1808,225 @@ async function renderBudgetVsPianificate() {
     if (!monthByCat[b.category_id]) monthByCat[b.category_id] = {};
     monthByCat[b.category_id][b.month] = b.amount;
   }
-
-  // Budget annuale per categoria — stessa logica di getEffective() usata in renderBudgetTable:
-  // lockedTotal = master_amount (annuale) o master_amount×12 (mensile)
-  // mesi pinned = valore esplicito in budgets; mesi liberi = (lockedTotal - pinnedSum) / freeCount
-  // se pinnedSum > lockedTotal: mesi liberi = 0, totale = pinnedSum
   const configMap = Object.fromEntries((budgetData.configs || []).map(c => [c.category_id, c]));
 
-  const _getAnnual = catId => {
-    const cfg = configMap[catId];
-    const stored = monthByCat[catId] || {};
-    const pinnedMonths = Object.keys(stored).map(Number);
-    const pinnedSum = pinnedMonths.reduce((s, m) => s + stored[m], 0);
-    if (!cfg || !cfg.master_amount) return pinnedSum;
-    const lockedTotal = cfg.mode === 'annuale' ? cfg.master_amount : cfg.master_amount * 12;
-    const freeCount = 12 - pinnedMonths.length;
-    if (freeCount === 0) return pinnedSum;
-    const freeVal = Math.max(0, (lockedTotal - pinnedSum) / freeCount);
-    return pinnedSum + freeCount * freeVal;
-  };
+  // ── Finestra residua ─────────────────────────────────────────────────────────
+  // Anno corrente: dal 1° del mese prossimo (il mese in corso è mezzo consumato su
+  // entrambi i lati — le sue pianificate sono in parte già registrate e il suo budget
+  // in parte già pinnato al reale: includerlo sbilancerebbe il confronto).
+  // Anno futuro: tutti e dodici i mesi. Anno passato: niente da proiettare.
+  const now       = new Date();
+  const isCurYear = _vbYear === now.getFullYear();
+  const firstMonth = isCurYear ? now.getMonth() + 2 : (_vbYear > now.getFullYear() ? 1 : 13);
+  const monthsLeft = Math.max(0, 13 - firstMonth);
+  const fromDate   = firstMonth <= 12
+    ? `${_vbYear}-${String(firstMonth).padStart(2,'0')}-01`
+    : null;
 
-  const budgByCat = {};
-  // Categorie con config
-  for (const cfg of (budgetData.configs || [])) {
-    if (cfg.master_amount > 0) budgByCat[cfg.category_id] = _getAnnual(cfg.category_id);
-  }
-  // Categorie senza config: solo mesi espliciti
-  for (const catIdStr of Object.keys(monthByCat)) {
-    if (budgByCat[catIdStr] === undefined) budgByCat[catIdStr] = _getAnnual(parseInt(catIdStr));
+  // Scelta dell'anno con lo stesso navigatore ‹ › della pagina Budget, non con una
+  // <select> incastrata nel titolo: la tendina nativa non si può impaginare e in mezzo
+  // al testo del titolo restava un riquadro fuori scala.
+  const yMin = now.getFullYear() - 1, yMax = now.getFullYear() + 1;
+  const yearNav = `
+    <span class="month-nav vb-year-nav">
+      <button ${_vbYear <= yMin ? 'disabled' : ''} onclick="_setVbYear(${_vbYear-1})" title="Anno precedente">‹</button>
+      <span>${_vbYear}</span>
+      <button ${_vbYear >= yMax ? 'disabled' : ''} onclick="_setVbYear(${_vbYear+1})" title="Anno successivo">›</button>
+    </span>`;
+
+  if (!fromDate) {
+    wrap.innerHTML = `
+      <div class="card" style="margin-top:16px">
+        <div class="section-header" style="margin-bottom:8px">
+          <span class="section-title vb-title">Budget ${yearNav} vs Pianificate</span>
+        </div>
+        <div style="padding:24px;color:var(--txt2)">
+          Il ${_vbYear} non ha mesi residui da proiettare: il confronto guarda avanti nel tempo.
+          Scegli l'anno in corso o il prossimo.
+        </div>
+      </div>`;
+    return;
   }
 
-  // Mesi coperti da pianificate "una volta" per categoria nell'anno: per le ricorrenti
-  // dello stessa categoria sono "override" → la ricorrente NON conta quel mese (evita
-  // doppio conteggio quando una bolletta media viene sostituita con un importo specifico).
+  // ── Budget residuo per categoria: somma dei mesi della finestra ───────────────
+  const budgRes = {}, budgAnnual = {};
+  const catIds = new Set([
+    ...(budgetData.configs || []).filter(c => c.master_amount > 0).map(c => c.category_id),
+    ...Object.keys(monthByCat).map(Number)
+  ]);
+  for (const catId of catIds) {
+    const mm = _vbBudgetMonths(catId, configMap, monthByCat);
+    let res = 0;
+    for (let m = firstMonth; m <= 12; m++) res += mm[m];
+    budgRes[catId]    = res;
+    budgAnnual[catId] = Object.values(mm).reduce((s, v) => s + v, 0);
+  }
+
+  // ── Pianificato residuo per categoria ────────────────────────────────────────
+  // Mesi coperti da pianificate "una volta": per le ricorrenti della stessa categoria
+  // sono un override → la ricorrente non conta quel mese (evita il doppio conteggio
+  // quando una bolletta media viene sostituita da un importo specifico).
   const onceMonthsByCat = {};
   for (const s of scheds) {
     if (!s.is_active || s.type === 'transfer' || !s.category_id) continue;
     if (s.frequency !== 'once' || !s.start_date) continue;
-    if (!s.start_date.startsWith(budgetYear + '-')) continue;
+    if (!s.start_date.startsWith(_vbYear + '-')) continue;
     if (!onceMonthsByCat[s.category_id]) onceMonthsByCat[s.category_id] = new Set();
     onceMonthsByCat[s.category_id].add(parseInt(s.start_date.substring(5,7)));
   }
 
-  const schedByCat = {};
+  const schedRes = {};
   for (const s of scheds) {
     if (!s.is_active || s.type === 'transfer' || !s.category_id) continue;
     const excl = s.frequency !== 'once' ? onceMonthsByCat[s.category_id] : null;
-    const occ = _countSchedYearOcc(s.frequency, s.start_date, s.end_date, budgetYear, s.original_start_date, null, excl);
-    schedByCat[s.category_id] = (schedByCat[s.category_id] || 0) + occ * s.amount;
+    const occ  = _countSchedYearOcc(s.frequency, s.start_date, s.end_date, _vbYear,
+                                    s.original_start_date, fromDate, excl);
+    schedRes[s.category_id] = (schedRes[s.category_id] || 0) + occ * s.amount;
   }
 
-  // Effettivi YTD per categoria
-  const actualsByCat = {};
-  for (const a of (budgetData.actuals || [])) {
-    actualsByCat[a.category_id] = (actualsByCat[a.category_id] || 0) + (a.total || 0);
-  }
-
-  // gap = budget - pianificate. Se >0, le pianificate non bastano: gli actuals YTD possono
-  // colmarlo (spese reali fuori piano = Caso B); altrimenti manca da pianificare.
-  // Se gap <0 ci sono pianificate in eccesso rispetto al budget (segnalato come eccesso).
-  // Variazioni speso/pianificato sotto le aspettative vengono ignorate: il check guarda il
-  // piano, non l'esecuzione (= Caso A: pianificata 1200/mese ↔ budget 14400 → ✓ sempre).
+  // ── Verdetto per categoria ───────────────────────────────────────────────────
+  // delta = pianificato − budget, col segno vero (+ = si pianifica di più).
+  // Tolleranza: il maggiore fra 5 €/mese di finestra e l'1% del budget residuo. Serve a
+  // non segnalare né gli spiccioli (senza, "Regali/Donazioni" entrava fra le incongruenze
+  // per 12 € su quattro mesi, con un Integra da 3 € al mese) né gli artefatti della
+  // ripartizione: pinnare un mese al reale ridistribuisce il resto del master annuale sui
+  // mesi liberi, e ne escono cifre come 1.209,09 dove il piano dice 1.200.
+  // ⚠️ La soglia decide solo che cosa viene SEGNALATO: la differenza in euro resta
+  // sempre a schermo, anche sotto soglia.
   const rows = [];
-  for (const [catIdStr, budgAnnual] of Object.entries(budgByCat)) {
-    if (budgAnnual <= 0) continue;
-    const catId = parseInt(catIdStr);
+  for (const catId of catIds) {
     const cat = catMap[catId];
     if (!cat) continue;
-    const scheduled = schedByCat[catId] || 0;
-    const actualYtd = actualsByCat[catId] || 0;
-    const gap = budgAnnual - scheduled;
-    // Segno UI: diff>0 = manca (deficit, mostra "Integra"); diff<0 = eccesso pianificato
-    const diff = gap > 0
-      ? Math.max(0, gap - actualYtd)
-      : gap;
-    rows.push({ catId, cat, budgAnnual, scheduled, actualYtd, diff });
+    const bRes = budgRes[catId] || 0;
+    const sRes = schedRes[catId] || 0;
+    if (bRes <= 0 && sRes <= 0) continue;
+    const delta = sRes - bRes;
+    const tol   = Math.max(5 * monthsLeft, bRes * 0.01);
+    const prudente = cat.type === 'income' ? delta < 0 : delta > 0;
+    const verdict = Math.abs(delta) <= tol ? 'ok' : (prudente ? 'prudente' : 'ottimista');
+    rows.push({ catId, cat, bRes, sRes, delta, verdict,
+                annual: budgAnnual[catId] || 0 });
   }
-  const sortRows = arr => {
-    const disc = arr.filter(r => Math.abs(r.diff) > 0.01);
-    const ok   = arr.filter(r => Math.abs(r.diff) <= 0.01);
-    disc.sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff));
-    ok.sort((a, b) => {
-      const pa = a.cat.parent_id ? (catMap[a.cat.parent_id]?.name||'') : a.cat.name;
-      const pb = b.cat.parent_id ? (catMap[b.cat.parent_id]?.name||'') : b.cat.name;
-      return pa.localeCompare(pb) || a.cat.name.localeCompare(b.cat.name);
-    });
-    return [...disc, ...ok];
-  };
+
+  // Prima le ottimiste (il motivo per cui si apre la pagina), poi le prudenti, poi le
+  // coerenti in ordine alfabetico; dentro ogni gruppo per scostamento decrescente.
+  const RANK = { ottimista: 0, prudente: 1, ok: 2 };
+  const sortRows = arr => [...arr].sort((a, b) =>
+    RANK[a.verdict] - RANK[b.verdict] ||
+    (a.verdict === 'ok'
+      ? (a.cat.parent_id ? (catMap[a.cat.parent_id]?.name||'') : a.cat.name)
+          .localeCompare(b.cat.parent_id ? (catMap[b.cat.parent_id]?.name||'') : b.cat.name)
+        || a.cat.name.localeCompare(b.cat.name)
+      : Math.abs(b.delta) - Math.abs(a.delta)));
 
   const expenseRows = sortRows(rows.filter(r => r.cat.type === 'expense'));
   const incomeRows  = sortRows(rows.filter(r => r.cat.type === 'income'));
-  const discCount   = rows.filter(r => Math.abs(r.diff) > 0.01).length;
+  const nOtt = rows.filter(r => r.verdict === 'ottimista').length;
+  const nPru = rows.filter(r => r.verdict === 'prudente').length;
 
   // Salva accounts per il modal
   wrap._budgAccounts = accs;
-
   // Lookup globale per il modal (evita problemi di escape nelle stringhe inline)
   window._budgSyncData = {};
 
+
+
   const renderRow = r => {
     const parent = r.cat.parent_id ? catMap[r.cat.parent_id] : null;
-    const catLabel = parent ? `${parent.name} : ${r.cat.name}` : r.cat.name;
-    window._budgSyncData[r.catId] = { catLabel, catType: r.cat.type, diff: r.diff };
-    const ok = Math.abs(r.diff) <= 0.01;
-    const isDeficit = r.diff > 0;
-    const diffCls = ok ? '' : (isDeficit ? 'amount-expense' : 'amount-income');
-    const diffTxt = ok
-      ? `<span style="color:var(--income)">✓</span>`
-      : `${isDeficit?'-':'+'}${fmt.currency(Math.abs(r.diff))}`;
-    const action = ok
-      ? ''
-      : isDeficit
-        ? `<button class="btn btn-sm btn-primary" onclick="showBudgetIntegraModal(${r.catId})">Integra</button>`
-        : `<span style="color:var(--txt2);font-size:.8rem">Eccesso</span>`;
-    return `<tr class="${ok ? 'sync-row-ok' : ''}">
-      <td><a style="cursor:pointer;color:inherit;text-decoration:none" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color=''" onclick="schedTab='lista';_schedFilter.category='${r.catId}';renderScheduled()">${esc(r.cat.icon||'')} ${esc(catLabel)}</a></td>
-      <td class="num">${fmt.currency(r.budgAnnual)}</td>
-      <td class="num">${fmt.currency(r.scheduled)}</td>
-      <td class="num" style="color:var(--txt2)">${r.actualYtd > 0 ? fmt.currency(r.actualYtd) : '—'}</td>
-      <td class="num ${diffCls}">${diffTxt}</td>
-      <td style="text-align:right">${action}</td>
+    // Separatore "›" come nelle liste transazioni/pianificate.
+    const catLabel = parent ? `${parent.name} › ${r.cat.name}` : r.cat.name;
+    window._budgSyncData[r.catId] = { catLabel, catType: r.cat.type,
+                                      mancante: Math.abs(r.delta), firstMonth, monthsLeft };
+    // La differenza si mostra SEMPRE, anche sotto soglia. Prima le righe in tolleranza
+    // esibivano solo un ✓ al posto del numero: con due colonne visibilmente diverse
+    // (stipendio: 15.816,67 contro 16.000) sembrava che la pagina non sapesse contare.
+    // Il ✓ è passato nella colonna del verdetto, dove sta l'esito e non il dato.
+    const deltaTxt = Math.abs(r.delta) < 0.005
+      ? '—'
+      : `${r.delta > 0 ? '+' : '−'}${fmt.currency(Math.abs(r.delta))}`;
+    const deltaCls = r.verdict === 'ottimista' ? 'amount-expense'
+                   : r.verdict === 'prudente'  ? 'amount-income' : '';
+    // "Integra" ha senso solo sulle uscite scoperte: si colma creando una pianificata.
+    // Su un'entrata ottimista il piano promette troppo — si toglie, non si aggiunge.
+    const action = r.verdict === 'ottimista'
+      ? (r.cat.type === 'expense'
+          ? `<button class="btn btn-xs btn-primary" onclick="showBudgetIntegraModal(${r.catId})">Integra</button>`
+          : `<span class="sync-hint" title="Le entrate pianificate superano il budget: la proiezione promette più di quanto il budget prevede">Ottimista</span>`)
+      : r.verdict === 'prudente'
+        ? `<span class="sync-hint" title="${r.cat.type === 'income'
+              ? 'Entrate pianificate sotto il budget: la proiezione è cauta, il saldo reale può solo migliorare'
+              : 'Uscite pianificate sopra il budget: se resti nel budget, a fine anno avrai più di quanto proiettato'}">Prudente</span>`
+        : `<span style="color:var(--income)" title="Scarto sotto la soglia di segnalazione: le due previsioni coincidono">✓</span>`;
+    return `<tr class="${r.verdict === 'ok' ? 'sync-row-ok' : ''}">
+      <td><a class="sync-cat-link" onclick="schedTab='lista';_schedFilter.category='${r.catId}';renderScheduled()"><span class="cat-chip">${esc(r.cat.icon||'')} ${esc(catLabel)}</span></a></td>
+      <td class="num" title="Budget ${_vbYear} sull'intero anno: ${fmt.currency(r.annual)}">${fmt.currency(r.bRes)}</td>
+      <td class="num">${fmt.currency(r.sRes)}</td>
+      <td class="num ${deltaCls}">${deltaTxt}</td>
+      <td class="sync-actions">${action}</td>
     </tr>`;
   };
 
-  const renderSection = (label, sRows) => {
+  const renderSection = (label, sRows, type) => {
     if (!sRows.length) return '';
-    const tBudg   = sRows.reduce((s, r) => s + r.budgAnnual, 0);
-    const tSched  = sRows.reduce((s, r) => s + r.scheduled, 0);
-    const tActual = sRows.reduce((s, r) => s + r.actualYtd, 0);
-    const tDiff   = sRows.reduce((s, r) => s + r.diff, 0);
-    const tOk     = Math.abs(tDiff) <= 0.01;
+    const tBudg  = sRows.reduce((s, r) => s + r.bRes, 0);
+    const tSched = sRows.reduce((s, r) => s + r.sRes, 0);
+    const tDelta = tSched - tBudg;
+    // Stessa lettura delle righe, tolleranza compresa: sul totale dice di quanto
+    // l'intera proiezione da pianificate è più cauta (o più ottimista) del budget nella
+    // finestra residua. Senza la tolleranza, 55 € di scarto su 24.000 di entrate
+    // facevano comparire un "ottimista" rosso che non vuol dire niente.
+    const tTol  = Math.max(5 * monthsLeft, tBudg * 0.01);
+    const tOk   = Math.abs(tDelta) <= tTol;
+    const tPrud = type === 'income' ? tDelta < 0 : tDelta > 0;
     return `
-      <tr class="sync-section-header"><td colspan="6">${label}</td></tr>
+      <tr class="sync-section-header"><td colspan="5">${label}</td></tr>
       ${sRows.map(renderRow).join('')}
       <tr class="sync-subtotal">
         <td>Totale ${label}</td>
         <td class="num">${fmt.currency(tBudg)}</td>
         <td class="num">${fmt.currency(tSched)}</td>
-        <td class="num">${tActual > 0 ? fmt.currency(tActual) : '—'}</td>
-        <td class="num ${tOk?'':(tDiff>0?'amount-expense':'amount-income')}">
-          ${tOk ? '✓' : (tDiff>0?'-':'+') + fmt.currency(Math.abs(tDiff))}
-        </td>
-        <td></td>
+        <td class="num ${tOk ? '' : (tPrud ? 'amount-income' : 'amount-expense')}">${tDelta >= 0 ? '+' : '−'}${fmt.currency(Math.abs(tDelta))}</td>
+        <td class="sync-actions"><span class="sync-hint">${tOk ? 'in linea' : (tPrud ? 'prudente' : 'ottimista')}</span></td>
       </tr>`;
   };
 
+  const finestra = firstMonth === 1
+    ? `tutto il ${_vbYear}`
+    : `${_VB_MESI[firstMonth-1]} → dicembre ${_vbYear}`;
+
   wrap.innerHTML = `
     <div class="card" style="margin-top:16px">
-      <div class="section-header" style="margin-bottom:12px">
-        <span>Budget ${budgetYear} vs Pianificate</span>
-        <span style="font-size:.85rem;color:var(--txt2)">${discCount} incongruenz${discCount===1?'a':'e'} su ${rows.length} categorie</span>
+      <div class="section-header" style="margin-bottom:8px">
+        <span class="section-title vb-title">Budget ${yearNav} vs Pianificate
+          <span class="sync-hint" style="font-weight:400;margin-left:6px">residuo: ${finestra}</span>
+        </span>
+        <span style="font-size:var(--fs-sm,11px);color:var(--txt2)">
+          ${nOtt ? `<b style="color:var(--expense)">${nOtt}</b> prevision${nOtt===1?'e':'i'} ottimist${nOtt===1?'a':'e'}` : 'nessuna previsione ottimista'}
+          · ${nPru} prudent${nPru===1?'e':'i'} · ${rows.length} categorie
+        </span>
       </div>
-      <div class="table-wrap">
+      <!-- Niente .table-wrap attorno alla tabella: creerebbe un contenitore di scroll
+           (overflow-x:auto) e le th sticky si aggancerebbero a lui invece che a
+           #schedContent, cioè non resterebbero mai visibili. Stessa struttura di #txTable. -->
       <table class="budget-sync-table">
         <thead><tr>
           <th>Categoria</th>
-          <th class="num">Budget annuale</th>
-          <th class="num">Pianificate</th>
-          <th class="num" title="Spese reali registrate YTD (informativo)">Già fatto</th>
-          <th class="num">Differenza</th>
+          <th class="num" title="Somma del budget dei mesi che restano (i mesi già chiusi sono esclusi: la loro spesa è dentro il saldo attuale)">Budget residuo</th>
+          <th class="num" title="Totale delle transazioni pianificate che scattano nella stessa finestra">Pianificate</th>
+          <th class="num" title="Pianificate − budget. Tolleranza: 1% del budget residuo, minimo 1 €">Differenza</th>
           <th></th>
         </tr></thead>
         <tbody>
-          ${renderSection('Uscite', expenseRows)}
-          ${renderSection('Entrate', incomeRows)}
+          ${renderSection('Uscite', expenseRows, 'expense')}
+          ${renderSection('Entrate', incomeRows, 'income')}
         </tbody>
       </table>
-      </div>
     </div>`;
 }
 
 // Modale "Integra": imposta il budget di una categoria a partire dal totale delle pianificate previste.
 window.showBudgetIntegraModal = async function(catId) {
-  const { catLabel, catType, diff } = window._budgSyncData[catId] || {};
+  const { catLabel, catType, mancante, firstMonth, monthsLeft } = window._budgSyncData[catId] || {};
   const wrap = document.getElementById('schedContent') || document.getElementById('budgPianWrap');
   const accs = (wrap?._budgAccounts || []).filter(a => a.type !== 'investment');
 
@@ -1942,21 +2034,19 @@ window.showBudgetIntegraModal = async function(catId) {
   let tag = tags.find(t => t.name === 'Da Budget');
   if (!tag) tag = await api.addTag({ name: 'Da Budget', color: '#8b5cf6' });
 
-  const _t = new Date();
-  const _isCurYear = budgetYear === _t.getFullYear();
-  const startDef  = _isCurYear
-    ? `${_t.getFullYear()}-${String(_t.getMonth()+1).padStart(2,'0')}-${String(_t.getDate()).padStart(2,'0')}`
-    : `${budgetYear}-01-01`;
-  const yearEnd   = `${budgetYear}-12-31`;
-  const monthsLeft = _isCurYear ? (12 - _t.getMonth()) : 12;
-  const monthlyAmt = (Math.abs(diff) / monthsLeft).toFixed(2);
+  // Default allineati alla finestra su cui è stato calcolato l'ammanco: si parte dal
+  // primo mese confrontato (non da oggi, altrimenti la prima occorrenza cadrebbe in un
+  // mese che il confronto non guarda) e si spalma sui mesi della finestra.
+  const startDef = `${_vbYear}-${String(firstMonth).padStart(2,'0')}-01`;
+  const yearEnd  = `${_vbYear}-12-31`;
+  const monthlyAmt = (mancante / monthsLeft).toFixed(2);
   const txType = catType === 'expense' ? 'Uscita' : 'Entrata';
 
   const body = `
     <div class="form-row">
       <div class="form-group">
         <label>Mancante residuo</label>
-        <input class="form-control" value="${fmt.currency(Math.abs(diff))}" disabled>
+        <input class="form-control" value="${fmt.currency(mancante)}" disabled>
       </div>
       <div class="form-group">
         <label>Tipo</label>

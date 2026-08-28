@@ -416,6 +416,38 @@ o tassi va filtrata da `2026-01-01` in avanti, salvo diverso accordo.
 
 ---
 
+## Verifica di non regressione sui titoli: `test-titoli.ps1`
+
+Il portafoglio è l'unico punto in cui l'app **crea denaro**: una plusvalenza non è un
+giroconto. Se il calcolo sbaglia i saldi restano plausibili e non se ne accorge nessuno per
+mesi — motivo per cui questa parte, sola in tutto il progetto, ha una verifica automatica.
+
+```powershell
+.\tools\test-titoli.ps1                 # sul DB di progetto
+.\tools\test-titoli.ps1 -Database prod  # sui dati veri, senza toccarli
+.\tools\test-titoli.ps1 -Verbose        # stampa anche atteso/ottenuto di ogni controllo
+.\tools\test-titoli.ps1 -Keep           # conserva la copia per ispezionarla
+```
+
+**Cinquanta controlli** su tre suite: azioni (acquisto con commissione, vendita in utile e in
+perdita, imposta differita anche a posizione chiusa, rifiuti attesi, annullamento), obbligazioni
+(prezzo in percentuale, vendita parziale, rimborso a scadenza) e cedole/dividendi (che devono
+restare **dentro** budget e previsioni). Le due proprietà difese sono quelle che si rompono in
+silenzio: il conto investimenti si muove sempre del **solo carico**, mai del ricavo; e annullare
+un'operazione riporta i saldi esattamente dov'erano.
+
+⚠️ **Lo strumento scrive** — compra, vende, annulla. Per questo non lavora mai sul DB indicato
+ma su una **copia temporanea**, che cancella alla fine insieme al `.log` che `DbLogger` le
+scrive accanto. Da qui due comodità: si lancia ad app aperta senza contendere il lock, e
+`-Database prod` è innocuo perché i dati veri vengono solo letti per fare la copia.
+
+Il classpath mette `target\classes` **prima** del fat JAR: nel JAR ci sono le classi
+dell'ultima build, in `target\classes` quelle appena compilate. Senza quest'ordine si
+verificherebbe il codice vecchio credendo di provare il nuovo — quindi prima serve
+`mvn -o compile`. Esce con codice diverso da zero se un controllo fallisce.
+
+---
+
 ## Funzionalità principali
 
 Dashboard · Conti (tipi, valute, icone emoji, colori) · Transazioni (split, tag, riconciliazione) · Categorie (gerarchiche, colori) · Budget (mensile/annuale, master amount) · Pianificate (ricorrenti, previsioni) · Portfolio (ticker, buy/sell, dividendi) · Report (Chart.js) · Note (editor Quill, lazy-load) · Impostazioni (tema, backup)

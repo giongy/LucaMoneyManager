@@ -407,9 +407,16 @@ async function renderPortfolioStorico(items) {
     return;
   }
 
-  const TYPE_LABEL = { buy:'Acquisto', sell:'Vendita', coupon:'Cedola', dividend:'Dividendo', expense:'Spesa' };
-  const TYPE_COLOR = { buy:'var(--expense)', sell:'var(--income)', coupon:'var(--income)', dividend:'var(--income)', expense:'var(--expense)' };
-  const TYPE_SIGN  = { buy:'-', sell:'+', coupon:'+', dividend:'+', expense:'-' };
+  // Le righe 'gain' portano l'importo col segno (price negativo = minusvalenza), quindi la
+  // stessa riga si presenta in due modi: la chiave gainPos/gainNeg le tiene distinte senza
+  // duplicare il rendering. 'tax' è l'imposta trattenuta alla vendita.
+  const TYPE_LABEL = { buy:'Acquisto', sell:'Vendita', coupon:'Cedola', dividend:'Dividendo', expense:'Spesa',
+                       gainPos:'Plusvalenza', gainNeg:'Minusvalenza', tax:'Imposta' };
+  const TYPE_COLOR = { buy:'var(--expense)', sell:'var(--income)', coupon:'var(--income)', dividend:'var(--income)', expense:'var(--expense)',
+                       gainPos:'var(--income)', gainNeg:'var(--expense)', tax:'var(--expense)' };
+  const TYPE_SIGN  = { buy:'-', sell:'+', coupon:'+', dividend:'+', expense:'-',
+                       gainPos:'+', gainNeg:'-', tax:'-' };
+  const rowKind    = t => t.type === 'gain' ? (t.price >= 0 ? 'gainPos' : 'gainNeg') : t.type;
   // Note con cui il backend marca le righe expense di commissione (Database.buyStock/sellStock).
   const IS_COMMISSION_NOTE = n => n === 'Commissione' || n === 'Commissione acquisto';
 
@@ -455,9 +462,10 @@ async function renderPortfolioStorico(items) {
       const priceDisplay = !isValued ? '—'
         : isBond ? `${t.price.toFixed(4)} %`
         : `${t.price.toFixed(4)} €`;
+      const kind = rowKind(t);
       const typeLabel = t.type === 'expense' && IS_COMMISSION_NOTE(t.notes)
         ? `<span style="color:${TYPE_COLOR.expense};font-weight:600">Commissione</span>`
-        : `<span style="color:${TYPE_COLOR[t.type]||'var(--txt)'};font-weight:600">${TYPE_LABEL[t.type]||t.type}</span>`;
+        : `<span style="color:${TYPE_COLOR[kind]||'var(--txt)'};font-weight:600">${TYPE_LABEL[kind]||t.type}</span>`;
       const noteText = (t.notes && !IS_COMMISSION_NOTE(t.notes)) ? esc(t.notes) : '';
       const commNote = commPart > 0 ? `<small style="color:var(--txt3)">+ comm. ${fmt.currency(commPart)}</small>` : '';
       return `<tr>
@@ -465,12 +473,14 @@ async function renderPortfolioStorico(items) {
         <td style="width:130px">${typeLabel}</td>
         <td style="width:100px;text-align:right">${isValued ? t.quantity : '—'}</td>
         <td style="width:160px;text-align:right">${priceDisplay}</td>
-        <td style="width:160px;text-align:right;color:${TYPE_COLOR[t.type]||'var(--txt)'}">${TYPE_SIGN[t.type]||''}${fmt.currency(total)}${commNote ? '<br>' + commNote : ''}</td>
+        <td style="width:160px;text-align:right;color:${TYPE_COLOR[kind]||'var(--txt)'}">${TYPE_SIGN[kind]||''}${fmt.currency(Math.abs(total))}${commNote ? '<br>' + commNote : ''}</td>
         <td>${noteText}</td>
         <td style="width:36px;text-align:center">
-          <button class="btn btn-ghost" style="padding:2px 6px;font-size:11px;color:var(--txt3)"
+          ${t.parent_pt_id
+            ? `<span style="color:var(--txt3);font-size:11px" title="Generata dalla vendita qui sopra: si annulla insieme a quella">↳</span>`
+            : `<button class="btn btn-ghost" style="padding:2px 6px;font-size:11px;color:var(--txt3)"
                   onclick="deletePortfolioTransactionConfirm(${t.id},'${t.type}',${item.id})"
-                  title="Annulla operazione">✕</button>
+                  title="Annulla operazione">✕</button>`}
         </td>
       </tr>`;
     }).join('');
@@ -483,6 +493,12 @@ async function renderPortfolioStorico(items) {
           <span style="font-weight:700;font-size:var(--fs-md,12px)">${esc(item.ticker)}</span>
           <span style="color:var(--txt2);font-size:var(--fs-md,12px)">${esc(item.name)}</span>
           <div style="display:flex;flex-wrap:wrap;gap:4px;margin-left:auto">${chips}</div>
+          <!-- Unico punto da cui registrare l'imposta su un titolo VENDUTO: il menu contestuale
+               vive nella tab Portafoglio, che le posizioni chiuse non le mostra nemmeno. E il
+               capital gain arriva quasi sempre a posizione già chiusa. -->
+          <button class="btn btn-ghost btn-xs" style="flex-shrink:0"
+                  onclick="event.stopPropagation();showTaxModal(${item.id})"
+                  title="Registra l'imposta sul capital gain addebitata dalla banca">🧾</button>
         </div>
         ${collapsed ? '' : `
         <div class="table-wrap" style="margin-top:10px">
@@ -1235,7 +1251,11 @@ async function showSellModal(portfolioId) {
         <label class="form-label">Commissioni (€)</label>
         <input type="text" inputmode="decimal" class="form-control" id="s_commission" placeholder="0,00">
       </div>
-      <div class="form-group"></div>
+      <div class="form-group">
+        <label class="form-label">Imposta capital gain</label>
+        <input type="text" class="form-control" value="si registra a parte" disabled
+               title="La banca la addebita settimane dopo, spesso cumulata su più vendite: si registra quando arriva, dal menu della posizione (funziona anche a titolo venduto)">
+      </div>
     </div>
     <div class="form-row">
       <div class="form-group">
@@ -1243,9 +1263,13 @@ async function showSellModal(portfolioId) {
         <input type="text" class="form-control" id="s_total" readonly style="background:var(--bg3)">
       </div>
       <div class="form-group">
-        <label class="form-label">P&L stimato (netto comm.)</label>
+        <label class="form-label">Plus/minusvalenza (netto comm.)</label>
         <input type="text" class="form-control" id="s_pnl" readonly style="background:var(--bg3)">
       </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Accreditato sul conto</label>
+      <input type="text" class="form-control" id="s_credited" readonly style="background:var(--bg3);font-weight:700">
     </div>
     <div class="form-group">
       <label class="form-label">Note</label>
@@ -1284,14 +1308,18 @@ async function showSellModal(portfolioId) {
     // Bond: q = nominale €, p = prezzo% → valore = q*p/100
     const totalVal = isBond ? q * p / 100 : q * p;
     const costVal  = isBond ? q * pos.avg_price / 100 : q * pos.avg_price;
-    const pnl      = q && p ? totalVal - costVal - comm : null;
-    const totalEl  = document.getElementById('s_total');
-    const pnlEl    = document.getElementById('s_pnl');
+    const pnl      = q && p ? totalVal - comm - costVal : null;
+
+    const totalEl = document.getElementById('s_total');
+    const pnlEl   = document.getElementById('s_pnl');
+    const credEl  = document.getElementById('s_credited');
     if (totalEl) totalEl.value = q && p ? fmt.currency(totalVal) : '—';
     if (pnlEl) {
       pnlEl.value = pnl != null ? fmt.currency(pnl) : '—';
       pnlEl.style.color = pnl != null ? (pnl >= 0 ? 'var(--income)' : 'var(--expense)') : '';
     }
+    // Quello che arriva davvero sul conto: lordo − commissione − imposta.
+    if (credEl) credEl.value = q && p ? fmt.currency(totalVal - comm) : '—';
   };
   setTimeout(() => {
     document.getElementById('s_qty')?.addEventListener('input', calcSell);
@@ -1595,6 +1623,97 @@ async function showExpenseModal(portfolioId) {
   });
 }
 
+// Modale "Imposta capital gain": l'addebito che la banca fa settimane dopo la vendita.
+// Volutamente separato dalla vendita — quando vendi quel numero non lo conosci ancora, e spesso
+// la banca cumula più operazioni in un unico addebito.
+// ⚠️ Deve funzionare anche su posizioni con quantità 0, che è poi il caso normale: l'imposta
+// arriva quando il titolo è già stato venduto tutto. Nessun controllo sulla quantità, quindi.
+async function showTaxModal(portfolioId) {
+  const [items, accounts, txs] = await Promise.all([
+    api.getPortfolio(), api.getAccounts(), api.getPortfolioTransactions(portfolioId)
+  ]);
+  const pos = items.find(i => i.id === portfolioId);
+  if (!pos) return;
+  const regularAccounts = accounts.filter(a => a.type !== 'investment' && !a.is_closed);
+  const today = _todayStr();
+
+  // Contesto utile per capire a quale vendita si riferisce l'addebito: le ultime realizzate,
+  // con la plusvalenza già registrata accanto.
+  const vendite = txs.filter(t => t.type === 'sell').sort((a,b) => b.date.localeCompare(a.date)).slice(0, 3);
+  const gains   = txs.filter(t => t.type === 'gain');
+  // L'abbinamento è per parent_pt_id, non per data: di vendite dello stesso titolo nello
+  // stesso giorno ce ne possono essere due (ordini spezzati), e cercare per data mostrerebbe
+  // la stessa plusvalenza su entrambe le righe.
+  const gainDi  = v => {
+    const g = gains.find(x => x.parent_pt_id === v.id);
+    return g ? `<span style="color:${g.price >= 0 ? 'var(--income)' : 'var(--expense)'}">${g.price >= 0 ? '+' : '−'}${fmt.currency(Math.abs(g.price))}</span>` : '—';
+  };
+  const storico = vendite.length
+    ? `<div style="margin-bottom:14px">
+         <div class="settings-hint" style="margin-bottom:4px">Ultime vendite di questo titolo</div>
+         ${vendite.map(v => `<div style="display:flex;gap:10px;font-size:12px;padding:2px 0">
+             <span style="color:var(--txt3);width:82px">${fmt.date(v.date)}</span>
+             <span style="width:120px">${pos.asset_type === 'bond' ? fmt.currency(v.quantity) + ' nom.' : v.quantity + ' qtà'}</span>
+             <span>plus/minus ${gainDi(v)}</span>
+           </div>`).join('')}
+       </div>`
+    : `<div class="settings-hint" style="margin-bottom:14px">Nessuna vendita registrata su questo titolo.</div>`;
+
+  const body = `
+    <div style="background:var(--bg3);border-radius:6px;padding:8px 14px;margin-bottom:14px;font-size:13px">
+      <strong>${esc(pos.ticker)}</strong> — ${esc(pos.name)}
+      ${pos.quantity > 0 ? '' : `<span class="settings-hint" style="margin-left:8px">posizione chiusa</span>`}
+    </div>
+    ${storico}
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Addebita da *</label>
+        <select class="form-control" id="tx_account">
+          <option value="">— Seleziona conto —</option>
+          ${regularAccounts.map(a=>`<option value="${a.id}">${esc(a.icon)} ${esc(a.name)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Data addebito *</label>
+        <input type="date" class="form-control" id="tx_date" value="${today}">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Importo (€) *</label>
+        <input type="text" inputmode="decimal" class="form-control" id="tx_amount" placeholder="0,00">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Note</label>
+        <input class="form-control" id="tx_notes" placeholder="Facoltativo">
+      </div>
+    </div>
+    <p class="settings-hint" style="margin-top:10px">
+      Finisce in <strong>Imposte su rendite</strong>, categoria esclusa da budget e report:
+      muove il saldo del conto ma non entra nelle medie né nelle previsioni.
+    </p>`;
+
+  openModal('Imposta capital gain', body, async () => {
+    const amount = evalAmount(document.getElementById('tx_amount').value);
+    const data = {
+      portfolio_id: portfolioId,
+      account_id:   parseInt(document.getElementById('tx_account').value),
+      amount,
+      date:         document.getElementById('tx_date').value,
+      notes:        document.getElementById('tx_notes').value.trim() || null,
+    };
+    if (!data.account_id)       { toast('Seleziona il conto di addebito','error'); return; }
+    if (!amount || amount <= 0) { toast('Inserisci un importo valido','error'); return; }
+    if (!data.date)             { toast('Inserisci la data','error'); return; }
+    try {
+      await api.registerPortfolioTax(data);
+      closeModal();
+      toast(`Imposta registrata — ${fmt.currency(amount)}`);
+      renderPortfolio();
+    } catch(e) { toast(e.message,'error'); }
+  });
+}
+
 // Modale storico movimenti di una posizione (buy/sell/cedole/dividendi/spese) con possibilità di eliminarli.
 async function showPortfolioHistory(portfolioId) {
   const [txs, items] = await Promise.all([
@@ -1853,6 +1972,7 @@ window._showPortfolioCtx = (portfolioId, evt) => {
     menu.appendChild(mkItem('💵', 'Registra dividendo', () => showDividendModal(portfolioId)));
     menu.appendChild(mkItem('💸', 'Registra spesa',     () => showExpenseModal(portfolioId)));
   }
+  menu.appendChild(mkItem('🧾', 'Imposta capital gain', () => showTaxModal(portfolioId)));
   menu.appendChild(mkSep());
   menu.appendChild(mkItem('✏️', 'Modifica',  () => showEditPositionModal(portfolioId)));
   menu.appendChild(mkItem('📋', 'Storico',   () => showPortfolioHistory(portfolioId)));
@@ -2029,6 +2149,7 @@ window.showBuyModal         = showBuyModal;
 window.showSellModal        = showSellModal;
 window.showCouponModal      = showCouponModal;
 window.showExpenseModal     = showExpenseModal;
+window.showTaxModal         = showTaxModal;
 window.showPortfolioHistory = showPortfolioHistory;
 // Aggiorna i prezzi correnti di tutte le posizioni con ISIN/ticker via scraping online (Borsa Italiana),
 // segnando per ciascuna l'esito (ok/fail) nello stato dei prezzi.

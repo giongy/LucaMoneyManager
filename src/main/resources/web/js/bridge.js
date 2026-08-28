@@ -182,6 +182,7 @@ const api = {
   registerCoupon:           async (data)  => { api._invalidateAccounts(); return callJava('registerCoupon', data); },
   registerDividend:         async (data)  => { api._invalidateAccounts(); return callJava('registerDividend', data); },
   registerPortfolioExpense: async (data)  => { api._invalidateAccounts(); return callJava('registerPortfolioExpense', data); },
+  registerPortfolioTax:     async (data)  => { api._invalidateAccounts(); return callJava('registerPortfolioTax', data); },
   updatePortfolioItem:      async (data)  => { api._invalidateAccounts(); return callJava('updatePortfolioItem', data); },
   deletePortfolioItem:      async (id)    => { api._invalidateAccounts(); return callJava('deletePortfolioItem', {id}); },
   deletePortfolioTransaction: async (id)  => { api._invalidateAccounts(); return callJava('deletePortfolioTransaction', {id}); },

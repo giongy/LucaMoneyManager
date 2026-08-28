@@ -959,6 +959,10 @@ public class Database {
                 transaction_id INTEGER REFERENCES transactions(id) ON DELETE CASCADE,
                 notes          TEXT,
                 commission     REAL    DEFAULT 0,
+                -- Righe generate insieme dalla stessa operazione (plus/minusvalenza, imposta e
+                -- commissione di una vendita) puntano alla riga madre: annullarla le porta via
+                -- tutte, transazioni collegate comprese. Vedi sellStock/deletePortfolioTransaction.
+                parent_pt_id   INTEGER REFERENCES portfolio_transactions(id) ON DELETE CASCADE,
                 created_at     TEXT    DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE IF NOT EXISTS tags (
@@ -1104,7 +1108,7 @@ public class Database {
         }
     }
 
-    private static final int SCHEMA_VERSION = 23;
+    private static final int SCHEMA_VERSION = 24;
 
     /**
      * Migrazioni incrementali dello schema per DB creati con versioni precedenti.
@@ -1156,8 +1160,18 @@ public class Database {
             catch (SQLException ignored) {}
         }
 
-        // ── v24+: aggiungere qui i blocchi futuri, es.:
-        //   if (currentVersion < 24) { try { executePlain("ALTER TABLE ..."); } catch (SQLException ignored) {} }
+        // ── v24: portfolio_transactions.parent_pt_id — lega le righe generate insieme dalla
+        // stessa operazione. Una vendita ora ne produce fino a quattro (vendita, plus/minus-
+        // valenza, imposta, commissione) e annullarla deve toglierle tutte: senza un legame
+        // esplicito resterebbero transazioni orfane che muovono il saldo di un conto per
+        // un'operazione che non esiste più.
+        if (currentVersion < 24) {
+            try { executePlain("ALTER TABLE portfolio_transactions ADD COLUMN parent_pt_id INTEGER REFERENCES portfolio_transactions(id) ON DELETE CASCADE"); }
+            catch (SQLException ignored) {}
+        }
+
+        // ── v25+: aggiungere qui i blocchi futuri, es.:
+        //   if (currentVersion < 25) { try { executePlain("ALTER TABLE ..."); } catch (SQLException ignored) {} }
 
         // Segna il DB come aggiornato all'ultima versione
         executePlain("DELETE FROM schema_version");
@@ -4109,6 +4123,63 @@ public class Database {
         return cat != null ? ((Number) cat.get("id")).intValue() : null;
     }
 
+    // Categorie di sistema delle operazioni su titoli. Sono escluse da budget e report: una
+    // plusvalenza muove il patrimonio ma non è reddito pianificabile, e se entrasse nelle medie
+    // falserebbe tasso di risparmio, previsioni e Salute Finanziaria. Le cedole invece NO: quelle
+    // sono ricorrenti, si pianificano, e restano in "Cedole e dividendi" dentro il budget.
+    private static final String CAT_PLUSVALENZE  = "Plusvalenze";
+    private static final String CAT_MINUSVALENZE = "Minusvalenze";
+    private static final String CAT_IMPOSTE      = "Imposte su rendite";
+    private static final String CAT_CEDOLE       = "Cedole e dividendi";
+
+    /**
+     * Categoria di cedole e dividendi. A differenza delle altre tre NON è esclusa da budget e
+     * report: le cedole sono ricorrenti e si pianificano, quindi devono restare nelle previsioni.
+     * ⚠️ La catena di fallback esiste perché questa categoria si chiamava "Investimenti" e i
+     * punti che la cercavano usavano LIKE '%nvestiment%': dopo il rinomino quel filtro non
+     * trovava più nulla e le cedole sarebbero finite nella prima categoria income qualsiasi.
+     */
+    private int couponCategoryId() throws SQLException {
+        var cat = queryOne("SELECT id FROM categories WHERE type='income' AND name=?", CAT_CEDOLE);
+        if (cat == null) cat = queryOne(
+            "SELECT id FROM categories WHERE type='income' AND (LOWER(name) LIKE '%edole%' OR LOWER(name) LIKE '%nvestiment%') ORDER BY id LIMIT 1");
+        if (cat != null) return ((Number) cat.get("id")).intValue();
+
+        var parent = queryOne("SELECT id FROM categories WHERE name='Entrate' AND type='income' AND parent_id IS NULL");
+        Integer parentId = parent != null ? ((Number) parent.get("id")).intValue() : null;
+        long id = execute("""
+            INSERT INTO categories(name,type,icon,color,parent_id,excluded_from_budget)
+            VALUES(?,?,?,?,?,0)
+        """, CAT_CEDOLE, "income", "📈", "#d29922", parentId);
+        logger.log("CATEGORIA CREATA", "nome:" + CAT_CEDOLE, "tipo:income", "esclusa_da_budget:no");
+        return (int) id;
+    }
+
+    /**
+     * Id di una categoria di sistema per gli investimenti; se manca la crea, già marcata come
+     * esclusa da budget e report e appesa al parent giusto (Entrate per le entrate, Varie per
+     * le uscite).
+     * ⚠️ Nessun fallback "prima categoria disponibile" come in {@link #commissionCategoryId()}:
+     * lì un errore ti sposta una commissione da pochi euro, qui ti scriverebbe una plusvalenza
+     * da migliaia in una categoria a caso.
+     */
+    private int investCategoryId(String name, String type, String icon, String color) throws SQLException {
+        var cat = queryOne("SELECT id FROM categories WHERE name=? AND type=?", name, type);
+        if (cat != null) return ((Number) cat.get("id")).intValue();
+
+        String parentName = "income".equals(type) ? "Entrate" : "Varie";
+        var parent = queryOne(
+            "SELECT id FROM categories WHERE name=? AND type=? AND parent_id IS NULL", parentName, type);
+        Integer parentId = parent != null ? ((Number) parent.get("id")).intValue() : null;
+
+        long id = execute("""
+            INSERT INTO categories(name,type,icon,color,parent_id,excluded_from_budget)
+            VALUES(?,?,?,?,?,1)
+        """, name, type, icon, color, parentId);
+        logger.log("CATEGORIA CREATA", "nome:" + name, "tipo:" + type, "esclusa_da_budget:si");
+        return (int) id;
+    }
+
     /** Storico movimenti (buy/sell/cedole/dividendi/spese) di una posizione. */
     public List<Map<String, Object>> getPortfolioTransactions(int portfolioId) throws SQLException {
         return queryList("""
@@ -4160,11 +4231,19 @@ public class Database {
             var cat = queryOne("SELECT id FROM categories WHERE type='transfer' LIMIT 1");
             Integer catId = cat != null ? ((Number)cat.get("id")).intValue() : null;
 
-            // Bonifico solo per l'importo "puro" (commissione gestita come expense separata sotto)
+            // Bonifico per l'importo puro PIÙ la commissione: è quello che esce davvero dal
+            // conto liquidità, ed è anche quanto la commissione vale nel prezzo di carico
+            // (avg_price la incorpora, vedi sotto). Così il saldo del conto investimenti
+            // coincide con il carico delle posizioni, che è la proprietà su cui si regge il
+            // calcolo della plus/minusvalenza alla vendita.
+            // ⚠️ Prima il giroconto era del solo importo puro e la commissione era una
+            // transazione di spesa a parte: veniva quindi sottratta due volte dal patrimonio,
+            // una come spesa e una dentro il carico. Non si vedeva solo perché la plusvalenza
+            // non veniva registrata da nessuna parte.
             long txId = execute("""
                 INSERT INTO transactions(date,amount,type,category_id,account_id,to_account_id,description,reconciled)
                 VALUES(?,?,?,?,?,?,?,0)
-            """, date, pureAmount, "transfer", catId, fromAccountId, investAccountId,
+            """, date, r2(pureAmount + commissions), "transfer", catId, fromAccountId, investAccountId,
                 "Acquisto " + ticker);
 
             var existing = queryOne("SELECT * FROM portfolio WHERE account_id=? AND ticker=?",
@@ -4193,22 +4272,25 @@ public class Database {
                      assetType, faceValue, maturityDate, couponRate, couponFreq, couponTax, commissions);
             }
 
-            execute("""
+            long buyPtId = execute("""
                 INSERT INTO portfolio_transactions(portfolio_id,type,quantity,price,date,transaction_id,notes,commission)
                 VALUES(?,?,?,?,?,?,?,?)
             """, portfolioId, "buy", qty, price, date, txId, notes, commissions);
 
             if (commissions > 0) {
-                Integer expCatId = commissionCategoryId();
-                long commTxId = execute("""
-                    INSERT INTO transactions(date,amount,type,category_id,account_id,description,reconciled)
-                    VALUES(?,?,?,?,?,?,0)
-                """, date, commissions, "expense", expCatId, fromAccountId, "Commissione acquisto " + ticker);
+                // Riga di solo storico, senza transazione collegata: il denaro è già uscito
+                // dentro il giroconto qui sopra. Serve a far comparire la commissione nello
+                // storico della posizione, dove l'utente si aspetta di vederla.
+                // ⚠️ Le note devono restare esattamente "Commissione acquisto": sia il SQL di
+                // total_other_expenses sia IS_COMMISSION_NOTE in portfolio.js escludono questa
+                // riga dai totali proprio guardando quel testo, perché la commissione è già
+                // contata nella riga 'buy' (colonna commission). Cambiarlo la conterebbe due volte.
                 execute("""
-                    INSERT INTO portfolio_transactions(portfolio_id,type,quantity,price,date,transaction_id,notes,commission)
-                    VALUES(?,?,?,?,?,?,?,?)
-                """, portfolioId, "expense", 0, commissions, date, commTxId, "Commissione acquisto", commissions);
-                logger.log("COMMISSIONE ACQUISTO", "ticker:" + ticker, "importo:" + DbLogger.amt(commissions));
+                    INSERT INTO portfolio_transactions(portfolio_id,type,quantity,price,date,transaction_id,notes,commission,parent_pt_id)
+                    VALUES(?,?,?,?,?,?,?,?,?)
+                """, portfolioId, "expense", 0, commissions, date, null, "Commissione acquisto", commissions, buyPtId);
+                logger.log("COMMISSIONE ACQUISTO", "ticker:" + ticker, "importo:" + DbLogger.amt(commissions),
+                           "nel giroconto:si");
             }
 
             logger.log("TITOLO ACQUISTATO", "ticker:" + ticker, "nome:" + name,
@@ -4219,8 +4301,22 @@ public class Database {
     }
 
     /**
-     * Registra una vendita: bonifico dal conto investimenti a quello liquidità, riduce la
-     * quantità in posizione e registra il movimento "sell" (commissione come expense separata).
+     * Registra una vendita (o il rimborso a scadenza di un'obbligazione, che è una vendita a 100).
+     *
+     * Genera fino a quattro scritture, tutte sul conto investimenti tranne l'accredito:
+     *   1. plusvalenza  → entrata  in "Plusvalenze"        (o uscita in "Minusvalenze")
+     *   2. imposta      → uscita   in "Imposte su rendite" (se trattenuta)
+     *   3. accredito    → giroconto verso il conto liquidità, per il netto incassato
+     *   4. commissione  → sola riga di storico: è già scontata dal ricavo, non è una transazione
+     *
+     * Il guadagno nasce sul conto investimenti, non su quello di liquidità: è lì che si è
+     * prodotto, e così viene registrato anche se i soldi restano sul deposito invece di essere
+     * prelevati. Il conto investimenti torna così esattamente a zero sulla posizione chiusa:
+     *   carico + plusvalenza − imposta − accredito = 0
+     *
+     * ⚠️ Prima il giroconto portava via il ricavo LORDO da un conto che conteneva solo il
+     * carico: ogni vendita in utile lasciava il conto investimenti sotto di quell'utile, e il
+     * guadagno non compariva da nessuna parte se non nella pagina Titoli.
      */
     public Map<String, Object> sellStock(JsonObject p) throws SQLException {
         int portfolioId   = p.get("portfolio_id").getAsInt();
@@ -4230,11 +4326,16 @@ public class Database {
         String date       = p.get("date").getAsString();
         String notes      = p.has("notes") && !p.get("notes").isJsonNull() ? p.get("notes").getAsString() : null;
         double commission = p.has("commission") && !p.get("commission").isJsonNull() ? r2(p.get("commission").getAsDouble()) : 0.0;
+        // ⚠️ Nessuna imposta qui dentro: la banca addebita il capital gain settimane dopo la
+        // vendita, spesso cumulato su più operazioni. Al momento della vendita quel numero non
+        // si conosce, e inventarlo significherebbe scrivere un'uscita in una data in cui non è
+        // mai avvenuta. Si registra a parte con registerPortfolioTax(), anche a posizione chiusa.
 
         // Valida prima di aprire la transazione
         var position = queryOne("SELECT * FROM portfolio WHERE id=?", portfolioId);
         if (position == null) throw new SQLException("Posizione non trovata");
         double existQty     = ((Number)position.get("quantity")).doubleValue();
+        double avgPrice     = ((Number)position.get("avg_price")).doubleValue();
         int investAccountId = ((Number)position.get("account_id")).intValue();
         String ticker       = (String)position.get("ticker");
         // Limite inferiore oltre a quello superiore: una qty negativa AUMENTEREBBE la posizione
@@ -4243,45 +4344,80 @@ public class Database {
             throw new SQLException("Quantità non valida (" + qty + "): deve essere maggiore di zero.");
         if (qty > existQty + 0.00001)
             throw new SQLException("Quantità venduta (" + qty + ") superiore alla disponibile (" + existQty + ")");
+        if (commission < 0)
+            throw new SQLException("Commissione non valida (" + commission + "): non può essere negativa.");
 
         boolean isBond = "bond".equals((String)position.get("asset_type"));
-        double amount = r2(isBond ? qty * price / 100.0 : qty * price);
+        // Convenzione bond: il prezzo è una percentuale del nominale (99,5 = 99,5%).
+        double gross  = r2(isBond ? qty * price    / 100.0 : qty * price);
+        double carico = r2(isBond ? qty * avgPrice / 100.0 : qty * avgPrice);
+        // La commissione riduce il ricavo invece di essere una spesa a sé: è il trattamento
+        // fiscale corretto (abbatte la plusvalenza) ed evita di contarla due volte, visto che
+        // all'acquisto è già dentro il carico.
+        double netProceeds = r2(gross - commission);
+        double gain        = r2(netProceeds - carico);
+        // Sul conto arriva tutto il ricavo netto: l'imposta la banca la preleva dopo, per conto suo.
+        double credited    = netProceeds;
 
         return inTx(() -> {
             var cat = queryOne("SELECT id FROM categories WHERE type='transfer' LIMIT 1");
             Integer catId = cat != null ? ((Number)cat.get("id")).intValue() : null;
-            long txId = execute("""
-                INSERT INTO transactions(date,amount,type,category_id,account_id,to_account_id,description,reconciled)
-                VALUES(?,?,?,?,?,?,?,0)
-            """, date, amount, "transfer", catId, investAccountId, toAccountId,
-                "Vendita " + ticker + " x" + qty);
+
+            // La riga 'sell' è la madre: le altre le si appendono con parent_pt_id, così
+            // annullare la vendita porta via tutto in un colpo.
+            long sellPtId = execute("""
+                INSERT INTO portfolio_transactions(portfolio_id,type,quantity,price,date,transaction_id,notes)
+                VALUES(?,?,?,?,?,?,?)
+            """, portfolioId, "sell", qty, price, date, null, notes);
+
+            // 1. Plus/minusvalenza realizzata, sul conto investimenti
+            if (Math.abs(gain) > 0.005) {
+                boolean isGain = gain > 0;
+                int gainCatId = isGain
+                    ? investCategoryId(CAT_PLUSVALENZE,  "income",  "💹", "#3fb950")
+                    : investCategoryId(CAT_MINUSVALENZE, "expense", "📉", "#f85149");
+                long gainTxId = execute("""
+                    INSERT INTO transactions(date,amount,type,category_id,account_id,description,reconciled)
+                    VALUES(?,?,?,?,?,?,0)
+                """, date, Math.abs(gain), isGain ? "income" : "expense", gainCatId, investAccountId,
+                     (isGain ? "Plusvalenza " : "Minusvalenza ") + ticker);
+                execute("""
+                    INSERT INTO portfolio_transactions(portfolio_id,type,quantity,price,date,transaction_id,notes,parent_pt_id)
+                    VALUES(?,?,?,?,?,?,?,?)
+                """, portfolioId, "gain", 0, gain, date, gainTxId,
+                     isGain ? "Plusvalenza" : "Minusvalenza", sellPtId);
+            }
+
+            // 2. Accredito sul conto di liquidità: il netto che arriva davvero
+            if (credited > 0.005) {
+                long txId = execute("""
+                    INSERT INTO transactions(date,amount,type,category_id,account_id,to_account_id,description,reconciled)
+                    VALUES(?,?,?,?,?,?,?,0)
+                """, date, credited, "transfer", catId, investAccountId, toAccountId,
+                    "Vendita " + ticker + " x" + qty);
+                execute("UPDATE portfolio_transactions SET transaction_id=? WHERE id=?", txId, sellPtId);
+            }
 
             execute("UPDATE portfolio SET quantity=? WHERE id=?", r4(existQty - qty), portfolioId);
 
-            execute("""
-                INSERT INTO portfolio_transactions(portfolio_id,type,quantity,price,date,transaction_id,notes)
-                VALUES(?,?,?,?,?,?,?)
-            """, portfolioId, "sell", qty, price, date, txId, notes);
-
+            // 4. Commissione: sola riga di storico (è già scontata dal ricavo netto).
+            // ⚠️ Le note devono restare esattamente "Commissione": total_sell_commissions in
+            // getPortfolio e IS_COMMISSION_NOTE in portfolio.js riconoscono la riga da quel testo.
             if (commission > 0) {
-                Integer expCatId = commissionCategoryId();
-                long commTxId = execute("""
-                    INSERT INTO transactions(date,amount,type,category_id,account_id,description,reconciled)
-                    VALUES(?,?,?,?,?,?,0)
-                """, date, commission, "expense", expCatId, toAccountId, "Commissione vendita " + ticker);
                 execute("""
-                    INSERT INTO portfolio_transactions(portfolio_id,type,quantity,price,date,transaction_id,notes,commission)
-                    VALUES(?,?,?,?,?,?,?,?)
-                """, portfolioId, "expense", 0, commission, date, commTxId, "Commissione", commission);
-                // Aggiorna total_commissions della posizione
+                    INSERT INTO portfolio_transactions(portfolio_id,type,quantity,price,date,transaction_id,notes,commission,parent_pt_id)
+                    VALUES(?,?,?,?,?,?,?,?,?)
+                """, portfolioId, "expense", 0, commission, date, null, "Commissione", commission, sellPtId);
                 execute("UPDATE portfolio SET total_commissions = total_commissions + ? WHERE id=?", commission, portfolioId);
-                logger.log("COMMISSIONE VENDITA", "ticker:" + ticker, "importo:" + DbLogger.amt(commission));
             }
 
             logger.log("TITOLO VENDUTO", "ticker:" + ticker,
                        "quantita:" + qty, "prezzo:" + DbLogger.amt(price),
-                       "controvalore:" + DbLogger.amt(amount),
-                       "commissione:" + DbLogger.amt(commission), "data:" + date);
+                       "ricavo_lordo:" + DbLogger.amt(gross),
+                       "commissione:" + DbLogger.amt(commission),
+                       "carico:" + DbLogger.amt(carico),
+                       "plusvalenza:" + DbLogger.amt(gain),
+                       "accreditato:" + DbLogger.amt(credited), "data:" + date);
             return queryOne("SELECT * FROM portfolio WHERE id=?", portfolioId);
         });
     }
@@ -4310,6 +4446,14 @@ public class Database {
             if (r4(curQty - qty) < -0.00001)
                 throw new SQLException("Impossibile annullare: la quantità risultante sarebbe negativa (" + r4(curQty - qty) + ")");
         }
+
+        // Una riga figlia (plusvalenza, imposta, commissione di vendita) non si annulla da sola:
+        // toglierebbe una scrittura lasciando in piedi le altre, e il conto investimenti non
+        // tornerebbe più a zero sulla posizione chiusa. Si annulla l'operazione madre.
+        Object parentObj = pt.get("parent_pt_id");
+        if (parentObj != null)
+            throw new SQLException("Questo movimento fa parte di un'operazione più grande: "
+                + "annulla la vendita (id:" + ((Number)parentObj).intValue() + "), non il singolo movimento.");
 
         return inTx(() -> {
             var pos = queryOne("SELECT asset_type FROM portfolio WHERE id=?", portfolioId);
@@ -4349,6 +4493,29 @@ public class Database {
                 // Eliminazione di una commissione di vendita: sottrai dal totale
                 execute("UPDATE portfolio SET total_commissions = MAX(0, total_commissions - ?) WHERE id=?", comm, portfolioId);
             }
+
+            // Righe generate insieme a questa (plusvalenza, imposta, commissione di una vendita):
+            // vanno via con lei, ognuna con la propria transazione. Il vincolo ON DELETE CASCADE
+            // toglierebbe le righe ma NON le transazioni collegate, che resterebbero a muovere il
+            // saldo di un conto per un'operazione che non esiste più: le cancello esplicitamente.
+            var children = queryList("""
+                SELECT id, transaction_id, COALESCE(commission,0) AS commission
+                FROM portfolio_transactions WHERE parent_pt_id=?
+            """, ptId);
+            for (var ch : children) {
+                Object cTx = ch.get("transaction_id");
+                if (cTx != null) execute("DELETE FROM transactions WHERE id=?", ((Number)cTx).longValue());
+                double cComm = ((Number)ch.get("commission")).doubleValue();
+                // ⚠️ Solo se la riga madre non portava già la commissione: su un acquisto lo
+                // stesso importo sta sia sulla riga 'buy' (dove serve a ricalcolare il prezzo
+                // medio) sia sulla riga figlia di storico, e il ramo "buy" qui sopra l'ha già
+                // scalato. Senza questa guardia total_commissions verrebbe ridotto due volte.
+                if (cComm > 0 && comm <= 0)
+                    execute("UPDATE portfolio SET total_commissions = MAX(0, total_commissions - ?) WHERE id=?",
+                            cComm, portfolioId);
+            }
+            if (!children.isEmpty())
+                execute("DELETE FROM portfolio_transactions WHERE parent_pt_id=?", ptId);
 
             if (txIdObj != null) {
                 long txId = ((Number)txIdObj).longValue();
@@ -4408,6 +4575,55 @@ public class Database {
         return queryOne("SELECT * FROM portfolio WHERE id=?", id);
     }
 
+    /**
+     * Registra l'imposta sul capital gain addebitata dalla banca, come uscita collegata al titolo.
+     *
+     * Sta fuori dalla vendita di proposito: l'addebito arriva settimane dopo, spesso cumulato su
+     * più operazioni, e con una data sua. Metterlo nella vendita significherebbe scrivere un'uscita
+     * in un giorno in cui non è successo niente.
+     *
+     * ⚠️ Funziona anche su posizioni con quantità 0: è anzi il caso normale, perché l'imposta
+     * arriva quando il titolo è già stato venduto per intero. Per questo qui non c'è nessun
+     * controllo sulla quantità.
+     */
+    public Map<String, Object> registerPortfolioTax(JsonObject p) throws SQLException {
+        int portfolioId = p.get("portfolio_id").getAsInt();
+        int accountId   = p.get("account_id").getAsInt();
+        double amount   = r2(p.get("amount").getAsDouble());
+        String date     = p.get("date").getAsString();
+        String notes    = p.has("notes") && !p.get("notes").isJsonNull() ? p.get("notes").getAsString() : null;
+
+        if (!(amount > 0))
+            throw new SQLException("Importo non valido (" + amount + "): deve essere maggiore di zero.");
+        var pos = queryOne("SELECT * FROM portfolio WHERE id=?", portfolioId);
+        if (pos == null) throw new SQLException("Posizione non trovata");
+        String ticker = (String)pos.get("ticker");
+
+        return inTx(() -> {
+            int catId = investCategoryId(CAT_IMPOSTE, "expense", "🧾", "#6a57ff");
+            String desc = notes != null ? notes : "Imposta capital gain " + ticker;
+            long txId = execute("""
+                INSERT INTO transactions(date,amount,type,category_id,account_id,description,reconciled)
+                VALUES(?,?,?,?,?,?,0)
+            """, date, amount, "expense", catId, accountId, desc);
+
+            // parent_pt_id resta NULL: è un movimento autonomo, non figlio di una vendita, e si
+            // annulla per conto suo (la vendita a cui si riferisce può essere di mesi prima).
+            execute("""
+                INSERT INTO portfolio_transactions(portfolio_id,type,quantity,price,date,transaction_id,notes)
+                VALUES(?,?,?,?,?,?,?)
+            """, portfolioId, "tax", 0, amount, date, txId, notes != null ? notes : "Imposta capital gain");
+
+            Integer investTagId = getSystemTagIdByKey("investment");
+            if (investTagId != null)
+                execute("INSERT OR IGNORE INTO transaction_tags(transaction_id,tag_id) VALUES(?,?)", txId, investTagId);
+
+            logger.log("IMPOSTA CAPITAL GAIN REGISTRATA", "ticker:" + ticker,
+                       "importo:" + DbLogger.amt(amount), "data:" + date, "note:" + DbLogger.s(notes));
+            return Map.of("ok", true, "transaction_id", txId);
+        });
+    }
+
     /** Registra il pagamento di una cedola come transazione income. */
     public Map<String, Object> registerCoupon(JsonObject p) throws SQLException {
         int portfolioId = p.get("portfolio_id").getAsInt();
@@ -4421,9 +4637,7 @@ public class Database {
         String ticker = (String)pos.get("ticker");
 
         return inTx(() -> {
-            var incCat = queryOne("SELECT id FROM categories WHERE type='income' AND name LIKE '%nvestiment%' LIMIT 1");
-            if (incCat == null) incCat = queryOne("SELECT id FROM categories WHERE type='income' LIMIT 1");
-            Integer catId = incCat != null ? ((Number)incCat.get("id")).intValue() : null;
+            Integer catId = couponCategoryId();
 
             String desc = notes != null ? notes : "Cedola " + ticker;
             long txId = execute("""
@@ -4460,9 +4674,7 @@ public class Database {
         String ticker = (String)pos.get("ticker");
 
         return inTx(() -> {
-            var incCat = queryOne("SELECT id FROM categories WHERE type='income' AND name LIKE '%nvestiment%' LIMIT 1");
-            if (incCat == null) incCat = queryOne("SELECT id FROM categories WHERE type='income' LIMIT 1");
-            Integer catId = incCat != null ? ((Number)incCat.get("id")).intValue() : null;
+            Integer catId = couponCategoryId();
 
             String desc = notes != null ? notes : "Dividendo " + ticker;
             long txId = execute("""

@@ -25,7 +25,7 @@ tali. La documentazione da tenere aggiornata è solo questa terna: `CLAUDE.md`, 
 - **Linguaggio:** Java 25, Maven 3.x
 - **UI:** JCEF v146 (Chromium embedded) + Swing per dialogs/titlebar/splash
 - **Frontend:** Vanilla JS puro (`src/main/resources/web/`, modulare in `js/pages/*.js`), no React/Vue
-- **Versione:** 1.21.0 — output `target/moneymanager-1.21.0.jar` (fat JAR, web/ esclusa)
+- **Versione:** 1.22.0 — output `target/moneymanager-1.22.0.jar` (fat JAR, web/ esclusa)
 - **Web assets:** serviti da filesystem (cartella `web/` accanto al `.exe` in produzione, `target/classes/web/` in IDE)
 - **DB path:** `%APPDATA%\LucaMoneyManager\data.db` (`%APPDATA%` = `...\Roaming`)
 - **Build:** `mvn package` oppure `build.bat`
@@ -44,7 +44,7 @@ tali. La documentazione da tenere aggiornata è solo questa terna: `CLAUDE.md`, 
 ```
 JS Frontend (js/pages/*.js, 14 moduli)
     ↓  cefQuery (payload JSON in Base64)      ↑ stessa API anche via HTTP LAN (WebServer)
-Bridge.java (~1080 LOC) — dispatch 136 operazioni (+4 dialog nativi fuori dispatch)
+Bridge.java (~1080 LOC) — dispatch 137 operazioni (+4 dialog nativi fuori dispatch)
     ↓
 Database.java (~5890 LOC) — tutte le query JDBC
     ↓
@@ -71,12 +71,12 @@ Le query girano deliberatamente **fuori** dal lock (per non serializzarle): è p
 
 ---
 
-## Schema DB (v23, 22 tabelle)
+## Schema DB (v24, 22 tabelle)
 
 - **Core:** `accounts` (3 stati: `is_closed`, `is_hidden` — nascosto ⇒ sempre chiuso; per le carte anche `payment_day`, `payment_account_id`, `auto_settle` — vedi "Saldo automatico carte"), `categories` (gerarchiche, `expense_nature`, `mobile_favorite` — vedi "Categorie per Android"), `transactions` (`reconciled`, `attachment_path`, `color`), `transaction_splits`, `transaction_tags`, `tags` (`is_system`, `system_key`)
 - **Budget:** `budgets`, `budget_config` (master_amount mensile/annuale)
 - **Pianificate:** `scheduled_transactions` (`portfolio_id`, `original_start_date`), `scheduled_transaction_tags`
-- **Portfolio:** `portfolio` (equity/bond: `asset_type`, `face_value`, `maturity_date`, `coupon_*`, `country`), `portfolio_transactions`
+- **Portfolio:** `portfolio` (equity/bond: `asset_type`, `face_value`, `maturity_date`, `coupon_*`, `country`), `portfolio_transactions` (`parent_pt_id` — righe generate insieme dalla stessa operazione, vedi "Titoli")
 - **Previsioni:** `forecasts` (archived), `forecast_categories` — snapshot "Salva previsione" in Pianificate
 - **Note:** `notes` (`pinned`, `color`, editor Quill), `note_tags`
 - **Sistema:** `reports`, `range_presets`, `app_settings`, `schema_version`
@@ -122,6 +122,56 @@ riscrivere l'importo a ogni avvio non altera nessuna previsione.
 
 Il modale manuale "Chiudi mese" (`accounts.js`) resta disponibile in parallelo, per scelta:
 è l'utente a decidere se saldare a mano.
+
+---
+
+## Titoli: acquisto, vendita, plusvalenze e imposte (v24)
+
+Budget e Pianificate prevedono la stessa cosa in due modi; il portafoglio invece **crea denaro**,
+e un giroconto per definizione non lo fa. Prima la vendita girava l'intero ricavo dal conto
+titoli — che dentro aveva solo il carico — quindi ogni vendita in utile lasciava quel conto
+sotto di quell'utile, e il guadagno non compariva in nessuna entrata.
+
+**Come si compone oggi un'operazione** (esempio: 1000 azioni comprate a 10 con 20 di
+commissione, vendute a 12 con 25 di commissione):
+
+| | scrittura | importo |
+|---|---|---|
+| acquisto | giroconto liquidità → titoli | 10.020 (puro **+ commissione**) |
+| vendita | entrata `Plusvalenze` sul conto **titoli** | 1.955 |
+| vendita | giroconto titoli → liquidità | 11.975 (ricavo − commissione) |
+| dopo, quando arriva | uscita `Imposte su rendite` sul conto scelto | 508,30 |
+
+Il conto titoli torna così a zero sulla posizione chiusa: `carico + plusvalenza − accredito = 0`.
+
+⚠️ **Regole da non violare:**
+
+1. **La commissione sta nel carico, non è una spesa a sé.** È dentro `avg_price` *e* dentro il
+   giroconto d'acquisto. Registrarla anche come transazione di spesa la conterebbe due volte:
+   una nel carico (che abbassa la plusvalenza) e una come uscita.
+2. **La plusvalenza nasce sul conto titoli**, non su quello di liquidità. Se nascesse sulla
+   liquidità, vendere senza prelevare non la registrerebbe mai.
+3. **L'imposta non sta nella vendita.** La banca la addebita settimane dopo, cumulata su più
+   operazioni: si registra con `registerPortfolioTax`, che funziona **anche a quantità 0** —
+   è anzi il caso normale, l'addebito arriva a titolo ormai venduto.
+4. **Il rimborso a scadenza di un'obbligazione è una vendita a 100**, non un giroconto: la
+   differenza col carico è una plusvalenza a tutti gli effetti.
+5. `parent_pt_id` lega le righe nate dalla stessa operazione. Annullando la madre vanno tolte
+   **anche le transazioni delle figlie**: il vincolo `ON DELETE CASCADE` porta via le righe di
+   storico ma non le transazioni, che resterebbero a muovere i saldi.
+6. Note `'Commissione'` e `'Commissione acquisto'` sono **marcatori semantici**: tre punti fra
+   `Database.java` e `portfolio.js` escludono quelle righe dai totali perché la commissione è
+   già contata altrove. Cambiare quei testi la fa contare due volte.
+
+**Le quattro categorie di sistema** (create al primo uso se mancano, vedi `investCategoryId`):
+`Plusvalenze`, `Minusvalenze` e `Imposte su rendite` sono **escluse da budget e report** — muovono
+i saldi ma non entrano in medie, previsioni e Salute Finanziaria, perché sono eventi di capitale
+grumosi e non pianificabili. `Cedole e dividendi` invece **no**: quelle sono ricorrenti, si
+pianificano, e devono restare dentro budget e previsioni.
+
+⚠️ Il codice risolve queste categorie **per nome**. Rinominandole dalla UI si rompe il legame:
+`couponCategoryId()` e `investCategoryId()` hanno una catena di fallback e in ultima istanza le
+ricreano, ma il risultato è una categoria doppia, non un errore visibile.
 
 ---
 

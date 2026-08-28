@@ -595,7 +595,7 @@ Disabilitabile con `http.enabled=0` in `settings.properties`.
 | Comando | Cosa fa |
 |---------|---------|
 | `mvn exec:java` | Avvio diretto in IDE/CLI, mainClass `com.moneymanager.App` |
-| `mvn package` | Fat JAR via maven-shade-plugin → `target/moneymanager-1.22.0.jar` (esclude `web/`) |
+| `mvn package` | Fat JAR via maven-shade-plugin → `target/moneymanager-1.22.1.jar` (esclude `web/`) |
 | `build.bat` | Wrapper interattivo Maven (chiede i passi) |
 | `prepare-package` | Genera `target/icon.ico` invocando `IconFactory.main()` |
 

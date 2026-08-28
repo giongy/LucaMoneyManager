@@ -1252,9 +1252,9 @@ async function showSellModal(portfolioId) {
         <input type="text" inputmode="decimal" class="form-control" id="s_commission" placeholder="0,00">
       </div>
       <div class="form-group">
-        <label class="form-label">Imposta capital gain</label>
-        <input type="text" class="form-control" value="si registra a parte" disabled
-               title="La banca la addebita settimane dopo, spesso cumulata su più vendite: si registra quando arriva, dal menu della posizione (funziona anche a titolo venduto)">
+        <label class="form-label">Imposta sulla plusvalenza</label>
+        <input type="text" class="form-control" value="si registra quando la banca la addebita" disabled
+               title="È la tassa sul guadagno, non il guadagno: la banca la preleva settimane dopo, spesso cumulata su più vendite. Si registra quando arriva, dal menu della posizione o dalla tab Storico — funziona anche a titolo già venduto.">
       </div>
     </div>
     <div class="form-row">
@@ -1263,8 +1263,10 @@ async function showSellModal(portfolioId) {
         <input type="text" class="form-control" id="s_total" readonly style="background:var(--bg3)">
       </div>
       <div class="form-group">
-        <label class="form-label">Plus/minusvalenza (netto comm.)</label>
-        <input type="text" class="form-control" id="s_pnl" readonly style="background:var(--bg3)">
+        <label class="form-label">Guadagno o perdita realizzata</label>
+        <input type="text" class="form-control" id="s_pnl" readonly style="background:var(--bg3)"
+               title="Incasso netto commissioni meno il prezzo medio di carico. Viene registrata subito, con la data della vendita.">
+        <div class="settings-hint" style="margin-top:3px">registrata subito, alla data della vendita</div>
       </div>
     </div>
     <div class="form-group">
@@ -2123,7 +2125,11 @@ window._portfolioSortBy = col => {
 async function deletePortfolioTransactionConfirm(ptId, type, portfolioId) {
   const items  = await api.getPortfolio();
   const ticker = esc(items.find(i => i.id === portfolioId)?.ticker ?? '');
-  const TYPE_IT = { buy: 'acquisto', sell: 'vendita', coupon: 'cedola', expense: 'commissione/spesa' };
+  // Tutti i tipi che possono comparire con la ✕ accanto. 'gain' non ci finisce mai (le righe
+  // figlie non si annullano da sole) ma resta per non far apparire la parola inglese se un
+  // domani cambiasse; 'dividend' e 'tax' invece capitano davvero.
+  const TYPE_IT = { buy: 'acquisto', sell: 'vendita', coupon: 'cedola', dividend: 'dividendo',
+                    expense: 'commissione/spesa', tax: 'imposta', gain: 'plusvalenza' };
   const label = TYPE_IT[type] || type;
   const warn = (type === 'buy' || type === 'sell')
     ? `<p style="margin:8px 0 0;font-size:12px;color:var(--txt2)">La quantità di ${ticker} verrà ripristinata.</p>`

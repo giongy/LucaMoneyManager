@@ -3788,17 +3788,35 @@ async function _runForecastSaldo() {
     ? recurring.map(r => fcLine(r.category, '', r.description, Number(r.monthly_amount), '/mese')).join('')
     : `<div style="font-size:12px;color:var(--txt3);padding:2px 0">Nessuna pianificata ricorrente attiva.</div>`;
 
-  // Colonna "Eventi annuali / una-tantum": datati, prefisso con il mese (ym).
-  // Su orizzonti lunghi (fino a 10 anni) le occorrenze si moltiplicano: mostra le prime
-  // _FC_LUMPY_MAX in ordine di data e riassumi le restanti (il totale in header resta completo).
-  const _FC_LUMPY_MAX = 60;
-  const _lumpyShown  = lumpyEvents.slice(0, _FC_LUMPY_MAX);
-  const _lumpyHidden = lumpyEvents.length - _lumpyShown.length;
-  const lumpyColHtml = lumpyEvents.length
-    ? _lumpyShown.map(e => fcLine(e.category, e.ym, e.description, Number(e.amount), '')).join('')
-      + (_lumpyHidden > 0
-          ? `<div style="font-size:11px;color:var(--txt3);padding:5px 0;text-align:center">+ altri ${_lumpyHidden} eventi più avanti (inclusi nel totale)</div>`
-          : '')
+  // Colonna "Eventi annuali / una-tantum": una riga per evento distinto (categoria + descrizione),
+  // con il numero di occorrenze e il totale sull'orizzonte. Prefisso: il mese della singola
+  // occorrenza, oppure "da <mese>" per la prima di una serie.
+  // ⚠️ Prima si elencava ogni occorrenza tagliando alle prime 60: su 5 anni sono ~300, quindi la
+  // lista si fermava al primo anno e mezzo e le pianificate annuali più lontane sembravano
+  // mancare dalla previsione pur essendo nel totale. Raggruppate ci stanno tutte (43 righe anche
+  // su 10 anni), e la somma della colonna resta identica al totale in header.
+  const _lumpyGroups = [];
+  const _lumpyByKey  = new Map();
+  for (const e of lumpyEvents) {
+    const key = (e.category || '') + ' ' + (e.description || '');
+    let g = _lumpyByKey.get(key);
+    if (!g) {
+      // ym della PRIMA occorrenza: lumpy_events arriva già ordinato per data dal backend,
+      // quindi l'ordine di inserimento dei gruppi è cronologico.
+      g = { category: e.category, description: e.description, ym: e.ym, n: 0, amount: 0 };
+      _lumpyByKey.set(key, g); _lumpyGroups.push(g);
+    }
+    g.n++; g.amount += Number(e.amount) || 0;
+  }
+  // Il conteggio sta accanto alla categoria, non in coda alla descrizione: la riga tronca con
+  // ellissi da destra (colonna stretta, layout telefono) e in coda il "×N" sparirebbe proprio
+  // dove serve — è l'unica cosa che spiega perché l'importo è un multiplo.
+  const lumpyColHtml = _lumpyGroups.length
+    ? _lumpyGroups.map(g => fcLine(
+        (g.category || 'Senza categoria') + (g.n > 1 ? ` ×${g.n}` : ''),
+        g.n > 1 ? `da ${g.ym}` : g.ym,
+        g.description,
+        g.amount, '')).join('')
     : `<div style="font-size:12px;color:var(--txt3);padding:2px 0">Nessun evento annuale/una-tantum nel periodo.</div>`;
 
   // ── Pannello "Movimenti straordinari" ────────────────────────────────────

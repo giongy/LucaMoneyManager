@@ -2922,3 +2922,207 @@ tr.tx-selected td { background:rgba(124,124,255,.07); }
   box-shadow:0 12px 32px rgba(0,0,0,.5);
 }
 [data-theme="petrolio"] .note-editor-quill { background:#102026; }
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   RESPONSIVE — telefono e finestre strette (≤ 820px)
+   ───────────────────────────────────────────────────────────────────────────
+   L'interfaccia nasce desktop: sidebar fissa da 236px e tabelle dense. Aperta dal
+   browser del telefono (WebServer, accesso LAN) la sola sidebar si mangiava due terzi
+   dei ~390px disponibili e del contenuto restava una striscia illeggibile. Qui la
+   sidebar diventa un cassetto a scomparsa e le griglie collassano su una colonna.
+
+   ⚠️ La soglia (820px) sta SOTTO il minimo della finestra desktop — 900px, vedi
+   MainWindow.setMinimumSize — quindi in JCEF queste regole non si attivano mai: il
+   layout desktop resta esattamente com'era. Valgono solo per il browser, dove la
+   titlebar è già nascosta da init.js (modalità browser) e il #mobilebar è l'unico
+   modo di aprire il menu.
+   ⚠️ L'unico caso in cui possono comparire sul desktop è uno zoom molto spinto
+   (Ctrl+= riduce il viewport CSS): lì titlebar e #mobilebar convivono — brutto ma
+   funzionante, e la titlebar NON va nascosta qui o si perderebbero i controlli finestra.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* Fuori dal breakpoint i due elementi mobile non esistono proprio. */
+#mobilebar, #navScrim { display:none; }
+
+@media (max-width: 820px) {
+
+  /* Maniglie di resize della finestra undecorated: senza finestra da ridimensionare
+     sono solo trappole per il dito sui bordi dello schermo. */
+  .rh { display:none !important; }
+
+  /* 100dvh e non 100vh: sul telefono la barra degli indirizzi entra ed esce, e vh
+     resta calcolato sulla finestra estesa — il fondo della pagina finirebbe sotto
+     la barra, fuori dallo schermo. */
+  .app { height:100dvh; }
+
+  /* ─── Barra superiore mobile ─── */
+  #mobilebar {
+    display:flex; align-items:center; gap:10px; flex-shrink:0;
+    height:48px; padding:0 10px;
+    background:var(--bg2); border-bottom:1px solid var(--border);
+    position:relative; z-index:600;
+  }
+  .mb-burger {
+    display:flex; align-items:center; justify-content:center;
+    width:38px; height:38px; flex-shrink:0;      /* 38px: minimo comodo per un dito */
+    border:1px solid var(--border); border-radius:var(--radius-ctl,8px);
+    background:var(--bg3); color:var(--txt); font-size:17px; line-height:1;
+  }
+  .mb-title {
+    font-size:var(--fs-xl,18px); font-weight:700; color:var(--txt);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0;
+  }
+
+  /* ─── Sidebar come cassetto a scomparsa ─── */
+  /* position:fixed la toglie dal flusso: .main occupa da solo tutta la larghezza. */
+  .sidebar {
+    position:fixed; top:0; bottom:0; left:0; z-index:700;
+    width:min(84vw, 280px);
+    transform:translateX(-100%); transition:transform .22s ease;
+  }
+  body.nav-open .sidebar { transform:translateX(0); box-shadow:var(--shadow-hover); }
+  #navScrim {
+    display:block; position:fixed; inset:0; z-index:650;
+    background:rgba(0,0,0,.45);
+    /* opacity+pointer-events invece di display: così la comparsa è in dissolvenza
+       e, a menu chiuso, il velo non intercetta nessun tocco. */
+    opacity:0; pointer-events:none; transition:opacity .22s ease;
+  }
+  body.nav-open #navScrim { opacity:1; pointer-events:auto; }
+  .sidebar .nav-item { padding-top:10px; padding-bottom:10px; }
+
+  /* ─── Contenuto ─── */
+  .page { padding:8px; }
+  .grid-2, .grid-3 { grid-template-columns:1fr; }
+  .card { padding:11px; }
+
+  /* Le quattro statistiche in cima alla dashboard: 4 colonne su 390px lasciano
+     ~85px a testa e gli importi vengono tagliati. Due per riga, e il valore
+     rimpicciolito quanto basta perché "25.397,48 €" ci stia intero. */
+  .stats-grid { grid-template-columns:1fr 1fr; }
+  .stat-value { font-size:20px; }
+  .stat-balance .stat-value { font-size:22px; }
+
+  /* Stessa storia per la striscia di indicatori del Portafoglio, che è una fila
+     unica (flex-wrap:nowrap) da sette voci: su 390px restavano ~50px a testa, con
+     etichette e importi tagliati a metà parola. Qui va a capo, due per riga. */
+  .portfolio-summary { flex-wrap:wrap; }
+  .portfolio-summary .stat-card { flex:1 1 calc(50% - 8px); }
+
+  /* Dashboard: una card per riga. Larghezze delle colonne e altezza della riga
+     arrivano INLINE dal layout salvato dall'utente (_renderDashWidgets), quindi
+     qui servono gli !important. Le maniglie di ridimensionamento non hanno senso
+     al tocco e sparirebbero comunque sotto il dito. */
+  .dash-row { grid-template-columns:1fr !important; height:auto !important; }
+  .dash-row > .card { min-height:250px; }
+  .dash-col-resize, .dash-row-resize { display:none; }
+  .dash-recent-card td.td-main { max-width:150px; }
+
+  /* Molte pagine (Reports soprattutto, ma anche Portafoglio e Periodi) compongono le
+     loro griglie con grid-template-columns INLINE, generato dal JS: dal CSS si possono
+     scavalcare solo così, per attributo e con !important. Su 390px una colonna sola è
+     sempre la risposta giusta, qualunque fosse il numero di partenza.
+     ⚠️ L'esclusione :not([style*="min-width"]) protegge l'unica griglia che una colonna
+     la romperebbe davvero: la striscia dei mesi in "Andamento categoria" (analytics.js),
+     che dichiara una larghezza minima proprio perché deve scorrere in orizzontale. */
+  .page [style*="grid-template-columns"]:not([style*="min-width"]) {
+    grid-template-columns:1fr !important;
+  }
+
+  /* Impostazioni: etichetta e controllo stanno su due righe. Affiancati, l'etichetta
+     si prende 220px fissi e al controllo (spesso un percorso lungo) restavano ~100px,
+     tagliati fuori dallo schermo. Stessa cosa per le griglie informative a due colonne. */
+  .settings-row { flex-direction:column; gap:8px; padding:12px; }
+  .settings-label { flex:none; }
+  .settings-info-grid, .maint-info-grid { grid-template-columns:1fr; }
+  .settings-info-label, .maint-info-label { border-bottom:none; padding-bottom:0; }
+
+  /* Barre di tab (Pianificate, Reports, Portafoglio, Impostazioni, Budget): sono file
+     flex senza a capo, e le otto voci di Reports da sole sono larghe il doppio dello
+     schermo — le ultime finivano fuori, irraggiungibili. Il :has() prende i contenitori
+     che riusano .sched-tab senza avere una classe propria (Portafoglio, Reports). */
+  .settings-tabs, .scheduled-tabs, :has(> .sched-tab) { flex-wrap:wrap; row-gap:2px; }
+
+  /* Conti: due colonne affiancate con basi flex da 560px e 300px. Senza min-width:0
+     la colonna delle card non scende sotto la propria larghezza minima (440px) e
+     sfora lo schermo: qui vanno a capo e ognuna si prende tutta la riga. */
+  .accounts-grid { flex:1 1 100%; min-width:0; max-width:none; }
+  .accounts-side { flex:1 1 100%; min-width:0; }
+
+  /* Portafoglio: la riga in testa affianca i tab e i due gruppi di filtri (Visualizza /
+     Tipo) con margin-left:auto e senza a capo — 730px di roba su 390 di schermo. È
+     l'unico contenitore della pagina costruito inline senza una classe: si prende per
+     posizione (primo figlio del contenitore di pagina). */
+  #pg-portfolio > div:first-child,
+  #pg-portfolio > div:first-child > div { flex-wrap:wrap; row-gap:8px; }
+  #pg-portfolio > div:first-child > div[style*="margin-left:auto"] { margin-left:0 !important; }
+
+  /* Tabelle: restano dense e si scorrono in orizzontale (i contenitori hanno già
+     overflow:auto), ma con qualche pixel in meno di padding ci sta una colonna in più. */
+  th, td { padding-left:7px; padding-right:7px; }
+
+  /* Transazioni: 13 colonne su 390px non entrano in nessun caso. Restano le quattro che
+     rispondono alla domanda "quanto ho speso e per cosa" — data, categoria, descrizione,
+     importo — e ci stanno tutte senza scorrere di lato: l'importo fuori schermo era
+     il difetto peggiore della vista da telefono.
+     Via il resto: selezione multipla, stato, allegato, badge portafoglio, tag, tipo (il
+     segno e il colore dell'importo lo dicono già), conto (da telefono si guarda l'insieme,
+     e per un conto solo c'è il filtro) e i bottoni d'azione. Tutto resta raggiungibile
+     aprendo la riga. */
+  #txTable .th-select,     #txTable .td-select,
+  #txTable .th-reconciled, #txTable .td-reconciled,
+  #txTable .th-portfolio,  #txTable .td-portfolio,
+  #txTable .th-attach,     #txTable .td-attach,
+  #txTable .th-tags,       #txTable .td-tags,
+  #txTable .th-type,       #txTable .td-type,
+  #txTable .th-account,    #txTable .td-account,
+  #txTable td.td-actions,  #txTable thead th:last-child { display:none; }
+  #txTable td.td-main .td-main-clip { max-width:130px; }
+  /* Anche a quattro colonne servivano ~50px in più dei 390 disponibili: il resto lo
+     danno un corpo più piccolo e i margini attorno alla tabella ridotti al minimo
+     (il padding di #txScrollWrap è inline, da qui si scavalca solo con !important). */
+  #txTable th, #txTable td,
+  #schedTable th, #schedTable td { font-size:var(--fs-sm,11px); padding-left:4px; padding-right:4px; }
+  #txScrollWrap { padding-left:5px !important; padding-right:5px !important; }
+  #txScrollWrap > .card { padding:4px; }
+  .tx-add-group { padding-left:5px; padding-right:5px; }
+
+  /* Pianificate: stesso criterio delle transazioni. Delle 12 colonne restano le 4 che
+     dicono cosa succederà e quando — categoria, descrizione, importo, prossima data.
+     ⚠️ Qui si va per posizione e non per classe: le celle non ne hanno, e l'ordine
+     delle colonne è fisso (vedi l'intestazione in scheduled.js). Aggiungendo o
+     spostando una colonna vanno rivisti questi indici.
+     :not([colspan]) salva la riga "Nessuna transazione pianificata", che è una cella
+     sola in prima posizione e sparirebbe insieme alla colonna Stato. */
+  #schedTable tr > :is(th,td):not([colspan]):nth-child(-n+5),
+  #schedTable tr > :is(th,td):not([colspan]):nth-child(n+10) { display:none; }
+
+  /* Budget: la griglia dei 12 mesi si scorre in orizzontale per forza, ma la colonna
+     Gestione (92px minimi) è un comando di configurazione, non un dato: toglierla
+     avvicina di altrettanto il primo mese al bordo dello schermo.
+     ⚠️ L'intestazione non ha una classe propria — si prende per posizione (seconda
+     colonna di #budgetThead). */
+  #budgetThead th:nth-child(2), .budget-gestione-cell { display:none; }
+
+  /* Barre di filtri e comandi: i controlli vanno a capo e si dividono la riga invece
+     di sfondare in orizzontale. */
+  .filter-bar { padding:8px; gap:6px; }
+  .filter-bar .form-control { flex:1 1 140px; min-width:0; }
+
+  /* ─── Modale a tutto schermo, ancorata in basso ─── */
+  /* Ancorata al fondo: è il bordo raggiungibile col pollice, e il modale non
+     "salta" quando la tastiera virtuale si apre. */
+  .modal-overlay { align-items:flex-end; }
+  .modal, .modal-wide, .modal-sm, .modal-treemap {
+    width:100% !important; max-width:100% !important;
+    max-height:92dvh; border-radius:var(--radius) var(--radius) 0 0;
+  }
+  .modal-treemap { height:92dvh; }
+  .modal-footer .btn { flex:1; justify-content:center; padding-top:9px; padding-bottom:9px; }
+  /* 16px: sotto questa soglia Safari su iOS ingrandisce la pagina al focus del campo
+     e non la riporta più indietro. Solo dentro modali e filtri, cioè dove si scrive
+     davvero: applicarlo a tutti i controlli gonfierebbe le pagine dense. */
+  .modal-body input, .modal-body select, .modal-body textarea,
+  .filter-bar .form-control { font-size:16px; }
+}

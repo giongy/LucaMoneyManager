@@ -25,7 +25,7 @@ tali. La documentazione da tenere aggiornata è solo questa terna: `CLAUDE.md`, 
 - **Linguaggio:** Java 25, Maven 3.x
 - **UI:** JCEF v146 (Chromium embedded) + Swing per dialogs/titlebar/splash
 - **Frontend:** Vanilla JS puro (`src/main/resources/web/`, modulare in `js/pages/*.js`), no React/Vue
-- **Versione:** 1.22.1 — output `target/moneymanager-1.22.1.jar` (fat JAR, web/ esclusa)
+- **Versione:** 1.23.0 — output `target/moneymanager-1.23.0.jar` (fat JAR, web/ esclusa)
 - **Web assets:** serviti da filesystem (cartella `web/` accanto al `.exe` in produzione, `target/classes/web/` in IDE)
 - **DB path:** `%APPDATA%\LucaMoneyManager\data.db` (`%APPDATA%` = `...\Roaming`)
 - **Build:** `mvn package` oppure `build.bat`
@@ -241,6 +241,38 @@ storiche: `dark`→`nebbia`, e `salvia`/`cristallo`/`nebula`/`twilight`/`chiaro`
 Il commento in testa a [style.css](src/main/resources/web/css/style.css) tiene il dettaglio completo,
 incluso il perché di `:where()` e cosa si rompe in silenzio se cala la specificità (testo dei bottoni
 primari nero su blu, 3.79:1 — nessun altro sintomo visibile). Dopo aver toccato i temi, `check-ui.ps1`.
+
+---
+
+## UI — Layout per telefono (≤ 820px)
+
+L'interfaccia nasce desktop, ma la stessa UI è raggiungibile dal browser del telefono via
+`WebServer` (accesso LAN). Con sidebar fissa da 236px su ~390px di schermo restava una
+striscia di contenuto: in fondo a [style.css](src/main/resources/web/css/style.css) c'è una
+sezione **Responsive** con un unico `@media (max-width: 820px)` che rimedia. Sotto quella
+soglia la sidebar diventa un **cassetto a scomparsa** (classe `nav-open` su `<body>`, aperta
+dall'hamburger di `#mobilebar`, chiusa dal velo `#navScrim`, da Esc o da `navigate()`), le
+griglie collassano su una colonna e le tabelle più larghe perdono le colonne accessorie.
+
+⚠️ Regole da rispettare:
+
+1. **La soglia 820px sta sotto il minimo della finestra desktop** (900px,
+   `MainWindow.setMinimumSize`): è ciò che garantisce che in JCEF queste regole non si
+   attivino mai. Alzando l'una o abbassando l'altro le due si incrociano e il desktop si
+   ritrova il layout da telefono.
+2. **La titlebar non va nascosta lì dentro.** In modalità browser la nasconde già `init.js`;
+   in JCEF con zoom spinto il viewport può scendere sotto gli 820px, e nasconderla
+   toglierebbe gli unici controlli finestra disponibili.
+3. Le pagine che compongono le griglie **inline** dal JS (Reports soprattutto) si scavalcano
+   solo per attributo: `[style*="grid-template-columns"]`. L'esclusione
+   `:not([style*="min-width"])` protegge l'unica griglia che deve restare larga e scorrere.
+4. Le colonne nascoste in Transazioni si scelgono **per classe** (`td-account`, `td-type`…);
+   in Pianificate, che di classi non ne ha, **per posizione** — spostando una colonna lì
+   vanno rivisti gli indici `nth-child`.
+
+Si verifica come tutto il resto, dando una larghezza allo strumento:
+`.\tools\screenshot.ps1 -Port 7891 -Width 390 -Height 844 -NoCache -Js "navigate('budgets')"`
+e `.\tools\interact.ps1 -Port 7891 -Width 390 -Height 844 -Do "click #mbBurger; ..."`.
 
 ---
 

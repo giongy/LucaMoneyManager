@@ -75,6 +75,27 @@ function confirm(title, msg) {
   });
 }
 
+/* ─── Menu a cassetto (schermi stretti) ──────────────────────────────────────
+   Sotto gli 820px la sidebar esce dal flusso e scorre da sinistra (vedi la sezione
+   "Responsive" in style.css): serve qualcosa che la apra e la chiuda. Tutto passa
+   dalla classe .nav-open su <body> — il CSS fa il resto, qui non si toccano stili.
+   Le funzioni esistono sempre, anche sul desktop: senza la classe non hanno effetto
+   visibile, e così navigate() può chiamarle senza sapere su che schermo gira.       */
+function openMobileNav()   { document.body.classList.add('nav-open');    _syncBurgerAria(); }
+function closeMobileNav()  { document.body.classList.remove('nav-open'); _syncBurgerAria(); }
+function toggleMobileNav() { document.body.classList.toggle('nav-open'); _syncBurgerAria(); }
+
+function _syncBurgerAria() {
+  document.getElementById('mbBurger')?.setAttribute('aria-expanded',
+    document.body.classList.contains('nav-open') ? 'true' : 'false');
+}
+
+document.getElementById('mbBurger')?.addEventListener('click', toggleMobileNav);
+// Esc chiude il cassetto, come ci si aspetta da qualsiasi pannello sovrapposto.
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && document.body.classList.contains('nav-open')) closeMobileNav();
+});
+
 /* ─── Titlebar drag ──────────────────────────────────────────────────────── */
 let drag=false, startX, startY, winX, winY;
 const titlebar = document.getElementById('titlebar');

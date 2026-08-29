@@ -179,6 +179,10 @@ function navigate(page) {
   document.querySelector(`[data-page="${page}"]`)?.classList.add('active');
   document.getElementById('pageTitle').textContent = PAGE_TITLES[page];
   document.getElementById('pageTitleSub').textContent = '';
+  // Su schermi stretti la titlebar è nascosta e il titolo lo mostra la barra mobile;
+  // il cassetto della sidebar va richiuso, altrimenti coprirebbe la pagina appena aperta.
+  document.getElementById('mobileTitle').textContent = PAGE_TITLES[page];
+  closeMobileNav?.();
   currentPage = page;
   // Il comando "Personalizza" della dashboard sta in titlebar, che è condivisa da tutte
   // le pagine: va nascosto uscendo, altrimenti resterebbe visibile altrove.

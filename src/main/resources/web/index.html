@@ -152,8 +152,20 @@
     </div>
   </aside>
 
+  <!-- Velo dietro il cassetto della sidebar: esiste solo su schermi stretti (vedi la
+       sezione "Responsive" in style.css), un tocco fuori dal menu lo richiude. -->
+  <div id="navScrim" onclick="closeMobileNav()"></div>
+
   <!-- ── MAIN ── -->
   <div class="main">
+
+    <!-- Barra superiore per schermi stretti (browser del telefono): è l'unico modo di
+         raggiungere la sidebar, che lì diventa un cassetto a scomparsa. Sopra gli 820px
+         il CSS la nasconde, quindi sul desktop è come se non esistesse. -->
+    <div id="mobilebar">
+      <button type="button" class="mb-burger" id="mbBurger" aria-label="Apri il menu" aria-expanded="false">&#9776;</button>
+      <div class="mb-title" id="mobileTitle">Dashboard</div>
+    </div>
 
     <!-- Titlebar trascinabile + controlli finestra -->
     <div class="titlebar" id="titlebar">

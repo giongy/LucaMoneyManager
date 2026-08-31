@@ -1,8 +1,10 @@
 ; ============================================================================
 ;  LucaMoneyManager - Inno Setup script
 ; ----------------------------------------------------------------------------
-;  Compilato da build-installer.bat con:
+;  Compilato da tools\build\build-installer.bat con:
 ;    iscc.exe /DAppVersion=X.Y.Z /O"<dist>\installer" LucaMoneyManager.iss
+;  Nota: i path relativi qui dentro (Source:) restano relativi a QUESTO .iss,
+;  cioe a installer\, non alla cartella dello script che lo compila.
 ;
 ;  Sorgente: ..\dist\build\LucaMoneyManager\  (app-image prodotta da jpackage,
 ;  arricchita con la cartella web\ copiata accanto al .exe).

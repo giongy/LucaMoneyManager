@@ -17,7 +17,10 @@ setlocal
 :: -- Configurazione ----------------------------------------------------------
 set JAVA_HOME=C:\Program Files\Java\jdk-25
 set MVN=C:\Tools\apache-maven-3.9.6\bin\mvn.cmd
-set ROOT=%~dp0
+:: Lo script vive in tools\build\: la radice del progetto sta due livelli sopra.
+:: Il for normalizza il path (%%~fi toglie i "..") e restituisce lo stesso
+:: formato di %~dp0, backslash finale compreso.
+for %%i in ("%~dp0..\..") do set ROOT=%%~fi\
 set DIST=%ROOT%dist
 set DEPLOY=D:\Luca Money Manager App
 

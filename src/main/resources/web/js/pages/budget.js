@@ -425,6 +425,117 @@ function renderBudgetTable() {
 }
 
 /* ─── Budget Andamento ───────────────────────────────────────────────────── */
+/* ─── Tooltip del grafico Andamento ────────────────────────────────────────
+   Tooltip HTML al posto di quello nativo di Chart.js, per due difetti che il
+   nativo non permette di correggere:
+
+   1. impila i cinque dataset in un elenco piatto, dove "Budget mese" e
+      "Budget prog." si somigliano e non si capisce che rispondono a due
+      domande diverse (com'e' andato marzo / come va l'anno fin qui);
+   2. disegna la pastiglia con `backgroundColor`, che sulle tre LINEE vale
+      'transparent' -> uscivano tre quadratini bianchi/vuoti, illeggibili.
+
+   Qui le voci sono divise nelle tre domande che il grafico risponde, e la
+   pastiglia riprende la FORMA dell'elemento nel grafico: quadrato = barra,
+   trattino = linea. Cosi' dal tooltip si risale a colpo d'occhio a cosa
+   guardare sul grafico.
+
+   ⚠️ I colori delle pastiglie sono gli stessi valori dei dataset qui sotto:
+   toccandoli li' vanno aggiornati anche qui, altrimenti tooltip e grafico
+   raccontano due cose diverse. Il testo invece usa le variabili di tema
+   (--txt/--income/--expense), quindi regge su tutti e quattro i temi.
+   Il fondo e' `--bg` e non `--bg2`: in glassy `--bg2` e' un rgba translucido
+   e il tooltip lascerebbe vedere il grafico sotto. */
+const _BUDG_VIOLA = '#7c6cff';   // budget (barra chiara + linea): il "piano"
+const _BUDG_VERDE = '#3fb950';   // reale in linea con il piano o meglio
+const _BUDG_ROSSO = '#f85149';   // reale sotto il piano
+
+function _budgAndTooltipEl() {
+  let tip = document.getElementById('budgAndTip');
+  if (!tip) {
+    tip = document.createElement('div');
+    tip.id = 'budgAndTip';
+    // position:fixed + coordinate da getBoundingClientRect: il canvas sta dentro
+    // contenitori con overflow e position propri, ancorarlo a quelli lo taglierebbe.
+    tip.style.cssText = 'position:fixed;z-index:9999;pointer-events:none;opacity:0;' +
+      'transition:opacity .12s;background:var(--bg);color:var(--txt);' +
+      'border:1px solid var(--border);border-radius:10px;box-shadow:var(--shadow);' +
+      'padding:9px 11px;font-size:12px;line-height:1.45;min-width:196px';
+    document.body.appendChild(tip);
+  }
+  return tip;
+}
+
+function _budgAndTooltip(context) {
+  const { chart, tooltip } = context;
+  const tip = _budgAndTooltipEl();
+  if (!tooltip.opacity) { tip.style.opacity = '0'; return; }
+
+  // I punti null (mesi futuri) non arrivano fra i dataPoints: si indicizza per
+  // etichetta e chi manca resta undefined -> mostrato come trattino.
+  const v = {};
+  tooltip.dataPoints.forEach(p => { v[p.dataset.label] = p.parsed.y; });
+  const idx = tooltip.dataPoints[0]?.dataIndex ?? 0;
+
+  const num  = x => x == null ? '<span style="color:var(--txt3)">&mdash;</span>' : fmt.currency(x);
+  const seg  = c => `<span style="display:inline-block;width:13px;height:3px;border-radius:2px;background:${c};vertical-align:middle"></span>`;
+  const quad = c => `<span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${c};vertical-align:middle"></span>`;
+  const riga = (pastiglia, testo, val) =>
+    `<div style="display:flex;align-items:center;gap:7px;margin-top:3px">
+       <span style="width:14px;text-align:center;flex:none">${pastiglia}</span>
+       <span style="color:var(--txt2)">${testo}</span>
+       <span style="margin-left:auto;font-variant-numeric:tabular-nums;font-weight:600">${num(val)}</span>
+     </div>`;
+  const titoletto = t =>
+    `<div style="margin-top:9px;font-size:9.5px;font-weight:700;letter-spacing:.9px;
+                 text-transform:uppercase;color:var(--txt3)">${t}</div>`;
+  const linea = `<div style="height:1px;background:var(--border);margin-top:8px"></div>`;
+
+  const bm = v['Budget mese'], rm = v['Reale mese'], d = v['Δ cumulativo'];
+  // Stesso criterio del colore della barra nel grafico: verde se il mese ha
+  // fatto meglio (o come) il piano, rosso se e' rimasto sotto.
+  const coloreReale = rm == null ? _BUDG_VERDE : (rm >= (bm ?? 0) ? _BUDG_VERDE : _BUDG_ROSSO);
+  const coloreDelta = d == null ? 'var(--txt3)' : (d >= 0 ? 'var(--income)' : 'var(--expense)');
+  // fmt.month restituisce "giugno 2026" minuscolo: qui e' un titolo, va maiuscolo.
+  const titolo = fmt.month(idx + 1, budgetYear).replace(/^./, c => c.toUpperCase());
+  // A gennaio il progressivo coincide col mese: "gen -> gen" sarebbe solo rumore.
+  const periodo = idx === 0 ? 'gen' : `gen &rarr; ${MONTHS_SHORT[idx].toLowerCase()}`;
+
+  tip.innerHTML =
+    `<div style="font-weight:700;font-size:13px">${titolo}</div>` +
+
+    titoletto('Solo questo mese') +
+    riga(quad(_BUDG_VIOLA), 'Budget', bm) +
+    riga(quad(coloreReale), 'Reale',  rm) +
+    linea +
+
+    titoletto(`Progressivo (${periodo})`) +
+    riga(seg(_BUDG_VIOLA), 'Budget', v['Budget prog.']) +
+    riga(seg(_BUDG_VERDE), 'Reale',  v['Reale prog.']) +
+    linea +
+
+    titoletto('Scostamento sul piano') +
+    `<div style="display:flex;align-items:baseline;gap:8px;margin-top:3px">
+       <span style="font-size:15px;font-weight:700;font-variant-numeric:tabular-nums;color:${coloreDelta}">
+         ${d == null ? '&mdash;' : (d >= 0 ? '+' : '') + fmt.currency(d)}
+       </span>
+       <span style="font-size:10.5px;color:var(--txt3)">
+         ${d == null ? 'mese non ancora arrivato' : d >= 0 ? 'meglio del previsto' : 'sotto il previsto'}
+       </span>
+     </div>`;
+
+  // Posizionamento: accanto al cursore, ribaltato a sinistra se sborderebbe a
+  // destra e tenuto dentro il viewport in verticale.
+  const r = chart.canvas.getBoundingClientRect();
+  const w = tip.offsetWidth, h = tip.offsetHeight;
+  let x = r.left + tooltip.caretX + 16;
+  if (x + w > window.innerWidth - 8) x = r.left + tooltip.caretX - w - 16;
+  const y = Math.min(Math.max(8, r.top + tooltip.caretY - h / 2), window.innerHeight - h - 8);
+  tip.style.left = Math.max(8, x) + 'px';
+  tip.style.top  = y + 'px';
+  tip.style.opacity = '1';
+}
+
 // Tab "Andamento": grafico cumulativo budget vs reale nell'anno, con riordino categorie via drag.
 function renderBudgetAndamento() {
   const el = document.getElementById('budgAndamentoWrap');
@@ -506,7 +617,10 @@ function renderBudgetAndamento() {
   _wireBudgetAndDrag();
 
   // ── Grafico ───────────────────────────────────────────────────────────────
+  // Il tooltip HTML vive su document.body, fuori dal canvas: senza rimuoverlo qui
+  // resterebbe appeso (e visibile, se il mouse era sopra) dopo un cambio anno o pagina.
   if (_budgetAndamentoChart) { _budgetAndamentoChart.destroy(); _budgetAndamentoChart = null; }
+  document.getElementById('budgAndTip')?.remove();
   const ctx = document.getElementById('budgAndChart');
   if (!ctx) return;
   _budgetAndamentoChart = new Chart(ctx, {
@@ -584,7 +698,9 @@ function renderBudgetAndamento() {
       plugins: {
         legend: { labels: { color: chartColors().tick, boxWidth: 14, boxHeight: 14, padding: 10,
                             font: { size: 12 } } },
-        tooltip: { callbacks: { label: ctx => `${ctx.dataset.label}: ${fmt.currency(ctx.parsed.y)}` } },
+        // Tooltip HTML: vedi _budgAndTooltip. `enabled:false` spegne quello nativo,
+        // che altrimenti verrebbe disegnato sotto a questo.
+        tooltip: { enabled: false, external: _budgAndTooltip },
         zoom: zoomOpts()
       },
       scales: {

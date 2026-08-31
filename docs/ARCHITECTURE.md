@@ -596,7 +596,8 @@ Disabilitabile con `http.enabled=0` in `settings.properties`.
 |---------|---------|
 | `mvn exec:java` | Avvio diretto in IDE/CLI, mainClass `com.moneymanager.App` |
 | `mvn package` | Fat JAR via maven-shade-plugin → `target/moneymanager-1.22.1.jar` (esclude `web/`) |
-| `build.bat` | Wrapper interattivo Maven (chiede i passi) |
+| `tools\build\build.bat` | Pipeline completa: fat JAR, jlink, jpackage, copia `web/`, deploy (chiede build+deploy o build+ZIP) |
+| `tools\build\build-installer.bat` | Come sopra ma in coda Inno Setup: installer wizard in `dist\installer\` |
 | `prepare-package` | Genera `target/icon.ico` invocando `IconFactory.main()` |
 
 In **produzione** (post-jpackage):

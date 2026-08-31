@@ -21,10 +21,10 @@ Esegui in sequenza, fermandoti e segnalando subito se un passo fallisce:
 - `git push origin master`.
 
 ## 3. Build + Deploy (build.bat opzione 1)
-- Lancia `build.bat` in modalità non interattiva. L'opzione 1 (Build + Deploy) è il default del prompt, quindi basta dare EOF allo stdin.
+- Lancia `tools\build\build.bat` in modalità non interattiva. Lo script ricava da sé la radice del progetto (`%~dp0..\..`), quindi funziona da qualsiasi cwd. L'opzione 1 (Build + Deploy) è il default del prompt, quindi basta dare EOF allo stdin.
 - **Importante (gotcha noto):** `build.bat` va eseguito con code page OEM **850**, altrimenti cmd genera un errore di decodifica. Comando esatto da usare con il tool PowerShell (timeout ampio, ~7 min, jlink+jpackage sono lenti):
   ```
-  & cmd.exe /c 'chcp 850 >nul & "D:\LucaMoneyManager\build.bat" < nul'
+  & cmd.exe /c 'chcp 850 >nul & "D:\LucaMoneyManager\tools\build\build.bat" < nul'
   ```
 - NON usare `2>&1` (in PowerShell 5.1 incapsula lo stderr nativo come errore).
 - La build fa: fat JAR → jlink (JRE custom) → jpackage (`LucaMoneyManager.exe`) → copia `web/` → deploy con robocopy in `D:\Luca Money Manager App` (DB/settings/backup/log esclusi e protetti) → **pulizia di `tools\screenshots\`**.

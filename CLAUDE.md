@@ -25,10 +25,10 @@ tali. La documentazione da tenere aggiornata è solo questa terna: `CLAUDE.md`, 
 - **Linguaggio:** Java 25, Maven 3.x
 - **UI:** JCEF v146 (Chromium embedded) + Swing per dialogs/titlebar/splash
 - **Frontend:** Vanilla JS puro (`src/main/resources/web/`, modulare in `js/pages/*.js`), no React/Vue
-- **Versione:** 1.23.1 — output `target/moneymanager-1.23.1.jar` (fat JAR, web/ esclusa)
+- **Versione:** 1.24.0 — output `target/moneymanager-1.24.0.jar` (fat JAR, web/ esclusa)
 - **Web assets:** serviti da filesystem (cartella `web/` accanto al `.exe` in produzione, `target/classes/web/` in IDE)
 - **DB path:** `%APPDATA%\LucaMoneyManager\data.db` (`%APPDATA%` = `...\Roaming`)
-- **Build:** `mvn package` oppure `build.bat`
+- **Build:** `mvn package` oppure `tools\build\build.bat`
 
 ### Android
 - **Linguaggio:** Kotlin (Java 17 compat), Gradle Kotlin DSL
@@ -423,6 +423,12 @@ direttamente e funziona sempre.
 accetta anche un path esplicito. Ogni esecuzione stampa in testa **quale DB** ha aperto, con
 dimensione e data di modifica — è l'errore che costa di più. Altre opzioni: `-Limit`
 (default 200), `-Json`, `-Quiet` (niente intestazione, output parsabile).
+
+Per **rinfrescare il DB di test con i dati veri** c'è `tools\copy-db.ps1`: copia prod → test in
+una direzione sola (l'inversa sovrascriverebbe i dati veri), mostra i due file con dimensione e
+data e chiede conferma con INVIO. Il DB di test viene sovrascritto senza copie di sicurezza: è
+una copia di lavoro, si rigenera rilanciando lo script. Si ferma prima di toccare qualcosa se il
+DB di destinazione è bloccato dall'app aperta.
 
 **Read-only per costruzione**: `tools/DbQuery.java` apre la connessione con
 `SQLiteConfig.setReadOnly(true)`, quindi il driver rifiuta ogni DML (`SQLITE_READONLY`) — non

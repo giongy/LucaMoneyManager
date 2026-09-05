@@ -1449,6 +1449,10 @@ window._dashExecSched = async id => {
     color: u.color || null,
     reconciled: u.reconciled ?? 1,
     tag_ids: tagIds,
+    // Solo per il banner "Collegata a posizione portfolio" nel modale: il link vero lo crea
+    // registerScheduled lato Java leggendo portfolio_id dalla pianificata. Qui non finisce
+    // nel payload di salvataggio (showTxModal lo costruisce dai campi del form).
+    portfolio_id: u.portfolio_id || null,
   }, cats, accs, u.type, tags, () => {
     // L'avanzamento è già avvenuto dentro la stessa transazione SQL del salvataggio
     // (saveOverride qui sotto): qui resta solo il feedback e il refresh.

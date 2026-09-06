@@ -535,8 +535,8 @@ async function renderSettings() {
   // fissi in alto (flex-shrink:0), solo il contenuto della tab scorre (flex:1 + overflow).
   pg.innerHTML = `
     <div style="flex-shrink:0;padding:var(--dash-gap) var(--dash-gap) 0;background:var(--bg)">
-      <div class="page-header">
-        <h1 class="page-title">Impostazioni</h1>
+      <div class="section-header">
+        <h2 class="section-title">Impostazioni</h2>
       </div>
       <div class="settings-tabs">
         ${tabs.map(t=>`

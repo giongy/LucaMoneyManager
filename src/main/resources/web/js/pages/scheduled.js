@@ -174,7 +174,7 @@ async function renderSchedLista() {
           </div>
         </div>
       </div>
-      <button class="btn btn-primary" id="btnNewSched">+ Nuova</button>
+      <button class="btn btn-primary" id="btnNewSched">+ Nuova pianificata</button>
     </div>
     <div class="card">
       <div class="table-wrap">

@@ -9,8 +9,12 @@ async function renderLogViewer() {
   pg.innerHTML = `
     <div class="section-header">
       <h2 class="section-title">Log operazioni</h2>
+      <!-- I due filtri della stessa lista stanno insieme: prima "Tipo record" era in una
+           barra in fondo alla card, cioè sotto le righe che filtra e all'estremo opposto
+           della ricerca. Ovunque altrove nell'app i filtri stanno sopra il contenuto. -->
       <div style="display:flex;gap:8px;align-items:center;margin-left:auto">
         <input class="form-control" id="logSearch" placeholder="🔍 Filtra..." style="width:220px">
+        ${_buildLogTypeSelect()}
         <button class="btn btn-ghost" id="btnLogRefresh" title="Aggiorna">↻ Aggiorna</button>
         <button class="btn btn-ghost" id="btnLogPurgeSystem"
                 title="Elimina dal log le voci di sistema (avvio, backup, manutenzione), mantenendo le operazioni utente">🗑️ Cancella voci sistema</button>
@@ -20,10 +24,6 @@ async function renderLogViewer() {
       <div id="logPath" style="font-size:11px;color:var(--txt3);padding:6px 12px;border-bottom:1px solid var(--border)"></div>
       <div class="log-wrap" id="logWrap">
         <div style="color:var(--txt3);padding:40px;text-align:center">Caricamento…</div>
-      </div>
-      <div style="display:flex;gap:8px;padding:8px 12px;border-top:1px solid var(--border);align-items:center">
-        <span style="font-size:12px;color:var(--txt3);white-space:nowrap">Tipo record:</span>
-        ${_buildLogTypeSelect()}
       </div>
     </div>`;
 
@@ -147,7 +147,9 @@ function _buildLogTypeSelect() {
     if (!groups[group]) groups[group] = [];
     groups[group].push(action);
   }
-  return `<select class="form-control" id="logTypeFilter" style="flex:1">
+  // Larghezza fissa e non flex:1: sta nella barra di intestazione accanto alla ricerca,
+  // dove "prendersi tutto lo spazio" vorrebbe dire attraversare mezzo schermo.
+  return `<select class="form-control" id="logTypeFilter" style="width:200px">
     <option value="">Tutti i tipi</option>
     ${Object.entries(groups).map(([g, actions]) =>
       `<optgroup label="${g}">${actions.map(a => `<option>${a}</option>`).join('')}</optgroup>`

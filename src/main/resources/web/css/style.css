@@ -931,6 +931,10 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 .btn {
   padding:6px 13px; border-radius:var(--radius-ctl,8px); border:none; font-size:var(--fs-md,12px);
   font-weight:600; transition:all .15s; display:inline-flex; align-items:center; gap:5px;
+  /* Un'etichetta non va mai spezzata a metà: in una riga stretta "Apri esistente" diventava
+     "Apri" / "esistente" su due righe, con il bottone alto il doppio degli altri accanto.
+     Meglio che sia la fila di bottoni ad andare a capo (flex-wrap sul contenitore). */
+  white-space:nowrap;
 }
 /* Bottone disabilitato: smorzato e non interattivo (no hover). */
 .btn:disabled, .btn[disabled] {
@@ -2034,8 +2038,11 @@ tr.tx-selected td { background:rgba(124,124,255,.07); }
 .settings-label strong { display:block; margin-bottom:3px; color:var(--txt); }
 .settings-control { flex:1; }
 .settings-hint { font-size:var(--fs-sm,11px); color:var(--txt2); margin-top:4px; }
-.settings-path-row { display:flex; gap:6px; align-items:center; }
-.settings-path-input { flex:1; font-size:var(--fs-sm,11px); color:var(--txt2); cursor:default; }
+/* Il campo del percorso va a capo insieme ai bottoni invece di comprimerli: flex-basis
+   generosa perché su una riga larga stia con loro, min-width:0 perché possa comunque
+   accorciarsi (un input di suo non scende sotto la propria larghezza di default). */
+.settings-path-row { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+.settings-path-input { flex:1 1 240px; min-width:0; font-size:var(--fs-sm,11px); color:var(--txt2); cursor:default; }
 .theme-toggle-group { display:flex; gap:8px; }
 .theme-btn { background:var(--bg3); color:var(--txt2); border:1px solid var(--border); padding:7px 18px; border-radius:6px; }
 .theme-btn:hover { background:var(--bg4); color:var(--txt); }
@@ -3034,16 +3041,62 @@ tr.tx-selected td { background:rgba(124,124,255,.07); }
   .dash-col-resize, .dash-row-resize { display:none; }
   .dash-recent-card td.td-main { max-width:150px; }
 
+  /* Widget "I miei conti", due sprechi di larghezza su una card da 350px:
+     il nome del conto è rientrato di 70px sotto l'etichetta di gruppo (CONTI CORRENTI,
+     CONTANTI…) — un quinto della riga solo per il rientro, che a 22px si legge uguale;
+     e la terza colonna sono i pulsanti rapidi, che stanno a opacity:0 e compaiono
+     all'hover della riga: al tocco l'hover non esiste, quindi erano 82px occupati da
+     comandi irraggiungibili. Recuperati ~130px, i nomi non si spezzano più su due righe.
+     ⚠️ Residuo noto: la tabella resta larga 387px contro i 350 della card, e il suo
+     contenitore (overflow-x:auto) scorre di quei ~37px — in pratica il simbolo € degli
+     importi finisce sul bordo dello scorrimento. Non si corregge da qui: quella
+     larghezza NON dipende dal contenuto. Provato e misurato: riducendo i padding le
+     colonne se li riprendono e il totale non cambia di un pixel, e nemmeno togliendo il
+     nowrap alla colonna degli importi. La causa è a monte, nel modo in cui la tabella
+     calcola la propria larghezza dentro il contenitore scorrevole. */
+  .acc-list-row td:first-child { padding-left:22px; }
+  .acc-quick-btns { display:none; }
+
+  /* Widget Budget: Uscite ed Entrate stanno affiancate in proporzione 3:1. Dentro una
+     card da 374px alle Entrate restano ~74px, ma la loro griglia interna ha tracce
+     minmax(130px, 1fr): il minimo di 130px non ci sta e la griglia sfora la card, che è
+     overflow:hidden — nomi e importi delle entrate finivano tagliati via.
+     Impilate, ognuna prende tutta la larghezza. Il bordo che le separa passa da sinistra
+     a sopra: ora il confine fra le due è orizzontale. */
+  .dash-budget-cols { flex-direction:column; }
+  .dash-budget-col-exp { padding-right:0; }
+  .dash-budget-col-inc {
+    border-left:none; padding-left:0;
+    border-top:1px solid var(--border); padding-top:10px; margin-top:10px;
+  }
+
   /* Molte pagine (Reports soprattutto, ma anche Portafoglio e Periodi) compongono le
      loro griglie con grid-template-columns INLINE, generato dal JS: dal CSS si possono
      scavalcare solo così, per attributo e con !important. Su 390px una colonna sola è
      sempre la risposta giusta, qualunque fosse il numero di partenza.
+     ⚠️ minmax(0,1fr) e non 1fr: "1fr" da solo vale minmax(auto, 1fr), e quell'auto è il
+     min-content della colonna — una traccia che contiene roba larga si allarga fino a
+     quella invece di stare nel contenitore. In Salute Finanziaria la griglia interna
+     arrivava così a 932px dentro 326px. Con lo zero come minimo la traccia resta larga
+     quanto il contenitore, e l'eccedenza la gestisce il contenitore scorrevole.
      ⚠️ L'esclusione :not([style*="min-width"]) protegge l'unica griglia che una colonna
-     la romperebbe davvero: la striscia dei mesi in "Andamento categoria" (analytics.js),
-     che dichiara una larghezza minima proprio perché deve scorrere in orizzontale. */
-  .page [style*="grid-template-columns"]:not([style*="min-width"]) {
-    grid-template-columns:1fr !important;
+     sola romperebbe davvero: la striscia dei mesi di "Andamento categoria"
+     (`min-width:${n*75}px` in analytics.js), che deve restare larga e scorrere.
+     Da sola però pescava anche i `min-width:0`, che dichiarano l'esatto contrario —
+     "posso restringermi" — ed è il caso dei pannelli di Salute Finanziaria: restavano a
+     due colonne, con il testo in una colonna alta e strettissima accanto al numerone.
+     Da qui la seconda riga del selettore, che li rimette dentro. */
+  .page [style*="grid-template-columns"]:not([style*="min-width"]),
+  .page [style*="grid-template-columns"][style*="min-width:0"] {
+    grid-template-columns:minmax(0,1fr) !important;
   }
+
+  /* Le due cose vanno insieme: la traccia sopra è capata alla larghezza del contenitore,
+     e i pannelli di Salute Finanziaria che restano più larghi (la fila di finestre di 3
+     mesi, la scala del tasso di risparmio) devono poter scorrere invece di essere
+     tagliati dalla card. Senza questo, capare la traccia sposta solo il taglio più in
+     basso. */
+  .page .card-section { overflow-x:auto; }
 
   /* Impostazioni: etichetta e controllo stanno su due righe. Affiancati, l'etichetta
      si prende 220px fissi e al controllo (spesso un percorso lungo) restavano ~100px,

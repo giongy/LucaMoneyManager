@@ -2507,7 +2507,7 @@ async function renderReports() {
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
       <h2 style="font-size:var(--fs-xl,18px);font-weight:700">Resoconti</h2>
       <div class="flex-center-8">
-        <button class="btn btn-primary" onclick="showReportModal()">＋ Nuovo resoconto</button>
+        <button class="btn btn-primary" onclick="showReportModal()">+ Nuovo resoconto</button>
       </div>
     </div>
     <div id="rReportHeader" style="margin-bottom:16px"></div>

@@ -33,7 +33,7 @@ async function renderAccounts() {
           <input type="checkbox" id="chkShowHidden" ${_accShowHidden ? 'checked' : ''}>
           🙈 Mostra nascosti
         </label>
-        <button class="btn btn-primary" id="btnAddAcc">+ Nuovo Conto</button>
+        <button class="btn btn-primary" id="btnAddAcc">+ Nuovo conto</button>
       </div>
     </div>
     <div id="accSummary"></div>

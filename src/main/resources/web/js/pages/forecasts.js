@@ -115,9 +115,12 @@ async function renderForecastDetail(pg, id, backCmd = 'renderForecasts()') {
   const diffStr  = v => (v > 0 ? '+' : '') + fmt.currency(v);
 
   pg.innerHTML = `
-    <div class="page-header" style="display:flex;align-items:center;gap:12px">
+    <!-- <span> e non <h2>: il titolo porta la data della previsione, non il nome della pagina
+         (che è "Previsioni"), quindi non è un doppione della barra mobile e non va nascosto
+         sul telefono — vedi la regola h2.section-title nella sezione Responsive del CSS. -->
+    <div class="section-header" style="justify-content:flex-start;gap:12px">
       <button class="btn btn-ghost btn-sm" onclick="_forecastDetailId=null;${backCmd}">← Lista</button>
-      <h2 class="page-title">Previsione al ${fmt.date(d.forecast_date)}</h2>
+      <span class="section-title">Previsione al ${fmt.date(d.forecast_date)}</span>
     </div>
 
     <!-- Saldo -->

@@ -42,6 +42,10 @@ async function renderCategories() {
             <span class="cat-sub-count">${kids.length} sottocategorie</span>
             <div class="cat-actions">
               ${!isTransfer ? `
+                <!-- ＋ a tutta larghezza (U+FF0B) e non "+": qui il bottone è solo icona e sta
+                     accanto a due emoji (✏️ 🗑️), che sono larghe il doppio di un "+" ASCII —
+                     il segno normale resterebbe minuscolo e fuori asse. Nei bottoni con testo
+                     si usa invece il "+" normale, che è la convenzione del resto dell'app. -->
                 <button class="btn btn-ghost btn-icon" onclick="addSubCategory(${p.id},'${p.type}')" title="Aggiungi sottocategoria">＋</button>
                 <button class="btn btn-ghost btn-icon" onclick="editCategory(${p.id})" title="Modifica">✏️</button>
                 <button class="btn btn-ghost btn-icon" onclick="deleteCategory(${p.id})" title="Elimina">🗑️</button>
@@ -76,8 +80,8 @@ async function renderCategories() {
     <div class="section-header">
       <h2 class="section-title">Categorie</h2>
       <div style="display:flex;gap:8px">
-        <button class="btn btn-primary" onclick="addMainCategory('expense')">＋ Uscita</button>
-        <button class="btn btn-secondary" onclick="addMainCategory('income')">＋ Entrata</button>
+        <button class="btn btn-primary" onclick="addMainCategory('expense')">+ Uscita</button>
+        <button class="btn btn-secondary" onclick="addMainCategory('income')">+ Entrata</button>
       </div>
     </div>
 

@@ -16,9 +16,6 @@ async function renderCategories() {
   const parents  = cats.filter(c => !c.parent_id && c.type !== 'transfer');
   const children = cats.filter(c => c.parent_id);
 
-  const typeLabel = t => t === 'income' ? '📥 Entrata' : t === 'expense' ? '📤 Uscita' : '🔁 Trasferimento';
-  const typeCls   = t => t === 'income' ? 'badge-income' : t === 'expense' ? 'badge-expense' : 'badge-transfer';
-
   function childrenOf(parentId) {
     return children.filter(c => c.parent_id === parentId);
   }
@@ -39,7 +36,6 @@ async function renderCategories() {
             <span class="cat-icon" style="background:${esc(p.color)}22;color:${esc(p.color)}">${esc(p.icon)}</span>
             <span class="cat-color-dot" style="background:${esc(p.color)}" title="${esc(p.color)}"></span>
             <span class="cat-name">${esc(p.name)}</span>
-            <span class="badge ${typeCls(p.type)}">${typeLabel(p.type)}</span>
             ${p.expense_nature ? `<span class="nature-badge nature-${p.expense_nature}">${{essenziale:'🟢 Essenziale',variabile:'🟡 Variabile',superflua:'🔴 Superflua'}[p.expense_nature]||''}</span>` : ''}
             ${p.excluded_from_budget ? `<span class="badge" style="background:var(--txt3);color:#fff;font-size:10px" title="Esclusa da budget, report, dashboard e previsioni">🚫 Esclusa</span>` : ''}
             ${mobileKids ? `<span class="badge" style="background:#3fb95022;color:#3fb950;font-size:10px" title="${mobileKids} sottocategorie proposte dall'app Android">📱 ${mobileKids}</span>` : ''}
@@ -62,7 +58,6 @@ async function renderCategories() {
                   <span class="cat-name">${esc(k.name)}</span>
                   ${(() => { const n = k.expense_nature || k.parent_expense_nature; const inh = !k.expense_nature && n; return n ? `<span class="nature-badge nature-${n}" title="${inh?'ereditata dal parent':''}">${{essenziale:'🟢',variabile:'🟡',superflua:'🔴'}[n]||''}${inh?' ↑':''}</span>` : ''; })()}
                   ${k.excluded_from_budget ? `<span class="badge" style="background:var(--txt3);color:#fff;font-size:10px" title="Esclusa da budget, report, dashboard e previsioni">🚫</span>` : ''}
-                  <span class="cat-inherited">eredita ${typeLabel(k.type)}</span>
                   <div class="cat-actions">
                     <button class="btn btn-ghost btn-icon cat-mobile-btn ${k.mobile_favorite ? 'active' : ''}"
                             onclick="toggleCategoryMobile(${k.id}, ${k.mobile_favorite ? 0 : 1})"
@@ -78,9 +73,9 @@ async function renderCategories() {
 
   pg.innerHTML = `
     <div style="max-width:700px">
-    <div class="page-header">
-      <h1 class="page-title">🏷️ Categorie</h1>
-      <div class="page-actions">
+    <div class="section-header">
+      <h2 class="section-title">Categorie</h2>
+      <div style="display:flex;gap:8px">
         <button class="btn btn-primary" onclick="addMainCategory('expense')">＋ Uscita</button>
         <button class="btn btn-secondary" onclick="addMainCategory('income')">＋ Entrata</button>
       </div>
@@ -93,25 +88,24 @@ async function renderCategories() {
         : `Nessuna marcata: sul telefono compaiono <b>tutte</b> le sottocategorie.`}
     </div>
 
-    <div class="cats-section-title">📤 Uscite</div>
+    <h3 class="section-subtitle">📤 Uscite</h3>
     <div class="cats-list" id="catsExpense">
       ${renderTree(parents.filter(p => p.type === 'expense'))}
     </div>
 
-    <div class="cats-section-title" style="margin-top:24px">📥 Entrate</div>
+    <h3 class="section-subtitle" style="margin-top:24px">📥 Entrate</h3>
     <div class="cats-list" id="catsIncome">
       ${renderTree(parents.filter(p => p.type === 'income'))}
     </div>
 
     ${transfer ? `
-    <div class="cats-section-title" style="margin-top:24px">🔁 Speciale</div>
+    <h3 class="section-subtitle" style="margin-top:24px">🔁 Speciale</h3>
     <div class="cats-list">
       <div class="cat-parent">
         <div class="cat-row cat-parent-row">
           <span class="cat-icon" style="background:${esc(transfer.color)}22;color:${esc(transfer.color)}">${esc(transfer.icon)}</span>
           <span class="cat-name">${esc(transfer.name)}</span>
-          <span class="badge badge-transfer">Trasferimento</span>
-          <span class="settings-hint" style="margin-left:8px">Categoria di sistema, non modificabile</span>
+          <span class="settings-hint">Categoria di sistema, non modificabile</span>
         </div>
       </div>
     </div>` : ''}

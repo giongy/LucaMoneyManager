@@ -1967,8 +1967,9 @@ tr.tx-selected td { background:rgba(124,124,255,.07); }
 .nav-item-icon .nav-icon-svg { margin:0; }
 
 /* ─── Categorie ──────────────────────────────────────────────────────────── */
-.cats-section-title { font-size:var(--fs-sm,11px); font-weight:700; text-transform:uppercase;
-  letter-spacing:.5px; color:var(--txt3); margin-bottom:6px; padding-left:4px; }
+/* I titoli di sezione (Uscite / Entrate / Speciale) usano .section-subtitle, la
+   stessa classe di Tag e delle altre pagine di configurazione: prima questa pagina
+   ne aveva una propria, identica nell'intento e leggermente diversa nella resa. */
 .cats-list { display:flex; flex-direction:column; gap:6px; }
 .cat-parent { background:var(--bg2); border:1px solid var(--border); border-radius:8px; overflow:hidden; }
 .cat-row { display:flex; align-items:center; gap:8px; padding:10px 14px; }
@@ -1977,9 +1978,10 @@ tr.tx-selected td { background:rgba(124,124,255,.07); }
 .cat-icon { width:28px; height:28px; border-radius:6px; display:flex;
   align-items:center; justify-content:center; font-size:var(--fs-lg,13px); flex-shrink:0; }
 .cat-color-dot { width:12px; height:12px; border-radius:3px; flex-shrink:0; }
-.cat-name { font-weight:600; flex:1; }
+/* Niente flex:1 sul nome: i badge stanno subito dopo, non spinti a metà riga da uno
+   spazio vuoto. A tenere i comandi contro il bordo destro basta .cat-actions. */
+.cat-name { font-weight:600; }
 .cat-sub-count { font-size:var(--fs-sm,11px); color:var(--txt3); margin-left:4px; }
-.cat-inherited { font-size:var(--fs-sm,11px); color:var(--txt3); flex:1; }
 .cat-indent { color:var(--txt3); font-size:var(--fs-lg,13px); margin-left:10px; }
 .cat-actions { display:flex; gap:4px; margin-left:auto; }
 /* Interruttore "usabile da Android": spento resta visibile ma smorzato (l'emoji va desaturata
@@ -2997,6 +2999,19 @@ tr.tx-selected td { background:rgba(124,124,255,.07); }
   .grid-2, .grid-3 { grid-template-columns:1fr; }
   .card { padding:11px; }
 
+  /* Intestazione di pagina: il nome lo mostra già #mobilebar (lo scrive navigate() da
+     PAGE_TITLES), quindi l'<h2> lo ripeteva identico due righe più sotto — su uno
+     schermo alto 844px una riga sprecata si nota. Restano solo i comandi, che con
+     justify-content:space-between si allineano a sinistra.
+     ⚠️ Si prende h2.section-title e non .section-title: la stessa classe la usa anche
+     lo <span class="vb-title"> di "Budget vs Pianificate" (budget.js), che è un titolo
+     interno alla pagina e non è scritto da nessun'altra parte — nasconderlo lascerebbe
+     quella sezione senza intestazione.
+     I sei <h2> interessati (Conti, Categorie, Log operazioni, Note, Periodi
+     personalizzati, Tag) ripetono tutti la voce di PAGE_TITLES della propria pagina. */
+  .section-header { flex-wrap:wrap; gap:8px; }
+  .section-header > h2.section-title { display:none; }
+
   /* Le quattro statistiche in cima alla dashboard: 4 colonne su 390px lasciano
      ~85px a testa e gli importi vengono tagliati. Due per riga, e il valore
      rimpicciolito quanto basta perché "25.397,48 €" ci stia intero. */
@@ -3104,6 +3119,31 @@ tr.tx-selected td { background:rgba(124,124,255,.07); }
      ⚠️ L'intestazione non ha una classe propria — si prende per posizione (seconda
      colonna di #budgetThead). */
   #budgetThead th:nth-child(2), .budget-gestione-cell { display:none; }
+
+  /* Budget, riga dei comandi: #budgGridActions affianca due gruppi di bottoni al
+     selettore dell'anno, senza a capo e con margin-left:auto sul secondo — su 390px
+     "Solo mese corrente", "Cancella anno" e "Genera budget" finivano oltre il bordo
+     dello schermo, tagliati da .page{overflow:hidden}: irraggiungibili, non solo
+     fuori vista (la pagina non scorre in orizzontale).
+     Qui i comandi passano sotto il selettore dell'anno e vanno a capo fra loro.
+     ⚠️ flex e margin arrivano INLINE dal JS, quindi servono gli !important; il
+     display invece NON si tocca, è quello che nasconde la riga sugli altri tab. */
+  #budgGridActions { flex-wrap:wrap; flex:1 1 100% !important; margin-left:0 !important; }
+  #budgGridActions > div { flex-wrap:wrap; margin-left:0 !important; }
+
+  /* Categorie: .cat-row è una fila flex senza a capo, e su 390px i pulsanti azione
+     (aggiungi / modifica / elimina, e l'interruttore 📱 sulle sottocategorie) finivano
+     oltre il bordo, tagliati da .cat-parent{overflow:hidden} — irraggiungibili anche
+     scorrendo. Restano icona, nome e comandi; sparisce l'unico accessorio ancora di
+     troppo a questa larghezza — "N sottocategorie", con l'elenco già aperto lì sotto.
+     Restano invece 🚫 Esclusa e 📱 N: quelli non si deducono da nient'altro. */
+  .cat-row { gap:6px; padding-left:8px; padding-right:8px; }
+  .cat-sub-count { display:none; }
+  /* min-width:0 sblocca la contrazione (di suo un flex item non scende sotto il
+     contenuto): senza, il nome lungo spinge fuori i pulsanti invece di accorciarsi. */
+  .cat-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .cat-actions { flex-shrink:0; }
+  .cat-indent { margin-left:0; }
 
   /* Barre di filtri e comandi: i controlli vanno a capo e si dividono la riga invece
      di sfondare in orizzontale. */

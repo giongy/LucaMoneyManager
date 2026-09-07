@@ -2415,9 +2415,19 @@ tr.tx-selected td { background:rgba(124,124,255,.07); }
 .btn-budget-detail:hover { opacity: 1 !important; background: var(--bg4); }
 
 /* ─── Budget: tab Mese Corrente layout a due colonne ─────────────────────── */
-.budget-mese-cols { display:flex; gap:20px; align-items:flex-start; }
-.budget-mese-col  { flex:1; min-width:0; }
-@media (max-width: 900px) { .budget-mese-cols { flex-direction:column; } }
+/* Due colonne affiancate Uscite | Entrate, condivise dalle schede Mese e Scostamenti:
+   sono la stessa vista su finestre diverse (il mese scelto contro il progressivo da inizio
+   anno), quindi hanno lo stesso scheletro. Da qui il nome neutro: prima era -mese-. */
+.budget-split-cols { display:flex; gap:20px; align-items:flex-start; }
+.budget-split-col  { flex:1; min-width:0; }
+@media (max-width: 900px) {
+  .budget-split-cols { flex-direction:column; }
+  /* Impilate, le colonne non hanno più un vicino che le contenga: senza un tetto esplicito
+     una si allarga fino alla larghezza minima della propria tabella (759px su 374
+     disponibili) e il contenitore overflow-x:auto che le sta dentro non arriva mai a
+     scorrere — la tabella usciva dalla pagina invece di scorrere al suo interno. */
+  .budget-split-col { max-width:100%; }
+}
 
 /* ─── Sidebar nav groups (Resoconti collapsible) ─────────────────────────── */
 .nav-group { display:flex; flex-direction:column; }

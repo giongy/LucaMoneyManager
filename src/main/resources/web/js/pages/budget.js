@@ -60,8 +60,8 @@ async function renderBudgets() {
     </div>`;
 
   document.getElementById('budgYearLabel').textContent = budgetYear;
-  document.getElementById('budgPrev').onclick = () => { budgetYear--; _budgetMeseMonth = new Date().getMonth() + 1; renderBudgets(); };
-  document.getElementById('budgNext').onclick = () => { budgetYear++; _budgetMeseMonth = new Date().getMonth() + 1; renderBudgets(); };
+  document.getElementById('budgPrev').onclick = () => { budgetYear--; _budgetMeseMonth = new Date().getMonth() + 1; _budgetScostUntil = null; renderBudgets(); };
+  document.getElementById('budgNext').onclick = () => { budgetYear++; _budgetMeseMonth = new Date().getMonth() + 1; _budgetScostUntil = null; renderBudgets(); };
   document.getElementById('btnGenBudget').onclick = () => showGenerateBudgetModal();
   document.getElementById('btnDelBudgetYear').onclick = async () => {
     const ok = await confirm('Cancella budget', `Eliminare tutti i budget dell'anno ${budgetYear}? L'operazione non è reversibile.`);
@@ -115,7 +115,10 @@ let _budgetOnlyRed = false;
 let _budgetOnlyCurrentMonth = false;
 let _budgetDetailNavList = [];
 let _budgetDetailNavIdx  = 0;
-let _budgetScostTab     = 'uscite';
+// Mese fino al quale si cumula il progressivo. null = automatico (il mese in corso per
+// l'anno corrente, dicembre per gli anni passati). Sceglierlo a mano serve soprattutto a
+// fermarsi all'ultimo mese chiuso: vedi la nota sul mese in corso in renderBudgetScostamenti.
+let _budgetScostUntil   = null;
 let _budgetScostSort    = 'pct';
 let _budgetScostSortDir = 'desc';
 
@@ -806,12 +809,11 @@ function _budgetSortTh(label, key, o) {
 // uscita/entrata, ordinare per importo con segno metterebbe in cima la spesa più piccola.
 // Diff sale (asc): il più negativo — cioè lo sforo peggiore — resta primo.
 const _SCOST_COLS = {
-  macro:  { get: r => (r.parent ? r.parent.name : 'ÿ'), dir0: 'asc'  },  // 'ÿ' = senza macro in fondo
-  cat:    { get: r => r.cat.name,                       dir0: 'asc'  },
-  budget: { get: r => Math.abs(r.bYTD),                 dir0: 'desc' },
-  reale:  { get: r => Math.abs(r.rYTD),                 dir0: 'desc' },
-  diff:   { get: r => r.diff,                           dir0: 'asc'  },
-  pct:    { get: r => r.pct,                            dir0: 'desc' },
+  cat:    { get: r => r.cat.name,       dir0: 'asc'  },
+  budget: { get: r => Math.abs(r.bYTD), dir0: 'desc' },
+  reale:  { get: r => Math.abs(r.rYTD), dir0: 'desc' },
+  diff:   { get: r => r.diff,           dir0: 'asc'  },
+  pct:    { get: r => r.pct,            dir0: 'desc' },
 };
 
 // Click sull'header: stessa colonna → inverte, colonna nuova → parte dalla sua direzione utile.
@@ -823,6 +825,22 @@ window._budgetScostSetSort = key => {
   renderBudgetScostamenti();
 };
 
+// Mese di taglio del progressivo, scelto a mano dal selettore in testata.
+window._budgetScostSetUntil = m => { _budgetScostUntil = +m; renderBudgetScostamenti(); };
+
+/**
+ * Scheda "Scostamenti": stessa vista della scheda "Mese" su una finestra diversa — il
+ * progressivo da inizio anno invece del singolo mese. Le due condividono lo scheletro
+ * (banner di andamento, tre tessere per lato, Uscite ed Entrate affiancate in
+ * .budget-split-cols) perché rispondono alla stessa domanda, e infatti calcolano le stesse
+ * quantità: l'"utilizzo %" di Mese e lo "scostamento %" di qui sono lo stesso numero
+ * spostato di 100 (utilizzo 172% = scostamento +72%), e il "rimasto" di Mese è, formula
+ * alla mano, lo stesso `budget − reale` della colonna Diff.
+ *
+ * Quello che resta suo è l'inquadratura: le righe sono numerate e ordinate per scostamento,
+ * cioè "dove sto sbagliando di più", mentre Mese è un cruscotto di stato. Per questo la
+ * colonna finale è una barra proporzionale allo scostamento e non alla quota consumata.
+ */
 function renderBudgetScostamenti() {
   const el = document.getElementById('budgScostWrap');
   if (!el || !_budgetData) return;
@@ -830,138 +848,264 @@ function renderBudgetScostamenti() {
   const { actualMap, catById, leafCats, getEffective } = _buildBudgetMaps();
 
   const now = new Date();
-  const curYear = now.getFullYear(), curMonth = now.getMonth()+1;
-  const ytdMonths = budgetYear < curYear ? 12 : (budgetYear===curYear ? curMonth : 0);
+  const curYear = now.getFullYear(), curMonth = now.getMonth() + 1;
   const MONTHS_IT = ['Gennaio','Febbraio','Marzo','Aprile','Maggio','Giugno',
                      'Luglio','Agosto','Settembre','Ottobre','Novembre','Dicembre'];
-  const untilName = ytdMonths>0 ? MONTHS_IT[ytdMonths-1] : '—';
 
-  // Calcola YTD per ogni categoria foglia
+  // Mese di taglio: automatico finché l'utente non ne sceglie uno (mese in corso per l'anno
+  // corrente, dicembre per gli anni già chiusi, niente per un anno futuro).
+  const autoUntil  = budgetYear < curYear ? 12 : (budgetYear === curYear ? curMonth : 0);
+  const untilMonth = _budgetScostUntil === null ? autoUntil : _budgetScostUntil;
+  const untilName  = untilMonth > 0 ? MONTHS_IT[untilMonth - 1] : '—';
+
+  // Una passata sola: progressivo fino al mese di taglio e budget dell'anno intero. Il
+  // secondo serve al banner, che confronta il speso-finora col budget di TUTTO l'anno: usare
+  // lì il progressivo darebbe una percentuale che non dice nulla sul finire dell'anno.
   const allRows = leafCats.map(cat => {
-    const eff = getEffective(cat.id), am = actualMap[cat.id]||{};
-    let bYTD=0, rYTD=0;
-    for (let m=1; m<=ytdMonths; m++) { bYTD+=eff[m]||0; rYTD+=am[m]||0; }
+    const eff = getEffective(cat.id), am = actualMap[cat.id] || {};
+    let bYTD = 0, rYTD = 0, bFull = 0;
+    for (let m = 1; m <= 12; m++) {
+      const b = eff[m] || 0;
+      bFull += b;
+      if (m <= untilMonth) { bYTD += b; rYTD += am[m] || 0; }
+    }
     const parent = cat.parent_id ? catById[cat.parent_id] : null;
-    const isExp  = cat.type==='expense';
+    const isExp  = cat.type === 'expense';
     // Valori con segno per display (expense = negativi)
     const bDisplay = isExp ? -bYTD : bYTD;
     const rDisplay = isExp ? -rYTD : rYTD;
     const diff = rDisplay - bDisplay;
     // % scostamento: per expense positivo = sforato (rosso), negativo = risparmiato (verde)
     //               per income  positivo = guadagnato di più (verde), negativo = meno (rosso)
-    const pct = bYTD!==0 ? (rYTD-bYTD)/bYTD*100 : (rYTD!==0 ? (isExp?100:-100) : 0);
+    const pct = bYTD !== 0 ? (rYTD - bYTD) / bYTD * 100 : (rYTD !== 0 ? (isExp ? 100 : -100) : 0);
     // isGood: expense → pct<=0 (risparmiato), income → pct>=0 (guadagnato di più)
-    const isGood = isExp ? pct<=0 : pct>=0;
-    return { cat, parent, bDisplay, rDisplay, diff, pct, isGood, bYTD, rYTD };
-  }).filter(r => r.bYTD>0 || r.rYTD>0);
+    const isGood = isExp ? pct <= 0 : pct >= 0;
+    return { cat, parent, bDisplay, rDisplay, diff, pct, isGood, bYTD, rYTD, bFull, isExp };
+  });
 
-  const expRows = allRows.filter(r=>r.cat.type==='expense');
-  const incRows = allRows.filter(r=>r.cat.type==='income');
+  // Budget uscite dell'anno intero: si somma PRIMA di filtrare, altrimenti una categoria
+  // budgetata solo nei mesi a venire sparirebbe dal totale annuo.
+  const expBudgetFull = allRows.reduce((s, r) => s + (r.isExp ? r.bFull : 0), 0);
+
+  const shown   = allRows.filter(r => r.bYTD > 0 || r.rYTD > 0);
+  const expRows = shown.filter(r => r.isExp);
+  const incRows = shown.filter(r => !r.isExp);
 
   const scostCmp = _budgetSorter(_SCOST_COLS, _budgetScostSort, _budgetScostSortDir, 'pct');
-  const sortFn = rows => [...rows].sort(scostCmp);
+  const sortRows = rows => [...rows].sort(scostCmp);
 
-  const activeRows = sortFn(_budgetScostTab==='uscite' ? expRows : incRows);
+  // Totali per le tessere di riepilogo (magnitudini: il segno lo mette il display)
+  const expB = expRows.reduce((s, r) => s + r.bYTD, 0);
+  const expR = expRows.reduce((s, r) => s + r.rYTD, 0);
+  const incB = incRows.reduce((s, r) => s + r.bYTD, 0);
+  const incR = incRows.reduce((s, r) => s + r.rYTD, 0);
+  const expDelta = expB - expR;   // > 0 = risparmiato
+  const incDelta = incR - incB;   // > 0 = incassato più del previsto
+  const expOver  = expRows.filter(r => !r.isGood && r.rYTD > 0).length;
+  const incUnder = incRows.filter(r => !r.isGood && r.rYTD > 0).length;
+  const expDeltaColor = expDelta >= 0 ? 'var(--income)' : 'var(--expense)';
+  const incDeltaColor = incDelta >= 0 ? 'var(--income)' : 'var(--expense)';
+  // Le etichette della terza tessera sono le uniche a scostarsi da quelle di Mese, e di
+  // proposito: "Rimasto" ed "Extra" guardano avanti e hanno senso su un mese ancora aperto,
+  // mentre qui la finestra è già trascorsa. Su un periodo passato non è rimasto niente da
+  // spendere: o si è risparmiato o si è sforato.
 
-  // Totali
-  const totB = activeRows.reduce((s,r)=>s+r.bDisplay,0);
-  const totR = activeRows.reduce((s,r)=>s+r.rDisplay,0);
-  const totD = totR - totB;
-  const totCol = totD>=0 ? 'var(--income)' : 'var(--expense)';
-
-  // Scala barre
-  const maxPct = Math.max(1, ...activeRows.map(r=>Math.abs(r.pct)));
-  const fmtPct = p => (p>=0?'+':'')+p.toFixed(1)+'%';
-
-  // Riepilogo "bene vs male": separa l'aggregato in quanto risparmiato/guadagnato (categorie
-  // in verde) e quanto sforato/mancato (categorie in rosso). Il netto da solo può mascherare
-  // sbilanci tra le due parti (es. +500 risparmiato e -500 sforato → netto 0 ma due segnali).
-  const _scostGood = activeRows.filter(r => r.isGood && r.rYTD > 0);
-  const _scostBad  = activeRows.filter(r => !r.isGood && r.rYTD > 0);
-  const _scostGoodSum = _scostGood.reduce((s,r) => s + Math.abs(r.diff), 0);
-  const _scostBadSum  = _scostBad.reduce((s,r) => s + Math.abs(r.diff), 0);
-  const _scostGoodLabel = _budgetScostTab === 'uscite' ? 'Risparmiato' : 'Sopra target';
-  const _scostBadLabel  = _budgetScostTab === 'uscite' ? 'Sforato'     : 'Sotto target';
+  const fmtPct = p => (p >= 0 ? '+' : '') + p.toFixed(1) + '%';
 
   // Nessun `color` nel th: lo dà la regola globale, così le classi di ordinamento possono vincerlo.
-  const thS = 'padding:7px 10px;border-bottom:2px solid var(--border);font-weight:600;white-space:nowrap';
-  const tdS = 'padding:5px 10px;border-bottom:1px solid var(--border);white-space:nowrap';
+  const thS = 'padding:6px 10px;border-bottom:2px solid var(--border);font-weight:600;white-space:nowrap;font-size:12px';
+  const tdS = 'padding:5px 10px;border-bottom:1px solid var(--border);white-space:nowrap;font-size:13px';
   const thOpt = { style: thS, cur: _budgetScostSort, dir: _budgetScostSortDir, call: '_budgetScostSetSort' };
 
-  // Il selettore Uscite/Entrate sta in linea col titolo, non in fondo a destra: titolo, totali
-  // e riepilogo qui sotto cambiano tutti con la selezione, quindi il comando deve stare accanto
-  // a ciò che governa. Il conteggio nei bottoni dice quante righe c'è di là senza doverci andare.
-  const scostBtn = (key, label, count) => `
-    <button class="btn btn-xs ${_budgetScostTab===key?'btn-primary':'btn-ghost'}"
-      style="border-radius:0${key==='entrate'?';border-left:1px solid var(--border)':''}"
-      onclick="_budgetScostTab='${key}';renderBudgetScostamenti()">${label}
-      <span style="opacity:.65;font-weight:400">${count}</span></button>`;
+  // La barra è in scala sullo scostamento più grande del PROPRIO lato: uscite ed entrate
+  // hanno ordini di grandezza diversi e una scala comune schiaccerebbe il lato più piccolo.
+  const makeRows = rows => {
+    const sorted = sortRows(rows);
+    const maxPct = Math.max(1, ...sorted.map(r => Math.abs(r.pct)));
+    return sorted.map((r, i) => {
+      const hasActual = r.rYTD > 0;
+      const color  = r.isGood ? 'var(--income)' : 'var(--expense)';
+      const barBg  = r.isGood ? 'rgba(63,185,80,.65)' : 'rgba(248,81,73,.65)';
+      const rowBg  = !r.isGood && Math.abs(r.pct) > 3 ? 'background:rgba(248,81,73,.05)' :
+                      r.isGood && Math.abs(r.pct) > 3 ? 'background:rgba(63,185,80,.04)' : '';
+      const barW   = Math.min(100, Math.abs(r.pct) / maxPct * 100).toFixed(1);
+      const diffStr = hasActual ? (r.diff >= 0 ? '+' : '') + fmt.currency(r.diff) : '—';
+      const pctStr  = hasActual ? fmtPct(r.pct) : '—';
+      const pctCol  = hasActual ? color : 'var(--txt3)';
+      // Macro-categoria in linea prima del nome, come in Mese: affiancando le due tabelle
+      // non c'è larghezza per tenerla in una colonna sua.
+      const macroEl = r.parent
+        ? `<span style="font-size:11px;color:var(--txt3)">${esc(r.parent.icon)} ${esc(r.parent.name)}:</span> `
+        : '';
+      return `<tr style="${rowBg}">
+        <td style="${tdS};text-align:right;color:var(--txt3);padding-right:4px">${i + 1}</td>
+        <td style="${tdS}">
+          ${macroEl}<span style="color:${esc(r.cat.color)}">${esc(r.cat.icon)}</span> ${esc(r.cat.name)}
+          <button class="btn-budget-detail" title="Grafico categoria" onclick="_budgetShowDetail(${r.cat.id})">📊</button>
+        </td>
+        <td style="${tdS};text-align:right;font-variant-numeric:tabular-nums">${fmt.currency(r.bDisplay)}</td>
+        <td style="${tdS};text-align:right;font-variant-numeric:tabular-nums">${hasActual ? fmt.currency(r.rDisplay) : '—'}</td>
+        <td style="${tdS};text-align:right;font-variant-numeric:tabular-nums;color:${pctCol};font-weight:600">${diffStr}</td>
+        <td style="${tdS};min-width:110px">
+          <div style="display:flex;align-items:center;gap:6px">
+            <div style="flex:1;height:11px;background:var(--bg3);border-radius:3px;overflow:hidden;position:relative">
+              ${hasActual ? `<div style="position:absolute;right:0;top:0;height:100%;width:${barW}%;background:${barBg};border-radius:3px"></div>` : ''}
+            </div>
+            <span style="font-size:11px;color:${pctCol};font-weight:700;min-width:46px;text-align:right">${pctStr}</span>
+          </div>
+        </td>
+      </tr>`;
+    }).join('');
+  };
+
+  const cardStyle = bg =>
+    `style="flex:1;min-width:0;background:${bg};border-radius:10px;padding:7px 16px;display:flex;flex-direction:column;gap:1px"`;
+
+  const headRow = (realeLabel, diffLabel) => `
+    <tr>
+      <th style="${thS};text-align:right;width:26px;padding-right:4px">#</th>
+      ${_budgetSortTh('Categoria',  'cat',    thOpt)}
+      ${_budgetSortTh('Budget YTD', 'budget', {...thOpt, align:'right'})}
+      ${_budgetSortTh(realeLabel,   'reale',  {...thOpt, align:'right'})}
+      ${_budgetSortTh(diffLabel,    'diff',   {...thOpt, align:'right'})}
+      ${_budgetSortTh('Scostamento','pct',    {...thOpt, extra:';min-width:110px'})}
+    </tr>`;
+
+  // ── Andamento dell'anno: stessa idea del banner di Mese, scala annuale ──
+  // Si mostra solo sul progressivo "vivo" (anno corrente, taglio al mese in corso): su un
+  // anno chiuso o su un taglio arretrato non c'è nessuna proiezione da fare.
+  const isLiveYtd = budgetYear === curYear && untilMonth === curMonth;
+  let pacingBanner = '';
+  if (isLiveYtd && expBudgetFull > 0) {
+    const dayOfYear  = Math.floor((now - new Date(curYear, 0, 1)) / 86400000) + 1;
+    const daysInYear = ((curYear % 4 === 0 && curYear % 100 !== 0) || curYear % 400 === 0) ? 366 : 365;
+    const yearPct    = dayOfYear / daysInYear * 100;          // % di anno trascorso
+    const budgetPct  = expR / expBudgetFull * 100;            // % del budget ANNUO già speso
+    const projected  = expR / (dayOfYear / daysInYear);       // proiezione lineare a fine anno
+    const projColor  = projected > expBudgetFull ? 'var(--expense)' : 'var(--income)';
+    // Stessa cautela del banner di Mese: la proiezione divide per la frazione di periodo
+    // trascorsa, quindi all'inizio moltiplica per un fattore enorme. Mese aspetta 5 giorni
+    // su ~30, cioè un sesto del periodo: qui l'equivalente è ~60 giorni su 365, sotto i
+    // quali il fattore supera 6 e il numero direbbe solo rumore.
+    const PROJ_MIN_DAYS = 60;
+    const projReliable  = dayOfYear >= PROJ_MIN_DAYS;
+    const fillColor = budgetPct > yearPct ? 'var(--expense)' : 'var(--income)';
+    const fillW     = Math.min(100, budgetPct).toFixed(1);
+    const markerLeft = Math.min(100, yearPct).toFixed(1);
+    pacingBanner = `
+      <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:6px 16px;margin-bottom:8px;display:flex;align-items:center;gap:20px;flex-wrap:wrap">
+        <div style="white-space:nowrap">
+          <div style="font-size:11px;color:var(--txt3);text-transform:uppercase;letter-spacing:.5px">Andamento anno</div>
+          <div style="font-size:13px;font-weight:600">Giorno ${dayOfYear} di ${daysInYear}</div>
+        </div>
+        <div style="flex:1;min-width:180px">
+          <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--txt2);margin-bottom:3px">
+            <span>Speso <b style="color:${fillColor}">${budgetPct.toFixed(0)}%</b> del budget annuo</span>
+            <span>Anno trascorso <b>${yearPct.toFixed(0)}%</b></span>
+          </div>
+          <div style="position:relative;height:10px;background:var(--bg3);border-radius:4px;overflow:hidden" title="Riempimento = budget annuo speso · marker = tempo trascorso">
+            <div style="position:absolute;left:0;top:0;height:100%;width:${fillW}%;background:${fillColor};border-radius:4px"></div>
+            <div style="position:absolute;left:${markerLeft}%;top:-2px;bottom:-2px;width:2px;background:var(--txt)"></div>
+          </div>
+        </div>
+        <div style="white-space:nowrap;text-align:right">
+          <div style="font-size:11px;color:var(--txt3);text-transform:uppercase;letter-spacing:.5px">Proiezione fine anno</div>
+          ${projReliable
+            ? `<div style="font-size:14px;font-weight:700;color:${projColor}">${fmt.currency(projected)}</div>`
+            : `<div style="font-size:14px;font-weight:700;color:var(--txt3)" title="Nei primi giorni dell'anno una singola spesa falserebbe la stima: la proiezione compare dal giorno ${PROJ_MIN_DAYS}.">—</div>`}
+          <div style="font-size:11px;color:var(--txt3)">budget ${fmt.currency(expBudgetFull)}</div>
+        </div>
+      </div>`;
+  }
+
+  // Il mese in corso entra nel progressivo col budget INTERO ma col reale di pochi giorni:
+  // ne esce un avanzo in parte apparente. Meglio dirlo che lasciarlo dedurre, e indicare
+  // l'alternativa (fermarsi all'ultimo mese chiuso) invece del solo avvertimento.
+  const partialNote = isLiveYtd && curMonth > 1
+    ? `<div class="settings-hint" style="margin:-2px 0 8px">
+         ⚠️ ${untilName} è in corso: ci entra il budget del mese intero ma solo il reale
+         maturato finora, quindi una parte dell'avanzo è apparente. Per confrontare periodi
+         chiusi, taglia a ${MONTHS_IT[curMonth - 2]}.
+       </div>`
+    : '';
+
+  if (untilMonth === 0) {
+    el.innerHTML = `<div style="padding:40px;text-align:center;color:var(--txt3)">
+      Il ${budgetYear} non è ancora cominciato: non c'è nessun progressivo da confrontare.
+    </div>`;
+    return;
+  }
 
   el.innerHTML = `
-    <div style="padding:14px 0 6px">
-      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:6px">
-        <h3 style="margin:0;font-size:15px">Scostamenti YTD fino a <b>${untilName} ${budgetYear}</b></h3>
-        <div style="display:flex;gap:0;border:1px solid var(--border);border-radius:6px;overflow:hidden;flex-shrink:0">
-          ${scostBtn('uscite',  '🔴 Uscite',  expRows.length)}
-          ${scostBtn('entrate', '🟢 Entrate', incRows.length)}
-        </div>
-      </div>
-      <div style="font-size:13px;color:var(--txt2)">
-        Budget YTD <b>${fmt.currency(totB)}</b> &nbsp;|&nbsp; Reale YTD <b>${fmt.currency(totR)}</b> &nbsp;|&nbsp;
-        <span style="color:${totCol}"><b>Diff ${totD>=0?'+':''}${fmt.currency(totD)}</b></span>
-      </div>
-      <div style="display:flex;gap:16px;margin-top:5px;font-size:12px;flex-wrap:wrap">
-        <span style="color:var(--income)">▲ ${_scostGoodLabel} <b>${fmt.currency(_scostGoodSum)}</b> <span style="color:var(--txt3)">· ${_scostGood.length} cat.</span></span>
-        <span style="color:var(--expense)">▼ ${_scostBadLabel} <b>${fmt.currency(_scostBadSum)}</b> <span style="color:var(--txt3)">· ${_scostBad.length} cat.</span></span>
+    <div style="padding:8px 0 6px;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+      <div style="display:flex;align-items:center;gap:8px">
+        <h3 style="margin:0;font-size:15px;white-space:nowrap">Scostamenti YTD</h3>
+        <span style="font-size:13px;color:var(--txt2);white-space:nowrap">fino a</span>
+        <select class="form-control" style="font-size:13px;padding:3px 10px;width:auto;font-weight:600"
+          onchange="_budgetScostSetUntil(this.value)">
+          ${MONTHS_IT.map((m, i) => `<option value="${i + 1}" ${untilMonth === i + 1 ? 'selected' : ''}>${m}</option>`).join('')}
+        </select>
+        <span style="font-size:14px;color:var(--txt2);font-weight:600">${budgetYear}</span>
       </div>
     </div>
-    <div style="overflow-x:auto">
-      <table style="width:100%;border-collapse:collapse;font-size:13px">
-        <thead><tr>
-          <th style="${thS};text-align:right;width:32px">#</th>
-          ${_budgetSortTh('Macro-cat',  'macro',  thOpt)}
-          ${_budgetSortTh('Categoria',  'cat',    thOpt)}
-          ${_budgetSortTh('Budget YTD', 'budget', {...thOpt, align:'right'})}
-          ${_budgetSortTh('Reale YTD',  'reale',  {...thOpt, align:'right'})}
-          ${_budgetSortTh('Diff',       'diff',   {...thOpt, align:'right'})}
-          ${_budgetSortTh('%',          'pct',    {...thOpt, align:'right'})}
-          <th style="${thS};text-align:left;min-width:220px">Scostamento</th>
-        </tr></thead>
-        <tbody>${activeRows.map((r,i) => {
-          const hasActual = r.rYTD > 0;
-          const color = r.isGood ? 'var(--income)' : 'var(--expense)';
-          const barBg  = r.isGood ? 'rgba(63,185,80,.65)' : 'rgba(248,81,73,.65)';
-          const rowBg  = !r.isGood && Math.abs(r.pct)>3 ? 'background:rgba(248,81,73,.05)' :
-                          r.isGood && Math.abs(r.pct)>3 ? 'background:rgba(63,185,80,.04)' : '';
-          const barW   = Math.min(100, Math.abs(r.pct)/maxPct*100).toFixed(1);
-          const diffStr = hasActual ? (r.diff>=0?'+':'')+fmt.currency(r.diff) : '—';
-          const pctStr  = hasActual ? fmtPct(r.pct) : '—';
-          const pctCol  = hasActual ? color : 'var(--txt3)';
-          const macroEl = r.parent
-            ? `<span style="color:${esc(r.parent.color)}">${esc(r.parent.icon)}</span> <span style="color:var(--txt2)">${esc(r.parent.name)}</span>`
-            : `<span style="color:var(--txt3)">—</span>`;
-          return `<tr style="${rowBg}">
-            <td style="${tdS};text-align:right;color:var(--txt3)">${i+1}</td>
-            <td style="${tdS};font-size:12px">${macroEl}</td>
-            <td style="${tdS}"><span style="color:${esc(r.cat.color)}">${esc(r.cat.icon)}</span> ${esc(r.cat.name)} <button class="btn-budget-detail" title="Grafico categoria" onclick="_budgetShowDetail(${r.cat.id})">📊</button></td>
-            <td style="${tdS};text-align:right;font-variant-numeric:tabular-nums">${fmt.currency(r.bDisplay)}</td>
-            <td style="${tdS};text-align:right;font-variant-numeric:tabular-nums">${hasActual?fmt.currency(r.rDisplay):'—'}</td>
-            <td style="${tdS};text-align:right;font-variant-numeric:tabular-nums;color:${pctCol}">${diffStr}</td>
-            <td style="${tdS};text-align:right;font-weight:600;color:${pctCol}">${pctStr}</td>
-            <td style="${tdS}">
-              <div class="flex-center-8">
-                <div style="flex:1;height:14px;background:var(--bg3);border-radius:3px;overflow:hidden;position:relative">
-                  ${hasActual?`<div style="position:absolute;right:0;top:0;height:100%;width:${barW}%;background:${barBg};border-radius:3px"></div>`:''}
-                </div>
-                <span style="font-size:11px;color:${pctCol};min-width:52px;text-align:right;font-weight:600">${pctStr}</span>
-              </div>
-            </td>
-          </tr>`;
-        }).join('')}</tbody>
-      </table>
+
+    ${partialNote}
+    ${pacingBanner}
+
+    <div class="budget-split-cols">
+
+      <!-- ── USCITE ── -->
+      <div class="budget-split-col">
+        <div style="display:flex;gap:8px;margin-bottom:8px">
+          <div ${cardStyle('color-mix(in srgb,var(--expense) 10%,var(--bg2))')}>
+            <span style="font-size:11px;color:var(--txt2)">Budget YTD uscite</span>
+            <span style="font-size:16px;font-weight:700">${fmt.currency(-expB)}</span>
+          </div>
+          <div ${cardStyle('color-mix(in srgb,var(--txt3) 8%,var(--bg2))')}>
+            <span style="font-size:11px;color:var(--txt2)">Speso YTD</span>
+            <span style="font-size:16px;font-weight:700">${fmt.currency(-expR)}</span>
+          </div>
+          <div ${cardStyle('color-mix(in srgb,' + expDeltaColor + ' 10%,var(--bg2))')}>
+            <span style="font-size:11px;color:var(--txt2)">${expDelta >= 0 ? 'Risparmiato' : 'Sforato'}</span>
+            <span style="font-size:16px;font-weight:700;color:${expDeltaColor}">${fmt.currency(Math.abs(expDelta))}</span>
+            ${expOver > 0 ? `<span style="font-size:11px;color:var(--expense)">${expOver} ${expOver === 1 ? 'categoria' : 'categorie'} in sforamento</span>` : ''}
+          </div>
+        </div>
+        <div style="overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:13px">
+            <thead>${headRow('Reale YTD', 'Diff')}</thead>
+            <tbody>${makeRows(expRows)}</tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ── ENTRATE ── -->
+      <div class="budget-split-col">
+        <div style="display:flex;gap:8px;margin-bottom:8px">
+          <div ${cardStyle('color-mix(in srgb,var(--income) 10%,var(--bg2))')}>
+            <span style="font-size:11px;color:var(--txt2)">Budget YTD entrate</span>
+            <span style="font-size:16px;font-weight:700">${fmt.currency(incB)}</span>
+          </div>
+          <div ${cardStyle('color-mix(in srgb,var(--txt3) 8%,var(--bg2))')}>
+            <span style="font-size:11px;color:var(--txt2)">Incassato YTD</span>
+            <span style="font-size:16px;font-weight:700">${fmt.currency(incR)}</span>
+          </div>
+          <div ${cardStyle('color-mix(in srgb,' + incDeltaColor + ' 10%,var(--bg2))')}>
+            <span style="font-size:11px;color:var(--txt2)">${incDelta >= 0 ? 'Sopra target' : 'Sotto target'}</span>
+            <span style="font-size:16px;font-weight:700;color:${incDeltaColor}">${fmt.currency(Math.abs(incDelta))}</span>
+            ${incUnder > 0 ? `<span style="font-size:11px;color:var(--expense)">${incUnder} ${incUnder === 1 ? 'categoria' : 'categorie'} sotto target</span>` : ''}
+          </div>
+        </div>
+        <div style="overflow-x:auto">
+          <table style="width:100%;border-collapse:collapse;font-size:13px">
+            <thead>${headRow('Incassato YTD', 'Diff')}</thead>
+            <tbody>${makeRows(incRows)}</tbody>
+          </table>
+        </div>
+      </div>
+
     </div>`;
 }
-
 /* ─── Budget Mese: zone colore (% + importo assoluto) ───────────────────── */
 // Determina la "zona" colore di una categoria nel mese (verde→ambra→rosso per le uscite,
 // logica speculare per le entrate) in base alla % budget utilizzato.
@@ -1295,10 +1439,10 @@ function renderBudgetMese() {
 
     ${pacingBanner}
 
-    <div class="budget-mese-cols">
+    <div class="budget-split-cols">
 
       <!-- ── USCITE ── -->
-      <div class="budget-mese-col">
+      <div class="budget-split-col">
         <div style="display:flex;gap:8px;margin-bottom:8px">
           <div ${cardStyle('color-mix(in srgb,var(--expense) 10%,var(--bg2))', 'var(--expense)')}>
             <span style="font-size:11px;color:var(--txt2)">Budget uscite</span>
@@ -1329,7 +1473,7 @@ function renderBudgetMese() {
       </div>
 
       <!-- ── ENTRATE ── -->
-      <div class="budget-mese-col">
+      <div class="budget-split-col">
         <div style="display:flex;gap:8px;margin-bottom:8px">
           <div ${cardStyle('color-mix(in srgb,var(--income) 10%,var(--bg2))', 'var(--income)')}>
             <span style="font-size:11px;color:var(--txt2)">Budget entrate</span>

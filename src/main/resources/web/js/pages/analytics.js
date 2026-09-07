@@ -920,7 +920,7 @@ function _renderCatCmpTable() {
     const totB = rows.reduce((s,r)=>s+r.total_b, 0);
     const totDelta = totA - totB, totPct = dPct(totA, totB);
 
-    // Scala della barra: max |Δ%| dell'insieme confrontato (come nel tab Scostamenti del
+    // Scala della barra: max |Δ%| dell'insieme confrontato (come nel tab "Da inizio anno" del
     // budget), così la barra riempie proporzionalmente. I null (base B=0) non entrano.
     // ⚠️ La barra confronta sempre righe dello STESSO livello: le macro fra macro, e le
     // figlie di una macro fra sorelle (scala locale, ricalcolata per ogni drill-down).

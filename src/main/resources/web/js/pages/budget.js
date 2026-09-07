@@ -15,7 +15,7 @@ let _budgetMeseSort    = 'rimasto';
 let _budgetMeseSortDir = 'asc';
 let _budgetMeseMonth   = new Date().getMonth() + 1;
 
-// Disegna la pagina Budget: barra tab (Budget/Andamento/Scostamenti/Mese), navigazione anno,
+// Disegna la pagina Budget: barra tab (Budget/Andamento/Da inizio anno/Mese), navigazione anno,
 // azioni della griglia (comprimi, solo rossi, solo mese corrente, cancella anno, genera) e contenitori.
 async function renderBudgets() {
   if (_budgetAndamentoChart) { _budgetAndamentoChart.destroy(); _budgetAndamentoChart = null; }
@@ -25,7 +25,7 @@ async function renderBudgets() {
       <div class="scheduled-tabs" style="margin-bottom:10px">
         <button class="sched-tab ${_budgetTab==='grid'?'active':''}"        data-btab="grid"        onclick="_setBudgetTab('grid')">📊 Budget</button>
         <button class="sched-tab ${_budgetTab==='andamento'?'active':''}"   data-btab="andamento"   onclick="_setBudgetTab('andamento')">📈 Andamento</button>
-        <button class="sched-tab ${_budgetTab==='scostamenti'?'active':''}" data-btab="scostamenti" onclick="_setBudgetTab('scostamenti')">📉 Scostamenti</button>
+        <button class="sched-tab ${_budgetTab==='scostamenti'?'active':''}" data-btab="scostamenti" onclick="_setBudgetTab('scostamenti')">📅 Da inizio anno</button>
         <button class="sched-tab ${_budgetTab==='mese'?'active':''}"        data-btab="mese"        onclick="_setBudgetTab('mese')">🗓 Mese</button>
       </div>
       <div class="section-header" style="margin-bottom:10px">
@@ -801,8 +801,8 @@ function _budgetSortTh(label, key, o) {
     title="Ordina per ${label}" onclick="${o.call}('${key}')">${label}<span class="sort-ind">${arrow}</span></th>`;
 }
 
-/* ─── Budget Scostamenti YTD ─────────────────────────────────────────────── */
-// Tab "Scostamenti": classifica le categorie per scostamento budget/reale da inizio anno,
+/* ─── Budget "Da inizio anno" (progressivo) ─────────────────────────────────────────────── */
+// Tab "Da inizio anno": classifica le categorie per scostamento budget/reale da inizio anno,
 // separate Uscite/Entrate e ordinabili cliccando l'intestazione di colonna.
 
 // Colonne ordinabili. Budget/Reale usano il valore assoluto: il segno dipende solo da
@@ -829,8 +829,13 @@ window._budgetScostSetSort = key => {
 window._budgetScostSetUntil = m => { _budgetScostUntil = +m; renderBudgetScostamenti(); };
 
 /**
- * Scheda "Scostamenti": stessa vista della scheda "Mese" su una finestra diversa — il
- * progressivo da inizio anno invece del singolo mese. Le due condividono lo scheletro
+ * Scheda "Da inizio anno" (id interno `scostamenti`): stessa vista della scheda "Mese" su
+ * una finestra diversa — il progressivo invece del singolo mese. Le due si chiamano ormai
+ * col periodo che coprono, che è l'unica cosa che davvero le distingue: prima una si
+ * chiamava col periodo e l'altra con la metrica, e sembravano due cose diverse.
+ * ⚠️ L'id della scheda è rimasto `scostamenti` (data-btab, _budgetTab, budgScostWrap e i
+ * nomi delle funzioni): è un identificatore interno, rinominarlo non cambierebbe nulla di
+ * visibile e toccherebbe una dozzina di punti. Le due condividono lo scheletro
  * (banner di andamento, tre tessere per lato, Uscite ed Entrate affiancate in
  * .budget-split-cols) perché rispondono alla stessa domanda, e infatti calcolano le stesse
  * quantità: l'"utilizzo %" di Mese e lo "scostamento %" di qui sono lo stesso numero
@@ -965,7 +970,7 @@ function renderBudgetScostamenti() {
     <tr>
       <th style="${thS};text-align:right;width:26px;padding-right:4px">#</th>
       ${_budgetSortTh('Categoria',  'cat',    thOpt)}
-      ${_budgetSortTh('Budget YTD', 'budget', {...thOpt, align:'right'})}
+      ${_budgetSortTh('Budget', 'budget', {...thOpt, align:'right'})}
       ${_budgetSortTh(realeLabel,   'reale',  {...thOpt, align:'right'})}
       ${_budgetSortTh(diffLabel,    'diff',   {...thOpt, align:'right'})}
       ${_budgetSortTh('Scostamento','pct',    {...thOpt, extra:';min-width:110px'})}
@@ -1039,7 +1044,7 @@ function renderBudgetScostamenti() {
   el.innerHTML = `
     <div style="padding:8px 0 6px;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
       <div style="display:flex;align-items:center;gap:8px">
-        <h3 style="margin:0;font-size:15px;white-space:nowrap">Scostamenti YTD</h3>
+        <h3 style="margin:0;font-size:15px;white-space:nowrap">Da inizio anno</h3>
         <span style="font-size:13px;color:var(--txt2);white-space:nowrap">fino a</span>
         <select class="form-control" style="font-size:13px;padding:3px 10px;width:auto;font-weight:600"
           onchange="_budgetScostSetUntil(this.value)">
@@ -1058,11 +1063,11 @@ function renderBudgetScostamenti() {
       <div class="budget-split-col">
         <div style="display:flex;gap:8px;margin-bottom:8px">
           <div ${cardStyle('color-mix(in srgb,var(--expense) 10%,var(--bg2))')}>
-            <span style="font-size:11px;color:var(--txt2)">Budget YTD uscite</span>
+            <span style="font-size:11px;color:var(--txt2)">Budget uscite</span>
             <span style="font-size:16px;font-weight:700">${fmt.currency(-expB)}</span>
           </div>
           <div ${cardStyle('color-mix(in srgb,var(--txt3) 8%,var(--bg2))')}>
-            <span style="font-size:11px;color:var(--txt2)">Speso YTD</span>
+            <span style="font-size:11px;color:var(--txt2)">Speso</span>
             <span style="font-size:16px;font-weight:700">${fmt.currency(-expR)}</span>
           </div>
           <div ${cardStyle('color-mix(in srgb,' + expDeltaColor + ' 10%,var(--bg2))')}>
@@ -1073,7 +1078,7 @@ function renderBudgetScostamenti() {
         </div>
         <div style="overflow-x:auto">
           <table style="width:100%;border-collapse:collapse;font-size:13px">
-            <thead>${headRow('Reale YTD', 'Diff')}</thead>
+            <thead>${headRow('Speso', 'Diff')}</thead>
             <tbody>${makeRows(expRows)}</tbody>
           </table>
         </div>
@@ -1083,11 +1088,11 @@ function renderBudgetScostamenti() {
       <div class="budget-split-col">
         <div style="display:flex;gap:8px;margin-bottom:8px">
           <div ${cardStyle('color-mix(in srgb,var(--income) 10%,var(--bg2))')}>
-            <span style="font-size:11px;color:var(--txt2)">Budget YTD entrate</span>
+            <span style="font-size:11px;color:var(--txt2)">Budget entrate</span>
             <span style="font-size:16px;font-weight:700">${fmt.currency(incB)}</span>
           </div>
           <div ${cardStyle('color-mix(in srgb,var(--txt3) 8%,var(--bg2))')}>
-            <span style="font-size:11px;color:var(--txt2)">Incassato YTD</span>
+            <span style="font-size:11px;color:var(--txt2)">Incassato</span>
             <span style="font-size:16px;font-weight:700">${fmt.currency(incR)}</span>
           </div>
           <div ${cardStyle('color-mix(in srgb,' + incDeltaColor + ' 10%,var(--bg2))')}>
@@ -1098,7 +1103,7 @@ function renderBudgetScostamenti() {
         </div>
         <div style="overflow-x:auto">
           <table style="width:100%;border-collapse:collapse;font-size:13px">
-            <thead>${headRow('Incassato YTD', 'Diff')}</thead>
+            <thead>${headRow('Incassato', 'Diff')}</thead>
             <tbody>${makeRows(incRows)}</tbody>
           </table>
         </div>

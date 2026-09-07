@@ -142,12 +142,30 @@ async function editCategory(id) {
   if (cat) showCategoryModal(cat, cat.type, cat.parent_id);
 }
 
+// Cosa registra l'app in ciascuna categoria marcata da una system_key (v25). Serve solo a
+// dirlo in italiano nei modali: l'identità vera è la chiave, che sta nel DB.
+const SYSTEM_CAT_LABEL = {
+  plusvalenze:      'le plusvalenze delle vendite in utile',
+  minusvalenze:     'le minusvalenze delle vendite in perdita',
+  imposte_rendite:  'le imposte sul capital gain',
+  cedole_dividendi: 'le cedole e i dividendi'
+};
+
+// Le categorie con chiave coinvolte nell'eliminazione: quella scelta e le sue figlie, che la
+// CASCADE su parent_id porterebbe via insieme a lei.
+function systemCatsInvolved(cat, allCats) {
+  return [cat, ...allCats.filter(c => c.parent_id === cat.id)]
+    .filter(c => c.system_key && SYSTEM_CAT_LABEL[c.system_key]);
+}
+
 // Elimina una categoria: conferma semplice se inutilizzata, altrimenti chiede su quale
 // categoria spostare transazioni/budget/sottocategorie prima di eliminarla.
 async function deleteCategory(id) {
   const [usage, allCats] = await Promise.all([api.getCategoryUsage(id), api.getCategories()]);
   const cat = allCats.find(c => c.id === id);
   if (!cat) return;
+  const sysCats = systemCatsInvolved(cat, allCats);
+  const sysWhat = sysCats.map(c => SYSTEM_CAT_LABEL[c.system_key]).join(' e ');
 
   const totalTx = (usage.tx_count || 0) + (usage.child_tx_count || 0);
   const hasBudget = (usage.budget_count || 0) > 0;
@@ -161,7 +179,12 @@ async function deleteCategory(id) {
   // Nessun uso → semplice conferma
   if (totalTx === 0 && splitCount === 0 && schedCount === 0 && !hasBudget && !hasChildren) {
     openModal('Elimina categoria',
-      `<p style="margin:0">Eliminare <b>${esc(cat.icon)} ${esc(cat.name)}</b>?</p>`,
+      `<p style="margin:0">Eliminare <b>${esc(cat.icon)} ${esc(cat.name)}</b>?</p>
+       ${sysCats.length ? `
+       <div class="settings-hint" style="margin-top:10px">
+         📈 Qui l'app registra <b>${sysWhat}</b>. La categoria è vuota, quindi non si perde niente:
+         verrà ricreata da sola alla prossima operazione su titoli.
+       </div>` : ''}`,
       async () => {
         await api.deleteCategory(id); closeModal();
         toast('Categoria eliminata'); renderCategories();
@@ -200,13 +223,34 @@ async function deleteCategory(id) {
      </div>
      <div class="settings-hint" style="margin-top:6px">
        Le voci di budget verranno eliminate. Le transazioni verranno spostate sulla categoria scelta.
-     </div>`,
+     </div>
+     ${sysCats.length ? `
+     <div class="settings-hint" style="margin-top:10px;padding:8px 10px;border-radius:6px;background:var(--bg3)">
+       📈 Qui l'app registra <b>${sysWhat}</b>: d'ora in poi le registrerà sulla categoria che scegli,
+       insieme a quelle già inserite. Non ne ricrea una nuova.
+       <div id="del_sys_warn" style="margin-top:6px;color:var(--expense)"></div>
+     </div>` : ''}`,
     async () => {
       const toId = parseInt(document.getElementById('del_target').value);
       if (!toId) { toast('Seleziona una categoria di destinazione', 'error'); return false; }
       await api.reassignCategory({from_id: id, to_id: toId});
       closeModal(); toast('Categoria eliminata e transazioni spostate'); renderCategories();
     }, 'Sposta ed elimina', 'btn-danger');
+
+  // Avviso reattivo: spostare movimenti esclusi da budget su una categoria NON esclusa li
+  // rimette dentro medie, previsioni e Salute Finanziaria. È l'unica conseguenza davvero
+  // difficile da notare a posteriori, quindi la si dice al momento della scelta.
+  if (sysCats.length && sysCats.some(c => c.excluded_from_budget)) {
+    const sel = document.getElementById('del_target');
+    const warn = document.getElementById('del_sys_warn');
+    if (sel && warn) sel.onchange = () => {
+      const dest = targets.find(c => c.id === parseInt(sel.value));
+      warn.innerHTML = dest && !dest.excluded_from_budget
+        ? `⚠️ <b>${esc(dest.name)}</b> non è esclusa da budget e report: spostandoceli, questi
+           movimenti entreranno in medie, previsioni e Salute Finanziaria.`
+        : '';
+    };
+  }
 }
 
 // Modale crea/modifica categoria: nome, parent, icona (picker), colore e — per le uscite —

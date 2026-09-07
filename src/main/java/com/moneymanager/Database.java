@@ -892,6 +892,9 @@ public class Database {
                 -- Categoria proposta dall'app Android in inserimento (vedi v23): serve a mostrare
                 -- lì solo le poche categorie che si usano fuori casa, non tutto l'elenco.
                 mobile_favorite      INTEGER DEFAULT 0,
+                -- Categoria di sistema delle operazioni su titoli (vedi v25): è la chiave con cui
+                -- il codice la ritrova, al posto del nome. NULL = categoria normale dell'utente.
+                system_key           TEXT,
                 created_at           TEXT    DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE IF NOT EXISTS transactions (
@@ -1060,6 +1063,17 @@ public class Database {
         executePlain("CREATE INDEX IF NOT EXISTS idx_tx_category     ON transactions(category_id)");
         executePlain("CREATE INDEX IF NOT EXISTS idx_tx_account_date ON transactions(account_id, date)");
         executePlain("CREATE INDEX IF NOT EXISTS idx_cat_parent      ON categories(parent_id)");
+        // UNIQUE parziale (v25): "al massimo una categoria per chiave di sistema" diventa un
+        // vincolo del database invece di una convenzione da ricordare. È l'invariante su cui si
+        // regge systemCategoryIdByKey, che legge una riga sola: due righe con la stessa chiave
+        // farebbero scrivere le plusvalenze ora in una ora nell'altra, a seconda del piano di
+        // esecuzione. Parziale perché i NULL sono la norma — le categorie normali sono tutte così.
+        // ⚠️ try/catch obbligatorio: initSchema gira PRIMA di migrate() e non altera le tabelle
+        // esistenti, quindi su un DB pre-v25 la colonna qui non c'è ancora e la CREATE INDEX
+        // fallisce. Senza il catch l'apertura del DB si interrompe e l'app non parte più.
+        // L'indice lo crea comunque la migrazione v25, subito dopo aver aggiunto la colonna.
+        try { executePlain("CREATE UNIQUE INDEX IF NOT EXISTS idx_cat_system_key ON categories(system_key) WHERE system_key IS NOT NULL"); }
+        catch (SQLException ignored) {}
         executePlain("CREATE INDEX IF NOT EXISTS idx_budgets_year    ON budgets(year)");
         executePlain("CREATE INDEX IF NOT EXISTS idx_tx_tags_tag     ON transaction_tags(tag_id)");
         executePlain("CREATE INDEX IF NOT EXISTS idx_portfolio_acc   ON portfolio(account_id)");
@@ -1108,7 +1122,7 @@ public class Database {
         }
     }
 
-    private static final int SCHEMA_VERSION = 24;
+    private static final int SCHEMA_VERSION = 25;
 
     /**
      * Migrazioni incrementali dello schema per DB creati con versioni precedenti.
@@ -1170,8 +1184,23 @@ public class Database {
             catch (SQLException ignored) {}
         }
 
-        // ── v25+: aggiungere qui i blocchi futuri, es.:
-        //   if (currentVersion < 25) { try { executePlain("ALTER TABLE ..."); } catch (SQLException ignored) {} }
+        // ── v25: categories.system_key — l'indirizzo a cui il codice degli investimenti scrive
+        // plusvalenze, minusvalenze, imposte e cedole. Prima le ritrovava PER NOME: bastava
+        // rinominarle dalla UI perché al movimento successivo ne nascesse una seconda copia,
+        // senza alcun errore visibile. Non è un lucchetto — restano categorie normali,
+        // rinominabili ed eliminabili: è solo un'identità che il nome non può più rompere.
+        // Il backfill le riconosce per nome un'ultima volta; da qui in avanti conta la chiave.
+        if (currentVersion < 25) {
+            try { executePlain("ALTER TABLE categories ADD COLUMN system_key TEXT"); }
+            catch (SQLException ignored) {}
+            // L'indice PRIMA del backfill: se per qualsiasi ragione il backfill provasse a
+            // timbrare due volte la stessa chiave, si vuole un errore, non un doppione.
+            executePlain("CREATE UNIQUE INDEX IF NOT EXISTS idx_cat_system_key ON categories(system_key) WHERE system_key IS NOT NULL");
+            backfillCategorySystemKeys();
+        }
+
+        // ── v26+: aggiungere qui i blocchi futuri, es.:
+        //   if (currentVersion < 26) { try { executePlain("ALTER TABLE ..."); } catch (SQLException ignored) {} }
 
         // Segna il DB come aggiornato all'ultima versione
         executePlain("DELETE FROM schema_version");
@@ -1702,7 +1731,14 @@ public class Database {
         return queryOne("SELECT * FROM categories WHERE id=?", id);
     }
 
-    /** Aggiorna una categoria (eredita il tipo dal parent); vieta di toccare Trasferimento. */
+    /**
+     * Aggiorna una categoria (eredita il tipo dal parent); vieta di toccare Trasferimento.
+     *
+     * Sulle categorie marcate da una {@code system_key} non c'è nessun vincolo in più: nome,
+     * icona, colore, parent e caselle sono liberi come su ogni altra categoria. Il codice le
+     * ritrova dalla chiave, che questo UPDATE non tocca — quindi rinominare "Plusvalenze" è
+     * un'operazione sicura, non una trappola come lo era fino alla v24.
+     */
     public Map<String, Object> updateCategory(int id, JsonObject p) throws SQLException {
         Map<String, Object> existing = queryOne("SELECT * FROM categories WHERE id=?", id);
         if (existing != null && "transfer".equals(existing.get("type")))
@@ -1735,7 +1771,15 @@ public class Database {
         return row;
     }
 
-    /** Elimina una categoria (figlie in cascata); vieta di eliminare Trasferimento. */
+    /**
+     * Elimina una categoria (figlie in cascata); vieta di eliminare la sola Trasferimento.
+     *
+     * Nessun divieto sulle categorie con una system_key: sono categorie normali. Qui ci si
+     * arriva solo quando la categoria non è usata da niente (lo verifica la UI con
+     * getCategoryUsage), quindi non c'è nulla da perdere: la chiave sparisce con la riga e la
+     * prossima operazione su titoli ricrea la categoria da zero. Se invece è usata si passa da
+     * {@link #reassignCategory}, che porta la chiave sulla destinazione scelta dall'utente.
+     */
     public Map<String, Object> deleteCategory(int id) throws SQLException {
         Map<String, Object> existing = queryOne("SELECT * FROM categories WHERE id=?", id);
         if (existing != null && "transfer".equals(existing.get("type")))
@@ -1858,6 +1902,10 @@ public class Database {
      *
      * I budgets della categoria vecchia cadono invece in CASCADE (scelta esistente, non toccata):
      * il budget della categoria di destinazione resta quello suo, senza somme automatiche.
+     *
+     * ⚠️ Porta con sé anche la {@code system_key}, se ce n'è una — vedi
+     * {@link #carrySystemKeys}. Questo gesto ("sposta le plusvalenze su X ed elimina") è
+     * esattamente il modo in cui l'utente dice DOVE vanno registrate d'ora in poi.
      */
     public void reassignCategory(int fromId, int toId) throws SQLException {
         inTx(() -> {
@@ -1874,6 +1922,8 @@ public class Database {
             execute("UPDATE transactions           SET category_id=? WHERE " + selfOrChild, toId, fromId, fromId);
             execute("UPDATE transaction_splits     SET category_id=? WHERE " + selfOrChild, toId, fromId, fromId);
             execute("UPDATE scheduled_transactions SET category_id=? WHERE " + selfOrChild, toId, fromId, fromId);
+            // PRIMA della DELETE: dopo, le chiavi da spostare non sarebbero più leggibili.
+            carrySystemKeys(fromId, toId);
             execute("DELETE FROM categories WHERE id=?", fromId);
             touchSyncMeta();
             logger.log("CATEGORIA RIASSEGNATA", "da:" + DbLogger.s(from != null ? from.get("name") : fromId),
@@ -1881,6 +1931,48 @@ public class Database {
                        "transazioni:" + nTx, "split:" + nSplit, "pianificate:" + nSched);
             return null;
         });
+    }
+
+    /**
+     * Trasferisce su toId le system_key della categoria fromId e delle sue figlie, che stanno
+     * per essere eliminate. È il pezzo che rende sicuro "sposta ed elimina" senza vietarlo:
+     * i movimenti finiscono su toId e, insieme a loro, ci finisce l'indirizzo a cui il codice
+     * scriverà i prossimi. Senza, la categoria rinascerebbe vuota al primo movimento e la
+     * storia resterebbe spezzata in due.
+     *
+     * Se toId ha già una chiave sua la nuova NON la sovrascrive (fondere due categorie di
+     * sistema in una sola non è rappresentabile: la colonna ne tiene una). In quel caso la
+     * chiave si perde e la categoria verrà ricreata al primo movimento — esito imperfetto ma
+     * innocuo, e registrato nel log invece di passare inosservato.
+     */
+    private void carrySystemKeys(int fromId, int toId) throws SQLException {
+        List<Map<String, Object>> keys = queryList("""
+            SELECT id, name, system_key FROM categories
+             WHERE (id=? OR parent_id=?) AND system_key IS NOT NULL AND system_key <> ''
+             ORDER BY id
+        """, fromId, fromId);
+        if (keys.isEmpty()) return;
+
+        Map<String, Object> dest = queryOne("SELECT name, system_key FROM categories WHERE id=?", toId);
+        String destKey = dest != null && dest.get("system_key") != null ? dest.get("system_key").toString() : "";
+        String destName = dest != null ? String.valueOf(dest.get("name")) : String.valueOf(toId);
+
+        for (Map<String, Object> k : keys) {
+            String key = String.valueOf(k.get("system_key"));
+            if (!destKey.isBlank()) {
+                logger.log("CHIAVE DI SISTEMA PERSA", "chiave:" + key,
+                           "da:" + DbLogger.s(k.get("name")),
+                           "motivo:la destinazione «" + destName + "» ha già la chiave «" + destKey + "»");
+                continue;
+            }
+            // La riga di partenza viene eliminata subito dopo, ma l'indice UNIQUE parziale su
+            // system_key vale già ora: si azzera prima la vecchia, poi si scrive la nuova.
+            execute("UPDATE categories SET system_key=NULL WHERE id=?", ((Number) k.get("id")).intValue());
+            execute("UPDATE categories SET system_key=? WHERE id=?", key, toId);
+            destKey = key;
+            logger.log("CHIAVE DI SISTEMA SPOSTATA", "chiave:" + key,
+                       "da:" + DbLogger.s(k.get("name")), "a:" + destName);
+        }
     }
 
     // ─── Transazioni ──────────────────────────────────────────────────────────
@@ -4132,6 +4224,84 @@ public class Database {
     private static final String CAT_IMPOSTE      = "Imposte su rendite";
     private static final String CAT_CEDOLE       = "Cedole e dividendi";
 
+    // Chiavi di sistema (v25): sono il VERO legame fra codice e categoria. Il nome qui sopra è
+    // solo il valore iniziale, l'utente può cambiarlo — la chiave no, non è esposta dalla UI.
+    // Stesso meccanismo dei tag di sistema (tags.system_key, vedi ensureSystemTags).
+    private static final String SK_PLUSVALENZE  = "plusvalenze";
+    private static final String SK_MINUSVALENZE = "minusvalenze";
+    private static final String SK_IMPOSTE      = "imposte_rendite";
+    private static final String SK_CEDOLE       = "cedole_dividendi";
+
+    /**
+     * Timbra la system_key sulle categorie degli investimenti già esistenti, riconoscendole
+     * per nome — l'ultima volta che il nome viene usato come identificatore.
+     *
+     * ⚠️ È l'UNICO punto in cui si tira a indovinare. Le euristiche stanno qui, in un blocco
+     * che gira una volta sola alla migrazione v25: a runtime la ricerca è per chiave, con al
+     * più un ripiego su nomi esatti. Un'euristica nel percorso quotidiano cambierebbe risposta
+     * nel tempo — basta che l'utente crei una categoria che assomiglia a quella cercata.
+     *
+     * Per le cedole c'è un secondo tentativo approssimato: quella categoria è la "Investimenti"
+     * del seed rinominata (is_default=1), e in un DB in cui il rinomino è avvenuto prima della
+     * v25 il nome esatto non basta a ritrovarla.
+     */
+    private void backfillCategorySystemKeys() throws SQLException {
+        // {system_key, nome storico, tipo}
+        String[][] sys = {
+            {SK_PLUSVALENZE,  CAT_PLUSVALENZE,  "income"},
+            {SK_MINUSVALENZE, CAT_MINUSVALENZE, "expense"},
+            {SK_IMPOSTE,      CAT_IMPOSTE,      "expense"},
+            {SK_CEDOLE,       CAT_CEDOLE,       "income"},
+        };
+        for (String[] s : sys) {
+            // Il sottoselect con LIMIT 1 evita di timbrare la stessa chiave su due righe se in
+            // passato si erano già create categorie doppie con lo stesso nome (era possibile).
+            execute("""
+                UPDATE categories SET system_key=?
+                 WHERE id = (SELECT id FROM categories
+                              WHERE name=? AND type=? AND system_key IS NULL
+                              ORDER BY id LIMIT 1)
+            """, s[0], s[1], s[2]);
+        }
+        // Cedole: se il nome esatto non ha trovato niente, riconosce la categoria rinominata.
+        if (queryOne("SELECT id FROM categories WHERE system_key=?", SK_CEDOLE) == null) {
+            execute("""
+                UPDATE categories SET system_key=?
+                 WHERE id = (SELECT id FROM categories
+                              WHERE type='income' AND system_key IS NULL
+                                AND (LOWER(name) LIKE '%edole%' OR LOWER(name) LIKE '%dividend%'
+                                     OR (LOWER(name) LIKE '%nvestiment%' AND is_default=1))
+                              ORDER BY id LIMIT 1)
+            """, SK_CEDOLE);
+        }
+        var stamped = queryList("SELECT system_key, name FROM categories WHERE system_key IS NOT NULL ORDER BY id");
+        for (var r : stamped)
+            logger.log("CATEGORIA MARCATA DI SISTEMA", "chiave:" + r.get("system_key"),
+                       "nome:" + DbLogger.s(r.get("name")), "via:migrazione_v25");
+    }
+
+    /**
+     * Id della categoria a cui è agganciata la chiave data, o null se non esiste.
+     *
+     * Prima la chiave, poi — solo come rete — il nome ESATTO con cui la categoria nasce.
+     * Il ripiego serve al DB in cui la categoria è stata creata fra l'aggiornamento dello
+     * schema e il primo movimento, e adotta una categoria che l'utente avesse creato a mano
+     * con quel nome preciso: è deterministico, quindi o adotta sempre quella o mai. Trovandola
+     * le timbra la chiave, così il ripiego serve una volta sola e poi tace per sempre.
+     */
+    private Integer systemCategoryIdByKey(String key, String exactName, String type) throws SQLException {
+        var cat = queryOne("SELECT id FROM categories WHERE system_key=?", key);
+        if (cat != null) return ((Number) cat.get("id")).intValue();
+        cat = queryOne("SELECT id FROM categories WHERE name=? AND type=? AND system_key IS NULL ORDER BY id LIMIT 1",
+                       exactName, type);
+        if (cat == null) return null;
+        int id = ((Number) cat.get("id")).intValue();
+        execute("UPDATE categories SET system_key=? WHERE id=?", key, id);
+        logger.log("CATEGORIA MARCATA DI SISTEMA", "id:" + id, "nome:" + exactName, "chiave:" + key,
+                   "via:nome_esatto");
+        return id;
+    }
+
     /**
      * Categoria di cedole e dividendi. A differenza delle altre tre NON è esclusa da budget e
      * report: le cedole sono ricorrenti e si pianificano, quindi devono restare nelle previsioni.
@@ -4140,18 +4310,30 @@ public class Database {
      * trovava più nulla e le cedole sarebbero finite nella prima categoria income qualsiasi.
      */
     private int couponCategoryId() throws SQLException {
-        var cat = queryOne("SELECT id FROM categories WHERE type='income' AND name=?", CAT_CEDOLE);
-        if (cat == null) cat = queryOne(
-            "SELECT id FROM categories WHERE type='income' AND (LOWER(name) LIKE '%edole%' OR LOWER(name) LIKE '%nvestiment%') ORDER BY id LIMIT 1");
-        if (cat != null) return ((Number) cat.get("id")).intValue();
+        Integer byKey = systemCategoryIdByKey(SK_CEDOLE, CAT_CEDOLE, "income");
+        if (byKey != null) return byKey;
+        // Su un DB nuovo questa categoria esiste già: è la "Investimenti" del seed, di cui
+        // "Cedole e dividendi" è solo il rinomino (stessa icona, stesso colore). Adottarla
+        // evita di affiancargliene una seconda che fa la stessa cosa. Nome esatto e is_default:
+        // una "Investimenti" creata a mano dall'utente non viene toccata.
+        var seed = queryOne(
+            "SELECT id FROM categories WHERE name='Investimenti' AND type='income' AND is_default=1 AND system_key IS NULL ORDER BY id LIMIT 1");
+        if (seed != null) {
+            int id = ((Number) seed.get("id")).intValue();
+            execute("UPDATE categories SET system_key=? WHERE id=?", SK_CEDOLE, id);
+            logger.log("CATEGORIA MARCATA DI SISTEMA", "id:" + id, "nome:Investimenti",
+                       "chiave:" + SK_CEDOLE, "via:seed");
+            return id;
+        }
 
         var parent = queryOne("SELECT id FROM categories WHERE name='Entrate' AND type='income' AND parent_id IS NULL");
         Integer parentId = parent != null ? ((Number) parent.get("id")).intValue() : null;
         long id = execute("""
-            INSERT INTO categories(name,type,icon,color,parent_id,excluded_from_budget)
-            VALUES(?,?,?,?,?,0)
-        """, CAT_CEDOLE, "income", "📈", "#d29922", parentId);
-        logger.log("CATEGORIA CREATA", "nome:" + CAT_CEDOLE, "tipo:income", "esclusa_da_budget:no");
+            INSERT INTO categories(name,type,icon,color,parent_id,excluded_from_budget,system_key)
+            VALUES(?,?,?,?,?,0,?)
+        """, CAT_CEDOLE, "income", "📈", "#d29922", parentId, SK_CEDOLE);
+        logger.log("CATEGORIA CREATA", "nome:" + CAT_CEDOLE, "tipo:income", "esclusa_da_budget:no",
+                   "chiave:" + SK_CEDOLE);
         return (int) id;
     }
 
@@ -4163,9 +4345,9 @@ public class Database {
      * lì un errore ti sposta una commissione da pochi euro, qui ti scriverebbe una plusvalenza
      * da migliaia in una categoria a caso.
      */
-    private int investCategoryId(String name, String type, String icon, String color) throws SQLException {
-        var cat = queryOne("SELECT id FROM categories WHERE name=? AND type=?", name, type);
-        if (cat != null) return ((Number) cat.get("id")).intValue();
+    private int investCategoryId(String key, String name, String type, String icon, String color) throws SQLException {
+        Integer byKey = systemCategoryIdByKey(key, name, type);
+        if (byKey != null) return byKey;
 
         String parentName = "income".equals(type) ? "Entrate" : "Varie";
         var parent = queryOne(
@@ -4173,10 +4355,11 @@ public class Database {
         Integer parentId = parent != null ? ((Number) parent.get("id")).intValue() : null;
 
         long id = execute("""
-            INSERT INTO categories(name,type,icon,color,parent_id,excluded_from_budget)
-            VALUES(?,?,?,?,?,1)
-        """, name, type, icon, color, parentId);
-        logger.log("CATEGORIA CREATA", "nome:" + name, "tipo:" + type, "esclusa_da_budget:si");
+            INSERT INTO categories(name,type,icon,color,parent_id,excluded_from_budget,system_key)
+            VALUES(?,?,?,?,?,1,?)
+        """, name, type, icon, color, parentId, key);
+        logger.log("CATEGORIA CREATA", "nome:" + name, "tipo:" + type, "esclusa_da_budget:si",
+                   "chiave:" + key);
         return (int) id;
     }
 
@@ -4374,8 +4557,8 @@ public class Database {
             if (Math.abs(gain) > 0.005) {
                 boolean isGain = gain > 0;
                 int gainCatId = isGain
-                    ? investCategoryId(CAT_PLUSVALENZE,  "income",  "💹", "#3fb950")
-                    : investCategoryId(CAT_MINUSVALENZE, "expense", "📉", "#f85149");
+                    ? investCategoryId(SK_PLUSVALENZE,  CAT_PLUSVALENZE,  "income",  "💹", "#3fb950")
+                    : investCategoryId(SK_MINUSVALENZE, CAT_MINUSVALENZE, "expense", "📉", "#f85149");
                 long gainTxId = execute("""
                     INSERT INTO transactions(date,amount,type,category_id,account_id,description,reconciled)
                     VALUES(?,?,?,?,?,?,0)
@@ -4600,7 +4783,7 @@ public class Database {
         String ticker = (String)pos.get("ticker");
 
         return inTx(() -> {
-            int catId = investCategoryId(CAT_IMPOSTE, "expense", "🧾", "#6a57ff");
+            int catId = investCategoryId(SK_IMPOSTE, CAT_IMPOSTE, "expense", "🧾", "#6a57ff");
             String desc = notes != null ? notes : "Imposta capital gain " + ticker;
             long txId = execute("""
                 INSERT INTO transactions(date,amount,type,category_id,account_id,description,reconciled)

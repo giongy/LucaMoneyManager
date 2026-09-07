@@ -71,9 +71,9 @@ Le query girano deliberatamente **fuori** dal lock (per non serializzarle): è p
 
 ---
 
-## Schema DB (v24, 22 tabelle)
+## Schema DB (v25, 22 tabelle)
 
-- **Core:** `accounts` (3 stati: `is_closed`, `is_hidden` — nascosto ⇒ sempre chiuso; per le carte anche `payment_day`, `payment_account_id`, `auto_settle` — vedi "Saldo automatico carte"), `categories` (gerarchiche, `expense_nature`, `mobile_favorite` — vedi "Categorie per Android"), `transactions` (`reconciled`, `attachment_path`, `color`), `transaction_splits`, `transaction_tags`, `tags` (`is_system`, `system_key`)
+- **Core:** `accounts` (3 stati: `is_closed`, `is_hidden` — nascosto ⇒ sempre chiuso; per le carte anche `payment_day`, `payment_account_id`, `auto_settle` — vedi "Saldo automatico carte"), `categories` (gerarchiche, `expense_nature`, `mobile_favorite` — vedi "Categorie per Android" — `system_key` — vedi "Titoli"), `transactions` (`reconciled`, `attachment_path`, `color`), `transaction_splits`, `transaction_tags`, `tags` (`is_system`, `system_key`)
 - **Budget:** `budgets`, `budget_config` (master_amount mensile/annuale)
 - **Pianificate:** `scheduled_transactions` (`portfolio_id`, `original_start_date`), `scheduled_transaction_tags`
 - **Portfolio:** `portfolio` (equity/bond: `asset_type`, `face_value`, `maturity_date`, `coupon_*`, `country`), `portfolio_transactions` (`parent_pt_id` — righe generate insieme dalla stessa operazione, vedi "Titoli")
@@ -163,15 +163,55 @@ Il conto titoli torna così a zero sulla posizione chiusa: `carico + plusvalenza
    `Database.java` e `portfolio.js` escludono quelle righe dai totali perché la commissione è
    già contata altrove. Cambiare quei testi la fa contare due volte.
 
-**Le quattro categorie di sistema** (create al primo uso se mancano, vedi `investCategoryId`):
-`Plusvalenze`, `Minusvalenze` e `Imposte su rendite` sono **escluse da budget e report** — muovono
-i saldi ma non entrano in medie, previsioni e Salute Finanziaria, perché sono eventi di capitale
-grumosi e non pianificabili. `Cedole e dividendi` invece **no**: quelle sono ricorrenti, si
-pianificano, e devono restare dentro budget e previsioni.
+### Le quattro categorie degli investimenti (`categories.system_key`, v25)
 
-⚠️ Il codice risolve queste categorie **per nome**. Rinominandole dalla UI si rompe il legame:
-`couponCategoryId()` e `investCategoryId()` hanno una catena di fallback e in ultima istanza le
-ricreano, ma il risultato è una categoria doppia, non un errore visibile.
+`Plusvalenze`, `Minusvalenze` e `Imposte su rendite` sono **escluse da budget e report** —
+muovono i saldi ma non entrano in medie, previsioni e Salute Finanziaria, perché sono eventi di
+capitale grumosi e non pianificabili. `Cedole e dividendi` invece **no**: quelle sono
+ricorrenti, si pianificano, e devono restare dentro budget e previsioni.
+
+**Non sono categorie speciali.** Non c'è nessun divieto: si rinominano, si spostano, si
+eliminano come qualsiasi altra. `system_key` (`plusvalenze`, `minusvalenze`, `imposte_rendite`,
+`cedole_dividendi`) non è un lucchetto — è **l'indirizzo a cui il codice scrive**, come
+`tags.system_key` per i tag. Il modello in una riga:
+
+> **la chiave segue i dati.**
+
+Da cui discende tutto il comportamento:
+
+| gesto dell'utente | conseguenza |
+|---|---|
+| rinomina, cambia icona/colore/parent | niente: la chiave sta sulla riga, non nel nome |
+| elimina una categoria **vuota** | sparisce; la prossima operazione su titoli la ricrea |
+| **"sposta ed elimina" su «X»** | `reassignCategory` porta **la chiave su «X»**: da lì in poi l'app registra là, accanto ai movimenti spostati |
+| elimina il parent che la contiene | idem: la UI obbliga già a riassegnare (`getCategoryUsage` conta anche figlie e loro transazioni) |
+
+⚠️ **Il pezzo da non rimuovere è `carrySystemKeys()`**, chiamato da `reassignCategory` *prima*
+della DELETE. Senza, spostare le plusvalenze su «X» le lascerebbe lì ma farebbe rinascere una
+"Plusvalenze" vuota al movimento dopo: storia spezzata in due, senza un errore visibile.
+Se «X» ha già una chiave sua la nuova **non** la sovrascrive (la colonna ne tiene una): quella
+si perde e la categoria verrà ricreata — esito imperfetto ma innocuo, e scritto nel log.
+
+**Invarianti a difesa del meccanismo:**
+
+1. **Indice UNIQUE parziale** `idx_cat_system_key`: al massimo una categoria per chiave. Non è
+   una convenzione da ricordare, è il DB che rifiuta. Serve perché `systemCategoryIdByKey()`
+   legge una riga sola: due righe con la stessa chiave farebbero scrivere ora nell'una ora
+   nell'altra a seconda del piano di esecuzione.
+   ⚠️ La `CREATE INDEX` in `initSchema()` sta in `try/catch`: `initSchema` gira **prima** di
+   `migrate()` e non altera le tabelle esistenti, quindi su un DB pre-v25 la colonna lì non
+   esiste ancora. Senza il catch l'app non si apre più. L'indice lo ricrea la migrazione.
+2. **Le euristiche stanno solo nella migrazione.** Il riconoscimento per nome — incluso il
+   `LIKE '%edole%'`, che serve perché quella categoria è la `Investimenti` del seed rinominata
+   (`is_default=1`) — gira **una volta sola** in `backfillCategorySystemKeys()`. A runtime la
+   ricerca è per chiave, con al più un ripiego su nomi **esatti**: un'euristica nel percorso
+   quotidiano cambierebbe risposta nel tempo, basta che l'utente crei una categoria simile.
+3. **L'avviso quando serve, non sempre.** Nessun badge permanente in pagina: è il modale di
+   eliminazione a dire cosa comporta, e a segnalare se la destinazione scelta **non** è esclusa
+   da budget — l'unica conseguenza davvero difficile da notare a posteriori.
+
+Fino alla v24 il legame era il **nome**: rinominare "Plusvalenze" faceva nascere una seconda
+categoria al movimento successivo, in silenzio. Era la trappola che la v25 chiude.
 
 ---
 

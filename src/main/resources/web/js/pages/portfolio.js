@@ -1556,7 +1556,7 @@ async function showExpenseModal(portfolioId) {
   const expCats = categories.filter(c => c.type === 'expense');
   const today = _todayStr();
 
-  const optLabel = c => `${c.parent_name ? esc(c.parent_name) + ' › ' : ''}${esc(c.icon || '')} ${esc(c.name)}`;
+  const optLabel = c => `${c.parent_name ? esc(c.parent_name) + ' : ' : ''}${esc(c.icon || '')} ${esc(c.name)}`;
   const catOptions = expCats.map(c => `<option value="${c.id}">${optLabel(c)}</option>`).join('');
 
   const body = `

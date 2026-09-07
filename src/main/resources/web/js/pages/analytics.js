@@ -498,7 +498,7 @@ function _renderAnalyticsCatTable() {
       const total = catTotal(c);
       const avg = total / monthCols.length;
       html += `<tr>
-        <td class="analytics-cat-name">${c.parent_name ? `<span style="color:var(--txt3);font-size:11px">${esc(c.parent_name)} ›</span> ` : ''}<span style="color:${esc(c.color)}">${esc(c.icon)}</span> ${esc(c.name)}</td>
+        <td class="analytics-cat-name">${c.parent_name ? `<span style="color:var(--txt3);font-size:11px">${esc(c.parent_name)} :</span> ` : ''}<span style="color:${esc(c.color)}">${esc(c.icon)}</span> ${esc(c.name)}</td>
         ${monthCols.map(m => `<td class="text-right">${c.m[m.ym] ? fmt.currency(c.m[m.ym]) : '<span style="color:var(--txt3)">—</span>'}</td>`).join('')}
         <td class="text-right analytics-total">${fmt.currency(total)}</td>
         <td class="text-right analytics-avg">${fmt.currency(avg)}</td>
@@ -576,7 +576,7 @@ window._exportCatMonthPdf = () => {
     for (const c of cats) {
       const total = catTotal(c), avg = total / monthCols.length;
       h += `<tr>
-        <td class="cat">${c.parent_name ? `<span class="par">${esc(c.parent_name)} › </span>` : ''}${esc(c.name)}</td>
+        <td class="cat">${c.parent_name ? `<span class="par">${esc(c.parent_name)} : </span>` : ''}${esc(c.name)}</td>
         ${monthCols.map(m => `<td class="num">${c.m[m.ym] ? money(c.m[m.ym]) : '—'}</td>`).join('')}
         <td class="num tot">${money(total)}</td>
         <td class="num avg">${money(avg)}</td>
@@ -2349,7 +2349,7 @@ async function renderAnalyticsTrend(token) {
     _analyticsTrendCatId = cats[0]?.id || null;
   }
 
-  const optLabel = c => `${c.type === 'expense' ? '↑' : '↓'} ${c.parent_name ? c.parent_name + ' › ' : ''}${c.icon || ''} ${c.name}`;
+  const optLabel = c => `${c.type === 'expense' ? '↑' : '↓'} ${c.parent_name ? c.parent_name + ' : ' : ''}${c.icon || ''} ${c.name}`;
 
   el.innerHTML = `
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap">

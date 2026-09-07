@@ -802,7 +802,7 @@ function _budgetSortTh(label, key, o) {
 }
 
 // Etichetta di categoria nelle liste di Mese e Da inizio anno: UNA sola icona, quella della
-// categoria, e la macro come testo prima del separatore "›" — la stessa forma di Pianificate
+// categoria, e la macro come testo prima del separatore ":" — la stessa forma di Pianificate
 // (scheduled.js) e, col separatore diverso, di Transazioni.
 // Prima queste due schede mettevano due icone in fila, macro e categoria: la prima non
 // aggiungeva niente che il nome della macro non dicesse già, e raddoppiava il rumore su ogni
@@ -811,7 +811,7 @@ function _budgetSortTh(label, key, o) {
 // Il 📊 di dettaglio sta qui dentro e non nel chiamante, così le due schede gemelle non
 // possono divergere: la cella va marcata .budget-catcol, che è ciò che lo rivela all'hover.
 function _budgetCatLabel(cat, parent) {
-  return `<span class="cat-chip">${esc(cat.icon || '')} ${parent ? esc(parent.name) + ' › ' : ''}${esc(cat.name)}</span>`
+  return `<span class="cat-chip">${esc(cat.icon || '')} ${parent ? esc(parent.name) + ' : ' : ''}${esc(cat.name)}</span>`
     + `<button class="btn-budget-detail" title="Grafico categoria" onclick="_budgetShowDetail(${cat.id})">📊</button>`;
 }
 
@@ -2200,8 +2200,8 @@ async function renderBudgetVsPianificate() {
 
   const renderRow = r => {
     const parent = r.cat.parent_id ? catMap[r.cat.parent_id] : null;
-    // Separatore "›" come nelle liste transazioni/pianificate.
-    const catLabel = parent ? `${parent.name} › ${r.cat.name}` : r.cat.name;
+    // Separatore ":" come nelle liste transazioni/pianificate.
+    const catLabel = parent ? `${parent.name} : ${r.cat.name}` : r.cat.name;
     window._budgSyncData[r.catId] = { catLabel, catType: r.cat.type,
                                       mancante: Math.abs(r.delta), firstMonth, monthsLeft };
     // La differenza si mostra SEMPRE, anche sotto soglia. Prima le righe in tolleranza

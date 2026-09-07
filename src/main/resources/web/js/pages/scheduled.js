@@ -320,7 +320,7 @@ function _renderSchedRows(scheds) {
       <td>${esc(s.account_name||'')}${s.to_account_name?' → '+esc(s.to_account_name):''}</td>
       <td class="td-tags">${(s.tags&&s.tags.length)?s.tags.map(t=>`<span class="tag-inline" style="--tc:${esc(t.color)}">${esc(t.name)}</span>`).join(''):''}</td>
       <td><span class="sched-freq-badge">${esc(FREQ_LABELS[s.frequency]||s.frequency)}</span></td>
-      <td><span class="cat-chip">${esc(s.category_icon||'')} ${s.parent_category_name?esc(s.parent_category_name)+' › '+esc(s.category_name):esc(s.category_name||'—')}</span></td>
+      <td><span class="cat-chip">${esc(s.category_icon||'')} ${s.parent_category_name?esc(s.parent_category_name)+' : '+esc(s.category_name):esc(s.category_name||'—')}</span></td>
       <td class="td-main">${esc(s.description||'—')}</td>
       <td class="text-right amount-${s.type}">${s.type==='expense'?'-':''}${fmt.currency(s.amount)}</td>
       <td>${s._next ? fmt.date(s._next) : '—'}</td>
@@ -970,7 +970,7 @@ function showScheduledModal(sched, accounts, categories, tags = []) {
     const cats = type === 'expense' ? expCats : incCats;
     const items = _leafCats(cats).map(c => ({
       id: c.id,
-      label: c.parent_id ? `${c.parent_name} › ${c.icon} ${c.name}` : `${c.icon} ${c.name}`
+      label: c.parent_id ? `${c.parent_name} : ${c.icon} ${c.name}` : `${c.icon} ${c.name}`
     }));
     input._catPickerSetItems(items, keepSelected);
   }

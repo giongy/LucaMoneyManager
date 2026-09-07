@@ -635,13 +635,13 @@ window.toggleReconciled = async (id, newVal) => {
   refreshNotices();  // il badge 🔔 deve riflettere la transazione appena verificata
 };
 
-// Disegna una voce del picker: "Parent › 🏠 Foglia" col percorso in grigio, così l'occhio
+// Disegna una voce del picker: "Parent : 🏠 Foglia" col percorso in grigio, così l'occhio
 // cade sulla foglia — che è quella che si sceglie — invece che sul prefisso ripetuto su
 // ogni riga. Escapa qui perché il risultato finisce in innerHTML.
 function _catItemHtml(label) {
-  const i = label.indexOf(' › ');
+  const i = label.indexOf(' : ');
   return i < 0 ? esc(label)
-    : `<span class="cat-picker-path">${esc(label.slice(0, i))} ›</span> ${esc(label.slice(i + 3))}`;
+    : `<span class="cat-picker-path">${esc(label.slice(0, i))} :</span> ${esc(label.slice(i + 3))}`;
 }
 
 // Inizializza un selettore di categoria ad autocomplete: input testuale + lista filtrabile
@@ -929,7 +929,7 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
     const leafs = _leafCats(cats);
     const toItem = c => ({
       id: c.id,
-      label: c.parent_id ? `${c.parent_name} › ${c.icon} ${c.name}` : `${c.icon} ${c.name}`,
+      label: c.parent_id ? `${c.parent_name} : ${c.icon} ${c.name}` : `${c.icon} ${c.name}`,
       usage_count: c.usage_count || 0
     });
     const top3 = [...leafs].sort((a,b) => (b.usage_count||0) - (a.usage_count||0))
@@ -1227,7 +1227,7 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
     const cats = type === 'income' ? incCats : expCats;
     const leaves = _leafCats(cats);
     return leaves.map(c => {
-      const label = c.parent_name ? `${c.parent_name} › ${c.icon||''} ${c.name}` : `${c.icon||''} ${c.name}`;
+      const label = c.parent_name ? `${c.parent_name} : ${c.icon||''} ${c.name}` : `${c.icon||''} ${c.name}`;
       return `<option value="${c.id}" ${c.id==selId?'selected':''}>${label}</option>`;
     }).join('');
   }

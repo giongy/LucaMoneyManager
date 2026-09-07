@@ -15,7 +15,7 @@ let _budgetMeseSort    = 'rimasto';
 let _budgetMeseSortDir = 'asc';
 let _budgetMeseMonth   = new Date().getMonth() + 1;
 
-// Disegna la pagina Budget: barra tab (Budget/Andamento/Da inizio anno/Mese), navigazione anno,
+// Disegna la pagina Budget: barra tab (Budget/Andamento/Mese/Da inizio anno), navigazione anno,
 // azioni della griglia (comprimi, solo rossi, solo mese corrente, cancella anno, genera) e contenitori.
 async function renderBudgets() {
   if (_budgetAndamentoChart) { _budgetAndamentoChart.destroy(); _budgetAndamentoChart = null; }
@@ -25,8 +25,8 @@ async function renderBudgets() {
       <div class="scheduled-tabs" style="margin-bottom:10px">
         <button class="sched-tab ${_budgetTab==='grid'?'active':''}"        data-btab="grid"        onclick="_setBudgetTab('grid')">📊 Budget</button>
         <button class="sched-tab ${_budgetTab==='andamento'?'active':''}"   data-btab="andamento"   onclick="_setBudgetTab('andamento')">📈 Andamento</button>
-        <button class="sched-tab ${_budgetTab==='scostamenti'?'active':''}" data-btab="scostamenti" onclick="_setBudgetTab('scostamenti')">📅 Da inizio anno</button>
         <button class="sched-tab ${_budgetTab==='mese'?'active':''}"        data-btab="mese"        onclick="_setBudgetTab('mese')">🗓 Mese</button>
+        <button class="sched-tab ${_budgetTab==='scostamenti'?'active':''}" data-btab="scostamenti" onclick="_setBudgetTab('scostamenti')">📅 Da inizio anno</button>
       </div>
       <div class="section-header" style="margin-bottom:10px">
         <div class="month-nav" style="margin-bottom:0">

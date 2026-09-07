@@ -801,6 +801,20 @@ function _budgetSortTh(label, key, o) {
     title="Ordina per ${label}" onclick="${o.call}('${key}')">${label}<span class="sort-ind">${arrow}</span></th>`;
 }
 
+// Etichetta di categoria nelle liste di Mese e Da inizio anno: UNA sola icona, quella della
+// categoria, e la macro come testo prima del separatore "›" — la stessa forma di Pianificate
+// (scheduled.js) e, col separatore diverso, di Transazioni.
+// Prima queste due schede mettevano due icone in fila, macro e categoria: la prima non
+// aggiungeva niente che il nome della macro non dicesse già, e raddoppiava il rumore su ogni
+// riga di una tabella lunga. La classe .cat-chip non disegna un chip, allinea e basta
+// (inline-flex + gap): serve a tenere icona e testo sulla stessa linea di base.
+// Il 📊 di dettaglio sta qui dentro e non nel chiamante, così le due schede gemelle non
+// possono divergere: la cella va marcata .budget-catcol, che è ciò che lo rivela all'hover.
+function _budgetCatLabel(cat, parent) {
+  return `<span class="cat-chip">${esc(cat.icon || '')} ${parent ? esc(parent.name) + ' › ' : ''}${esc(cat.name)}</span>`
+    + `<button class="btn-budget-detail" title="Grafico categoria" onclick="_budgetShowDetail(${cat.id})">📊</button>`;
+}
+
 /* ─── Budget "Da inizio anno" (progressivo) ─────────────────────────────────────────────── */
 // Tab "Da inizio anno": classifica le categorie per scostamento budget/reale da inizio anno,
 // separate Uscite/Entrate e ordinabili cliccando l'intestazione di colonna.
@@ -937,17 +951,11 @@ function renderBudgetScostamenti() {
       const diffStr = hasActual ? (r.diff >= 0 ? '+' : '') + fmt.currency(r.diff) : '—';
       const pctStr  = hasActual ? fmtPct(r.pct) : '—';
       const pctCol  = hasActual ? color : 'var(--txt3)';
-      // Macro-categoria in linea prima del nome, come in Mese: affiancando le due tabelle
-      // non c'è larghezza per tenerla in una colonna sua.
-      const macroEl = r.parent
-        ? `<span style="font-size:11px;color:var(--txt3)">${esc(r.parent.icon)} ${esc(r.parent.name)}:</span> `
-        : '';
+      // Macro-categoria in linea prima del nome: affiancando le due tabelle non c'è
+      // larghezza per tenerla in una colonna sua.
       return `<tr style="${rowBg}">
         <td style="${tdS};text-align:right;color:var(--txt3);padding-right:4px">${i + 1}</td>
-        <td style="${tdS}">
-          ${macroEl}<span style="color:${esc(r.cat.color)}">${esc(r.cat.icon)}</span> ${esc(r.cat.name)}
-          <button class="btn-budget-detail" title="Grafico categoria" onclick="_budgetShowDetail(${r.cat.id})">📊</button>
-        </td>
+        <td class="budget-catcol" style="${tdS}">${_budgetCatLabel(r.cat, r.parent)}</td>
         <td style="${tdS};text-align:right;font-variant-numeric:tabular-nums">${fmt.currency(r.bDisplay)}</td>
         <td style="${tdS};text-align:right;font-variant-numeric:tabular-nums">${hasActual ? fmt.currency(r.rDisplay) : '—'}</td>
         <td style="${tdS};text-align:right;font-variant-numeric:tabular-nums;color:${pctCol};font-weight:600">${diffStr}</td>
@@ -1351,14 +1359,8 @@ function renderBudgetMese() {
       ? (isExpSide ? fmt.currency(r.remaining) : '+' + fmt.currency(r.remaining))
       : (isExpSide ? '−' + fmt.currency(-r.remaining) : '−' + fmt.currency(-r.remaining));
 
-    const macroEl = r.parent
-      ? `<span style="font-size:11px;color:var(--txt3)">${esc(r.parent.icon)} ${esc(r.parent.name)}:</span> `
-      : '';
     return `<tr style="background:${zoneBg}">
-      <td style="${tdS}">
-        ${macroEl}<span style="color:${esc(r.cat.color)}">${esc(r.cat.icon)}</span> ${esc(r.cat.name)}
-        <button class="btn-budget-detail" title="Grafico categoria" onclick="_budgetShowDetail(${r.cat.id})">📊</button>
-      </td>
+      <td class="budget-catcol" style="${tdS}">${_budgetCatLabel(r.cat, r.parent)}</td>
       <td style="${tdS};text-align:right;font-variant-numeric:tabular-nums">${fmt.currency(r.budget)}</td>
       <td style="${tdS};text-align:right;font-variant-numeric:tabular-nums">${fmt.currency(r.spent)}</td>
       <td style="${tdS};text-align:right;font-variant-numeric:tabular-nums;color:${remColor};font-weight:600">${remLabel}</td>

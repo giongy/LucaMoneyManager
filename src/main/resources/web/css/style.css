@@ -2412,6 +2412,11 @@ tr.tx-selected td { background:rgba(124,124,255,.07); }
   margin-left: 4px;
 }
 .budget-cat-cell:hover .btn-budget-detail { opacity: 0.7; }
+/* Stessa rivelazione all'hover nelle schede Mese e Da inizio anno. Serve una classe a parte
+   perché .budget-cat-cell è la cella sticky della griglia Budget, con un fondo e una
+   posizione suoi: applicarla lì porterebbe dietro anche quelli. Senza questa riga il 📊
+   restava a opacity:0 per sempre — c'era nel DOM ma non lo vedeva nessuno. */
+.budget-catcol:hover .btn-budget-detail { opacity: 0.7; }
 .btn-budget-detail:hover { opacity: 1 !important; background: var(--bg4); }
 
 /* ─── Budget: tab Mese Corrente layout a due colonne ─────────────────────── */

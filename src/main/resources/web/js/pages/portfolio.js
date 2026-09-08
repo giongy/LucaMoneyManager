@@ -454,7 +454,18 @@ async function renderPortfolioStorico(items) {
     ].filter(Boolean).join('');
 
     const isBond = item.asset_type === 'bond';
-    const rows = [...txs].sort((a, b) => a.date.localeCompare(b.date)).map(t => {
+    // Il backend restituisce data DESC, id DESC: qui si rimette in ordine cronologico e si
+    // portano le righe figlie (commissione, plus/minusvalenza) subito SOTTO l'operazione che
+    // le ha generate — altrimenti, a parità di data, l'ordine per id decrescente le mostra
+    // sopra la madre e il loro suggerimento "qui sopra" indica la riga sbagliata.
+    // Chiave di gruppo = id della madre (per la madre stessa, il proprio id): le figlie hanno
+    // sempre la data della madre (buyStock/sellStock), quindi il gruppo non si spezza mai.
+    const groupKey = t => t.parent_pt_id || t.id;
+    const rows = [...txs].sort((a, b) =>
+        a.date.localeCompare(b.date)
+        || groupKey(a) - groupKey(b)
+        || (a.parent_pt_id ? 1 : 0) - (b.parent_pt_id ? 1 : 0)
+        || a.id - b.id).map(t => {
       const isValued = t.type === 'buy' || t.type === 'sell';
       const commPart = (t.type === 'buy' && t.commission > 0) ? t.commission : 0;
       const principal = isValued ? (isBond ? t.quantity * t.price / 100 : t.quantity * t.price) : t.price;
@@ -477,7 +488,7 @@ async function renderPortfolioStorico(items) {
         <td>${noteText}</td>
         <td style="width:36px;text-align:center">
           ${t.parent_pt_id
-            ? `<span style="color:var(--txt3);font-size:11px" title="Generata dalla vendita qui sopra: si annulla insieme a quella">↳</span>`
+            ? `<span style="color:var(--txt3);font-size:11px" title="Generata dall'operazione qui sopra: si annulla insieme a quella">↳</span>`
             : `<button class="btn btn-ghost" style="padding:2px 6px;font-size:11px;color:var(--txt3)"
                   onclick="deletePortfolioTransactionConfirm(${t.id},'${t.type}',${item.id})"
                   title="Annulla operazione">✕</button>`}

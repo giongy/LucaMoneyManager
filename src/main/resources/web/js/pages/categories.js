@@ -308,6 +308,17 @@ async function showCategoryModal(cat, type, parentId) {
           Le transazioni di questa categoria restano visibili e muovono il saldo del conto, ma non vengono conteggiate in budget, report, dashboard e previsioni. Utile ad es. per l'addebito del capital gain.
         </div>
       </div>
+      ${cat?.system_key && SYSTEM_CAT_LABEL[cat.system_key] ? `
+      <div class="form-group" style="grid-column:1/-1">
+        <div class="settings-hint" style="padding:9px 11px;border-radius:6px;background:var(--bg3);line-height:1.5">
+          📈 Qui l'app registra <b>${SYSTEM_CAT_LABEL[cat.system_key]}</b>.
+          Puoi rinominarla, spostarla sotto un'altra categoria o cambiarle icona e colore
+          <b>senza rompere niente</b>: il collegamento non è il nome.
+          ${cat.system_key === 'cedole_dividendi'
+            ? 'Questa resta dentro budget e previsioni di proposito: le rendite sono ricorrenti e si pianificano.'
+            : 'Togliendo la spunta qui sopra, questi movimenti entreranno in medie, previsioni e Salute Finanziaria — sono eventi di capitale, di solito è meglio tenerli fuori.'}
+        </div>
+      </div>` : ''}
       ${isChild ? `
       <div class="form-group" style="grid-column:1/-1">
         <label class="form-label" style="display:flex;align-items:center;gap:8px;cursor:pointer">

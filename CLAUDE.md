@@ -25,7 +25,7 @@ tali. La documentazione da tenere aggiornata è solo questa terna: `CLAUDE.md`, 
 - **Linguaggio:** Java 25, Maven 3.x
 - **UI:** JCEF v146 (Chromium embedded) + Swing per dialogs/titlebar/splash
 - **Frontend:** Vanilla JS puro (`src/main/resources/web/`, modulare in `js/pages/*.js`), no React/Vue
-- **Versione:** 1.25.5 — output `target/moneymanager-1.25.5.jar` (fat JAR, web/ esclusa)
+- **Versione:** 1.25.6 — output `target/moneymanager-1.25.6.jar` (fat JAR, web/ esclusa)
 - **Web assets:** serviti da filesystem (cartella `web/` accanto al `.exe` in produzione, `target/classes/web/` in IDE)
 - **DB path:** `%APPDATA%\LucaMoneyManager\data.db` (`%APPDATA%` = `...\Roaming`)
 - **Build:** `mvn package` oppure `tools\build\build.bat`
@@ -162,6 +162,24 @@ Il conto titoli torna così a zero sulla posizione chiusa: `carico + plusvalenza
 6. Note `'Commissione'` e `'Commissione acquisto'` sono **marcatori semantici**: tre punti fra
    `Database.java` e `portfolio.js` escludono quelle righe dai totali perché la commissione è
    già contata altrove. Cambiare quei testi la fa contare due volte.
+7. **Un'operazione non si smonta un pezzo per volta dalla pagina Transazioni.**
+   `portfolio_transactions.transaction_id` è `ON DELETE CASCADE`: eliminando da lì la
+   transazione di plusvalenza sparirebbe anche la sua riga di storico, **ma la vendita
+   resterebbe** — e il conto titoli rimarrebbe scoperto di quell'importo, senza un segnale.
+   `deleteTransaction` e `updateTransaction` rifiutano quindi non solo `buy`/`sell` ma
+   **qualsiasi riga con `parent_pt_id`**, per tipo di riga e non per elenco di tipi: vale
+   anche per le figlie che si aggiungessero in futuro. Restano liberi data, descrizione,
+   categoria, colore e tag — non spostano saldi. I movimenti **autonomi** (cedola, dividendo,
+   imposta, spesa) restano invece eliminabili: la riga di storico se ne va con loro.
+   ⚠️ L'`UPDATE` che riallinea `portfolio_transactions.price` all'importo della transazione
+   copre `coupon`/`dividend`/`tax`/`expense`. Togliendone uno, la scheda del titolo mostra una
+   cifra e il conto un'altra.
+
+La stessa spiegazione, in italiano e con i **nomi veri** delle categorie letti dalla chiave, sta
+dentro l'app: pulsante **❓ Come funziona** nella pagina Investimenti (`showPortfolioHelp` in
+[portfolio.js](src/main/resources/web/js/pages/portfolio.js)), più il riepilogo "Cosa registra
+l'app" che si aggiorna mentre si compila il modale di vendita. Cambiando le regole qui sopra va
+aggiornato anche quel testo: è l'unico posto in cui l'utente le legge.
 
 ### Le quattro categorie degli investimenti (`categories.system_key`, v25)
 
@@ -208,7 +226,16 @@ si perde e la categoria verrà ricreata — esito imperfetto ma innocuo, e scrit
    quotidiano cambierebbe risposta nel tempo, basta che l'utente crei una categoria simile.
 3. **L'avviso quando serve, non sempre.** Nessun badge permanente in pagina: è il modale di
    eliminazione a dire cosa comporta, e a segnalare se la destinazione scelta **non** è esclusa
-   da budget — l'unica conseguenza davvero difficile da notare a posteriori.
+   da budget — l'unica conseguenza davvero difficile da notare a posteriori. Stessa logica nel
+   modale di **modifica** (dice cosa l'app registra lì e che rinominare non rompe niente) e nei
+   testi del portafoglio, che leggono il **nome vero** dalla chiave invece di scriverlo a mano:
+   dopo un rinomina un'etichetta fissa mentirebbe.
+4. **`reassignCategory` valida prima di scrivere**, perché la UI non è l'unica via d'ingresso
+   (il Bridge risponde anche via HTTP dalla LAN) e qui gli esiti sarebbero silenziosi:
+   destinazione uguale all'origine o **figlia** dell'origine → la CASCADE la eliminerebbe
+   subito dopo averci spostato tutto, lasciando le transazioni senza categoria; tipo diverso →
+   porterebbe la chiave delle plusvalenze (entrate) su una categoria di uscita, e da lì in poi
+   l'app scriverebbe entrate in una categoria di spesa.
 
 Fino alla v24 il legame era il **nome**: rinominare "Plusvalenze" faceva nascere una seconda
 categoria al movimento successivo, in silenzio. Era la trappola che la v25 chiude.
@@ -507,12 +534,17 @@ mesi — motivo per cui questa parte, sola in tutto il progetto, ha una verifica
 .\tools\test-titoli.ps1 -Keep           # conserva la copia per ispezionarla
 ```
 
-**Cinquanta controlli** su tre suite: azioni (acquisto con commissione, vendita in utile e in
-perdita, imposta differita anche a posizione chiusa, rifiuti attesi, annullamento), obbligazioni
-(prezzo in percentuale, vendita parziale, rimborso a scadenza) e cedole/dividendi (che devono
-restare **dentro** budget e previsioni). Le due proprietà difese sono quelle che si rompono in
-silenzio: il conto investimenti si muove sempre del **solo carico**, mai del ricavo; e annullare
-un'operazione riporta i saldi esattamente dov'erano.
+**Sessantotto controlli** su quattro suite: azioni (acquisto con commissione, vendita in utile e
+in perdita, imposta differita anche a posizione chiusa, rifiuti attesi, annullamento),
+obbligazioni (prezzo in percentuale, vendita parziale, rimborso a scadenza), cedole/dividendi
+(che devono restare **dentro** budget e previsioni) e **difese** — quello che l'utente può fare
+per sbaglio: smontare una vendita dalla pagina Transazioni, e spostare o eliminare la categoria
+in cui l'app registra le plusvalenze (dopo uno "sposta ed elimina" la vendita successiva deve
+scrivere nella destinazione scelta, senza far rinascere la categoria vecchia).
+
+Le proprietà difese sono quelle che si rompono in silenzio: il conto investimenti si muove
+sempre del **solo carico**, mai del ricavo; annullare un'operazione riporta i saldi esattamente
+dov'erano; e nessuna singola scrittura di un'operazione può sparire da sola.
 
 ⚠️ **Lo strumento scrive** — compra, vende, annulla. Per questo non lavora mai sul DB indicato
 ma su una **copia temporanea**, che cancella alla fine insieme al `.log` che `DbLogger` le

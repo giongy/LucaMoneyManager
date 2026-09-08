@@ -48,6 +48,7 @@ public class TestTitoli {
         suiteAzioni(uni, tit);
         suiteObbligazioni(uni, tit);
         suiteCedole(uni, tit);
+        suiteDifese(uni, tit);
 
         d.close();
         System.out.printf("%n════ %d superate, %d fallite ════%n", passati, falliti);
@@ -239,6 +240,92 @@ public class TestTitoli {
         ok("nessuna transazione di prova residua", count("SELECT COUNT(*) FROM transactions"), tx0);
     }
 
+    // ═══ DIFESE: le cose che l'utente può fare per sbaglio ═══════════════════
+    //
+    // Le altre tre suite verificano che i conti tornino quando si usa l'app come previsto.
+    // Questa verifica il contrario: che NON si possa smontare un'operazione un pezzo per volta
+    // dalla pagina Transazioni, e che spostare o eliminare le categorie degli investimenti non
+    // spezzi il legame fra il codice e il posto in cui scrive. Sono i due modi in cui i saldi
+    // possono diventare sbagliati restando plausibili.
+    static void suiteDifese(int uni, int tit) throws Exception {
+        titolo("DIFESE: transazioni e categorie");
+        long tx0 = count("SELECT COUNT(*) FROM transactions");
+        double T0 = saldo(tit), U0 = saldo(uni);
+
+        d.buyStock(buy("TESTDIF", "Difesa SpA", 100, 10, "equity", 0, tit, uni));
+        int pid = id("SELECT id FROM portfolio WHERE ticker='TESTDIF'");
+        d.sellStock(sell(pid, uni, 100, 12, 0));
+        final int gainTx = id("SELECT transaction_id FROM portfolio_transactions"
+                            + " WHERE portfolio_id=" + pid + " AND type='gain'");
+
+        sez("la plusvalenza non si smonta dalla pagina Transazioni");
+        ok("la vendita ha prodotto la sua plusvalenza", count("SELECT COUNT(*) FROM transactions WHERE id=" + gainTx), 1);
+        okb("eliminare la transazione di plusvalenza", fallisce(() -> d.deleteTransaction(gainTx)));
+        okb("cambiarne l'importo",                     fallisce(() -> d.updateTransaction(gainTx, txMod(gainTx, 999, null))));
+        // Data, descrizione, categoria e tag restano liberi: non spostano nessun saldo.
+        d.updateTransaction(gainTx, txMod(gainTx, -1, "PLUS RIBATTEZZATA"));
+        ok("descrizione ancora modificabile",
+           count("SELECT COUNT(*) FROM transactions WHERE id=" + gainTx + " AND description='PLUS RIBATTEZZATA'"), 1);
+        ok("la riga di storico è rimasta al suo posto",
+           count("SELECT COUNT(*) FROM portfolio_transactions WHERE transaction_id=" + gainTx), 1);
+
+        sez("i movimenti autonomi invece restano eliminabili");
+        d.registerPortfolioTax(tax(pid, uni, 60, "2026-10-30", "IMPOSTA DIFESA"));
+        final int taxTx = id("SELECT transaction_id FROM portfolio_transactions"
+                           + " WHERE portfolio_id=" + pid + " AND type='tax' AND notes='IMPOSTA DIFESA'");
+        d.updateTransaction(taxTx, txMod(taxTx, 70, null));
+        ok("cambiando l'importo lo storico del titolo lo segue",
+           numQ("SELECT price FROM portfolio_transactions WHERE transaction_id=" + taxTx), 70);
+        d.deleteTransaction(taxTx);
+        ok("eliminandola sparisce anche dallo storico",
+           count("SELECT COUNT(*) FROM portfolio_transactions WHERE transaction_id=" + taxTx), 0);
+
+        sez("«sposta ed elimina» sulla categoria delle plusvalenze");
+        int plusId = id("SELECT id FROM categories WHERE system_key='plusvalenze'");
+        JsonObject nuova = new JsonObject();
+        nuova.addProperty("name", "Guadagni da titoli TEST");
+        nuova.addProperty("type", "income");
+        nuova.addProperty("icon", "💰");
+        nuova.addProperty("color", "#3fb950");
+        int destId = ((Number) d.addCategory(nuova).get("id")).intValue();
+        d.reassignCategory(plusId, destId);
+        ok("la vecchia categoria non esiste più", count("SELECT COUNT(*) FROM categories WHERE id=" + plusId), 0);
+        ok("il contrassegno è passato alla destinazione",
+           count("SELECT COUNT(*) FROM categories WHERE id=" + destId + " AND system_key='plusvalenze'"), 1);
+        // La prova vera: la prossima vendita deve scrivere LÌ, non ricreare una "Plusvalenze".
+        d.buyStock(buy("TESTDIF2", "Difesa Due", 50, 20, "equity", 0, tit, uni));
+        int pid2 = id("SELECT id FROM portfolio WHERE ticker='TESTDIF2'");
+        d.sellStock(sell(pid2, uni, 50, 25, 0));
+        ok("la nuova plusvalenza finisce nella categoria scelta",
+           count("SELECT COUNT(*) FROM transactions t JOIN portfolio_transactions pt ON pt.transaction_id=t.id"
+               + " WHERE pt.portfolio_id=" + pid2 + " AND pt.type='gain' AND t.category_id=" + destId), 1);
+        ok("non è nata una seconda categoria di plusvalenze",
+           count("SELECT COUNT(*) FROM categories WHERE system_key='plusvalenze'"), 1);
+
+        sez("rifiuti attesi sullo spostamento di categoria");
+        JsonObject figlia = new JsonObject();
+        figlia.addProperty("name", "Sotto TEST"); figlia.addProperty("type", "income");
+        figlia.addProperty("parent_id", destId);
+        int figliaId = ((Number) d.addCategory(figlia).get("id")).intValue();
+        int usc = id("SELECT id FROM categories WHERE type='expense' ORDER BY id LIMIT 1");
+        okb("spostare una categoria su sé stessa",        fallisce(() -> d.reassignCategory(destId, destId)));
+        okb("spostare su una propria sottocategoria",     fallisce(() -> d.reassignCategory(destId, figliaId)));
+        okb("spostare un'entrata su una uscita",          fallisce(() -> d.reassignCategory(destId, usc)));
+        ok("dopo i rifiuti la categoria è ancora lì, col suo contrassegno",
+           count("SELECT COUNT(*) FROM categories WHERE id=" + destId + " AND system_key='plusvalenze'"), 1);
+
+        sez("pulizia: annullando tutto si torna al punto di partenza");
+        for (int p : new int[]{pid, pid2}) {
+            for (int pt : ids("SELECT id FROM portfolio_transactions WHERE portfolio_id=" + p
+                            + " AND parent_pt_id IS NULL ORDER BY id DESC"))
+                d.deletePortfolioTransaction(pt);
+            d.deletePortfolioItem(p);
+        }
+        ok("saldo del conto investimenti identico a prima", saldo(tit), T0);
+        ok("saldo del conto liquidità identico a prima",    saldo(uni), U0);
+        ok("nessuna transazione di prova residua", count("SELECT COUNT(*) FROM transactions"), tx0);
+    }
+
     // ─── payload ────────────────────────────────────────────────────────────
     static JsonObject buy(String tk, String nome, double q, double p, String tipo, double comm, int acc, int from) {
         JsonObject o = new JsonObject();
@@ -264,6 +351,28 @@ public class TestTitoli {
         if (note != null) o.addProperty("notes", note);
         return o;
     }
+    /** Payload di updateTransaction ricostruito dalla riga esistente, cambiando solo quello che
+     *  serve alla prova: importo (se >= 0) e/o descrizione (se non null). Il resto deve restare
+     *  identico, altrimenti si finirebbe per misurare l'effetto di un campo azzerato per sbaglio. */
+    static JsonObject txMod(int txId, double nuovoImporto, String nuovaDesc) throws SQLException {
+        JsonObject o = new JsonObject();
+        try (Statement s = raw.createStatement();
+             ResultSet r = s.executeQuery("SELECT * FROM transactions WHERE id=" + txId)) {
+            if (!r.next()) throw new SQLException("transazione " + txId + " inesistente");
+            o.addProperty("date",        r.getString("date"));
+            o.addProperty("amount",      nuovoImporto >= 0 ? nuovoImporto : r.getDouble("amount"));
+            o.addProperty("type",        r.getString("type"));
+            o.addProperty("account_id",  r.getInt("account_id"));
+            o.addProperty("description", nuovaDesc != null ? nuovaDesc : r.getString("description"));
+            o.addProperty("reconciled",  r.getInt("reconciled"));
+            int cat = r.getInt("category_id");
+            if (!r.wasNull()) o.addProperty("category_id", cat);
+            int to = r.getInt("to_account_id");
+            if (!r.wasNull()) o.addProperty("to_account_id", to);
+        }
+        return o;
+    }
+
     static JsonObject cedola(int pid, int acc, double importo, String data, String note) {
         JsonObject o = new JsonObject();
         o.addProperty("portfolio_id", pid); o.addProperty("account_id", acc);

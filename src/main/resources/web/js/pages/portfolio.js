@@ -19,6 +19,36 @@ let _portStoricoExp    = new Set();
 let _portStoricoFilter = 'all'; // 'all' | 'active' | 'closed'
 let _portfolioPriceStatus = {}; // id → 'ok' | 'fail' | undefined (grigio)
 
+// ── Categorie di sistema degli investimenti (system_key, v25) ───────────────
+// La chiave è l'indirizzo a cui il codice scrive; il NOME lo decide l'utente, che può
+// rinominare la categoria, spostarla sotto un'altra o farla assorbire da un'altra con
+// "sposta ed elimina". Quindi ogni testo che dice DOVE finisce un movimento deve leggere il
+// nome da qui: scriverlo a mano significa raccontare il falso al primo rinomina.
+// Il nome di riserva serve solo finché la categoria non esiste (DB nuovo, o eliminata da vuota):
+// è quello con cui l'app la ricreerà alla prima operazione.
+const SYS_CAT_FALLBACK = {
+  plusvalenze:      'Plusvalenze',
+  minusvalenze:     'Minusvalenze',
+  imposte_rendite:  'Imposte su rendite',
+  cedole_dividendi: 'Cedole e dividendi',
+};
+
+// Categoria agganciata a una chiave, con il segnale "non esiste ancora" (_missing) per poterlo
+// dire invece di far finta che ci sia. excluded_from_budget riflette la realtà: se l'utente ha
+// spostato le plusvalenze su una categoria non esclusa, i testi lo devono ammettere.
+function sysCat(cats, key) {
+  const c = (cats || []).find(x => x.system_key === key);
+  if (c) return c;
+  return { name: SYS_CAT_FALLBACK[key], icon: '', system_key: key, _missing: true,
+           excluded_from_budget: key === 'cedole_dividendi' ? 0 : 1 };
+}
+
+// Etichetta pronta per i testi: "📁 Nome" (senza icona se non c'è).
+function sysCatLabel(cats, key) {
+  const c = sysCat(cats, key);
+  return `${c.icon ? esc(c.icon) + ' ' : ''}${esc(c.name)}`;
+}
+
 // Calcola valore di mercato di una posizione (gestisce equity e bond)
 // Convenzione: bond price stored in forma percentuale (99.5 = 99.5% di par),
 // quindi cash bond = qty × price / 100, cash equity = qty × price.
@@ -143,6 +173,8 @@ async function renderPortfolio() {
         <button class="sched-tab ${_portfolioTab==='analisi'?'active':''}"   onclick="_setPortfolioTab('analisi')">📊 Analisi</button>
         <button class="sched-tab ${_portfolioTab==='storico'?'active':''}"   onclick="_setPortfolioTab('storico')">📋 Storico</button>
       </div>
+      <button class="btn btn-ghost" style="margin-left:10px;flex-shrink:0" onclick="showPortfolioHelp()"
+              title="Dove finiscono i soldi di un acquisto, cosa sono plusvalenze e imposte, cosa succede se tocchi le categorie">❓ Come funziona</button>
       ${investAccounts.length && _portfolioTab==='portfolio' ? `
         <div style="margin-left:auto;padding-bottom:2px;display:flex;align-items:center;gap:10px">
           <div style="display:flex;flex-direction:column;align-items:center;gap:5px;padding:6px 10px;background:var(--bg3);border-radius:10px;border-top:2px solid var(--accent);box-shadow:0 0 0 1px color-mix(in srgb,var(--accent) 22%,transparent) inset">
@@ -1146,6 +1178,15 @@ async function showBuyModal(portfolioId, investAccounts, allAccounts) {
     <div class="form-group">
       <label class="form-label">Note</label>
       <input class="form-control" id="b_notes" placeholder="Opzionale">
+    </div>
+    <!-- Un acquisto è un giroconto, non una spesa: senza dirlo, vedere il conto di liquidità
+         scendere senza nessuna uscita in Budget sembra un buco. -->
+    <div class="settings-hint" style="margin-top:6px;background:var(--bg3);border-radius:8px;padding:9px 12px;line-height:1.5">
+      I soldi non si perdono: <b>si spostano</b> dal conto che paga al conto investimento — è un
+      giroconto, quindi non è una spesa e non entra nel budget. La commissione è compresa nel
+      totale e finisce nel <b>prezzo di carico</b>: alla vendita abbatterà il guadagno, non va
+      registrata anche come uscita.
+      <a href="#" onclick="event.preventDefault();closeModal();showPortfolioHelp()">Come funziona →</a>
     </div>`;
 
   openModal('Acquisto Titolo', body, async () => {
@@ -1217,10 +1258,11 @@ async function showBuyModal(portfolioId, investAccounts, allAccounts) {
 
 // Modale vendita: quantità, prezzo, commissione e conto destinazione del ricavato.
 async function showSellModal(portfolioId) {
-  const [items, accounts] = await Promise.all([api.getPortfolio(), api.getAccounts()]);
+  const [items, accounts, cats] = await Promise.all([api.getPortfolio(), api.getAccounts(), api.getCategories()]);
   const pos = items.find(i => i.id === portfolioId);
   if (!pos) return;
   const regularAccounts = accounts.filter(a => a.type !== 'investment' && !a.is_closed);
+  const investAccName = pos.account_name || 'conto titoli';
   const today = _todayStr();
   const isBond = pos.asset_type === 'bond';
   const avgDisplay = isBond ? `${(pos.avg_price||0).toFixed(4)} %` : fmt.price(pos.avg_price);
@@ -1287,7 +1329,11 @@ async function showSellModal(portfolioId) {
     <div class="form-group">
       <label class="form-label">Note</label>
       <input class="form-control" id="s_notes" placeholder="Opzionale">
-    </div>`;
+    </div>
+    <!-- Riepilogo delle scritture: una vendita ne produce tre e nessuna è ovvia — il guadagno
+         nasce sul conto titoli, sulla liquidità arriva solo l'incasso netto, l'imposta non c'è
+         ancora. Dirlo PRIMA di confermare evita di doverlo ricostruire dopo dai saldi. -->
+    <div id="s_recap" style="background:var(--bg3);border-radius:8px;padding:10px 12px;margin-top:6px;font-size:12.5px;line-height:1.5"></div>`;
 
   openModal('Vendita Titolo', body, async () => {
     const commission = evalAmount(document.getElementById('s_commission').value) || 0;
@@ -1333,11 +1379,42 @@ async function showSellModal(portfolioId) {
     }
     // Quello che arriva davvero sul conto: lordo − commissione − imposta.
     if (credEl) credEl.value = q && p ? fmt.currency(totalVal - comm) : '—';
+
+    // Riepilogo in parole: le tre scritture, con i nomi veri delle categorie e dei conti.
+    const recap = document.getElementById('s_recap');
+    if (recap) {
+      const sel  = document.getElementById('s_to_account');
+      const dest = regularAccounts.find(a => a.id === parseInt(sel?.value));
+      const destName = dest ? `${dest.icon || ''} ${dest.name}`.trim() : 'il conto che scegli';
+      if (!(q && p)) {
+        recap.innerHTML = `<span style="color:var(--txt3)">Inserisci quantità e prezzo per vedere cosa registrerà l'app.</span>`;
+        return;
+      }
+      const gainCat = sysCat(cats, pnl >= 0 ? 'plusvalenze' : 'minusvalenze');
+      const gainLbl = pnl >= 0 ? 'Plusvalenza' : 'Minusvalenza';
+      const gainCol = pnl >= 0 ? 'var(--income)' : 'var(--expense)';
+      const budgetWarn = gainCat.excluded_from_budget ? '' :
+        `<div style="margin-top:6px;color:var(--expense)">⚠️ <b>${esc(gainCat.name)}</b> non è esclusa da budget e report: questa
+         ${gainLbl.toLowerCase()} entrerà in medie, previsioni e Salute Finanziaria.</div>`;
+      recap.innerHTML = `
+        <div style="font-weight:700;margin-bottom:5px">Cosa registra l'app</div>
+        <div>• <b style="color:${gainCol}">${gainLbl} ${fmt.currency(Math.abs(pnl))}</b>
+             in <b>${esc(gainCat.name)}</b>, sul conto <b>${esc(investAccName)}</b>
+             <span style="color:var(--txt3)">— il guadagno nasce dove si è prodotto, così viene registrato anche se non prelevi</span></div>
+        <div>• <b>${fmt.currency(totalVal - comm)}</b> da <b>${esc(investAccName)}</b> a <b>${esc(destName)}</b>
+             <span style="color:var(--txt3)">— giroconto dell'incasso netto</span></div>
+        <div>• <span style="color:var(--txt3)">Nessuna imposta: la registri col pulsante 🧾 quando la banca la addebita.</span></div>
+        ${pos.quantity - q < 0.00001
+          ? `<div style="margin-top:5px;color:var(--txt3)">Vendi tutto: dopo questa operazione il conto <b>${esc(investAccName)}</b> non conterrà più nulla di ${esc(pos.ticker)}.</div>`
+          : ''}
+        ${budgetWarn}`;
+    }
   };
   setTimeout(() => {
     document.getElementById('s_qty')?.addEventListener('input', calcSell);
     document.getElementById('s_price')?.addEventListener('input', calcSell);
     document.getElementById('s_commission')?.addEventListener('input', calcSell);
+    document.getElementById('s_to_account')?.addEventListener('change', calcSell);
     calcSell();
   }, 50);
 }
@@ -1642,13 +1719,14 @@ async function showExpenseModal(portfolioId) {
 // ⚠️ Deve funzionare anche su posizioni con quantità 0, che è poi il caso normale: l'imposta
 // arriva quando il titolo è già stato venduto tutto. Nessun controllo sulla quantità, quindi.
 async function showTaxModal(portfolioId) {
-  const [items, accounts, txs] = await Promise.all([
-    api.getPortfolio(), api.getAccounts(), api.getPortfolioTransactions(portfolioId)
+  const [items, accounts, txs, cats] = await Promise.all([
+    api.getPortfolio(), api.getAccounts(), api.getPortfolioTransactions(portfolioId), api.getCategories()
   ]);
   const pos = items.find(i => i.id === portfolioId);
   if (!pos) return;
   const regularAccounts = accounts.filter(a => a.type !== 'investment' && !a.is_closed);
   const today = _todayStr();
+  const impCat = sysCat(cats, 'imposte_rendite');
 
   // Contesto utile per capire a quale vendita si riferisce l'addebito: le ultime realizzate,
   // con la plusvalenza già registrata accanto.
@@ -1702,8 +1780,11 @@ async function showTaxModal(portfolioId) {
       </div>
     </div>
     <p class="settings-hint" style="margin-top:10px">
-      Finisce in <strong>Imposte su rendite</strong>, categoria esclusa da budget e report:
-      muove il saldo del conto ma non entra nelle medie né nelle previsioni.
+      È la tassa <b>sul</b> guadagno, non il guadagno: viene registrata come uscita in
+      <strong>${sysCatLabel(cats, 'imposte_rendite')}</strong>${impCat._missing ? ' (categoria che verrà creata ora)' : ''},
+      ${impCat.excluded_from_budget
+        ? 'esclusa da budget e report: muove il saldo del conto ma non entra nelle medie né nelle previsioni.'
+        : '<span style="color:var(--expense)">che <b>non</b> è esclusa da budget e report: questo addebito entrerà in medie, previsioni e Salute Finanziaria. Puoi escluderla dalla pagina Categorie.</span>'}
     </p>`;
 
   openModal('Imposta capital gain', body, async () => {
@@ -2161,6 +2242,113 @@ async function deletePortfolioTransactionConfirm(ptId, type, portfolioId) {
   );
 }
 window.deletePortfolioTransactionConfirm = deletePortfolioTransactionConfirm;
+
+// ── Guida "Come funziona" ───────────────────────────────────────────────────
+// Il portafoglio è l'unico punto dell'app in cui il denaro non si limita a spostarsi: una
+// vendita in utile ne CREA. Da fuori il risultato è controintuitivo — il conto titoli scende
+// del solo carico, il guadagno compare come entrata su un conto su cui non è arrivato un
+// bonifico — e senza una spiegazione sembra un errore di conti. Questa guida la dà, con i nomi
+// veri delle categorie: dopo un rinomina o uno "sposta ed elimina" un testo fisso mentirebbe.
+async function showPortfolioHelp() {
+  const cats  = await api.getCategories();
+  const plus  = sysCat(cats, 'plusvalenze');
+  const minus = sysCat(cats, 'minusvalenze');
+  const imp   = sysCat(cats, 'imposte_rendite');
+  const ced   = sysCat(cats, 'cedole_dividendi');
+  const nome  = c => `<b>${c.icon ? esc(c.icon) + ' ' : ''}${esc(c.name)}</b>${c._missing ? ' <span style="color:var(--txt3);font-weight:400">(non ancora creata: nascerà alla prima operazione)</span>' : ''}`;
+  // Stato rispetto a budget e report. In rosso solo quando NON è quello consigliato: per le tre
+  // categorie di capitale è "fuori", per cedole e dividendi è "dentro" — lì il rosso su "dentro"
+  // farebbe sembrare un problema la situazione giusta.
+  const budge = (c, fuori = true) => {
+    const ok = fuori ? !!c.excluded_from_budget : !c.excluded_from_budget;
+    const txt = c.excluded_from_budget ? 'fuori da budget e report' : 'dentro budget e report';
+    return `<span style="color:${ok ? 'var(--txt3)' : 'var(--expense)'}">${txt}</span>`;
+  };
+
+  const riga = (q, a, b) => `<tr><td style="padding:4px 10px 4px 0;color:var(--txt3);white-space:nowrap">${q}</td>
+      <td style="padding:4px 10px 4px 0">${a}</td><td style="padding:4px 0;text-align:right;white-space:nowrap">${b}</td></tr>`;
+
+  const body = `
+    <div style="font-size:13px;line-height:1.55">
+
+      <div style="background:var(--bg3);border-radius:8px;padding:12px 14px;margin-bottom:14px">
+        <b>Il conto investimenti non è un salvadanaio: è un contenitore.</b><br>
+        Quando compri, i soldi non spariscono e non sono una spesa — si spostano dal conto di
+        liquidità al conto titoli, come un giroconto fra due tuoi conti. Il saldo del conto
+        titoli dice <b>quanto hai pagato</b> per i titoli che hai adesso, commissioni comprese.
+        Non dice quanto valgono oggi: quello è il <b>Valore Attuale</b> qui in pagina.
+      </div>
+
+      <div style="font-weight:700;margin:16px 0 6px">Un esempio dall'inizio alla fine</div>
+      <div style="color:var(--txt2);margin-bottom:8px">Compri 100 quote a 10 € con 10 € di commissione, e le rivendi a 12 € con 5 € di commissione.</div>
+      <table style="width:100%;border-collapse:collapse;font-size:12.5px">
+        <thead><tr style="background:var(--bg3)">
+          <th style="text-align:left;padding:5px 8px">Quando</th>
+          <th style="text-align:left;padding:5px 8px">Cosa scrive l'app</th>
+          <th style="text-align:right;padding:5px 8px">Importo</th>
+        </tr></thead>
+        <tbody>
+          <tr><td style="padding:5px 8px;border-top:1px solid var(--border)">Acquisto</td>
+              <td style="padding:5px 8px;border-top:1px solid var(--border)">giroconto: liquidità → conto titoli <span style="color:var(--txt3)">(commissione compresa)</span></td>
+              <td style="padding:5px 8px;border-top:1px solid var(--border);text-align:right">1.010,00 €</td></tr>
+          <tr><td style="padding:5px 8px;border-top:1px solid var(--border)">Vendita</td>
+              <td style="padding:5px 8px;border-top:1px solid var(--border)">entrata in ${nome(plus)} <b>sul conto titoli</b></td>
+              <td style="padding:5px 8px;border-top:1px solid var(--border);text-align:right;color:var(--income)">+185,00 €</td></tr>
+          <tr><td style="padding:5px 8px;border-top:1px solid var(--border)">Vendita</td>
+              <td style="padding:5px 8px;border-top:1px solid var(--border)">giroconto: conto titoli → liquidità <span style="color:var(--txt3)">(incasso meno commissione)</span></td>
+              <td style="padding:5px 8px;border-top:1px solid var(--border);text-align:right">1.195,00 €</td></tr>
+          <tr><td style="padding:5px 8px;border-top:1px solid var(--border)">Settimane dopo</td>
+              <td style="padding:5px 8px;border-top:1px solid var(--border)">uscita in ${nome(imp)}, sul conto che scegli tu</td>
+              <td style="padding:5px 8px;border-top:1px solid var(--border);text-align:right;color:var(--expense)">−48,10 €</td></tr>
+        </tbody>
+      </table>
+      <div class="settings-hint" style="margin-top:8px">
+        Sul conto titoli: 1.010 entrati, 185 di plusvalenza, 1.195 usciti → <b>torna esattamente a zero</b>.
+        È la prova che i conti tornano: se dopo aver venduto tutto quel conto non è a zero, qualcosa manca.
+      </div>
+
+      <div style="font-weight:700;margin:18px 0 6px">Le parole</div>
+      <table style="width:100%;border-collapse:collapse">
+        ${riga('Plusvalenza', `Il guadagno vero della vendita: quello che incassi <b>meno</b> la commissione, <b>meno</b> quello che avevi pagato. Finisce in ${nome(plus)}.`, budge(plus))}
+        ${riga('Minusvalenza', `La stessa cosa quando la vendita è in perdita. Finisce in ${nome(minus)}.`, budge(minus))}
+        ${riga('Imposta', `La tassa <b>sul</b> guadagno, non il guadagno: la banca la preleva settimane dopo, spesso cumulata su più vendite. La registri tu quando arriva, col pulsante 🧾 — funziona anche a titolo già venduto. Finisce in ${nome(imp)}.`, budge(imp))}
+        ${riga('Cedole e dividendi', `Le rendite periodiche. Finiscono in ${nome(ced)} e restano <b>dentro</b> budget e previsioni: sono ricorrenti, quindi si possono pianificare.`, budge(ced, false))}
+        ${riga('Commissione', `Non è una spesa a parte: all'acquisto è dentro il prezzo di carico, alla vendita è già scalata dall'incasso. Registrarla anche come uscita la conterebbe due volte.`, '')}
+      </table>
+      <div class="settings-hint" style="margin-top:8px">
+        Plusvalenze, minusvalenze e imposte stanno fuori da budget, medie e Salute Finanziaria di proposito:
+        sono eventi di capitale, grossi e imprevedibili, e dentro una media falserebbero tutto il resto.
+      </div>
+
+      <div style="font-weight:700;margin:18px 0 6px">Se tocchi queste categorie non rompi niente</div>
+      <div style="color:var(--txt2);margin-bottom:8px">
+        L'app non le riconosce dal nome ma da un contrassegno invisibile che sta sulla riga: <b>il contrassegno segue i movimenti</b>.
+      </div>
+      <table style="width:100%;border-collapse:collapse">
+        ${riga('Rinomini,<br>cambi icona o colore', 'Non succede niente: l\'app continua a scrivere lì.', '')}
+        ${riga('Elimini una<br>categoria vuota', 'Sparisce, e la prossima operazione su titoli la ricrea da zero.', '')}
+        ${riga('«Sposta ed elimina»<br>su un\'altra categoria', 'I movimenti si spostano <b>e con loro il ruolo</b>: da lì in poi l\'app scriverà nella categoria che hai scelto, accanto allo storico. Non ne nasce una nuova.', '')}
+        ${riga('Elimini la categoria<br>principale che la contiene', 'Stessa cosa: l\'app ti obbliga comunque a dire dove spostare tutto.', '')}
+      </table>
+      <div class="settings-hint" style="margin-top:8px">
+        ⚠️ L'unica conseguenza da guardare è il budget: se sposti le plusvalenze su una categoria
+        <b>non</b> esclusa, da quel momento entrano in medie, previsioni e Salute Finanziaria.
+        Il modale di eliminazione te lo dice al momento della scelta.
+      </div>
+
+      <div style="font-weight:700;margin:18px 0 6px">La sola cosa che l'app non ti lascia fare</div>
+      <div style="color:var(--txt2)">
+        Cancellare o cambiare l'importo di acquisti, vendite e plusvalenze <b>dalla pagina Transazioni</b>.
+        Da lì si toglierebbe una sola delle scritture di un'operazione che ne ha tre, e i conti non
+        tornerebbero più — senza nessun segnale. Si annulla l'operazione intera dalla scheda del
+        titolo (tasto destro → Storico, oppure la ✕ nella scheda Storico): quella rimette a posto
+        quantità, prezzo medio, saldi e categorie tutti insieme.
+      </div>
+    </div>`;
+
+  openModal('Come funziona il portafoglio', body, null, '', '', 'modal-wide');
+}
+window.showPortfolioHelp = showPortfolioHelp;
 
 window.showBuyModal         = showBuyModal;
 window.showSellModal        = showSellModal;

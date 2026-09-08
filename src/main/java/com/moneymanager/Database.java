@@ -1908,9 +1908,34 @@ public class Database {
      * esattamente il modo in cui l'utente dice DOVE vanno registrate d'ora in poi.
      */
     public void reassignCategory(int fromId, int toId) throws SQLException {
+        // Guardie prima di aprire la transazione. La UI le rispetta già tutte e tre (il menu a
+        // tendina esclude sé stessa, le figlie e gli altri tipi), ma il Bridge è raggiungibile
+        // anche via HTTP dalla LAN: qui gli esiti sarebbero silenziosi e definitivi.
+        Map<String, Object> fromCat = queryOne("SELECT name, type FROM categories WHERE id=?", fromId);
+        Map<String, Object> toCat   = queryOne("SELECT name, type, parent_id FROM categories WHERE id=?", toId);
+        if (fromCat == null) throw new SQLException("Categoria di partenza inesistente (id:" + fromId + ")");
+        if (toCat   == null) throw new SQLException("Categoria di destinazione inesistente (id:" + toId + ")");
+        // Stessa categoria: gli UPDATE non farebbero nulla e la DELETE finale la cancellerebbe
+        // con tutto dentro, lasciando le sue transazioni senza categoria (ON DELETE SET NULL).
+        if (fromId == toId)
+            throw new SQLException("Origine e destinazione coincidono: sposteresti «"
+                    + fromCat.get("name") + "» su sé stessa e la categoria verrebbe comunque eliminata.");
+        // Destinazione figlia dell'origine: la CASCADE su parent_id la eliminerebbe insieme alla
+        // madre subito dopo averci spostato tutto — transazioni senza categoria e chiave persa.
+        Object toParent = toCat.get("parent_id");
+        if (toParent != null && ((Number) toParent).intValue() == fromId)
+            throw new SQLException("«" + toCat.get("name") + "» è una sottocategoria di «"
+                    + fromCat.get("name") + "»: verrebbe eliminata insieme a lei."
+                    + " Scegli una categoria fuori da questo ramo.");
+        // Tipi diversi: porterebbe una chiave di sistema (es. le plusvalenze, che sono entrate)
+        // su una categoria di uscita, e da lì in poi l'app scriverebbe entrate in una categoria
+        // di spesa. Nessun report lo segnalerebbe.
+        if (!String.valueOf(fromCat.get("type")).equals(String.valueOf(toCat.get("type"))))
+            throw new SQLException("«" + fromCat.get("name") + "» è di tipo "
+                    + String.valueOf(fromCat.get("type")) + " e «" + toCat.get("name") + "» di tipo "
+                    + String.valueOf(toCat.get("type")) + ": si può spostare solo su una categoria dello stesso tipo.");
+
         inTx(() -> {
-            Map<String, Object> from = queryOne("SELECT name FROM categories WHERE id=?", fromId);
-            Map<String, Object> to   = queryOne("SELECT name FROM categories WHERE id=?", toId);
             // "categoria stessa OPPURE una sua figlia": i figli vengono eliminati dalla CASCADE
             // sulla DELETE finale, quindi vanno riassegnati anche loro.
             String selfOrChild = "(category_id=? OR category_id IN (SELECT id FROM categories WHERE parent_id=?))";
@@ -1926,8 +1951,8 @@ public class Database {
             carrySystemKeys(fromId, toId);
             execute("DELETE FROM categories WHERE id=?", fromId);
             touchSyncMeta();
-            logger.log("CATEGORIA RIASSEGNATA", "da:" + DbLogger.s(from != null ? from.get("name") : fromId),
-                       "a:" + DbLogger.s(to != null ? to.get("name") : toId),
+            logger.log("CATEGORIA RIASSEGNATA", "da:" + DbLogger.s(fromCat.get("name")),
+                       "a:" + DbLogger.s(toCat.get("name")),
                        "transazioni:" + nTx, "split:" + nSplit, "pianificate:" + nSched);
             return null;
         });
@@ -2523,16 +2548,26 @@ public class Database {
         // Guardia GRADUATA, come per la delete: si blocca solo se cambia davvero un campo che
         // sposta la posizione (importo). Data, descrizione, colore, tag, categoria e stato di
         // riconciliazione restano modificabili: non toccano quantity/avg_price.
+        // ⚠️ Vale anche per le righe FIGLIE di una vendita (parent_pt_id non nullo, oggi la
+        // plusvalenza): il loro importo non è un dato libero, è quello che tiene a zero il conto
+        // titoli sulla posizione chiusa. Cambiarlo qui lo sbilancia in silenzio, e la vendita
+        // continuerebbe a raccontare un guadagno diverso da quello registrato.
         Map<String, Object> ptLink = queryOne(
-            "SELECT pt.type, COALESCE(p2.ticker, p2.name, '?') AS titolo, t.amount AS old_amount " +
+            "SELECT pt.type, pt.price, pt.parent_pt_id, COALESCE(p2.ticker, p2.name, '?') AS titolo, " +
+            "       t.amount AS old_amount " +
             "FROM portfolio_transactions pt " +
             "LEFT JOIN portfolio p2 ON p2.id = pt.portfolio_id " +
             "JOIN transactions t ON t.id = pt.transaction_id " +
-            "WHERE pt.transaction_id=? AND pt.type IN ('buy','sell') LIMIT 1", id);
+            "WHERE pt.transaction_id=? AND (pt.type IN ('buy','sell') OR pt.parent_pt_id IS NOT NULL) LIMIT 1", id);
         if (ptLink != null) {
             double oldAmount = ((Number) ptLink.get("old_amount")).doubleValue();
             double newAmount = dbl2(p, "amount");
             if (Math.abs(oldAmount - newAmount) > 0.005) {
+                if (ptLink.get("parent_pt_id") != null)
+                    throw new SQLException("Questo movimento è la contropartita di una vendita di "
+                            + ptLink.get("titolo") + " (" + ptRowLabel(ptLink) + "): cambiarne l'importo"
+                            + " sbilancerebbe il conto investimenti, che sulla posizione chiusa deve"
+                            + " tornare a zero. Correggi l'operazione dalla scheda del titolo.");
                 boolean acquisto = "buy".equals(ptLink.get("type"));
                 throw new SQLException("Questa transazione è " + (acquisto ? "un acquisto" : "una vendita")
                         + " di " + ptLink.get("titolo") + ": cambiarne l'importo lascerebbe la posizione"
@@ -2553,8 +2588,13 @@ public class Database {
                     str(p,"color"), reconciled, id);
             saveTags(id, p);
             saveSplits(id, p);
-            // Aggiorna il prezzo nello storico portfolio se collegato (cedola/spesa)
-            execute("UPDATE portfolio_transactions SET price=? WHERE transaction_id=? AND type IN ('coupon','expense')",
+            // Allinea l'importo nello storico del titolo per i movimenti autonomi: cedola,
+            // dividendo, imposta e spesa. Senza 'dividend' e 'tax' (che prima mancavano) la
+            // scheda del titolo continuava a mostrare la cifra vecchia mentre il conto era già
+            // stato corretto — due numeri diversi per lo stesso movimento.
+            // 'buy'/'sell' e le righe figlie non compaiono qui: l'importo non è modificabile,
+            // lo impedisce la guardia sopra.
+            execute("UPDATE portfolio_transactions SET price=? WHERE transaction_id=? AND type IN ('coupon','dividend','tax','expense')",
                     dbl2(p,"amount"), id);
             touchSyncMeta();
             Map<String, Object> tx = getTransactionById(id);
@@ -2627,14 +2667,46 @@ public class Database {
      * La strada corretta è annullare l'operazione dalla scheda del titolo, che aggiorna
      * quantità e prezzo medio insieme allo storico (vedi deletePortfolioTransaction).
      *
-     * Cedole, dividendi e commissioni ('coupon'/'dividend'/'expense') restano eliminabili:
-     * non toccano quantity/avg_price, quindi la cancellazione non falsa la posizione.
+     * Cedole, dividendi, imposte e spese ('coupon'/'dividend'/'tax'/'expense') restano
+     * eliminabili quando sono movimenti AUTONOMI: non toccano quantity/avg_price, e la riga di
+     * storico se ne va con loro (transaction_id è ON DELETE CASCADE), quindi non resta niente
+     * di scoordinato.
+     *
+     * ⚠️ Le righe FIGLIE di una vendita invece no. La plusvalenza è la contropartita che tiene
+     * a zero il conto titoli sulla posizione chiusa (carico + plusvalenza − accredito = 0):
+     * eliminandone la transazione la CASCADE porta via anche la riga di storico, ma la vendita
+     * resta in piedi — e il conto titoli resta scoperto di quell'importo, senza un solo segnale.
+     * Si riconoscono da parent_pt_id, non dal tipo: vale per qualunque riga generata insieme a
+     * un'altra, anche quelle che si aggiungessero in futuro.
      */
+    /** Nome in italiano di una riga di storico titoli, per i messaggi d'errore. Il tipo 'gain'
+     *  vale sia plusvalenza sia minusvalenza: le distingue il segno di price. */
+    private static String ptRowLabel(Map<String, Object> pt) {
+        String type = (String) pt.get("type");
+        Object price = pt.get("price");
+        double v = price instanceof Number n ? n.doubleValue() : 0;
+        return switch (type == null ? "" : type) {
+            case "gain"     -> v >= 0 ? "la plusvalenza" : "la minusvalenza";
+            case "tax"      -> "l'imposta";
+            case "expense"  -> "la commissione";
+            case "coupon"   -> "la cedola";
+            case "dividend" -> "il dividendo";
+            default         -> "il movimento";
+        };
+    }
+
     public Map<String, Object> deleteTransaction(int id) throws SQLException {
         Map<String, Object> link = queryOne(
-            "SELECT pt.type, COALESCE(p.ticker, p.name, '?') AS titolo " +
+            "SELECT pt.type, pt.price, pt.parent_pt_id, COALESCE(p.ticker, p.name, '?') AS titolo " +
             "FROM portfolio_transactions pt LEFT JOIN portfolio p ON p.id=pt.portfolio_id " +
-            "WHERE pt.transaction_id=? AND pt.type IN ('buy','sell') LIMIT 1", id);
+            "WHERE pt.transaction_id=? AND (pt.type IN ('buy','sell') OR pt.parent_pt_id IS NOT NULL) LIMIT 1", id);
+        if (link != null && link.get("parent_pt_id") != null) {
+            throw new SQLException("Questo movimento è la contropartita di una vendita di "
+                    + link.get("titolo") + " (" + ptRowLabel(link) + "):"
+                    + " eliminarlo lascerebbe la vendita senza la sua contropartita e il conto"
+                    + " investimenti scoperto di quell'importo."
+                    + " Annulla l'intera vendita dalla scheda del titolo.");
+        }
         if (link != null) {
             boolean acquisto = "buy".equals(link.get("type"));
             throw new SQLException("Questa transazione è " + (acquisto ? "un acquisto" : "una vendita")
@@ -4815,6 +4887,12 @@ public class Database {
         String date     = p.get("date").getAsString();
         String notes    = p.has("notes") && !p.get("notes").isJsonNull() ? p.get("notes").getAsString() : null;
 
+        // Stessa validazione di buyStock e registerPortfolioTax: un importo 0 o negativo qui
+        // scriverebbe un'entrata che toglie soldi dal conto, e nello storico del titolo una
+        // cedola incassata al contrario. Lato JS il controllo c'era già, ma non è l'unica via
+        // d'ingresso: il Bridge risponde anche alle chiamate HTTP dalla LAN.
+        if (!(amount > 0))
+            throw new SQLException("Importo non valido (" + amount + "): deve essere maggiore di zero.");
         var pos = queryOne("SELECT * FROM portfolio WHERE id=?", portfolioId);
         if (pos == null) throw new SQLException("Posizione non trovata");
         String ticker = (String)pos.get("ticker");
@@ -4852,6 +4930,8 @@ public class Database {
         String date     = p.get("date").getAsString();
         String notes    = p.has("notes") && !p.get("notes").isJsonNull() ? p.get("notes").getAsString() : null;
 
+        if (!(amount > 0))
+            throw new SQLException("Importo non valido (" + amount + "): deve essere maggiore di zero.");
         var pos = queryOne("SELECT * FROM portfolio WHERE id=?", portfolioId);
         if (pos == null) throw new SQLException("Posizione non trovata");
         String ticker = (String)pos.get("ticker");
@@ -4890,6 +4970,8 @@ public class Database {
         String label    = p.has("label") && !p.get("label").isJsonNull() ? p.get("label").getAsString() : "Spesa";
         String notes    = p.has("notes") && !p.get("notes").isJsonNull() ? p.get("notes").getAsString() : null;
 
+        if (!(amount > 0))
+            throw new SQLException("Importo non valido (" + amount + "): deve essere maggiore di zero.");
         var pos = queryOne("SELECT * FROM portfolio WHERE id=?", portfolioId);
         if (pos == null) throw new SQLException("Posizione non trovata");
         String ticker = (String)pos.get("ticker");

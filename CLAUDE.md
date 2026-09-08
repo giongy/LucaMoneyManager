@@ -25,7 +25,7 @@ tali. La documentazione da tenere aggiornata è solo questa terna: `CLAUDE.md`, 
 - **Linguaggio:** Java 25, Maven 3.x
 - **UI:** JCEF v146 (Chromium embedded) + Swing per dialogs/titlebar/splash
 - **Frontend:** Vanilla JS puro (`src/main/resources/web/`, modulare in `js/pages/*.js`), no React/Vue
-- **Versione:** 1.25.9 — output `target/moneymanager-1.25.9.jar` (fat JAR, web/ esclusa)
+- **Versione:** 1.25.10 — output `target/moneymanager-1.25.10.jar` (fat JAR, web/ esclusa)
 - **Web assets:** serviti da filesystem (cartella `web/` accanto al `.exe` in produzione, `target/classes/web/` in IDE)
 - **DB path:** `%APPDATA%\LucaMoneyManager\data.db` (`%APPDATA%` = `...\Roaming`)
 - **Build:** `mvn package` oppure `tools\build\build.bat`
@@ -224,6 +224,10 @@ si perde e la categoria verrà ricreata — esito imperfetto ma innocuo, e scrit
    (`is_default=1`) — gira **una volta sola** in `backfillCategorySystemKeys()`. A runtime la
    ricerca è per chiave, con al più un ripiego su nomi **esatti**: un'euristica nel percorso
    quotidiano cambierebbe risposta nel tempo, basta che l'utente crei una categoria simile.
+   Dalla 1.25.10 la regola non ha più eccezioni: le ultime due euristiche per nome rimaste
+   (il ripiego di `registerPortfolioExpense` e `commissionCategoryId()`, che dalla v24 non
+   chiamava più nessuno) sono state tolte. Se una spesa su titoli non ha categoria, resta
+   senza: metterla in una a caso la farebbe comparire in un report dove non è mai stata scritta.
 3. **Si vede sempre quali categorie usa il portafoglio, e si dice quando serve cosa comporta.**
    Due cose distinte, che fino alla 1.25.7 erano confuse in una sola («nessun badge permanente
    in pagina»):

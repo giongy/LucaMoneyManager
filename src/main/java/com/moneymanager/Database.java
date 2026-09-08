@@ -4267,25 +4267,12 @@ public class Database {
         return positions;
     }
 
-    /**
-     * Categoria di spesa in cui registrare le commissioni di compravendita.
-     *
-     * Cascata a 4 livelli, dalla più specifica alla più generica: "Commissioni" →
-     * "Spese/Tasse" (o qualsiasi "…tasse…") → "Investimenti" → la prima categoria di spesa
-     * per id. Ritorna null solo se non esiste NESSUNA categoria di spesa.
-     *
-     * Era duplicata identica in {@code buyStock} e {@code sellStock}: due copie della stessa
-     * cascata significavano che una modifica applicata a una sola avrebbe fatto finire le
-     * commissioni di acquisto e quelle di vendita in categorie diverse, falsando i report per
-     * categoria senza che nulla lo segnalasse.
-     */
-    private Integer commissionCategoryId() throws SQLException {
-        var cat = queryOne("SELECT id FROM categories WHERE type='expense' AND LOWER(name) LIKE '%commission%' ORDER BY id LIMIT 1");
-        if (cat == null) cat = queryOne("SELECT id FROM categories WHERE type='expense' AND (LOWER(name) LIKE '%spese/tasse%' OR LOWER(name) LIKE '%tasse%') ORDER BY id LIMIT 1");
-        if (cat == null) cat = queryOne("SELECT id FROM categories WHERE type='expense' AND LOWER(name) LIKE '%nvestiment%' ORDER BY id LIMIT 1");
-        if (cat == null) cat = queryOne("SELECT id FROM categories WHERE type='expense' ORDER BY id LIMIT 1");
-        return cat != null ? ((Number) cat.get("id")).intValue() : null;
-    }
+    // ⚠️ Qui stava commissionCategoryId(), rimossa: cercava per nome la categoria in cui
+    // registrare le commissioni con una cascata di quattro LIKE che finiva sulla "prima
+    // categoria di spesa per id". Non la chiamava più nessuno dalla v24, da quando la
+    // commissione ha smesso di essere una transazione di spesa a sé ed è entrata nel prezzo di
+    // carico (vedi buyStock/sellStock). Tenerla in giro invitava a riusarla: era esattamente il
+    // tipo di euristica per nome che la v25 ha eliminato dai percorsi quotidiani.
 
     // Categorie di sistema delle operazioni su titoli. Sono escluse da budget e report: una
     // plusvalenza muove il patrimonio ma non è reddito pianificabile, e se entrasse nelle medie
@@ -4413,9 +4400,9 @@ public class Database {
      * Id di una categoria di sistema per gli investimenti; se manca la crea, già marcata come
      * esclusa da budget e report e appesa al parent giusto (Entrate per le entrate, Varie per
      * le uscite).
-     * ⚠️ Nessun fallback "prima categoria disponibile" come in {@link #commissionCategoryId()}:
-     * lì un errore ti sposta una commissione da pochi euro, qui ti scriverebbe una plusvalenza
-     * da migliaia in una categoria a caso.
+     * ⚠️ Nessun ripiego su "la prima categoria di spesa che c'è": scriverebbe una plusvalenza da
+     * migliaia di euro in una categoria a caso, e nessun report lo segnalerebbe. Se la categoria
+     * non esiste la si crea — è l'unica risposta giusta a "dove la metto".
      */
     private int investCategoryId(String key, String name, String type, String icon, String color) throws SQLException {
         Integer byKey = systemCategoryIdByKey(key, name, type);
@@ -4961,7 +4948,19 @@ public class Database {
         });
     }
 
-    /** Registra una spesa generica legata a un titolo (es. bollo/tasse) come transazione expense. */
+    /**
+     * Registra una spesa generica legata a un titolo (es. bollo, Tobin tax, ritenuta) come
+     * transazione expense.
+     *
+     * ⚠️ La categoria è quella che sceglie l'utente, e basta. Il modale offre esplicitamente
+     * "— Nessuna —": se sceglie quella, la transazione resta senza categoria. Prima invece si
+     * cercava una categoria di spesa col nome che assomigliasse a "investimenti", e in mancanza
+     * si prendeva la PRIMA categoria di spesa per id — cioè scegliendo "nessuna" la spesa
+     * finiva in una categoria a caso, che da quel momento mostrava nei report un importo mai
+     * registrato lì. Un'euristica per nome nel percorso quotidiano per giunta, la cosa che la
+     * v25 ha tolto proprio perché cambia risposta nel tempo (vedi "Titoli" in CLAUDE.md).
+     * Una transazione senza categoria si vede e si corregge; una nella categoria sbagliata no.
+     */
     public Map<String, Object> registerPortfolioExpense(JsonObject p) throws SQLException {
         int portfolioId = p.get("portfolio_id").getAsInt();
         int accountId   = p.get("account_id").getAsInt();
@@ -4976,17 +4975,10 @@ public class Database {
         if (pos == null) throw new SQLException("Posizione non trovata");
         String ticker = (String)pos.get("ticker");
 
-        Integer catIdResolved = p.has("category_id") && !p.get("category_id").isJsonNull()
+        Integer catId = p.has("category_id") && !p.get("category_id").isJsonNull()
                 ? p.get("category_id").getAsInt() : null;
 
         return inTx(() -> {
-            Integer catId = catIdResolved;
-            if (catId == null) {
-                var expCat = queryOne("SELECT id FROM categories WHERE type='expense' AND name LIKE '%nvestiment%' LIMIT 1");
-                if (expCat == null) expCat = queryOne("SELECT id FROM categories WHERE type='expense' LIMIT 1");
-                catId = expCat != null ? ((Number)expCat.get("id")).intValue() : null;
-            }
-
             String desc = notes != null ? notes : label + " " + ticker;
             long txId = execute("""
                 INSERT INTO transactions(date,amount,type,category_id,account_id,description,reconciled)
@@ -5002,8 +4994,12 @@ public class Database {
             if (investTagId != null)
                 execute("INSERT OR IGNORE INTO transaction_tags(transaction_id,tag_id) VALUES(?,?)", txId, investTagId);
 
+            // La categoria finisce nel log: adesso può legittimamente non esserci, e senza
+            // scriverlo qui una spesa senza categoria sembrerebbe una dimenticanza dell'app.
+            var cat = catId != null ? queryOne("SELECT name FROM categories WHERE id=?", catId) : null;
             logger.log("SPESA PORTFOLIO REGISTRATA", "ticker:" + ticker,
-                       "label:" + DbLogger.s(label), "importo:" + DbLogger.amt(amount), "data:" + date);
+                       "label:" + DbLogger.s(label), "importo:" + DbLogger.amt(amount), "data:" + date,
+                       "categoria:" + (cat != null ? DbLogger.s(cat.get("name")) : "nessuna (scelta dall'utente)"));
             return Map.of("ok", true, "transaction_id", txId);
         });
     }

@@ -1681,6 +1681,10 @@ async function showExpenseModal(portfolioId) {
           <option value="">— Nessuna —</option>
           ${catOptions}
         </select>
+        <!-- Detto esplicitamente perché fino alla 1.25.9 non era vero: scegliendo "Nessuna"
+             l'app cercava per nome una categoria che assomigliasse a "investimenti" e, non
+             trovandola, usava la prima categoria di spesa qualsiasi. -->
+        <div class="settings-hint" style="margin-top:3px">senza categoria resta fuori dai report per categoria</div>
       </div>
       <div class="form-group">
         <label class="form-label">Note</label>

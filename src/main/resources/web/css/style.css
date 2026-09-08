@@ -1982,12 +1982,33 @@ tr.tx-selected td { background:rgba(124,124,255,.07); }
 .cat-icon { width:28px; height:28px; border-radius:6px; display:flex;
   align-items:center; justify-content:center; font-size:var(--fs-lg,13px); flex-shrink:0; }
 .cat-color-dot { width:12px; height:12px; border-radius:3px; flex-shrink:0; }
-/* Niente flex:1 sul nome: i badge stanno subito dopo, non spinti a metà riga da uno
-   spazio vuoto. A tenere i comandi contro il bordo destro basta .cat-actions. */
 .cat-name { font-weight:600; }
-.cat-sub-count { font-size:var(--fs-sm,11px); color:var(--txt3); margin-left:4px; }
+/* I badge non stanno più attaccati al nome ma in un vassoio spinto a destra: attaccati
+   partivano da una posizione diversa a ogni riga (dipende da quanto è lungo il nome) e per
+   sapere quali categorie fossero escluse bisognava leggerle una per una. Allineati a destra
+   formano colonne che si scorrono con l'occhio. Il margin-left:auto sta qui, non più su
+   .cat-actions: due "auto" di fila si dividerebbero lo spazio e i comandi resterebbero a metà. */
+.cat-badges { display:flex; align-items:center; gap:6px; margin-left:auto; flex-wrap:wrap;
+  justify-content:flex-end; }
+.cat-sub-count { font-size:var(--fs-sm,11px); color:var(--txt3); white-space:nowrap; }
 .cat-indent { color:var(--txt3); font-size:var(--fs-lg,13px); margin-left:10px; }
-.cat-actions { display:flex; gap:4px; margin-left:auto; }
+.cat-actions { display:flex; gap:4px; margin-left:12px; flex-shrink:0; }
+
+/* Interruttori del modale categorie: affiancati quando ce ne sono due (solo le
+   sottocategorie hanno anche quello di Android), impilati sul telefono. */
+.cat-opts { display:grid; grid-template-columns:1fr; gap:10px; margin-top:16px; }
+.cat-opts-2 { grid-template-columns:1fr 1fr; }
+/* Interruttore del modale categorie: casella + titolo + spiegazione, tutto dentro un
+   riquadro cliccabile. Acceso si accende anche il riquadro, così lo stato si vede dal
+   colore invece che dalla sola spunta. */
+.cat-opt { display:block; padding:9px 11px; border:1px solid var(--border); border-radius:8px;
+  background:var(--bg3); cursor:pointer; transition:border-color .15s, background .15s; }
+.cat-opt:hover { border-color:var(--accent); }
+.cat-opt-on { border-color:var(--accent); background:color-mix(in srgb, var(--accent) 9%, var(--bg3)); }
+.cat-opt-head { display:flex; align-items:center; gap:8px; font-size:var(--fs-md,12px);
+  font-weight:600; color:var(--txt); }
+.cat-opt-head input { width:auto; margin:0; flex-shrink:0; }
+.cat-opt-desc { font-size:var(--fs-sm,11px); color:var(--txt3); line-height:1.45; margin-top:5px; }
 /* Interruttore "usabile da Android": spento resta visibile ma smorzato (l'emoji va desaturata
    a mano, l'opacità da sola la lascia comunque colorata), acceso si stacca con un alone verde. */
 .cat-mobile-btn { filter:grayscale(1); opacity:.35; }
@@ -2084,10 +2105,25 @@ tr.tx-selected td { background:rgba(124,124,255,.07); }
 }
 .icon-picker-preview:hover { border-color:var(--accent); }
 .icon-picker-hint { font-size:var(--fs-sm,11px); color:var(--txt3); }
+/* Emoji dell'anteprima: la misura sta qui e non inline nel JS, altrimenti nessuna regola
+   potrebbe pareggiare l'altezza del picker a quella degli altri campi della riga. */
+.icon-picker-emoji { font-size:17px; line-height:1; }
 .icon-picker-panel {
   margin-top:6px; padding:10px; background:var(--bg2);
   border:1px solid var(--border); border-radius:8px;
   box-shadow:0 8px 24px #0005;
+}
+/* Variante per il picker messo in riga accanto ad altri campi (modale Categorie): il pannello
+   esce in assoluto SOPRA il resto del modale invece di allungare la riga. Senza, la griglia
+   delle emoji finirebbe in una colonna larga quanto l'anteprima, e il modale si allungherebbe
+   di 200px a ogni apertura. right:0 perché il picker sta a destra: aprendolo verso sinistra
+   resta dentro al modale anche quando la colonna è l'ultima. */
+.icon-picker-inline { position:relative; }
+/* Stessa altezza di .form-control, così in riga le tre etichette (Nome/Icona/Colore) restano
+   allineate: con align-items:end un campo più alto tirerebbe su la propria etichetta. */
+.icon-picker-inline .icon-picker-preview { height:33px; padding:0 10px; box-sizing:border-box; }
+.icon-picker-inline .icon-picker-panel {
+  position:absolute; z-index:20; top:calc(100% + 4px); right:0; width:300px; max-width:80vw;
 }
 .icon-grid {
   display:flex; flex-wrap:wrap; gap:2px; max-height:180px;
@@ -3203,9 +3239,12 @@ tr.tx-selected td { background:rgba(124,124,255,.07); }
      (aggiungi / modifica / elimina, e l'interruttore 📱 sulle sottocategorie) finivano
      oltre il bordo, tagliati da .cat-parent{overflow:hidden} — irraggiungibili anche
      scorrendo. Restano icona, nome e comandi; sparisce l'unico accessorio ancora di
-     troppo a questa larghezza — "N sottocategorie", con l'elenco già aperto lì sotto.
-     Restano invece 🚫 Esclusa e 📱 N: quelli non si deducono da nient'altro. */
+     troppo a questa larghezza — il conteggio ("N sottocat. · N mov."), con l'elenco già aperto lì sotto.
+     Restano invece i badge 🚫 Esclusa, 📱 N e 📈: quelli non si deducono da nient'altro. */
   .cat-row { gap:6px; padding-left:8px; padding-right:8px; }
+  /* I due interruttori del modale categorie si impilano: affiancati su 390px restano
+     due colonne da ~150px, e le loro spiegazioni diventano una parola per riga. */
+  .cat-opts-2 { grid-template-columns:1fr; }
   .cat-sub-count { display:none; }
   /* min-width:0 sblocca la contrazione (di suo un flex item non scende sotto il
      contenuto): senza, il nome lungo spinge fuori i pulsanti invece di accorciarsi. */

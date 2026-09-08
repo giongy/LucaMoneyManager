@@ -26,6 +26,24 @@ function _catNature(c) {
   return c.expense_nature || c.parent_expense_nature || '';
 }
 
+// Quante transazioni ci sono dentro. `usage_count` arriva già da getCategories e finora non si
+// vedeva da nessuna parte: senza, il filtro "mai usate" era l'unico modo per saperlo, e su una
+// categoria qualunque non c'era modo di capire se fosse viva o un residuo mai usato.
+// Sulla principale si somma quello delle figlie: i movimenti stanno quasi sempre lì.
+function _catMovTotal(parent, kids) {
+  return (parent.usage_count || 0) + kids.reduce((s, k) => s + (k.usage_count || 0), 0);
+}
+function _catMovLabel(n) {
+  return n === 0 ? 'mai usata' : `${n} mov.`;
+}
+function _catCountTitle(parent, kids) {
+  const own = parent.usage_count || 0;
+  const tot = _catMovTotal(parent, kids);
+  return own
+    ? `${tot} transazioni in questo ramo, di cui ${own} direttamente sulla categoria principale`
+    : `${tot} transazioni in questo ramo (tutte sulle sottocategorie)`;
+}
+
 // Riga di cortesia quando un filtro non trova niente: senza, la sezione resta un vuoto muto
 // e non si capisce se il filtro non ha trovato nulla o se il render è fallito.
 function _catEmpty() {
@@ -118,12 +136,13 @@ async function renderCategories() {
             <span class="cat-icon" style="background:${esc(p.color)}22;color:${esc(p.color)}">${esc(p.icon)}</span>
             <span class="cat-color-dot" style="background:${esc(p.color)}" title="${esc(p.color)}"></span>
             <span class="cat-name">${esc(p.name)}</span>
-            ${p.expense_nature ? `<span class="nature-badge nature-${p.expense_nature}">${{essenziale:'🟢 Essenziale',variabile:'🟡 Variabile',superflua:'🔴 Superflua'}[p.expense_nature]||''}</span>` : ''}
-            ${p.excluded_from_budget ? `<span class="badge" style="background:var(--txt3);color:#fff;font-size:10px" title="Esclusa da budget, report, dashboard e previsioni">🚫 Esclusa</span>` : ''}
-            ${mobileKids ? `<span class="badge" style="background:#3fb95022;color:#3fb950;font-size:10px" title="${mobileKids} sottocategorie proposte dall'app Android">📱 ${mobileKids}</span>` : ''}
-            ${_sysBadge(p)}
-            ${_catFilter === 'unused' && isUnused(p) ? `<span class="badge" style="background:var(--bg3);color:var(--txt3);font-size:10px" title="Nessun movimento su questa categoria né sulle sue sottocategorie">0 movimenti</span>` : ''}
-            <span class="cat-sub-count">${hiddenKids ? `${kids.length} di ${allKids.length}` : kids.length} sottocategorie</span>
+            <div class="cat-badges">
+              ${p.expense_nature ? `<span class="nature-badge nature-${p.expense_nature}" title="Natura della spesa, ereditata dalle sottocategorie che non ne hanno una propria">${{essenziale:'🟢 Essenziale',variabile:'🟡 Variabile',superflua:'🔴 Superflua'}[p.expense_nature]||''}</span>` : ''}
+              ${p.excluded_from_budget ? `<span class="badge" style="background:var(--txt3);color:#fff;font-size:10px" title="Esclusa da budget, report, dashboard e previsioni">🚫 Esclusa</span>` : ''}
+              ${mobileKids ? `<span class="badge" style="background:#3fb95022;color:#3fb950;font-size:10px" title="${mobileKids} sottocategorie proposte dall'app Android">📱 ${mobileKids}</span>` : ''}
+              ${_sysBadge(p)}
+              <span class="cat-sub-count" title="${_catCountTitle(p, allKids)}">${hiddenKids ? `${kids.length} di ${allKids.length}` : kids.length} sottocat. · ${_catMovLabel(_catMovTotal(p, allKids))}</span>
+            </div>
             <div class="cat-actions">
               ${!isTransfer ? `
                 <!-- ＋ a tutta larghezza (U+FF0B) e non "+": qui il bottone è solo icona e sta
@@ -144,10 +163,13 @@ async function renderCategories() {
                   <span class="cat-icon" style="background:${esc(k.color)}22;color:${esc(k.color)}">${esc(k.icon)}</span>
                   <span class="cat-color-dot" style="background:${esc(k.color)}" title="${esc(k.color)}"></span>
                   <span class="cat-name">${esc(k.name)}</span>
-                  ${(() => { const n = k.expense_nature || k.parent_expense_nature; const inh = !k.expense_nature && n; return n ? `<span class="nature-badge nature-${n}" title="${inh?'ereditata dal parent':''}">${{essenziale:'🟢',variabile:'🟡',superflua:'🔴'}[n]||''}${inh?' ↑':''}</span>` : ''; })()}
-                  ${k.excluded_from_budget ? `<span class="badge" style="background:var(--txt3);color:#fff;font-size:10px" title="Esclusa da budget, report, dashboard e previsioni">🚫</span>` : ''}
-                  ${_sysBadge(k)}
-                  ${_catFilter === 'unused' ? `<span class="badge" style="background:var(--bg3);color:var(--txt3);font-size:10px" title="Nessun movimento in questa categoria">0 movimenti</span>` : ''}
+                  <div class="cat-badges">
+                    ${(() => { const n = _catNature(k); const inh = !k.expense_nature && n;
+                        return n ? `<span class="nature-badge nature-${n}" title="${{essenziale:'Essenziale',variabile:'Variabile',superflua:'Superflua'}[n]}${inh ? ' — ereditata dalla categoria principale' : ''}">${{essenziale:'🟢',variabile:'🟡',superflua:'🔴'}[n]||''}${inh ? ' ↑' : ''}</span>` : ''; })()}
+                    ${k.excluded_from_budget ? `<span class="badge" style="background:var(--txt3);color:#fff;font-size:10px" title="Esclusa da budget, report, dashboard e previsioni">🚫</span>` : ''}
+                    ${_sysBadge(k)}
+                    <span class="cat-sub-count" title="Transazioni registrate in questa sottocategoria">${_catMovLabel(k.usage_count || 0)}</span>
+                  </div>
                   <div class="cat-actions">
                     <button class="btn btn-ghost btn-icon cat-mobile-btn ${k.mobile_favorite ? 'active' : ''}"
                             onclick="toggleCategoryMobile(${k.id}, ${k.mobile_favorite ? 0 : 1})"
@@ -324,7 +346,7 @@ async function deleteCategory(id) {
      </p>
      <div class="form-group">
        <label class="form-label">Sposta su</label>
-       <select id="del_target" class="form-input">
+       <select id="del_target" class="form-control">
          <option value="">— Seleziona categoria —</option>
          ${opts}
        </select>
@@ -378,69 +400,58 @@ async function showCategoryModal(cat, type, parentId) {
     `<option value="${p.id}" ${pId === p.id ? 'selected' : ''}>${esc(p.icon)} ${esc(p.name)}</option>`
   ).join('');
 
+  // Il modale è diviso in due parti: sopra l'IDENTITÀ (com'è fatta e dove sta), sotto il
+  // COMPORTAMENTO (come la trattano budget, telefono e report). Prima era un'unica colonna di
+  // otto campi a tutta larghezza, e le tre righe più corte del modale — tipo, icona, colore —
+  // ne occupavano metà da sole.
+  // ⚠️ Il div .form-grid non esiste come classe CSS (non c'è mai stata): i `grid-column:1/-1`
+  // sparsi sui gruppi non facevano nulla, era tutto impilato per flusso normale. Qui si usano
+  // .form-row (griglia a due colonne, quella vera) e griglie inline dichiarate sul posto.
   openModal(isEdit ? 'Modifica Categoria' : 'Nuova Categoria', `
-    <div class="form-grid">
-      <div class="form-group" style="grid-column:1/-1">
-        <label class="form-label">Tipo</label>
-        <div class="badge ${type === 'income' ? 'badge-income' : 'badge-expense'}" style="display:inline-block">
-          ${type === 'income' ? '📥 Entrata' : '📤 Uscita'}
-          ${isChild ? '(ereditato dal parent)' : ''}
+    <div>
+      <!-- Nome, icona e colore: sono la stessa domanda ("che aspetto ha") e stanno su una riga
+           sola. Il nome prende lo spazio che avanza, gli altri due quello che serve. -->
+      <div class="form-group" style="display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:end">
+        <div>
+          <label class="form-label" for="c_name">Nome *</label>
+          <input id="c_name" class="form-control" value="${esc(cat?.name ?? '')}" placeholder="es. Supermercato">
+        </div>
+        <div>
+          <label class="form-label">Icona</label>
+          <input type="hidden" id="c_icon" value="${esc(cat?.icon ?? '📁')}">
+          <!-- icon-picker-inline: il pannello delle emoji esce in assoluto sopra il resto del
+               modale invece di allungare la riga. Senza, la griglia starebbe in una colonna
+               larga quanto l'anteprima. -->
+          <div id="iconPickerWrap" class="icon-picker-inline"></div>
+        </div>
+        <div>
+          <label class="form-label" for="c_color">Colore</label>
+          <input id="c_color" type="color" class="form-color-tx" style="height:33px;width:46px" value="${esc(cat?.color ?? '#58a6ff')}">
         </div>
       </div>
-      <div class="form-group" style="grid-column:1/-1">
-        <label class="form-label">Categoria principale (opzionale)</label>
-        <select id="c_parent" class="form-control">
-          <option value="">— Nessuna (categoria principale) —</option>
-          ${parentOpts}
-        </select>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Nome *</label>
-        <input id="c_name" class="form-control" value="${esc(cat?.name ?? '')}" placeholder="es. Supermercato">
-      </div>
-      <div class="form-group" style="grid-column:1/-1">
-        <label class="form-label">Icona</label>
-        <input type="hidden" id="c_icon" value="${esc(cat?.icon ?? '📁')}">
-        <div id="iconPickerWrap"></div>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Colore</label>
-        <input id="c_color" type="color" class="form-color-tx" value="${esc(cat?.color ?? '#58a6ff')}">
-      </div>
-      <div class="form-group" style="grid-column:1/-1">
-        <label class="form-label" style="display:flex;align-items:center;gap:8px;cursor:pointer">
-          <input id="c_excluded" type="checkbox" ${cat?.excluded_from_budget ? 'checked' : ''} style="width:auto;margin:0">
-          🚫 Escludi da budget e report
-        </label>
-        <div style="font-size:11px;color:var(--txt3);margin-top:4px">
-          Le transazioni di questa categoria restano visibili e muovono il saldo del conto, ma non vengono conteggiate in budget, report, dashboard e previsioni. Utile ad es. per l'addebito del capital gain.
+
+      <!-- Dove sta: il tipo non è modificabile (lo eredita dal parent, o lo decide il bottone da
+           cui si è arrivati), quindi è un'etichetta accanto alla scelta che invece si può fare. -->
+      <div class="form-row" style="align-items:end">
+        <div class="form-group" style="margin-bottom:0">
+          <label class="form-label">Categoria principale</label>
+          <select id="c_parent" class="form-control">
+            <option value="">— Nessuna (è una principale) —</option>
+            ${parentOpts}
+          </select>
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+          <label class="form-label">Tipo</label>
+          <div class="badge ${type === 'income' ? 'badge-income' : 'badge-expense'}" style="display:inline-flex;align-items:center;height:31px;padding:0 12px">
+            ${type === 'income' ? '📥 Entrata' : '📤 Uscita'}
+          </div>
+          <span class="settings-hint" style="margin-left:6px">${isChild ? 'ereditato dalla principale' : 'non modificabile'}</span>
         </div>
       </div>
-      ${cat?.system_key && SYSTEM_CAT_LABEL[cat.system_key] ? `
-      <div class="form-group" style="grid-column:1/-1">
-        <div class="settings-hint" style="padding:9px 11px;border-radius:6px;background:var(--bg3);line-height:1.5">
-          📈 Qui l'app registra <b>${SYSTEM_CAT_LABEL[cat.system_key]}</b>.
-          Puoi rinominarla, spostarla sotto un'altra categoria o cambiarle icona e colore
-          <b>senza rompere niente</b>: il collegamento non è il nome.
-          ${cat.system_key === 'cedole_dividendi'
-            ? 'Questa resta dentro budget e previsioni di proposito: le rendite sono ricorrenti e si pianificano.'
-            : 'Togliendo la spunta qui sopra, questi movimenti entreranno in medie, previsioni e Salute Finanziaria — sono eventi di capitale, di solito è meglio tenerli fuori.'}
-        </div>
-      </div>` : ''}
-      ${isChild ? `
-      <div class="form-group" style="grid-column:1/-1">
-        <label class="form-label" style="display:flex;align-items:center;gap:8px;cursor:pointer">
-          <input id="c_mobile" type="checkbox" ${cat?.mobile_favorite ? 'checked' : ''} style="width:auto;margin:0">
-          📱 Usabile dall'app Android
-        </label>
-        <div style="font-size:11px;color:var(--txt3);margin-top:4px">
-          Nell'inserimento da telefono compaiono solo le sottocategorie marcate così — l'elenco resta
-          corto e la spesa si registra in pochi tocchi. Se non ne marchi nessuna, l'app le mostra tutte.
-        </div>
-      </div>` : ''}
+
       ${type === 'expense' ? `
-      <div class="form-group" style="grid-column:1/-1">
-        <label class="form-label">Natura spesa</label>
+      <div class="form-group" style="margin-top:14px">
+        <label class="form-label">Natura spesa${inheritedNature && !cat?.expense_nature ? ' <span style="text-transform:none;letter-spacing:0;font-weight:400;color:var(--txt3)">— ora ereditata dalla principale, scegline una per sovrascriverla</span>' : ''}</label>
         <input type="hidden" id="c_nature" value="${cat?.expense_nature ?? ''}">
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           ${[['','⬜ Non classif.','var(--txt3)'],['essenziale','🟢 Essenziale','#3fb950'],['variabile','🟡 Variabile','#e3b341'],['superflua','🔴 Superflua','#f85149']].map(([v,l,c]) => `
@@ -450,7 +461,46 @@ async function showCategoryModal(cat, type, parentId) {
               ${l}
             </button>`).join('')}
         </div>
-        ${inheritedNature && !cat?.expense_nature ? `<div style="font-size:11px;color:var(--txt3);margin-top:4px">↑ Ereditata dal parent — seleziona un'altra opzione per sovrascrivere</div>` : ''}
+      </div>` : ''}
+
+      <!-- Comportamento: due interruttori con la spiegazione sotto, affiancati quando ci sono
+           entrambi. Le descrizioni sono lunghe ma servono: dicono cosa cambia DAVVERO, ed è
+           l'unico posto in cui è scritto. -->
+      <div class="cat-opts${isChild ? ' cat-opts-2' : ''}">
+        <label class="cat-opt${cat?.excluded_from_budget ? ' cat-opt-on' : ''}" for="c_excluded">
+          <div class="cat-opt-head">
+            <input id="c_excluded" type="checkbox" ${cat?.excluded_from_budget ? 'checked' : ''}
+                   onchange="this.closest('.cat-opt').classList.toggle('cat-opt-on', this.checked)">
+            <span>🚫 Escludi da budget e report</span>
+          </div>
+          <div class="cat-opt-desc">
+            I movimenti restano visibili e muovono il saldo del conto, ma non entrano in budget,
+            report, dashboard e previsioni. Serve a ciò che è vero ma non pianificabile — per
+            esempio l'addebito del capital gain.
+          </div>
+        </label>
+        ${isChild ? `
+        <label class="cat-opt${cat?.mobile_favorite ? ' cat-opt-on' : ''}" for="c_mobile">
+          <div class="cat-opt-head">
+            <input id="c_mobile" type="checkbox" ${cat?.mobile_favorite ? 'checked' : ''}
+                   onchange="this.closest('.cat-opt').classList.toggle('cat-opt-on', this.checked)">
+            <span>📱 Usabile dall'app Android</span>
+          </div>
+          <div class="cat-opt-desc">
+            Sul telefono compaiono solo le sottocategorie marcate così: l'elenco resta corto e la
+            spesa si registra in pochi tocchi. Se non ne marchi nessuna, l'app le mostra tutte.
+          </div>
+        </label>` : ''}
+      </div>
+
+      ${cat?.system_key && SYSTEM_CAT_LABEL[cat.system_key] ? `
+      <div class="settings-hint" style="margin-top:12px;padding:9px 11px;border-radius:8px;background:var(--bg3);line-height:1.5">
+        📈 Qui l'app registra <b>${SYSTEM_CAT_LABEL[cat.system_key]}</b>.
+        Puoi rinominarla, spostarla sotto un'altra categoria o cambiarle icona e colore
+        <b>senza rompere niente</b>: il collegamento non è il nome.
+        ${cat.system_key === 'cedole_dividendi'
+          ? 'Questa resta dentro budget e previsioni di proposito: le rendite sono ricorrenti e si pianificano.'
+          : 'Togliendo la spunta qui sopra, questi movimenti entreranno in medie, previsioni e Salute Finanziaria — sono eventi di capitale, di solito è meglio tenerli fuori.'}
       </div>` : ''}
     </div>
   `, async () => {

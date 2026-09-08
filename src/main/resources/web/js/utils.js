@@ -660,11 +660,11 @@ function _iconPickerBuild(containerId, currentEmoji) {
   if (!wrap) return;
   wrap.innerHTML = `
     <div class="icon-picker-preview" onclick="_iconPickerToggle('${containerId}')">
-      <span id="${containerId}_preview" style="font-size:22px">${currentEmoji}</span>
+      <span id="${containerId}_preview" class="icon-picker-emoji">${currentEmoji}</span>
       <span class="icon-picker-hint">Clicca per cambiare</span>
     </div>
     <div id="${containerId}_panel" class="icon-picker-panel" style="display:none">
-      <input type="text" class="form-input" style="margin-bottom:6px"
+      <input type="text" class="form-control" style="margin-bottom:6px"
              placeholder="Cerca icona…" oninput="_iconPickerSearch('${containerId}',this.value)">
       <div id="${containerId}_grid" class="icon-grid"></div>
     </div>`;

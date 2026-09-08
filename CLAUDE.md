@@ -25,7 +25,7 @@ tali. La documentazione da tenere aggiornata è solo questa terna: `CLAUDE.md`, 
 - **Linguaggio:** Java 25, Maven 3.x
 - **UI:** JCEF v146 (Chromium embedded) + Swing per dialogs/titlebar/splash
 - **Frontend:** Vanilla JS puro (`src/main/resources/web/`, modulare in `js/pages/*.js`), no React/Vue
-- **Versione:** 1.25.7 — output `target/moneymanager-1.25.7.jar` (fat JAR, web/ esclusa)
+- **Versione:** 1.25.8 — output `target/moneymanager-1.25.8.jar` (fat JAR, web/ esclusa)
 - **Web assets:** serviti da filesystem (cartella `web/` accanto al `.exe` in produzione, `target/classes/web/` in IDE)
 - **DB path:** `%APPDATA%\LucaMoneyManager\data.db` (`%APPDATA%` = `...\Roaming`)
 - **Build:** `mvn package` oppure `tools\build\build.bat`
@@ -224,15 +224,22 @@ si perde e la categoria verrà ricreata — esito imperfetto ma innocuo, e scrit
    (`is_default=1`) — gira **una volta sola** in `backfillCategorySystemKeys()`. A runtime la
    ricerca è per chiave, con al più un ripiego su nomi **esatti**: un'euristica nel percorso
    quotidiano cambierebbe risposta nel tempo, basta che l'utente crei una categoria simile.
-3. **L'avviso quando serve, non sempre.** Nessun badge permanente in pagina: è il modale di
-   eliminazione a dire cosa comporta, e a segnalare se la destinazione scelta **non** è esclusa
-   da budget — l'unica conseguenza davvero difficile da notare a posteriori. Stessa logica nel
-   modale di **modifica** (dice cosa l'app registra lì e che rinominare non rompe niente) e nei
-   testi del portafoglio, che leggono il **nome vero** dalla chiave invece di scriverlo a mano:
-   dopo un rinomina un'etichetta fissa mentirebbe.
-   L'unica eccezione al "niente badge" è il badge 📈 nella lista Categorie, che compare **solo
-   col filtro 📈 Portafoglio attivo**: lì il contrassegno è la risposta alla domanda appena
-   posta, non un'etichetta che accompagna per sempre una categoria che speciale non è.
+3. **Si vede sempre quali categorie usa il portafoglio, e si dice quando serve cosa comporta.**
+   Due cose distinte, che fino alla 1.25.7 erano confuse in una sola («nessun badge permanente
+   in pagina»):
+   - **Il fatto** sta in pagina, sempre: badge 📈 sulla riga, col tooltip che dice cosa l'app
+     registra lì. Senza, quell'informazione non è ricavabile in nessun modo dalla lista —
+     `system_key` non è esposta e dalla v25 il nome non conta più nulla, quindi l'unico modo per
+     scoprirlo sarebbe provare a eliminare la categoria e leggere l'avviso. Nasconderlo per non
+     "sporcare" la pagina lasciava l'utente all'oscuro di ciò che stava per toccare.
+     ⚠️ Il badge **non** è un lucchetto: restano categorie normali: si rinominano, si spostano,
+     si eliminano come tutte le altre. Dice solo che lì dentro scrive qualcuno.
+   - **Le conseguenze** restano contestuali, dove servono: il modale di **eliminazione** dice
+     cosa comporta e segnala se la destinazione scelta **non** è esclusa da budget — l'unica
+     conseguenza davvero difficile da notare a posteriori; il modale di **modifica** dice cosa
+     l'app registra lì e che rinominare non rompe niente.
+   In più: i testi del portafoglio leggono il **nome vero** dalla chiave invece di scriverlo a
+   mano — dopo un rinomina un'etichetta fissa mentirebbe.
 4. **`reassignCategory` valida prima di scrivere**, perché la UI non è l'unica via d'ingresso
    (il Bridge risponde anche via HTTP dalla LAN) e qui gli esiti sarebbero silenziosi:
    destinazione uguale all'origine o **figlia** dell'origine → la CASCADE la eliminerebbe

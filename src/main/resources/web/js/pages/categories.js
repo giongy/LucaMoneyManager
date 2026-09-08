@@ -32,15 +32,19 @@ function _catEmpty() {
   return `<div class="settings-hint" style="padding:10px 2px">Nessuna categoria con questo filtro.</div>`;
 }
 
-// Badge delle categorie in cui scrive il portafoglio. Compare SOLO col filtro 📈 attivo: in
-// pagina non c'è nessun contrassegno permanente, perché non sono categorie speciali — si
-// rinominano, si spostano e si eliminano come le altre. Qui invece serve, ed è quello che
-// l'utente ha appena chiesto di vedere.
+// Badge delle categorie in cui scrive il portafoglio. È **permanente**: quali categorie siano
+// coinvolte nelle operazioni su titoli non si ricava in nessun altro modo dalla lista — la
+// system_key non è esposta e il nome non conta più nulla (v25), quindi senza badge l'unico modo
+// per saperlo sarebbe provare a eliminarle e leggere l'avviso.
+// ⚠️ Non è un lucchetto e non è un avviso: restano categorie normali, che si rinominano, si
+// spostano e si eliminano come le altre. Dice soltanto che lì dentro scrive qualcuno, e il
+// tooltip dice cosa. Le CONSEGUENZE di toccarle restano nei modali (modifica ed eliminazione),
+// dove servono davvero.
 function _sysBadge(c) {
   const what = SYSTEM_CAT_LABEL[c.system_key];
   if (!what) return '';
   return `<span class="badge" style="background:#d2992222;color:#d29922;font-size:10px"
-                title="Qui l'app registra ${what}">📈</span>`;
+                title="Categoria del portafoglio: qui l'app registra ${what}">📈</span>`;
 }
 
 // Disegna la pagina Categorie ad albero: parent con sottocategorie, separate per Uscite/Entrate
@@ -117,7 +121,7 @@ async function renderCategories() {
             ${p.expense_nature ? `<span class="nature-badge nature-${p.expense_nature}">${{essenziale:'🟢 Essenziale',variabile:'🟡 Variabile',superflua:'🔴 Superflua'}[p.expense_nature]||''}</span>` : ''}
             ${p.excluded_from_budget ? `<span class="badge" style="background:var(--txt3);color:#fff;font-size:10px" title="Esclusa da budget, report, dashboard e previsioni">🚫 Esclusa</span>` : ''}
             ${mobileKids ? `<span class="badge" style="background:#3fb95022;color:#3fb950;font-size:10px" title="${mobileKids} sottocategorie proposte dall'app Android">📱 ${mobileKids}</span>` : ''}
-            ${_catFilter === 'portfolio' && p.system_key ? _sysBadge(p) : ''}
+            ${_sysBadge(p)}
             ${_catFilter === 'unused' && isUnused(p) ? `<span class="badge" style="background:var(--bg3);color:var(--txt3);font-size:10px" title="Nessun movimento su questa categoria né sulle sue sottocategorie">0 movimenti</span>` : ''}
             <span class="cat-sub-count">${hiddenKids ? `${kids.length} di ${allKids.length}` : kids.length} sottocategorie</span>
             <div class="cat-actions">
@@ -142,7 +146,7 @@ async function renderCategories() {
                   <span class="cat-name">${esc(k.name)}</span>
                   ${(() => { const n = k.expense_nature || k.parent_expense_nature; const inh = !k.expense_nature && n; return n ? `<span class="nature-badge nature-${n}" title="${inh?'ereditata dal parent':''}">${{essenziale:'🟢',variabile:'🟡',superflua:'🔴'}[n]||''}${inh?' ↑':''}</span>` : ''; })()}
                   ${k.excluded_from_budget ? `<span class="badge" style="background:var(--txt3);color:#fff;font-size:10px" title="Esclusa da budget, report, dashboard e previsioni">🚫</span>` : ''}
-                  ${_catFilter === 'portfolio' && k.system_key ? _sysBadge(k) : ''}
+                  ${_sysBadge(k)}
                   ${_catFilter === 'unused' ? `<span class="badge" style="background:var(--bg3);color:var(--txt3);font-size:10px" title="Nessun movimento in questa categoria">0 movimenti</span>` : ''}
                   <div class="cat-actions">
                     <button class="btn btn-ghost btn-icon cat-mobile-btn ${k.mobile_favorite ? 'active' : ''}"

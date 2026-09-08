@@ -5,6 +5,44 @@
 
 // _iconPickerBuild è definito in app.js (riga ~112): risolto lazy a runtime.
 
+// Filtro attivo nella pagina: uno per volta, come le barre di Portafoglio e Storico.
+// Sono facce diverse dello stesso elenco, non condizioni da combinare: una sottocategoria
+// Android e una esclusa da budget non si sovrappongono quasi mai, e metterle in AND darebbe
+// quasi sempre zero risultati. Sopravvive ai re-render, così marcare un 📱 dopo l'altro non
+// rimanda ogni volta all'elenco completo.
+//   'all' | 'mobile' | 'excluded' | 'portfolio' | 'unused'
+//   'nat:essenziale' | 'nat:variabile' | 'nat:superflua' | 'nat:'  (senza natura)
+let _catFilter = 'all';
+
+function _setCatFilter(f) {
+  _catFilter = f;
+  renderCategories();
+}
+
+// Natura EFFETTIVA: le sottocategorie senza natura propria ereditano quella del parent (è così
+// che la mostra la lista e che la contano i report). Filtrare sulla sola colonna lascerebbe
+// fuori proprio le figlie, che sono la maggioranza.
+function _catNature(c) {
+  return c.expense_nature || c.parent_expense_nature || '';
+}
+
+// Riga di cortesia quando un filtro non trova niente: senza, la sezione resta un vuoto muto
+// e non si capisce se il filtro non ha trovato nulla o se il render è fallito.
+function _catEmpty() {
+  return `<div class="settings-hint" style="padding:10px 2px">Nessuna categoria con questo filtro.</div>`;
+}
+
+// Badge delle categorie in cui scrive il portafoglio. Compare SOLO col filtro 📈 attivo: in
+// pagina non c'è nessun contrassegno permanente, perché non sono categorie speciali — si
+// rinominano, si spostano e si eliminano come le altre. Qui invece serve, ed è quello che
+// l'utente ha appena chiesto di vedere.
+function _sysBadge(c) {
+  const what = SYSTEM_CAT_LABEL[c.system_key];
+  if (!what) return '';
+  return `<span class="badge" style="background:#d2992222;color:#d29922;font-size:10px"
+                title="Qui l'app registra ${what}">📈</span>`;
+}
+
 // Disegna la pagina Categorie ad albero: parent con sottocategorie, separate per Uscite/Entrate
 // e la categoria speciale Trasferimento (non modificabile).
 async function renderCategories() {
@@ -24,12 +62,52 @@ async function renderCategories() {
   // (vedi DbHelper.getSubCategories), e il messaggio in cima alla pagina lo dice.
   const mobileTotal = children.filter(c => c.mobile_favorite).length;
 
+  // ── Filtri ────────────────────────────────────────────────────────────────
+  // Una categoria principale è "mai usata" solo se non lo è nemmeno una sua figlia: i movimenti
+  // stanno quasi sempre sulle figlie, e senza questa condizione ogni parent risulterebbe vuoto.
+  const isUnused = c => (c.usage_count || 0) === 0
+                     && childrenOf(c.id).every(k => (k.usage_count || 0) === 0);
+
+  const matchesFilter = c => {
+    if (_catFilter === 'all')       return true;
+    if (_catFilter === 'mobile')    return !!c.mobile_favorite;
+    if (_catFilter === 'excluded')  return !!c.excluded_from_budget;
+    if (_catFilter === 'portfolio') return !!c.system_key;
+    if (_catFilter === 'unused')    return isUnused(c);
+    if (_catFilter.startsWith('nat:'))
+      return c.type === 'expense' && _catNature(c) === _catFilter.slice(4);
+    return true;
+  };
+  const filtering = _catFilter !== 'all';
+  const isNatureFilter = _catFilter.startsWith('nat:');
+
+  // Conteggi sui bottoni: servono a decidere se vale la pena cliccare, e a vedere a colpo
+  // d'occhio quante categorie sono marcate in un modo o nell'altro.
+  const notTransfer = cats.filter(c => c.type !== 'transfer');
+  const nMobile    = mobileTotal;
+  const nExcluded  = notTransfer.filter(c => c.excluded_from_budget).length;
+  const nPortfolio = notTransfer.filter(c => c.system_key).length;
+  const nUnused    = notTransfer.filter(isUnused).length;
+  const nNature    = n => notTransfer.filter(c => c.type === 'expense' && _catNature(c) === n).length;
+
+  const filtroBtn = (key, label, count, title) => `
+    <button class="btn theme-btn ${_catFilter === key ? 'theme-btn-active' : ''}"
+            onclick="_setCatFilter('${key}')" title="${title}">
+      ${label}${count != null ? ` <span style="opacity:.65">${count}</span>` : ''}
+    </button>`;
+
   // Renderizza una lista di categorie parent con le rispettive sottocategorie annidate.
+  // Col filtro attivo la principale resta visibile anche se non corrisponde lei stessa: senza
+  // il suo rigo la figlia trovata comparirebbe senza contesto, e "Benzina" da sola non dice
+  // sotto quale ramo sta. Delle sottocategorie si mostrano invece solo quelle che passano.
   function renderTree(list) {
     return list.map(p => {
-      const kids = childrenOf(p.id);
+      const allKids = childrenOf(p.id);
+      const kids    = filtering ? allKids.filter(matchesFilter) : allKids;
+      if (filtering && !kids.length && !matchesFilter(p)) return '';
       const isTransfer = p.type === 'transfer';
-      const mobileKids = kids.filter(k => k.mobile_favorite).length;
+      const mobileKids = allKids.filter(k => k.mobile_favorite).length;
+      const hiddenKids = allKids.length - kids.length;
       return `
         <div class="cat-parent">
           <div class="cat-row cat-parent-row">
@@ -39,7 +117,9 @@ async function renderCategories() {
             ${p.expense_nature ? `<span class="nature-badge nature-${p.expense_nature}">${{essenziale:'🟢 Essenziale',variabile:'🟡 Variabile',superflua:'🔴 Superflua'}[p.expense_nature]||''}</span>` : ''}
             ${p.excluded_from_budget ? `<span class="badge" style="background:var(--txt3);color:#fff;font-size:10px" title="Esclusa da budget, report, dashboard e previsioni">🚫 Esclusa</span>` : ''}
             ${mobileKids ? `<span class="badge" style="background:#3fb95022;color:#3fb950;font-size:10px" title="${mobileKids} sottocategorie proposte dall'app Android">📱 ${mobileKids}</span>` : ''}
-            <span class="cat-sub-count">${kids.length} sottocategorie</span>
+            ${_catFilter === 'portfolio' && p.system_key ? _sysBadge(p) : ''}
+            ${_catFilter === 'unused' && isUnused(p) ? `<span class="badge" style="background:var(--bg3);color:var(--txt3);font-size:10px" title="Nessun movimento su questa categoria né sulle sue sottocategorie">0 movimenti</span>` : ''}
+            <span class="cat-sub-count">${hiddenKids ? `${kids.length} di ${allKids.length}` : kids.length} sottocategorie</span>
             <div class="cat-actions">
               ${!isTransfer ? `
                 <!-- ＋ a tutta larghezza (U+FF0B) e non "+": qui il bottone è solo icona e sta
@@ -62,6 +142,8 @@ async function renderCategories() {
                   <span class="cat-name">${esc(k.name)}</span>
                   ${(() => { const n = k.expense_nature || k.parent_expense_nature; const inh = !k.expense_nature && n; return n ? `<span class="nature-badge nature-${n}" title="${inh?'ereditata dal parent':''}">${{essenziale:'🟢',variabile:'🟡',superflua:'🔴'}[n]||''}${inh?' ↑':''}</span>` : ''; })()}
                   ${k.excluded_from_budget ? `<span class="badge" style="background:var(--txt3);color:#fff;font-size:10px" title="Esclusa da budget, report, dashboard e previsioni">🚫</span>` : ''}
+                  ${_catFilter === 'portfolio' && k.system_key ? _sysBadge(k) : ''}
+                  ${_catFilter === 'unused' ? `<span class="badge" style="background:var(--bg3);color:var(--txt3);font-size:10px" title="Nessun movimento in questa categoria">0 movimenti</span>` : ''}
                   <div class="cat-actions">
                     <button class="btn btn-ghost btn-icon cat-mobile-btn ${k.mobile_favorite ? 'active' : ''}"
                             onclick="toggleCategoryMobile(${k.id}, ${k.mobile_favorite ? 0 : 1})"
@@ -92,17 +174,39 @@ async function renderCategories() {
         : `Nessuna marcata: sul telefono compaiono <b>tutte</b> le sottocategorie.`}
     </div>
 
+    <!-- Barra filtri: due gruppi, un solo filtro attivo per volta. Il primo raccoglie i
+         contrassegni (Android, esclusione da budget, portafoglio, mai usate), il secondo la
+         natura della spesa — che esiste solo sulle uscite, quindi lì le entrate spariscono. -->
+    <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 14px">
+      <div class="theme-toggle-group" style="margin:0;flex-wrap:wrap">
+        ${filtroBtn('all',       'Tutte',        null,       'Mostra tutte le categorie')}
+        ${filtroBtn('mobile',    '📱 Android',   nMobile,    'Sottocategorie proposte dall\'app Android in inserimento')}
+        ${filtroBtn('excluded',  '🚫 Escluse',   nExcluded,  'Escluse da budget, report, dashboard e previsioni')}
+        ${filtroBtn('portfolio', '📈 Portafoglio', nPortfolio, 'Categorie in cui l\'app registra plusvalenze, minusvalenze, imposte e cedole')}
+        ${filtroBtn('unused',    '💤 Mai usate', nUnused,    'Nessun movimento, né qui né nelle sottocategorie: si possono eliminare senza spostare niente')}
+      </div>
+      <div class="theme-toggle-group" style="margin:0;flex-wrap:wrap">
+        ${filtroBtn('nat:essenziale', '🟢 Essenziali',  nNature('essenziale'), 'Uscite di natura essenziale (natura ereditata dal parent inclusa)')}
+        ${filtroBtn('nat:variabile',  '🟡 Variabili',   nNature('variabile'),  'Uscite di natura variabile (natura ereditata dal parent inclusa)')}
+        ${filtroBtn('nat:superflua',  '🔴 Superflue',   nNature('superflua'),  'Uscite di natura superflua (natura ereditata dal parent inclusa)')}
+        ${filtroBtn('nat:',           '⬜ Senza natura', nNature(''),          'Uscite a cui non è stata assegnata una natura, nemmeno tramite il parent')}
+      </div>
+    </div>
+
     <h3 class="section-subtitle">📤 Uscite</h3>
     <div class="cats-list" id="catsExpense">
-      ${renderTree(parents.filter(p => p.type === 'expense'))}
+      ${renderTree(parents.filter(p => p.type === 'expense')) || _catEmpty()}
     </div>
 
     <h3 class="section-subtitle" style="margin-top:24px">📥 Entrate</h3>
     <div class="cats-list" id="catsIncome">
-      ${renderTree(parents.filter(p => p.type === 'income'))}
+      ${renderTree(parents.filter(p => p.type === 'income'))
+        || (isNatureFilter
+             ? `<div class="settings-hint" style="padding:10px 2px">La natura della spesa riguarda solo le uscite.</div>`
+             : _catEmpty())}
     </div>
 
-    ${transfer ? `
+    ${transfer && !filtering ? `
     <h3 class="section-subtitle" style="margin-top:24px">🔁 Speciale</h3>
     <div class="cats-list">
       <div class="cat-parent">

@@ -25,7 +25,7 @@ tali. La documentazione da tenere aggiornata è solo questa terna: `CLAUDE.md`, 
 - **Linguaggio:** Java 25, Maven 3.x
 - **UI:** JCEF v146 (Chromium embedded) + Swing per dialogs/titlebar/splash
 - **Frontend:** Vanilla JS puro (`src/main/resources/web/`, modulare in `js/pages/*.js`), no React/Vue
-- **Versione:** 1.25.6 — output `target/moneymanager-1.25.6.jar` (fat JAR, web/ esclusa)
+- **Versione:** 1.25.7 — output `target/moneymanager-1.25.7.jar` (fat JAR, web/ esclusa)
 - **Web assets:** serviti da filesystem (cartella `web/` accanto al `.exe` in produzione, `target/classes/web/` in IDE)
 - **DB path:** `%APPDATA%\LucaMoneyManager\data.db` (`%APPDATA%` = `...\Roaming`)
 - **Build:** `mvn package` oppure `tools\build\build.bat`
@@ -230,6 +230,9 @@ si perde e la categoria verrà ricreata — esito imperfetto ma innocuo, e scrit
    modale di **modifica** (dice cosa l'app registra lì e che rinominare non rompe niente) e nei
    testi del portafoglio, che leggono il **nome vero** dalla chiave invece di scriverlo a mano:
    dopo un rinomina un'etichetta fissa mentirebbe.
+   L'unica eccezione al "niente badge" è il badge 📈 nella lista Categorie, che compare **solo
+   col filtro 📈 Portafoglio attivo**: lì il contrassegno è la risposta alla domanda appena
+   posta, non un'etichetta che accompagna per sempre una categoria che speciale non è.
 4. **`reassignCategory` valida prima di scrivere**, perché la UI non è l'unica via d'ingresso
    (il Bridge risponde anche via HTTP dalla LAN) e qui gli esiti sarebbero silenziosi:
    destinazione uguale all'origine o **figlia** dell'origine → la CASCADE la eliminerebbe
@@ -560,7 +563,7 @@ verificherebbe il codice vecchio credendo di provare il nuovo — quindi prima s
 
 ## Funzionalità principali
 
-Dashboard · Conti (tipi, valute, icone emoji, colori) · Transazioni (split, tag, riconciliazione) · Categorie (gerarchiche, colori) · Budget (mensile/annuale, master amount) · Pianificate (ricorrenti, previsioni) · Portfolio (ticker, buy/sell, dividendi) · Report (Chart.js) · Note (editor Quill, lazy-load) · Impostazioni (tema, backup)
+Dashboard · Conti (tipi, valute, icone emoji, colori) · Transazioni (split, tag, riconciliazione) · Categorie (gerarchiche, colori, filtri per Android/esclusione/portafoglio/natura) · Budget (mensile/annuale, master amount) · Pianificate (ricorrenti, previsioni) · Portfolio (ticker, buy/sell, dividendi) · Report (Chart.js) · Note (editor Quill, lazy-load) · Impostazioni (tema, backup)
 
 ---
 

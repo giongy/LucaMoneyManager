@@ -5704,9 +5704,9 @@ public class Database {
             if (catId != null) {
                 var row = queryOne("""
                         SELECT COALESCE(SUM(amt),0) AS tot FROM (
-                            SELECT amount AS amt FROM transactions
-                            WHERE category_id=? AND date>=? AND date<=? AND type=?
-                              AND NOT EXISTS (SELECT 1 FROM transaction_splits ts WHERE ts.transaction_id = id)
+                            SELECT amount AS amt FROM transactions t
+                            WHERE t.category_id=? AND t.date>=? AND t.date<=? AND t.type=?
+                              AND NOT EXISTS (SELECT 1 FROM transaction_splits ts WHERE ts.transaction_id = t.id)
                             UNION ALL
                             SELECT ts.amount AS amt FROM transactions t
                             JOIN transaction_splits ts ON ts.transaction_id = t.id

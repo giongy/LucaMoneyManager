@@ -973,6 +973,10 @@ public class Database {
                 -- commissione di una vendita) puntano alla riga madre: annullarla le porta via
                 -- tutte, transazioni collegate comprese. Vedi sellStock/deletePortfolioTransaction.
                 parent_pt_id   INTEGER REFERENCES portfolio_transactions(id) ON DELETE CASCADE,
+                -- Rateo lordo pagato al venditore in un acquisto obbligazionario: entra nel
+                -- bonifico ma MAI in avg_price (torna con la prima cedola, non è un vero carico).
+                -- Vedi buyStock e CLAUDE.md sezione "Titoli".
+                accrued_interest REAL  DEFAULT 0,
                 created_at     TEXT    DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE IF NOT EXISTS tags (
@@ -1129,7 +1133,7 @@ public class Database {
         }
     }
 
-    private static final int SCHEMA_VERSION = 25;
+    private static final int SCHEMA_VERSION = 26;
 
     /**
      * Migrazioni incrementali dello schema per DB creati con versioni precedenti.
@@ -1206,8 +1210,18 @@ public class Database {
             backfillCategorySystemKeys();
         }
 
-        // ── v26+: aggiungere qui i blocchi futuri, es.:
-        //   if (currentVersion < 26) { try { executePlain("ALTER TABLE ..."); } catch (SQLException ignored) {} }
+        // ── v26: portfolio_transactions.accrued_interest — rateo lordo pagato in un acquisto
+        // obbligazionario. Entra nel bonifico (Database.buyStock), mai in avg_price: prima non
+        // esisteva un campo separato, quindi l'unico modo per far quadrare il bonifico con
+        // quanto pagato davvero era gonfiare il prezzo, gonfiando con lui anche il PMC per
+        // sempre. Vedi CLAUDE.md sezione "Titoli".
+        if (currentVersion < 26) {
+            try { executePlain("ALTER TABLE portfolio_transactions ADD COLUMN accrued_interest REAL DEFAULT 0"); }
+            catch (SQLException ignored) {}
+        }
+
+        // ── v27+: aggiungere qui i blocchi futuri, es.:
+        //   if (currentVersion < 27) { try { executePlain("ALTER TABLE ..."); } catch (SQLException ignored) {} }
 
         // Segna il DB come aggiornato all'ultima versione
         executePlain("DELETE FROM schema_version");
@@ -4178,7 +4192,14 @@ public class Database {
                    COALESCE(agg.total_expenses,         0)        AS total_expenses,
                    COALESCE(agg.total_other_expenses,   0)        AS total_other_expenses,
                    COALESCE(agg.total_sell_commissions, 0)        AS total_sell_commissions,
-                   COALESCE(agg.total_buy_commissions,  0)        AS total_buy_commissions
+                   COALESCE(agg.total_buy_commissions,  0)        AS total_buy_commissions,
+                   -- Quante pianificate ATTIVE già coprono le cedole di questa posizione: serve
+                   -- solo a dire "0 o non 0" (vedi portfolio.js/init.js, avviso cedola non
+                   -- pianificata), non un conteggio storico — per questo è una subquery correlata
+                   -- su p.id invece che dentro l'aggregato sopra, che è raggruppato per
+                   -- portfolio_transactions e non ha nulla a che fare con scheduled_transactions.
+                   (SELECT COUNT(*) FROM scheduled_transactions st
+                     WHERE st.portfolio_id = p.id AND st.is_active = 1) AS active_scheduled_count
             FROM portfolio p
             JOIN accounts a ON p.account_id = a.id
             LEFT JOIN (
@@ -4191,7 +4212,7 @@ public class Database {
                        SUM(CASE WHEN pt.type = 'dividend' THEN pt.price ELSE 0 END)    AS total_dividends,
                        SUM(CASE WHEN pt.type = 'expense'  THEN pt.price ELSE 0 END)    AS total_expenses,
                        SUM(CASE WHEN pt.type = 'expense'
-                                 AND COALESCE(pt.notes,'') NOT IN ('Commissione','Commissione acquisto')
+                                 AND COALESCE(pt.notes,'') NOT IN ('Commissione','Commissione acquisto','Rateo acquisto')
                                 THEN pt.price ELSE 0 END)                              AS total_other_expenses,
                        SUM(CASE WHEN pt.type = 'expense' AND pt.notes = 'Commissione'
                                 THEN COALESCE(pt.commission,0) ELSE 0 END)             AS total_sell_commissions,
@@ -4289,6 +4310,10 @@ public class Database {
     private static final String CAT_MINUSVALENZE = "Minusvalenze";
     private static final String CAT_IMPOSTE      = "Imposte su rendite";
     private static final String CAT_CEDOLE       = "Cedole e dividendi";
+    // v26: rateo lordo di un acquisto obbligazionario. Esclusa da budget come le prime tre —
+    // torna con la prima cedola, non è una spesa pianificabile, e nel frattempo distorcerebbe
+    // il mese in cui è avvenuto l'acquisto.
+    private static final String CAT_RATEO        = "Rateo obbligazioni";
 
     // Chiavi di sistema (v25): sono il VERO legame fra codice e categoria. Il nome qui sopra è
     // solo il valore iniziale, l'utente può cambiarlo — la chiave no, non è esposta dalla UI.
@@ -4297,6 +4322,7 @@ public class Database {
     private static final String SK_MINUSVALENZE = "minusvalenze";
     private static final String SK_IMPOSTE      = "imposte_rendite";
     private static final String SK_CEDOLE       = "cedole_dividendi";
+    private static final String SK_RATEO        = "rateo_obbligazioni";
 
     /**
      * Timbra la system_key sulle categorie degli investimenti già esistenti, riconoscendole
@@ -4445,7 +4471,10 @@ public class Database {
     /**
      * Registra un acquisto: bonifico (transfer) dal conto liquidità a quello investimenti,
      * crea/aggiorna la posizione ricalcolando il prezzo medio, e registra il movimento "buy".
-     * L'eventuale commissione diventa una transazione expense separata + movimento "expense".
+     * La commissione resta dentro questo bonifico (e dentro avg_price) con solo una riga di
+     * storico a parte. L'eventuale rateo lordo (bond) invece esce con una VERA transazione
+     * "expense" separata, in una categoria esclusa da budget: non tocca né il bonifico né
+     * avg_price, vedi i commenti più sotto.
      */
     public Map<String, Object> buyStock(JsonObject p) throws SQLException {
         int investAccountId  = p.get("account_id").getAsInt();
@@ -4463,6 +4492,9 @@ public class Database {
         String couponFreq    = p.has("coupon_frequency") && !p.get("coupon_frequency").isJsonNull() ? p.get("coupon_frequency").getAsString() : null;
         double couponTax     = p.has("coupon_tax") && !p.get("coupon_tax").isJsonNull() ? p.get("coupon_tax").getAsDouble() : DEFAULT_COUPON_TAX;
         double commissions   = r2(p.has("commissions") && !p.get("commissions").isJsonNull() ? p.get("commissions").getAsDouble() : 0.0);
+        // Rateo lordo pagato al venditore (solo bond): entra nel bonifico ma MAI in avg_price,
+        // vedi sotto. Torna con la prima cedola incassata, non è un vero carico del titolo.
+        double accruedInterest = r2(p.has("accrued_interest") && !p.get("accrued_interest").isJsonNull() ? p.get("accrued_interest").getAsDouble() : 0.0);
         boolean isBond       = "bond".equals(assetType);
         double pureAmount    = r2(isBond ? qty * price / 100.0 : qty * price);
 
@@ -4475,20 +4507,26 @@ public class Database {
             throw new SQLException("Quantità non valida (" + qty + "): deve essere maggiore di zero.");
         if (!(price > 0))
             throw new SQLException("Prezzo non valido (" + price + "): deve essere maggiore di zero.");
+        if (accruedInterest < 0)
+            throw new SQLException("Rateo non valido (" + accruedInterest + "): non può essere negativo.");
 
         return inTx(() -> {
             var cat = queryOne("SELECT id FROM categories WHERE type='transfer' LIMIT 1");
             Integer catId = cat != null ? ((Number)cat.get("id")).intValue() : null;
 
-            // Bonifico per l'importo puro PIÙ la commissione: è quello che esce davvero dal
-            // conto liquidità, ed è anche quanto la commissione vale nel prezzo di carico
-            // (avg_price la incorpora, vedi sotto). Così il saldo del conto investimenti
-            // coincide con il carico delle posizioni, che è la proprietà su cui si regge il
-            // calcolo della plus/minusvalenza alla vendita.
+            // Bonifico per l'importo puro PIÙ la commissione: è quello che vale come carico della
+            // posizione, ed è anche quanto la commissione vale nel prezzo di carico (avg_price
+            // la incorpora, vedi sotto). Così il saldo del conto investimenti coincide sempre col
+            // carico delle posizioni, che è la proprietà su cui si regge il calcolo della
+            // plus/minusvalenza alla vendita — e su cui quel conto torna a zero quando si chiude.
             // ⚠️ Prima il giroconto era del solo importo puro e la commissione era una
             // transazione di spesa a parte: veniva quindi sottratta due volte dal patrimonio,
             // una come spesa e una dentro il carico. Non si vedeva solo perché la plusvalenza
             // non veniva registrata da nessuna parte.
+            // ⚠️ Il rateo NON entra qui: se finisse nello stesso bonifico, il conto investimenti
+            // lo terrebbe per sempre (la cedola che lo "restituisce" arriva su un altro conto, non
+            // passa da qui), e alla chiusura della posizione quel conto non tornerebbe più a zero.
+            // Esce invece dal conto liquidità con una transazione a sé, poco sotto.
             long txId = execute("""
                 INSERT INTO transactions(date,amount,type,category_id,account_id,to_account_id,description,reconciled)
                 VALUES(?,?,?,?,?,?,?,0)
@@ -4522,9 +4560,9 @@ public class Database {
             }
 
             long buyPtId = execute("""
-                INSERT INTO portfolio_transactions(portfolio_id,type,quantity,price,date,transaction_id,notes,commission)
-                VALUES(?,?,?,?,?,?,?,?)
-            """, portfolioId, "buy", qty, price, date, txId, notes, commissions);
+                INSERT INTO portfolio_transactions(portfolio_id,type,quantity,price,date,transaction_id,notes,commission,accrued_interest)
+                VALUES(?,?,?,?,?,?,?,?,?)
+            """, portfolioId, "buy", qty, price, date, txId, notes, commissions, accruedInterest);
 
             if (commissions > 0) {
                 // Riga di solo storico, senza transazione collegata: il denaro è già uscito
@@ -4542,9 +4580,33 @@ public class Database {
                            "nel giroconto:si");
             }
 
+            if (accruedInterest > 0) {
+                // A differenza della commissione, il rateo NON è nel bonifico qui sopra: è una
+                // vera uscita a sé dal conto pagante, in una categoria esclusa da budget e report
+                // (stesso trattamento di Plusvalenze/Minusvalenze/Imposte, vedi CAT_RATEO) — non
+                // è una spesa pianificabile, e nel mese dell'acquisto distorcerebbe il budget per
+                // un importo che tornerà con la prima cedola.
+                int rateoCatId = investCategoryId(SK_RATEO, CAT_RATEO, "expense", "⏳", "#2f81f7");
+                long rateoTxId = execute("""
+                    INSERT INTO transactions(date,amount,type,category_id,account_id,description,reconciled)
+                    VALUES(?,?,?,?,?,?,0)
+                """, date, accruedInterest, "expense", rateoCatId, fromAccountId, "Rateo acquisto " + ticker);
+                // ⚠️ Le note devono restare esattamente "Rateo acquisto": sia il SQL di
+                // total_other_expenses sia IS_ACCRUED_NOTE in portfolio.js escludono questa riga
+                // dai totali/dal rendimento del portafoglio guardando quel testo — il rateo non è
+                // un vero costo della posizione, torna con la prima cedola.
+                execute("""
+                    INSERT INTO portfolio_transactions(portfolio_id,type,quantity,price,date,transaction_id,notes,accrued_interest,parent_pt_id)
+                    VALUES(?,?,?,?,?,?,?,?,?)
+                """, portfolioId, "expense", 0, accruedInterest, date, rateoTxId, "Rateo acquisto", accruedInterest, buyPtId);
+                logger.log("RATEO ACQUISTO", "ticker:" + ticker, "importo:" + DbLogger.amt(accruedInterest),
+                           "nel giroconto:no", "conto:" + fromAccountId);
+            }
+
             logger.log("TITOLO ACQUISTATO", "ticker:" + ticker, "nome:" + name,
                        "quantita:" + qty, "prezzo:" + DbLogger.amt(price),
-                       "commissioni:" + DbLogger.amt(commissions), "data:" + date);
+                       "commissioni:" + DbLogger.amt(commissions), "rateo:" + DbLogger.amt(accruedInterest),
+                       "data:" + date);
             return queryOne("SELECT * FROM portfolio WHERE id=?", portfolioId);
         });
     }

@@ -10,7 +10,7 @@
 /* ═══════════════════════════════════════════════════════════════════════════
    INIT — notices
 ═══════════════════════════════════════════════════════════════════════════ */
-const _noticeData = []; // {type:'telefono'|'overdue'|'forecast'|'unverified', list}
+const _noticeData = []; // {type:'telefono'|'overdue'|'forecast'|'unverified'|'bondnocoupon', list}
 let _noticeDelay = 0; // stagger automatico tra notice successive
 
 /** Chiamata quando l'app torna visibile dal tray o dalla taskbar (l'utente era via).
@@ -105,6 +105,11 @@ async function _refreshFromExternalChange(toDashboard) {
     const unverified = await api.getTransactions({ reconciled: 0, sort_desc: true });
     if (unverified.length) showUnverifiedNotice(unverified);
   } catch(e) { console.error('refresh esterno: notice da verificare', e); }
+  try {
+    const positions = await api.getPortfolio();
+    const missingCoupon = positions.filter(bondMissingCouponSchedule);
+    if (missingCoupon.length) showBondNoCouponNotice(missingCoupon);
+  } catch(e) { console.error('refresh esterno: notice cedola non pianificata', e); }
   updateNoticeBtn();
 }
 
@@ -268,6 +273,7 @@ function replayNotices() {
     else if (n.type === 'duetoday') showDueTodayNotice(n.list, false);
     else if (n.type === 'forecast') showForecastReadyNotice(n.list, false);
     else if (n.type === 'unverified') showUnverifiedNotice(n.list, false);
+    else if (n.type === 'bondnocoupon') showBondNoCouponNotice(n.list, false);
   });
 }
 
@@ -371,6 +377,38 @@ function showUnverifiedNotice(list, save=true) {
     </div>
     <div class="overdue-notice-bar"><div class="overdue-notice-progress"></div></div>`,
     () => { const r = notifRange(); txFilters = { reconciled: 0, range: r, ...rangeToFilter(r) }; navigate('transactions'); });
+}
+
+// Obbligazioni attive, con cedola, il cui "Aggiungi cedola a pianificate" (menu tasto destro in
+// Portafoglio) non è mai stato usato: senza questo avviso l'unico segnale sarebbe la cedola
+// che non arriva mai, mesi dopo. La lista arriva già filtrata da bondMissingCouponSchedule
+// (portfolio.js), calcolata su active_scheduled_count (Database.getPortfolio).
+function showBondNoCouponNotice(list, save=true) {
+  if (save) _noticeData.push({type:'bondnocoupon', list});
+  _showNotice('', `
+    <div class="overdue-notice-head">
+      <span>⏰ ${list.length} obbligazion${list.length===1?'e':'i'} senza cedola pianificata</span>
+      <button onclick="this.closest('.overdue-notice').remove()">✕</button>
+    </div>
+    <div class="overdue-notice-body">
+      ${list.slice(0,4).map(i=>`<div class="overdue-row">
+        <span class="td-main">${esc(i.ticker)} — ${esc(i.name)}</span>
+        <span style="color:var(--txt3);font-size:11px">scad. ${fmt.date(i.maturity_date)}</span>
+      </div>`).join('')}
+      ${list.length>4?`<div class="overdue-more">+ altre ${list.length-4}…</div>`:''}
+    </div>
+    <div class="overdue-notice-bar"><div class="overdue-notice-progress"></div></div>`,
+    () => { _portfolioTab = 'portfolio'; navigate('portfolio'); });
+}
+
+// Toglie una posizione dalla notice "senza cedola pianificata" dopo che l'utente ha usato
+// "Aggiungi cedola a pianificate" — stesso schema di _resolveOverdue in scheduled.js.
+function _resolveBondNoCoupon(portfolioId) {
+  const entry = _noticeData.find(n => n.type === 'bondnocoupon');
+  if (!entry) return;
+  entry.list = entry.list.filter(i => i.id !== portfolioId);
+  if (entry.list.length === 0) _noticeData.splice(_noticeData.indexOf(entry), 1);
+  updateNoticeBtn();
 }
 
 /* ─── Chart.js global font (allineato al body Segoe UI) ──────────────────── */
@@ -526,6 +564,14 @@ async function init() {
   try {
     const unverified = await api.getTransactions({ reconciled: 0, sort_desc: true });
     if (unverified.length) showUnverifiedNotice(unverified);
+  } catch(e) {}
+  // Notifica obbligazioni con cedola ma senza pianificata attiva (vedi bondMissingCouponSchedule
+  // in portfolio.js): "Aggiungi cedola a pianificate" è un passo separato dall'acquisto, facile
+  // da dimenticare, e senza questo avviso non c'era alcun segnale finché non mancava la cedola.
+  try {
+    const positions = await api.getPortfolio();
+    const missingCoupon = positions.filter(bondMissingCouponSchedule);
+    if (missingCoupon.length) showBondNoCouponNotice(missingCoupon);
   } catch(e) {}
   updateNoticeBtn();
 

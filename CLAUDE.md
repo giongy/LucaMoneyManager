@@ -25,7 +25,7 @@ tali. La documentazione da tenere aggiornata è solo questa terna: `CLAUDE.md`, 
 - **Linguaggio:** Java 25, Maven 3.x
 - **UI:** JCEF v146 (Chromium embedded) + Swing per dialogs/titlebar/splash
 - **Frontend:** Vanilla JS puro (`src/main/resources/web/`, modulare in `js/pages/*.js`), no React/Vue
-- **Versione:** 1.25.12 — output `target/moneymanager-1.25.12.jar` (fat JAR, web/ esclusa)
+- **Versione:** 1.25.13 — output `target/moneymanager-1.25.13.jar` (fat JAR, web/ esclusa)
 - **Web assets:** serviti da filesystem (cartella `web/` accanto al `.exe` in produzione, `target/classes/web/` in IDE)
 - **DB path:** `%APPDATA%\LucaMoneyManager\data.db` (`%APPDATA%` = `...\Roaming`)
 - **Due log distinti, in due posti diversi** — vedi "I due log e OneDrive"
@@ -117,7 +117,7 @@ riparte da file nuovi, in cui quel nome non compare.
 
 ---
 
-## Schema DB (v25, 22 tabelle)
+## Schema DB (v26, 22 tabelle)
 
 - **Core:** `accounts` (3 stati: `is_closed`, `is_hidden` — nascosto ⇒ sempre chiuso; per le carte anche `payment_day`, `payment_account_id`, `auto_settle` — vedi "Saldo automatico carte"), `categories` (gerarchiche, `expense_nature`, `mobile_favorite` — vedi "Categorie per Android" — `system_key` — vedi "Titoli"), `transactions` (`reconciled`, `attachment_path`, `color`), `transaction_splits`, `transaction_tags`, `tags` (`is_system`, `system_key`)
 - **Budget:** `budgets`, `budget_config` (master_amount mensile/annuale)
@@ -205,9 +205,9 @@ Il conto titoli torna così a zero sulla posizione chiusa: `carico + plusvalenza
 5. `parent_pt_id` lega le righe nate dalla stessa operazione. Annullando la madre vanno tolte
    **anche le transazioni delle figlie**: il vincolo `ON DELETE CASCADE` porta via le righe di
    storico ma non le transazioni, che resterebbero a muovere i saldi.
-6. Note `'Commissione'` e `'Commissione acquisto'` sono **marcatori semantici**: tre punti fra
-   `Database.java` e `portfolio.js` escludono quelle righe dai totali perché la commissione è
-   già contata altrove. Cambiare quei testi la fa contare due volte.
+6. Note `'Commissione'`, `'Commissione acquisto'` e `'Rateo acquisto'` sono **marcatori
+   semantici**: i punti fra `Database.java` e `portfolio.js` che le escludono dai totali (sono
+   già contate altrove) le riconoscono da quel testo esatto. Cambiarlo le fa contare due volte.
 7. **Un'operazione non si smonta un pezzo per volta dalla pagina Transazioni.**
    `portfolio_transactions.transaction_id` è `ON DELETE CASCADE`: eliminando da lì la
    transazione di plusvalenza sparirebbe anche la sua riga di storico, **ma la vendita
@@ -220,6 +220,24 @@ Il conto titoli torna così a zero sulla posizione chiusa: `carico + plusvalenza
    ⚠️ L'`UPDATE` che riallinea `portfolio_transactions.price` all'importo della transazione
    copre `coupon`/`dividend`/`tax`/`expense`. Togliendone uno, la scheda del titolo mostra una
    cifra e il conto un'altra.
+8. **Il rateo lordo di un acquisto obbligazionario (v26, `accrued_interest`) non tocca né il
+   bonifico né `avg_price`.** È l'interesse già maturato che si paga al venditore fra una
+   cedola e l'altra: torna con la prima cedola incassata, non è un vero carico. Prima non
+   esisteva un campo separato: l'unico modo per far quadrare quanto usciva dal conto con
+   quanto pagato davvero era sommarlo dentro `price`, gonfiando con lui anche il PMC **per
+   sempre** — ogni plusvalenza futura su quel titolo risultava sottostimata.
+   ⚠️ Non basta escluderlo da `avg_price`: **non deve nemmeno passare dal bonifico verso il
+   conto titoli.** Il primo tentativo lo sommava lì (come la commissione) — ma la cedola che lo
+   "restituisce" arriva su un conto scelto dall'utente, non su quello titoli: il rateo ci
+   sarebbe rimasto per sempre, e la posizione chiusa non sarebbe più tornata a zero (punto 4
+   della sezione precedente). `buyStock` lo registra invece con una **vera transazione a sé**,
+   dal conto pagante, nella categoria di sistema `Rateo obbligazioni` (`SK_RATEO`, stesso
+   meccanismo delle quattro categorie qui sotto) — esclusa da budget, altrimenti il mese
+   dell'acquisto avrebbe una spesa fantasma che sparisce da sola alla cedola successiva.
+   `getPortfolio` esclude comunque quella riga da `total_other_expenses` (marcatore
+   `'Rateo acquisto'`, punto 6): il Total Return del portafoglio non deve contarla, esattamente
+   come la commissione. Solo lato acquisto: la vendita (dirty price incassato dal compratore)
+   ha la stessa distorsione in teoria ma non è ancora gestita.
 
 La stessa spiegazione, in italiano e con i **nomi veri** delle categorie letti dalla chiave, sta
 dentro l'app: pulsante **❓ Come funziona** nella pagina Investimenti (`showPortfolioHelp` in
@@ -227,17 +245,19 @@ dentro l'app: pulsante **❓ Come funziona** nella pagina Investimenti (`showPor
 l'app" che si aggiorna mentre si compila il modale di vendita. Cambiando le regole qui sopra va
 aggiornato anche quel testo: è l'unico posto in cui l'utente le legge.
 
-### Le quattro categorie degli investimenti (`categories.system_key`, v25)
+### Le categorie degli investimenti (`categories.system_key`, v25 · +1 in v26)
 
-`Plusvalenze`, `Minusvalenze` e `Imposte su rendite` sono **escluse da budget e report** —
-muovono i saldi ma non entrano in medie, previsioni e Salute Finanziaria, perché sono eventi di
-capitale grumosi e non pianificabili. `Cedole e dividendi` invece **no**: quelle sono
-ricorrenti, si pianificano, e devono restare dentro budget e previsioni.
+`Plusvalenze`, `Minusvalenze`, `Imposte su rendite` e (dalla v26) `Rateo obbligazioni` sono
+**escluse da budget e report** — muovono i saldi ma non entrano in medie, previsioni e Salute
+Finanziaria, perché sono eventi di capitale grumosi e non pianificabili (il rateo in più: torna
+da solo con la cedola successiva, contarlo come spesa lo farebbe uscire due volte dal
+patrimonio). `Cedole e dividendi` invece **no**: quelle sono ricorrenti, si pianificano, e
+devono restare dentro budget e previsioni.
 
 **Non sono categorie speciali.** Non c'è nessun divieto: si rinominano, si spostano, si
 eliminano come qualsiasi altra. `system_key` (`plusvalenze`, `minusvalenze`, `imposte_rendite`,
-`cedole_dividendi`) non è un lucchetto — è **l'indirizzo a cui il codice scrive**, come
-`tags.system_key` per i tag. Il modello in una riga:
+`cedole_dividendi`, `rateo_obbligazioni`) non è un lucchetto — è **l'indirizzo a cui il codice
+scrive**, come `tags.system_key` per i tag. Il modello in una riga:
 
 > **la chiave segue i dati.**
 
@@ -299,6 +319,32 @@ si perde e la categoria verrà ricreata — esito imperfetto ma innocuo, e scrit
 
 Fino alla v24 il legame era il **nome**: rinominare "Plusvalenze" faceva nascere una seconda
 categoria al movimento successivo, in silenzio. Era la trappola che la v25 chiude.
+
+### Avviso «cedola non pianificata» (v26)
+
+Comprare un'obbligazione e collegarci le cedole future sono due gesti separati: il secondo
+("Aggiungi cedola a pianificate", menu tasto destro → crea una `scheduled_transactions` con
+`portfolio_id` valorizzato) è facile da dimenticare, e fino alla v26 dimenticarlo era silenzioso
+— l'unico segnale sarebbe stata la cedola che non arriva mai, mesi dopo.
+
+`Database.getPortfolio()` espone `active_scheduled_count` (subquery correlata su
+`scheduled_transactions.portfolio_id = p.id AND is_active = 1`, una per posizione — non
+nell'aggregato raggruppato sopra, che è tutta un'altra tabella). `bondMissingCouponSchedule()`
+in [portfolio.js](src/main/resources/web/js/pages/portfolio.js) lo traduce in un booleano: bond
+attivo (`quantity > 0`), cedola non-zero, scadenza non ancora passata, zero pianificate attive.
+Da qui **due avvisi**, stesso schema fatto/conseguenze delle categorie qui sopra:
+
+- **Il fatto** sta in pagina, sempre: badge ⏰ "Cedola non pianificata" sulla riga in Portafoglio,
+  cliccabile — apre direttamente "Aggiungi cedola a pianificate" per quel titolo.
+- **Il promemoria** è una notice all'avvio (stesso meccanismo di scadute/da telefono/da
+  verificare, vedi `_noticeData`/`showBondNoCouponNotice` in [init.js](src/main/resources/web/js/init.js)), così l'avviso non dipende dal ricordarsi di
+  guardare la pagina Portafoglio.
+
+⚠️ Il punto di risoluzione è uno solo: il successo di `showAddCouponToScheduled` — da lì
+`renderPortfolio()` toglie il badge e `_resolveBondNoCoupon(portfolioId)` toglie la voce da
+`_noticeData` (stesso schema di `_resolveOverdue` in scheduled.js). Non è nell'elenco che
+`refreshNotices()` ricalcola al risveglio (quello è per notice che si risolvono altrove, es. da
+telefono): come scadute/pianificate-oggi/previsioni, si risolve solo nel suo punto dedicato.
 
 ---
 
@@ -594,12 +640,14 @@ mesi — motivo per cui questa parte, sola in tutto il progetto, ha una verifica
 .\tools\test-titoli.ps1 -Keep           # conserva la copia per ispezionarla
 ```
 
-**Sessantotto controlli** su quattro suite: azioni (acquisto con commissione, vendita in utile e
+**Ottanta controlli** su quattro suite: azioni (acquisto con commissione, vendita in utile e
 in perdita, imposta differita anche a posizione chiusa, rifiuti attesi, annullamento),
-obbligazioni (prezzo in percentuale, vendita parziale, rimborso a scadenza), cedole/dividendi
-(che devono restare **dentro** budget e previsioni) e **difese** — quello che l'utente può fare
-per sbaglio: smontare una vendita dalla pagina Transazioni, e spostare o eliminare la categoria
-in cui l'app registra le plusvalenze (dopo uno "sposta ed elimina" la vendita successiva deve
+obbligazioni (prezzo in percentuale, vendita parziale, rimborso a scadenza, e il rateo lordo
+d'acquisto: non tocca il PMC, esce dal conto liquidità insieme al carico, compare come riga di
+storico dedicata, sparisce annullando l'acquisto), cedole/dividendi (che devono restare
+**dentro** budget e previsioni) e **difese** — quello che l'utente può fare per sbaglio:
+smontare una vendita dalla pagina Transazioni, e spostare o eliminare la categoria in cui
+l'app registra le plusvalenze (dopo uno "sposta ed elimina" la vendita successiva deve
 scrivere nella destinazione scelta, senza far rinascere la categoria vecchia).
 
 Le proprietà difese sono quelle che si rompono in silenzio: il conto investimenti si muove

@@ -209,6 +209,47 @@ public class TestTitoli {
         ok("saldo del conto investimenti identico a prima", saldo(tit), T0);
         ok("saldo del conto liquidità identico a prima", saldo(uni), U0);
         ok("nessuna transazione di prova residua", count("SELECT COUNT(*) FROM transactions"), tx0);
+
+        // ═══ RATEO LORDO: entra nel bonifico, mai nel prezzo di carico ═══
+        // Due posizioni gemelle (stesso nominale/prezzo/commissione), una senza rateo e una con,
+        // per isolare l'unico effetto che il rateo deve avere: sul bonifico, non sul PMC.
+        sez("acquisto gemello SENZA rateo (riferimento)");
+        double Ta = saldo(tit), Ua = saldo(uni);
+        Map<String,Object> posA = d.buyStock(buy("TESTRATEOA", "Bond rateo A", 10000, 99.5, "bond", 10, tit, uni));
+        double avgA = ((Number) posA.get("avg_price")).doubleValue();
+
+        sez("acquisto gemello CON 87,50 di rateo lordo");
+        double Tb = saldo(tit), Ub = saldo(uni);
+        int pidB = ((Number) d.buyStock(buy("TESTRATEOB", "Bond rateo B", 10000, 99.5, "bond", 10, 87.50, tit, uni)).get("id")).intValue();
+        double avgB = numQ("SELECT avg_price FROM portfolio WHERE id=" + pidB);
+        ok("il rateo NON entra nel prezzo di carico: stesso PMC del gemello senza rateo", avgB, avgA);
+        ok("il conto investimenti sale del solo carico, rateo escluso", saldo(tit) - Tb, 10000 * avgB / 100);
+        ok("dal conto liquidità esce puro + commissione + rateo", Ub - saldo(uni), 10000 * 99.5 / 100 + 10 + 87.50);
+        ok("il rateo compare come riga di storico dedicata",
+           numQ("SELECT accrued_interest FROM portfolio_transactions WHERE portfolio_id=" + pidB + " AND notes='Rateo acquisto'"), 87.50);
+
+        double totOther = -1;
+        for (Map<String,Object> row : d.getPortfolio())
+            if (((Number) row.get("id")).intValue() == pidB) totOther = ((Number) row.get("total_other_expenses")).doubleValue();
+        ok("il rateo è escluso dalle spese che riducono il rendimento (torna con la cedola)", totOther, 0.0);
+
+        sez("annullamento dell'acquisto con rateo");
+        int buyPtIdB = id("SELECT id FROM portfolio_transactions WHERE portfolio_id=" + pidB + " AND type='buy'");
+        d.deletePortfolioTransaction(buyPtIdB);
+        ok("la posizione torna a zero", numQ("SELECT quantity FROM portfolio WHERE id=" + pidB), 0);
+        ok("la riga di rateo sparisce insieme all'acquisto",
+           count("SELECT COUNT(*) FROM portfolio_transactions WHERE portfolio_id=" + pidB), 0);
+        ok("il conto liquidità torna esattamente al saldo di prima dell'acquisto", saldo(uni), Ub);
+        ok("il conto investimenti torna esattamente al saldo di prima dell'acquisto", saldo(tit), Tb);
+
+        sez("pulizia gemelli");
+        d.deletePortfolioTransaction(id("SELECT id FROM portfolio_transactions WHERE portfolio_id="
+            + ((Number) posA.get("id")).intValue() + " AND type='buy'"));
+        d.deletePortfolioItem(((Number) posA.get("id")).intValue());
+        d.deletePortfolioItem(pidB);
+        ok("saldo del conto investimenti identico a prima dei gemelli", saldo(tit), T0);
+        ok("saldo del conto liquidità identico a prima dei gemelli", saldo(uni), U0);
+        ok("nessuna transazione di prova residua", count("SELECT COUNT(*) FROM transactions"), tx0);
     }
 
     // ═══ CEDOLE E DIVIDENDI: devono restare DENTRO budget e previsioni ═══
@@ -328,12 +369,16 @@ public class TestTitoli {
 
     // ─── payload ────────────────────────────────────────────────────────────
     static JsonObject buy(String tk, String nome, double q, double p, String tipo, double comm, int acc, int from) {
+        return buy(tk, nome, q, p, tipo, comm, 0, acc, from);
+    }
+    static JsonObject buy(String tk, String nome, double q, double p, String tipo, double comm, double rateo, int acc, int from) {
         JsonObject o = new JsonObject();
         o.addProperty("ticker", tk);       o.addProperty("name", nome);
         o.addProperty("quantity", q);      o.addProperty("price", p);
         o.addProperty("date", "2026-08-01"); o.addProperty("account_id", acc);
         o.addProperty("from_account_id", from); o.addProperty("asset_type", tipo);
         o.addProperty("commissions", comm);
+        o.addProperty("accrued_interest", rateo);
         if ("bond".equals(tipo)) o.addProperty("coupon_tax", 12.5);
         return o;
     }

@@ -275,10 +275,11 @@ async function editCategory(id) {
 // Cosa registra l'app in ciascuna categoria marcata da una system_key (v25). Serve solo a
 // dirlo in italiano nei modali: l'identità vera è la chiave, che sta nel DB.
 const SYSTEM_CAT_LABEL = {
-  plusvalenze:      'le plusvalenze delle vendite in utile',
-  minusvalenze:     'le minusvalenze delle vendite in perdita',
-  imposte_rendite:  'le imposte sul capital gain',
-  cedole_dividendi: 'le cedole e i dividendi'
+  plusvalenze:        'le plusvalenze delle vendite in utile',
+  minusvalenze:       'le minusvalenze delle vendite in perdita',
+  imposte_rendite:    'le imposte sul capital gain',
+  cedole_dividendi:   'le cedole e i dividendi',
+  rateo_obbligazioni: 'il rateo lordo pagato acquistando obbligazioni'
 };
 
 // Le categorie con chiave coinvolte nell'eliminazione: quella scelta e le sue figlie, che la

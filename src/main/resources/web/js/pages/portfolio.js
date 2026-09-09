@@ -72,6 +72,18 @@ function heldBuyCommission(i) {
   return buyComm * (i.quantity / totQty);
 }
 
+// Vero se un'obbligazione attiva, con cedola (non zero-coupon) e scadenza ancora futura, non ha
+// nessuna pianificata ATTIVA collegata (scheduled_transactions.portfolio_id, contata lato server
+// in active_scheduled_count, vedi Database.getPortfolio). "Aggiungi cedola a pianificate" è un
+// passo separato dall'acquisto: se lo si dimentica, prima di questo controllo non c'era alcun
+// segnale finché non mancava davvero l'incasso di una cedola attesa.
+function bondMissingCouponSchedule(i) {
+  if (i.asset_type !== 'bond' || !(i.quantity > 0) || !(i.coupon_rate > 0) || !i.maturity_date) return false;
+  const today = new Date(); today.setHours(0,0,0,0);
+  if (new Date(i.maturity_date + 'T00:00:00') < today) return false;
+  return !(i.active_scheduled_count > 0);
+}
+
 // ── Metriche di rendimento ──────────────────────────────────────────────────
 
 // Current yield netto annuo: cedola netta annua / prezzo attuale × 100
@@ -331,8 +343,12 @@ async function renderPortfolio() {
               ? `<br><small style="color:var(--txt3);font-size:10px" title="CY = cedola netta annua / prezzo attuale &#10;YTM = rendimento netto a scadenza (formula approssimata)">
                   ${cy != null ? `CY ${cy.toFixed(2)}%` : ''}${cy != null && ytm != null ? ' · ' : ''}${ytm != null ? `YTM ${ytm.net.toFixed(2)}% (${ytm.years.toFixed(1)}y)` : ''}
                  </small>` : '';
+            const noCouponWarn = bondMissingCouponSchedule(i)
+              ? `<br><a href="#" onclick="event.preventDefault();event.stopPropagation();showAddCouponToScheduled(${i.id})"
+                    style="font-size:10px;color:var(--expense);font-weight:600" title="Ha una cedola ma nessuna pianificata attiva: clicca per aggiungerla">⏰ Cedola non pianificata</a>`
+              : '';
             const couponInfo = isBond && i.coupon_rate
-              ? `<br><small style="color:var(--txt3);font-size:10px">Cedola ${i.coupon_rate}% lordo · ${((1-(i.coupon_tax||12.5)/100)*i.coupon_rate).toFixed(3)}% netto</small>${yieldInfo}`
+              ? `<br><small style="color:var(--txt3);font-size:10px">Cedola ${i.coupon_rate}% lordo · ${((1-(i.coupon_tax||12.5)/100)*i.coupon_rate).toFixed(3)}% netto</small>${yieldInfo}${noCouponWarn}`
               : '';
             const qtyDisplay = isBond
               ? `<span title="Nominale totale">${fmt.currency(i.quantity)}</span>`
@@ -451,6 +467,9 @@ async function renderPortfolioStorico(items) {
   const rowKind    = t => t.type === 'gain' ? (t.price >= 0 ? 'gainPos' : 'gainNeg') : t.type;
   // Note con cui il backend marca le righe expense di commissione (Database.buyStock/sellStock).
   const IS_COMMISSION_NOTE = n => n === 'Commissione' || n === 'Commissione acquisto';
+  // Idem per il rateo lordo di un acquisto obbligazionario (Database.buyStock): non è una spesa
+  // vera, torna con la prima cedola, quindi si esclude da totExpense come la commissione.
+  const IS_ACCRUED_NOTE = n => n === 'Rateo acquisto';
 
   let grandBuy = 0, grandSell = 0, grandCoupon = 0, grandDividend = 0, grandExpense = 0, grandSellComm = 0;
 
@@ -458,16 +477,19 @@ async function renderPortfolioStorico(items) {
     // Convenzione percentage: bond price stored come % (99.5 = 99.5%), cash = qty*price/100.
     // Equity: cash = qty*price.
     const isB = item.asset_type === 'bond';
-    const buyValue  = t => (isB ? t.quantity * t.price / 100 : t.quantity * t.price) + (t.commission || 0);
+    // Il rateo (solo bond) esce davvero dal conto liquidità insieme al capitale e alla
+    // commissione (vedi buyStock): entra quindi nel totale della riga come loro, pur restando
+    // fuori dal prezzo di carico. Rientra con la cedola successiva (totCoupon).
+    const buyValue  = t => (isB ? t.quantity * t.price / 100 : t.quantity * t.price) + (t.commission || 0) + (t.accrued_interest || 0);
     const sellValue = t => (isB ? t.quantity * t.price / 100 : t.quantity * t.price);
     const totBuy     = txs.filter(t=>t.type==='buy').reduce((s,t)=>s+buyValue(t), 0);
     const totSell    = txs.filter(t=>t.type==='sell').reduce((s,t)=>s+sellValue(t), 0);
     const totCoupon  = txs.filter(t=>t.type==='coupon').reduce((s,t)=>s+t.price, 0);
     const totDividend= txs.filter(t=>t.type==='dividend').reduce((s,t)=>s+t.price, 0);
-    // Le commissioni d'acquisto sono già incluse in totBuy (buyValue somma t.commission):
-    // vanno escluse da totExpense per non contarle due volte. Stessa esclusione del SQL
+    // Le commissioni d'acquisto e il rateo sono già inclusi in totBuy (buyValue li somma):
+    // vanno esclusi da totExpense per non contarli due volte. Stessa esclusione del SQL
     // di total_other_expenses in Database.java (getPortfolio).
-    const totExpense = txs.filter(t=>t.type==='expense' && !IS_COMMISSION_NOTE(t.notes)).reduce((s,t)=>s+t.price, 0);
+    const totExpense = txs.filter(t=>t.type==='expense' && !IS_COMMISSION_NOTE(t.notes) && !IS_ACCRUED_NOTE(t.notes)).reduce((s,t)=>s+t.price, 0);
     const totSellComm= txs.filter(t=>t.type==='expense' && t.notes==='Commissione').reduce((s,t)=>s+t.price, 0);
     grandBuy += totBuy; grandSell += totSell; grandCoupon += totCoupon; grandDividend += totDividend;
     grandExpense += totExpense; grandSellComm += totSellComm;
@@ -500,17 +522,24 @@ async function renderPortfolioStorico(items) {
         || a.id - b.id).map(t => {
       const isValued = t.type === 'buy' || t.type === 'sell';
       const commPart = (t.type === 'buy' && t.commission > 0) ? t.commission : 0;
+      const accruedPart = (t.type === 'buy' && t.accrued_interest > 0) ? t.accrued_interest : 0;
       const principal = isValued ? (isBond ? t.quantity * t.price / 100 : t.quantity * t.price) : t.price;
-      const total = principal + commPart;
+      const total = principal + commPart + accruedPart;
       const priceDisplay = !isValued ? '—'
         : isBond ? `${t.price.toFixed(4)} %`
         : `${t.price.toFixed(4)} €`;
       const kind = rowKind(t);
       const typeLabel = t.type === 'expense' && IS_COMMISSION_NOTE(t.notes)
         ? `<span style="color:${TYPE_COLOR.expense};font-weight:600">Commissione</span>`
+        : t.type === 'expense' && IS_ACCRUED_NOTE(t.notes)
+        ? `<span style="color:${TYPE_COLOR.expense};font-weight:600">Rateo</span>`
         : `<span style="color:${TYPE_COLOR[kind]||'var(--txt)'};font-weight:600">${TYPE_LABEL[kind]||t.type}</span>`;
-      const noteText = (t.notes && !IS_COMMISSION_NOTE(t.notes)) ? esc(t.notes) : '';
-      const commNote = commPart > 0 ? `<small style="color:var(--txt3)">+ comm. ${fmt.currency(commPart)}</small>` : '';
+      const noteText = (t.notes && !IS_COMMISSION_NOTE(t.notes) && !IS_ACCRUED_NOTE(t.notes)) ? esc(t.notes) : '';
+      const extraNotes = [
+        commPart    > 0 ? `+ comm. ${fmt.currency(commPart)}`    : '',
+        accruedPart > 0 ? `+ rateo ${fmt.currency(accruedPart)}` : '',
+      ].filter(Boolean).join(' ');
+      const commNote = extraNotes ? `<small style="color:var(--txt3)">${extraNotes}</small>` : '';
       return `<tr>
         <td style="width:110px">${fmt.date(t.date)}</td>
         <td style="width:130px">${typeLabel}</td>
@@ -1141,6 +1170,10 @@ async function showBuyModal(portfolioId, investAccounts, allAccounts) {
                  value="${prefillCouponTax}" placeholder="12,5">
         </div>
       </div>
+      <div class="form-group">
+        <label class="form-label" title="Interesse già maturato dall'ultima cedola, che paghi al venditore comprando fra una cedola e l'altra. Si aggiunge al bonifico ma NON al prezzo di carico: torna con la prima cedola che incassi.">Rateo lordo (€)</label>
+        <input type="text" inputmode="decimal" class="form-control" id="b_accrued" placeholder="0">
+      </div>
     </div>
     <div class="form-row">
       <div class="form-group">
@@ -1171,7 +1204,7 @@ async function showBuyModal(portfolioId, investAccounts, allAccounts) {
         <input type="text" inputmode="decimal" class="form-control" id="b_comm" placeholder="0">
       </div>
       <div class="form-group">
-        <label class="form-label">Totale (incl. comm.)</label>
+        <label class="form-label" id="b_total_label">Totale (incl. comm.)</label>
         <input type="text" class="form-control" id="b_total" readonly placeholder="—" style="background:var(--bg3)">
       </div>
     </div>
@@ -1185,7 +1218,8 @@ async function showBuyModal(portfolioId, investAccounts, allAccounts) {
       I soldi non si perdono: <b>si spostano</b> dal conto che paga al conto investimento — è un
       giroconto, quindi non è una spesa e non entra nel budget. La commissione è compresa nel
       totale e finisce nel <b>prezzo di carico</b>: alla vendita abbatterà il guadagno, non va
-      registrata anche come uscita.
+      registrata anche come uscita. Il rateo lordo (se presente) invece <b>si aggiunge al
+      totale ma resta fuori dal prezzo di carico</b>: torna con la prima cedola.
       <a href="#" onclick="event.preventDefault();closeModal();showPortfolioHelp()">Come funziona →</a>
     </div>`;
 
@@ -1210,6 +1244,7 @@ async function showBuyModal(portfolioId, investAccounts, allAccounts) {
       // `?? 12.5` scatta perché evalAmount ritorna null (con parseFloat era NaN, che ?? non
       // intercetta: il default arrivava comunque, ma dal fallback di Database.buyStock).
       coupon_tax:      isBond ? (evalAmount(document.getElementById('b_coupon_tax')?.value) ?? 12.5) : 0,
+      accrued_interest:isBond ? (evalAmount(document.getElementById('b_accrued')?.value) || 0) : 0,
     };
     if (!data.account_id)      { toast('Seleziona il conto investimento','error'); return; }
     if (!data.from_account_id) { toast('Seleziona il conto da cui pagare','error'); return; }
@@ -1236,6 +1271,8 @@ async function showBuyModal(portfolioId, investAccounts, allAccounts) {
     const priceLabel = document.getElementById('b_price_label');
     if (qtyLabel)   qtyLabel.textContent   = isBond ? 'Nominale (€) *'       : 'Quantità *';
     if (priceLabel) priceLabel.textContent = isBond ? 'Prezzo regolamento (%) *' : 'Prezzo unitario (€) *';
+    const totalLabel = document.getElementById('b_total_label');
+    if (totalLabel) totalLabel.textContent = isBond ? 'Totale (incl. comm. e rateo)' : 'Totale (incl. comm.)';
     calcTotal();
   };
 
@@ -1245,13 +1282,17 @@ async function showBuyModal(portfolioId, investAccounts, allAccounts) {
     const p      = evalAmount(document.getElementById('b_price')?.value)||0;
     const c      = evalAmount(document.getElementById('b_comm')?.value)||0;
     const isBond = document.getElementById('b_type_bond')?.classList.contains('theme-btn-active');
-    const total  = (isBond ? q * p / 100 : q * p) + c;
+    // Il rateo esiste solo per i bond (il campo è dentro b_bond_fields, nascosto per le azioni):
+    // sommarlo comunque leggerebbe un valore residuo lasciato in un campo invisibile.
+    const r      = isBond ? (evalAmount(document.getElementById('b_accrued')?.value)||0) : 0;
+    const total  = (isBond ? q * p / 100 : q * p) + c + r;
     const t = document.getElementById('b_total');
     if (t) t.value = q && p ? fmt.currency(total) : '—';
   };
   setTimeout(() => {
     document.getElementById('b_qty')?.addEventListener('input', calcTotal);
     document.getElementById('b_price')?.addEventListener('input', calcTotal);
+    document.getElementById('b_accrued')?.addEventListener('input', calcTotal);
     document.getElementById('b_comm')?.addEventListener('input', calcTotal);
   }, 50);
 }
@@ -2192,6 +2233,10 @@ async function showAddCouponToScheduled(portfolioId) {
       await api.addScheduled(data);
       closeModal();
       toast(`Cedola ${esc(pos.ticker)} aggiunta alle pianificate`);
+      // Fa sparire subito sia il badge ⏰ in tabella sia l'eventuale notice di avvio
+      // "obbligazioni senza cedola pianificata" (init.js), senza aspettare un refresh completo.
+      renderPortfolio();
+      _resolveBondNoCoupon(portfolioId);
     } catch(e) { toast(e.message,'error'); }
   });
 }
@@ -2318,6 +2363,7 @@ async function showPortfolioHelp() {
         ${riga('Imposta', `La tassa <b>sul</b> guadagno, non il guadagno: la banca la preleva settimane dopo, spesso cumulata su più vendite. La registri tu quando arriva, col pulsante 🧾 — funziona anche a titolo già venduto. Finisce in ${nome(imp)}.`, budge(imp))}
         ${riga('Cedole e dividendi', `Le rendite periodiche. Finiscono in ${nome(ced)} e restano <b>dentro</b> budget e previsioni: sono ricorrenti, quindi si possono pianificare.`, budge(ced, false))}
         ${riga('Commissione', `Non è una spesa a parte: all'acquisto è dentro il prezzo di carico, alla vendita è già scalata dall'incasso. Registrarla anche come uscita la conterebbe due volte.`, '')}
+        ${riga('Rateo lordo<br>(solo obbligazioni)', `L'interesse già maturato che paghi al venditore comprando fra una cedola e l'altra. Si aggiunge al bonifico d'acquisto ma <b>non</b> al prezzo di carico: se ci entrasse, ogni plusvalenza futura risulterebbe sottostimata di quell'importo. Torna con la prima cedola che incassi, tassata per intero.`, '')}
       </table>
       <div class="settings-hint" style="margin-top:8px">
         Plusvalenze, minusvalenze e imposte stanno fuori da budget, medie e Salute Finanziaria di proposito:

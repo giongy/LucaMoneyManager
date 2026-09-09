@@ -215,8 +215,18 @@ public class DbLogger {
         } catch (IOException e) { return Map.of("error", e.getMessage(), "deleted", 0); }
     }
 
+    /**
+     * Azioni "di sistema": escluse dalla finestra di sessione (quindi non fanno scattare il
+     * backup automatico) e bersaglio di {@link #purgeSystemEntries()}.
+     *
+     * ⚠️ Un nome si toglie da qui solo se **nessun log esistente** lo contiene più: togliendolo
+     * mentre in giro ci sono ancora righe che lo usano, quelle righe diventano di colpo
+     * impurgabili e tornano a contare come modifiche di sessione — cioè fanno scattare backup a
+     * vuoto. "DB IDLE-RELEASE" è uscito con la 1.25.11 perché ha smesso di essere scritto e i
+     * log sono stati azzerati nella stessa occasione: si riparte da file nuovi.
+     */
     private static final java.util.Set<String> SYSTEM_ACTIONS = java.util.Set.of(
-        "AVVIO", "DB CAMBIATO", "BACKUP ESEGUITO", "RIPRISTINO BACKUP", "MANUTENZIONE", "DB IDLE-RELEASE"
+        "AVVIO", "DB CAMBIATO", "BACKUP ESEGUITO", "RIPRISTINO BACKUP", "MANUTENZIONE"
     );
 
     /**
@@ -231,7 +241,7 @@ public class DbLogger {
 
     /**
      * Elimina dal file di log tutte le righe di sistema
-     * (AVVIO, DB CAMBIATO, BACKUP ESEGUITO, RIPRISTINO BACKUP, MANUTENZIONE, DB IDLE-RELEASE).
+     * (AVVIO, DB CAMBIATO, BACKUP ESEGUITO, RIPRISTINO BACKUP, MANUTENZIONE).
      * Restituisce il numero di righe eliminate e quelle rimaste.
      */
     public synchronized Map<String, Object> purgeSystemEntries() {

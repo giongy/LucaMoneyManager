@@ -43,19 +43,21 @@ mostra in un dialog.
 │   │       ServerSocket porta 47291 (loopback).                              │
 │   │       Già occupata → invia "SHOW" e System.exit(0).                     │
 │   │                                                                         │
-│   ├─ 3.  Carica settings.properties (Settings.java)                         │
+│   ├─ 3.  redirectLog(<dataDir>\app.log)                                     │
+│   │       System.err e System.out REDIREZIONATI al log. Sta QUI, prima      │
+│   │       di risolvere db.path: app.log NON vive piu' accanto al DB         │
+│   │       (che sta su OneDrive) ma nella cartella dati, percio' non         │
+│   │       dipende dal punto 5, e ne registra anche l'uscita (exit 2).       │
+│   │                                                                         │
+│   ├─ 4.  Carica settings.properties (Settings.java)                         │
 │   │       Solo chiavi bootstrap: db.path, http.port, http.enabled,          │
 │   │       autostart.enabled. Tutto il resto vive in app_settings nel DB.    │
 │   │                                                                         │
-│   ├─ 4.  Risolve db.path                                                    │
+│   ├─ 5.  Risolve db.path                                                    │
 │   │       Non configurato → default <dataDir>\data.db, e lo scrive.         │
 │   │       Configurato ma cartella assente → waitForDbFolder(): attende      │
 │   │       fino a 30s che OneDrive la monti; se non arriva ESCE (exit 2)     │
 │   │       SENZA toccare db.path (vedi "perché" sotto).                      │
-│   │                                                                         │
-│   ├─ 5.  redirectLog(<dir-del-db>\app.log)                                  │
-│   │       System.err e System.out REDIRIZIATI al log. Avviene DOPO il       │
-│   │       punto 4 apposta: un solo app.log, accanto al DB.                  │
 │   │                                                                         │
 │   ├─ 6.  Rileva java.exe / jar per l'autostart (TrayManager.javaExePath)    │
 │   │                                                                         │
@@ -131,7 +133,7 @@ primo paint fa vedere un Canvas vuoto. Quindi:
 | Punto | Motivazione |
 |------|-------------|
 | Splash mostrata prima di JCEF | Al primo avvio JCEF scarica ~200MB di Chromium: senza splash sembra che l'app non sia partita. |
-| `setErr/setOut` su `app.log` | Le eccezioni di JCEF/SQLite/Swing non andrebbero altrimenti da nessuna parte (l'app non ha console in modalità windowed). |
+| `setErr/setOut` su `app.log` | Le eccezioni di JCEF/SQLite/Swing non andrebbero altrimenti da nessuna parte (l'app non ha console in modalità windowed). Il file sta nella cartella dati e **non** accanto al DB: lo stream resta aperto per tutta la sessione, e su OneDrive era l'unico file della cartella non rinominabile né eliminabile mentre l'app girava. |
 | `waitForDbFolder` invece del ripiego sul default | Con l'autostart l'app parte insieme a OneDrive, che può metterci secondi a montare la cartella. Prima si ripiegava sul DB di default **riscrivendo `db.path`**: si apriva un database vuoto e si perdeva il percorso di quello vero. Ora si attende, e se non arriva si esce lasciando `db.path` intatto — al riavvio successivo funziona da solo. |
 | `uiReady` callback invece di `onLoadEnd` | Con la GPU attiva il primo composite arriva ~500ms DOPO `onLoadEnd` → senza questo trigger si vede un flash nero dietro la splash che svanisce. Il JS chiama `api.uiReady()` dopo un double-`requestAnimationFrame` per avere certezza che un frame sia stato dipinto. |
 | `SwingUtilities.invokeAndWait` per MainWindow | JCEF richiede che `createBrowser` venga chiamato sull'EDT; `invokeAndWait` blocca `run()` finché la finestra è costruita, così le successive registrazioni di tray/autostart trovano il frame valido. |
@@ -442,6 +444,12 @@ un unico punto deterministico. Viene invocata da `init()` a ogni avvio.
 una riga formattata in `<dbname>.log`. La sessione corrente è delimitata da `startOffset` (byte size
 all'avvio): permette al backup automatico di sapere se ci sono cambiamenti reali e di generare il
 sidecar JSON `<backup>.db.bak.json` con la lista delle modifiche.
+
+⚠️ Questo file sta **accanto al DB**, quindi su OneDrive, e ogni riga costa il ricaricamento del
+file intero. Ci va solo ciò che ha fatto **l'utente**: gli eventi di sfondo (tocchi esterni al
+`.db`, diagnostica) vanno su `app.log`, che dalla 1.25.11 vive nella cartella dati ed è fuori
+dalla sincronizzazione. Il perché per esteso — e cosa si rompeva prima — sta in `CLAUDE.md`,
+sezione "I due log e OneDrive".
 
 ---
 

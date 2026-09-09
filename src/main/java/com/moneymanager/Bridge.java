@@ -586,9 +586,7 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                 try {
                     all.put("_sqlite_version", db.getSQLiteVersion());
                 } catch (Exception ignored) {}
-                String dbp = settings.get(Settings.DB_PATH);
-                if (dbp != null) all.put("_app_log_path",
-                        java.nio.file.Path.of(dbp).getParent().resolve("app.log").toString());
+                all.put("_app_log_path", dataDir.resolve("app.log").toString());
                 all.put("_java_version", System.getProperty("java.version")
                         + " (" + System.getProperty("java.vm.name") + ")");
                 all.put("_dep_jcef",   mavenVersion("me.friwi",              "jcefmaven"));
@@ -714,12 +712,9 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             }
 
             case "openAppLog" -> {
-                String dbPath = settings.get(Settings.DB_PATH);
-                if (dbPath != null) {
-                    java.nio.file.Path appLog = java.nio.file.Path.of(dbPath).getParent().resolve("app.log");
-                    if (java.nio.file.Files.exists(appLog))
-                        openAsync("app.log", () -> java.awt.Desktop.getDesktop().open(appLog.toFile()));
-                }
+                java.nio.file.Path appLog = dataDir.resolve("app.log");
+                if (java.nio.file.Files.exists(appLog))
+                    openAsync("app.log", () -> java.awt.Desktop.getDesktop().open(appLog.toFile()));
                 yield Map.of("ok", true);
             }
 
@@ -727,10 +722,9 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             case "getAppLogErrors" -> appLogErrors();
 
             case "clearAppLog" -> {
-                String dbPath = settings.get(Settings.DB_PATH);
-                if (dbPath != null) {
-                    java.nio.file.Path appLog = java.nio.file.Path.of(dbPath).getParent().resolve("app.log");
-                    // Tronca invece di cancellare: il file è tenuto aperto da System.err
+                java.nio.file.Path appLog = dataDir.resolve("app.log");
+                // Tronca invece di cancellare: il file è tenuto aperto da System.err
+                if (java.nio.file.Files.exists(appLog)) {
                     try (var _ = java.nio.channels.FileChannel.open(appLog,
                             java.nio.file.StandardOpenOption.WRITE,
                             java.nio.file.StandardOpenOption.TRUNCATE_EXISTING)) {}
@@ -1045,9 +1039,7 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
      * stacktrace da 30 righe conta come 1 errore. Ritorna { count, lastError, lastTime }.
      */
     private Map<String, Object> appLogErrors() {
-        String dbPath = settings.get(Settings.DB_PATH);
-        if (dbPath == null || dbPath.isBlank()) return Map.of("count", 0, "lastError", "", "lastTime", "");
-        java.nio.file.Path appLog = java.nio.file.Path.of(dbPath).getParent().resolve("app.log");
+        java.nio.file.Path appLog = dataDir.resolve("app.log");
         if (!java.nio.file.Files.exists(appLog)) return Map.of("count", 0, "lastError", "", "lastTime", "");
 
         int count = 0;

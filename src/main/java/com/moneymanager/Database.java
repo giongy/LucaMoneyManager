@@ -277,18 +277,23 @@ public class Database {
             manuallyClosed = false;  // riaperto (da una query): non più "chiuso a mano"
             boolean sizeChanged  = lastClosedSize  > 0 && fileSize()  != lastClosedSize;
             boolean mtimeChanged = lastClosedMtime > 0 && fileMtime() != lastClosedMtime;
+            // ⚠️ Nessuno dei due rami scrive sul log delle operazioni. Ci scriveva ("DB
+            // MODIFICATO ESTERNAMENTE" / "DB TOCCO ESTERNO") e si mordeva la coda: il .log sta
+            // accanto al DB su OneDrive, quindi ogni tocco di OneDrive sul .db faceva scrivere
+            // una riga, che obbligava OneDrive a ricaricare il .log intero (nessun delta su file
+            // piccoli) — traffico generato dalla sola osservazione del traffico. In più quelle
+            // due voci non sono in SYSTEM_ACTIONS, quindi contavano come modifiche di sessione:
+            // un tocco esterno bastava a far scattare alla chiusura un backup dell'intero DB
+            // senza che l'utente avesse cambiato nulla.
             if (sizeChanged) {
-                logger.log("DB MODIFICATO ESTERNAMENTE",
-                    "sync OneDrive rilevata alla riapertura (dimensione cambiata)");
                 lastClosedMtime = -1;  // consuma l'evento: evita callback ripetuti
                 lastClosedSize  = -1;
                 Runnable cb = externalChangeCallback;
                 if (cb != null) cb.run();
             } else if (mtimeChanged) {
                 // mtime cambiato ma size identica: quasi certamente un tocco di OneDrive senza
-                // modifiche reali. Non facciamo refresh; logghiamo solo per diagnostica.
-                logger.log("DB TOCCO ESTERNO",
-                    "mtime cambiato ma dimensione invariata: nessun refresh (probabile touch OneDrive)");
+                // modifiche reali. Niente refresh — ma l'evento va consumato lo stesso, altrimenti
+                // resterebbe armato e la prossima riapertura lo rivaluterebbe su valori stantii.
                 lastClosedMtime = -1;
                 lastClosedSize  = -1;
             }
@@ -331,13 +336,15 @@ public class Database {
                 synchronized (Database.this) {
                     // Non chiudere se una query è in volo: la chiuderebbe a metà ("database
                     // connection closed"). endQuery() riprogrammerà l'auto-release al termine.
-                    // (close() ricontrolla comunque la stessa condizione: qui usciamo prima
-                    // solo per non loggare un rilascio che non è avvenuto.)
+                    // Guardia esplicita anche se close() ricontrolla la stessa condizione:
+                    // dice a chi legge che il caso è previsto, e costa un confronto.
                     if (activeQueries > 0) return;
                     try {
+                        // Il rilascio NON si annota sul log delle operazioni: sta accanto al DB
+                        // su OneDrive, e questo è un evento di sfondo che l'utente non ha
+                        // provocato. Vedi CLAUDE.md, "I due log e OneDrive".
                         if (autoReleaseEnabled && isOpen()) {
                             close();  // punto unico di chiusura: aggiorna anche la baseline
-                            logger.log("DB IDLE-RELEASE", "lock rilasciato per sync OneDrive");
                         }
                     } catch (Throwable ex) {
                         // Throwable e non SQLException: qualsiasi eccezione che sfugge da run()

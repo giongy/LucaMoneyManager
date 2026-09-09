@@ -25,9 +25,10 @@ tali. La documentazione da tenere aggiornata è solo questa terna: `CLAUDE.md`, 
 - **Linguaggio:** Java 25, Maven 3.x
 - **UI:** JCEF v146 (Chromium embedded) + Swing per dialogs/titlebar/splash
 - **Frontend:** Vanilla JS puro (`src/main/resources/web/`, modulare in `js/pages/*.js`), no React/Vue
-- **Versione:** 1.25.10 — output `target/moneymanager-1.25.10.jar` (fat JAR, web/ esclusa)
+- **Versione:** 1.25.11 — output `target/moneymanager-1.25.11.jar` (fat JAR, web/ esclusa)
 - **Web assets:** serviti da filesystem (cartella `web/` accanto al `.exe` in produzione, `target/classes/web/` in IDE)
 - **DB path:** `%APPDATA%\LucaMoneyManager\data.db` (`%APPDATA%` = `...\Roaming`)
+- **Due log distinti, in due posti diversi** — vedi "I due log e OneDrive"
 - **Build:** `mvn package` oppure `tools\build\build.bat`
 
 ### Android
@@ -68,6 +69,51 @@ SQLite
 Le query girano deliberatamente **fuori** dal lock (per non serializzarle): è per questo che serve il contatore `activeQueries` oltre al `synchronized`. `inTx()` lo tiene alzato per tutta la transazione, non solo per i singoli statement.
 
 ⚠️ Aggiungendo un metodo che tocca `conn`, rispetta le tre regole: violarle produce corruzione dati silenziosa (transazione committata a metà) o una connessione orfana che tiene il lock su OneDrive per sempre.
+
+### I due log e OneDrive (1.25.11)
+
+Sono due file distinti, con due destini diversi. La differenza non è cosmetica: uno vive dentro
+la cartella sincronizzata, l'altro no.
+
+| file | dove | chi scrive | apertura |
+|---|---|---|---|
+| `<nomedb>.log` (es. `luca.log`) | **accanto al DB**, quindi su OneDrive | `DbLogger` — una riga per operazione sui dati | apre e **richiude a ogni riga** (`Files.writeString` in APPEND) |
+| `app.log` | **`%APPDATA%\LucaMoneyManager\`**, fuori da OneDrive | `System.err`/`System.out` dirottati da `App.redirectLog()` | `PrintStream` **aperto per tutta la sessione**, mai chiuso |
+
+⚠️ **`app.log` non torna accanto al DB.** È diagnostica pura, non ha motivo di essere
+sincronizzata, e il suo stream resta aperto quanto il processo: stando su OneDrive era l'unico
+file della cartella non rinominabile né eliminabile mentre l'app girava (`FileOutputStream` non
+concede `FILE_SHARE_DELETE` — leggibile sì, quindi l'upload passava, ma non sostituibile in
+direzione download). Il path si ricava da `dataDir`, mai da `db.path`: nel `Bridge` sono
+**quattro** i punti che lo usano (`getSettings`, `openAppLog`, `clearAppLog`, `appLogErrors`).
+
+⚠️ **Nel log accanto al DB non si scrivono eventi di sfondo.** Ogni riga costa a OneDrive il
+ricaricamento del **file intero** (nessun delta su file piccoli), quindi ci va solo ciò che
+l'utente ha davvero fatto. Dalla 1.25.11 sono spariti gli ultimi tre eventi automatici:
+
+| evento tolto | dove stava | perché faceva danno |
+|---|---|---|
+| `DB TOCCO ESTERNO` | `ensureOpen()` | si mordeva la coda: OneDrive toccava il `.db` → l'app scriveva una riga → OneDrive doveva ricaricare il `.log` |
+| `DB MODIFICATO ESTERNAMENTE` | `ensureOpen()` | idem, più il problema qui sotto |
+| `DB IDLE-RELEASE` | `scheduleIdleRelease()` | una riga a ogni rilascio del lock, cioè proprio mentre OneDrive prova a sincronizzare |
+
+Le prime due, in più, **non** sono in `SYSTEM_ACTIONS`: contavano quindi come modifiche di
+sessione in `hasChanges()`, e un tocco esterno bastava a far scattare alla chiusura un backup
+dell'intero DB senza che l'utente avesse cambiato nulla.
+
+⚠️ **È sparita solo la scrittura sul log, non la logica.** I due rami di `ensureOpen()` restano e
+devono restare: consumano l'evento (`lastClosedMtime/Size = -1`) e fanno partire
+`externalChangeCallback`, cioè il refresh del frontend dopo una sync vera.
+
+Corollario per chi aggiunge un evento di sistema: se serve tracciarlo va su `app.log`
+(`System.err`), che non è sincronizzato. `DbLogger` è il registro di **cosa ha fatto l'utente**,
+ed è anche ciò che finisce nel sidecar `.json` del backup.
+
+⚠️ Da `SYSTEM_ACTIONS` un nome si toglie **solo se nessun log in giro lo contiene più**: quelle
+righe diventerebbero altrimenti impurgabili da "ripulisci log di sistema" e tornerebbero a
+contare come modifiche di sessione, facendo scattare backup a vuoto. `DB IDLE-RELEASE` è potuto
+uscire dall'elenco perché i `.log` sono stati azzerati nella stessa occasione: dalla 1.25.11 si
+riparte da file nuovi, in cui quel nome non compare.
 
 ---
 

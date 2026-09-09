@@ -149,7 +149,9 @@ public class App {
     }
 
     /** Reindirizza System.err/System.out in append sul file di log dato, scrivendo l'header
-     *  di sessione "── Avvio ... ──". Chiamato una sola volta, dopo aver risolto il path del DB. */
+     *  di sessione "── Avvio ... ──". Chiamato una sola volta, subito dopo il lock d'istanza.
+     *  Lo stream resta aperto per tutta la vita del processo: è il motivo per cui app.log vive
+     *  nella cartella dati e non accanto al DB (vedi il chiamante). */
     private static void redirectLog(Path logFile) throws Exception {
         Files.createDirectories(logFile.getParent());
         PrintStream logStream = new PrintStream(
@@ -173,15 +175,22 @@ public class App {
                 "AppData", "Roaming", "LucaMoneyManager");
         Files.createDirectories(dataDir);
 
-        // NB: il redirect di stderr/stdout su app.log avviene più sotto, DOPO aver risolto il
-        // path del DB, così esiste un solo app.log (accanto al DB) e non resta un file "monco"
-        // in dataDir quando il DB è altrove (es. OneDrive). Gli errori di questa fase pre-redirect
-        // sono comunque coperti: main() li cattura e li scrive in crash.log (vedi reportFatal).
-
         // Istanza singola: se un'altra è già in esecuzione, le manda SHOW ed esce
         if (!SingleInstance.tryAcquire(TrayManager::bringToFront)) {
             System.exit(0);
         }
+
+        // Redirect stderr/stdout → app.log nella cartella dati. NON accanto al DB: il DB sta di
+        // norma su OneDrive, e app.log è diagnostica pura che non ha motivo di essere
+        // sincronizzata. Restandoci creava traffico inutile ed era l'unico file della cartella
+        // tenuto aperto per l'intera sessione (PrintStream mai chiuso), quindi non rinominabile
+        // né eliminabile da OneDrive finché l'app girava.
+        // Sta qui, prima di risolvere il path del DB, perché non dipende più da quel path: così
+        // finisce nel log anche l'avvio interrotto per cartella del DB non raggiungibile
+        // (System.exit(2) più sotto), che prima si perdeva. Sta invece DOPO SingleInstance per
+        // non scrivere un'intestazione di sessione a ogni doppio click su un'app già aperta.
+        // Quel poco che resta scoperto prima di qui lo cattura main() su crash.log (reportFatal).
+        redirectLog(dataDir.resolve("app.log"));
 
         // Impostazioni (settings.properties) — nella stessa cartella del JAR (o user.dir in IDE)
         Path settingsDir;
@@ -212,10 +221,6 @@ public class App {
                 System.exit(2);
             }
         }
-
-        // Redirect stderr/stdout → app.log, ora che il path del DB è noto: un solo file, accanto
-        // al DB (comportamento storico). Da qui in poi tutto (DB, risorse web, UI) è tracciato.
-        redirectLog(Path.of(dbPath).getParent().resolve("app.log"));
 
         // Rileva percorsi java.exe e JAR per la registrazione autostart
         try {

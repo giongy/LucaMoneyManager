@@ -244,7 +244,7 @@ function _renderDashBudgetBubbles(budgetYear) {
   };
 
   el.innerHTML = _budgetHeader + `
-    <div style="padding:0 16px 8px;flex:1;display:flex;flex-direction:column;min-height:0">
+    <div class="dash-card-scroll" style="padding:0 16px 8px;flex:1;display:flex;flex-direction:column;min-height:0">
       <div class="dash-budget-cols">
         <div class="dash-budget-col-exp">
           <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--txt3);margin-bottom:8px">Uscite</div>

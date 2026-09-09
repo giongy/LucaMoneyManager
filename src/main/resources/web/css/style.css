@@ -1220,7 +1220,14 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
    Il corpo della card scorre: così accorciando una riga il contenuto resta raggiungibile
    invece di essere tagliato via. */
 .dash-row > .card { min-width:0; min-height:0; overflow:hidden; display:flex; flex-direction:column; position:relative; }
+/* ⚠️ Chi può scorrere è un ELENCO, non una regola generale: i widget-grafico non devono
+   scorrere (il canvas si ridimensiona, una barra di scorrimento lì sarebbe un errore di
+   layout). Il prezzo è che il corpo di un widget nuovo, se cresce, viene tagliato in
+   silenzio dall'overflow:hidden qui sopra — senza barra, quindi senza modo di accorgersene
+   se non guardando. È successo al widget budget: espandendo "Altre N categorie" l'ultima
+   riga finiva sotto il bordo. Un corpo che può crescere va marcato `dash-card-scroll`. */
 .dash-row > .card > .table-wrap,
+.dash-row > .card > .dash-card-scroll,
 .dash-row > .card > #dashAccounts { overflow:auto; min-height:0; }
 
 /* Comandi "Personalizza" in titlebar (non sopra la griglia: lì rubavano una riga di

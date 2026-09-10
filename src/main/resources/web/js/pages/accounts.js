@@ -657,7 +657,9 @@ function showAccountModal(account) {
       is_closed:       document.getElementById('a_closed').checked   ? 1 : 0,
       is_hidden:       document.getElementById('a_hidden').checked   ? 1 : 0,
     };
-    if (!data.name) { toast('Inserisci un nome per il conto','error'); return; }
+    // return fieldError(...): segnala il campo e tiene aperto il modale — con `return;` nudo
+    // si chiudeva, buttando via tipo, saldo, icona e colore già scelti (vedi ui-shell.js).
+    if (!data.name) return fieldError('a_name', 'Inserisci un nome per il conto');
     // Saldo automatico: solo per le carte. Il backend azzera comunque i 3 campi sugli altri
     // tipi, ma inviarli solo quando servono tiene il payload onesto.
     if (data.type === 'credit') {

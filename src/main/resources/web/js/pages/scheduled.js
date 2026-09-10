@@ -474,7 +474,7 @@ async function renderSchedProjection() {
       </div>
     `, async () => {
       const forecastDate = document.getElementById('fcDate').value;
-      if (!forecastDate) { toast('Seleziona una data','error'); return; }
+      if (!forecastDate) return fieldError('fcDate', 'Seleziona una data');
       try {
         await api.saveForecast({ forecast_date: forecastDate, projected_balance: lastBal, categories: cats });
         toast('Previsione salvata');

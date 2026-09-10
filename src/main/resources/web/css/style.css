@@ -976,6 +976,14 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
   color:var(--txt); font-size:var(--fs-md,12px); transition:border-color .15s;
 }
 .form-control:focus { outline:none; border-color:var(--accent); }
+/* Campo segnalato da fieldError() (ui-shell.js) quando il salvataggio si ferma su di lui.
+   Vince anche su :focus, altrimenti il campo — che fieldError mette a fuoco — tornerebbe
+   subito del colore d'accento e la segnalazione sparirebbe nell'istante in cui appare. */
+.form-control.field-invalid,
+.form-control.field-invalid:focus {
+  border-color:var(--expense);
+  box-shadow:0 0 0 2px color-mix(in srgb, var(--expense) 22%, transparent);
+}
 .form-row { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
 
 /* ─── Calcolatrice ───────────────────────────────────────────────────────────

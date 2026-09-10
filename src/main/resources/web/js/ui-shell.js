@@ -59,6 +59,31 @@ document.getElementById('modalConfirm').onclick = async () => {
   }
 };
 
+/* ─── Validazione dei campi di un modale ─────────────────────────────────── */
+// Segnala un campo non valido SENZA chiudere il modale: toast, bordo rosso e focus sul campo.
+// Torna sempre false, così nel callback di openModal si scrive `return fieldError(id, msg)` —
+// e modalConfirm (qui sopra) chiude solo se il callback non ritorna false.
+//
+// ⚠️ Il valore di ritorno è tutto il punto: le validazioni scritte come
+// `{ toast('...','error'); return; }` ritornano undefined, quindi il modale si chiude lo stesso
+// e l'utente perde tutto quello che aveva già compilato. È la ragione per cui questo helper
+// esiste invece di lasciare un toast a ogni chiamante.
+function fieldError(id, msg) {
+  toast(msg, 'error');
+  const el = document.getElementById(id);
+  if (!el) return false;
+  el.classList.add('field-invalid');
+  // Il rosso se ne va appena l'utente mette mano al campo: corretto il valore, non deve
+  // restare acceso fino al prossimo Salva.
+  const clear = () => el.classList.remove('field-invalid');
+  el.addEventListener('input',  clear, { once: true });
+  el.addEventListener('change', clear, { once: true });
+  el.focus();
+  // select() solo sugli input di testo: sui <select> non esiste, sui date non serve.
+  if (el.tagName === 'INPUT' && el.type === 'text') el.select();
+  return false;
+}
+
 /* ─── Confirm dialog (usa openModal) ─────────────────────────────────────── */
 // Dialogo di conferma basato su openModal: risolve la Promise a true (Elimina) o false
 // (Annulla / ✕). TUTTE le vie d'uscita del modale devono risolvere: il ✕ era cablato a

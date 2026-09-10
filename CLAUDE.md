@@ -25,7 +25,7 @@ tali. La documentazione da tenere aggiornata è solo questa terna: `CLAUDE.md`, 
 - **Linguaggio:** Java 25, Maven 3.x
 - **UI:** JCEF v146 (Chromium embedded) + Swing per dialogs/titlebar/splash
 - **Frontend:** Vanilla JS puro (`src/main/resources/web/`, modulare in `js/pages/*.js`), no React/Vue
-- **Versione:** 1.25.13 — output `target/moneymanager-1.25.13.jar` (fat JAR, web/ esclusa)
+- **Versione:** 1.25.14 — output `target/moneymanager-1.25.14.jar` (fat JAR, web/ esclusa)
 - **Web assets:** serviti da filesystem (cartella `web/` accanto al `.exe` in produzione, `target/classes/web/` in IDE)
 - **DB path:** `%APPDATA%\LucaMoneyManager\data.db` (`%APPDATA%` = `...\Roaming`)
 - **Due log distinti, in due posti diversi** — vedi "I due log e OneDrive"
@@ -220,12 +220,22 @@ Il conto titoli torna così a zero sulla posizione chiusa: `carico + plusvalenza
    ⚠️ L'`UPDATE` che riallinea `portfolio_transactions.price` all'importo della transazione
    copre `coupon`/`dividend`/`tax`/`expense`. Togliendone uno, la scheda del titolo mostra una
    cifra e il conto un'altra.
-8. **Il rateo lordo di un acquisto obbligazionario (v26, `accrued_interest`) non tocca né il
+8. **Il rateo di un acquisto obbligazionario (v26, `accrued_interest`) non tocca né il
    bonifico né `avg_price`.** È l'interesse già maturato che si paga al venditore fra una
    cedola e l'altra: torna con la prima cedola incassata, non è un vero carico. Prima non
    esisteva un campo separato: l'unico modo per far quadrare quanto usciva dal conto con
    quanto pagato davvero era sommarlo dentro `price`, gonfiando con lui anche il PMC **per
    sempre** — ogni plusvalenza futura su quel titolo risultava sottostimata.
+   ⚠️ **In `accrued_interest` ci va il rateo NETTO, non quello lordo** (1.25.14). Alla cedola
+   successiva la banca trattiene l'imposta sull'intero importo, compresa la parte che
+   restituisce il rateo: per compensare, all'acquisto accredita lo **storno tassazione rateo**
+   (`rateo lordo × aliquota cedola`), e dal conto esce `lordo − storno`. Con il lordo i conti
+   non tornerebbero: all'acquisto uscirebbe `R`, alla cedola rientrerebbe `R × (1 − t)` (la
+   cedola si registra sempre netta), lasciando una perdita secca di `R × t` che non è mai
+   avvenuta. Col netto il giro chiude esattamente a zero. `computeRateo()` in `portfolio.js`
+   calcola i tre numeri dal periodo cedola (giorni effettivi/effettivi, camminando all'indietro
+   dalla scadenza con `couponPeriodBounds()`) e li mostra nel modale d'acquisto; il campo resta
+   modificabile, perché chi ha l'eseguito davanti ricopia il numero della banca.
    ⚠️ Non basta escluderlo da `avg_price`: **non deve nemmeno passare dal bonifico verso il
    conto titoli.** Il primo tentativo lo sommava lì (come la commissione) — ma la cedola che lo
    "restituisce" arriva su un conto scelto dall'utente, non su quello titoli: il rateo ci

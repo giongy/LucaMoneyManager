@@ -1097,7 +1097,7 @@ async function showBuyModal(portfolioId, investAccounts, allAccounts) {
   const today = _todayStr();
 
   // If buying more of existing position, pre-fill ticker/name
-  let prefillTicker = '', prefillName = '', prefillAccountId = '';
+  let prefillTicker = '', prefillName = '', prefillAccountId = '', prefillCountry = '';
   let prefillAssetType = 'equity', prefillFaceValue = 1;
   let prefillMaturity = '', prefillCouponRate = '', prefillCouponFreq = 'semiannual', prefillCouponTax = 12.5;
   if (portfolioId) {
@@ -1105,6 +1105,7 @@ async function showBuyModal(portfolioId, investAccounts, allAccounts) {
     const pos = items.find(i => i.id === portfolioId);
     if (pos) {
       prefillTicker     = pos.ticker; prefillName = pos.name; prefillAccountId = pos.account_id;
+      prefillCountry    = pos.country || '';
       prefillAssetType  = pos.asset_type || 'equity';
       prefillFaceValue  = pos.face_value || 1;
       prefillMaturity   = pos.maturity_date || '';
@@ -1115,6 +1116,7 @@ async function showBuyModal(portfolioId, investAccounts, allAccounts) {
   }
 
   const isBondPrefill = prefillAssetType === 'bond';
+  let _rateoSuggerito = null;   // ultimo rateo netto calcolato, applicato al campo su richiesta
 
   const body = `
     <div class="form-row">
@@ -1171,8 +1173,14 @@ async function showBuyModal(portfolioId, investAccounts, allAccounts) {
         </div>
       </div>
       <div class="form-group">
-        <label class="form-label" title="Interesse già maturato dall'ultima cedola, che paghi al venditore comprando fra una cedola e l'altra. Si aggiunge al bonifico ma NON al prezzo di carico: torna con la prima cedola che incassi.">Rateo lordo (€)</label>
+        <label class="form-label" title="Quanto esce DAVVERO dal conto per il rateo: interesse maturato dall'ultima cedola (rateo lordo) meno lo storno d'imposta che la banca accredita all'acquisto. Non entra nel prezzo di carico: torna con la prima cedola che incassi.">Rateo netto pagato (€)</label>
         <input type="text" inputmode="decimal" class="form-control" id="b_accrued" placeholder="0">
+        <!-- Calcolo automatico: tutti i dati servono già al modale (nominale, tasso, tassazione,
+             scadenza, frequenza, data). Si mostra il dettaglio invece del solo risultato perché
+             lo storno è la parte che non si indovina, ed è la stessa riga che compare
+             sull'eseguito della banca. Il valore si applica solo su richiesta: chi ha
+             l'eseguito davanti preferisce ricopiare il numero esatto. -->
+        <div id="b_accrued_hint" style="display:none;margin-top:6px;background:var(--bg3);border-radius:8px;padding:8px 11px;font-size:11.5px;line-height:1.55;color:var(--txt2)"></div>
       </div>
     </div>
     <div class="form-row">
@@ -1208,9 +1216,17 @@ async function showBuyModal(portfolioId, investAccounts, allAccounts) {
         <input type="text" class="form-control" id="b_total" readonly placeholder="—" style="background:var(--bg3)">
       </div>
     </div>
-    <div class="form-group">
-      <label class="form-label">Note</label>
-      <input class="form-control" id="b_notes" placeholder="Opzionale">
+    <!-- Paese: senza, la posizione finisce in "Sconosciuto" nei grafici della tab Analisi, e
+         fino alla 1.25.14 si poteva compilare solo entrando in "Modifica" dopo l'acquisto. -->
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Paese / Emittente</label>
+        <input class="form-control" id="b_country" placeholder="Es. Italia, Germania…" value="${esc(prefillCountry)}" ${prefillCountry?'readonly':''}>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Note</label>
+        <input class="form-control" id="b_notes" placeholder="Opzionale">
+      </div>
     </div>
     <!-- Un acquisto è un giroconto, non una spesa: senza dirlo, vedere il conto di liquidità
          scendere senza nessuna uscita in Budget sembra un buco. -->
@@ -1218,8 +1234,9 @@ async function showBuyModal(portfolioId, investAccounts, allAccounts) {
       I soldi non si perdono: <b>si spostano</b> dal conto che paga al conto investimento — è un
       giroconto, quindi non è una spesa e non entra nel budget. La commissione è compresa nel
       totale e finisce nel <b>prezzo di carico</b>: alla vendita abbatterà il guadagno, non va
-      registrata anche come uscita. Il rateo lordo (se presente) invece <b>si aggiunge al
-      totale ma resta fuori dal prezzo di carico</b>: torna con la prima cedola.
+      registrata anche come uscita. Il rateo (se presente) invece <b>si aggiunge al totale ma
+      resta fuori dal prezzo di carico</b>: quello che paghi è il <b>netto</b> — lordo meno lo
+      storno d'imposta — e torna con la prima cedola.
       <a href="#" onclick="event.preventDefault();closeModal();showPortfolioHelp()">Come funziona →</a>
     </div>`;
 
@@ -1235,6 +1252,7 @@ async function showBuyModal(portfolioId, investAccounts, allAccounts) {
       price:           evalAmount(document.getElementById('b_price').value),
       date:            document.getElementById('b_date').value,
       notes:           document.getElementById('b_notes').value.trim() || null,
+      country:         document.getElementById('b_country')?.value.trim() || null,
       commissions:     evalAmount(document.getElementById('b_comm')?.value) || 0,
       asset_type:      assetType,
       face_value:      1,
@@ -1246,12 +1264,14 @@ async function showBuyModal(portfolioId, investAccounts, allAccounts) {
       coupon_tax:      isBond ? (evalAmount(document.getElementById('b_coupon_tax')?.value) ?? 12.5) : 0,
       accrued_interest:isBond ? (evalAmount(document.getElementById('b_accrued')?.value) || 0) : 0,
     };
-    if (!data.account_id)      { toast('Seleziona il conto investimento','error'); return; }
-    if (!data.from_account_id) { toast('Seleziona il conto da cui pagare','error'); return; }
-    if (!data.ticker)          { toast('Inserisci il ticker','error'); return; }
-    if (!data.name)            { toast('Inserisci il nome del titolo','error'); return; }
-    if (!data.quantity || data.quantity <= 0) { toast('Inserisci una quantità valida','error'); return; }
-    if (!data.price || data.price <= 0)       { toast('Inserisci un prezzo valido','error'); return; }
+    // return fieldError(...): segnala il campo e TIENE APERTO il modale (vedi ui-shell.js).
+    if (!data.account_id)      return fieldError('b_inv_account',  'Seleziona il conto investimento');
+    if (!data.from_account_id) return fieldError('b_from_account', 'Seleziona il conto da cui pagare');
+    if (!data.ticker)          return fieldError('b_ticker',       'Inserisci il ticker');
+    if (!data.name)            return fieldError('b_name',         'Inserisci il nome del titolo');
+    if (!data.date)            return fieldError('b_date',         'Inserisci la data');
+    if (!data.quantity || data.quantity <= 0) return fieldError('b_qty',   'Inserisci una quantità valida');
+    if (!data.price || data.price <= 0)       return fieldError('b_price', 'Inserisci un prezzo valido');
     try {
       await api.buyStock(data);
       closeModal();
@@ -1274,6 +1294,38 @@ async function showBuyModal(portfolioId, investAccounts, allAccounts) {
     const totalLabel = document.getElementById('b_total_label');
     if (totalLabel) totalLabel.textContent = isBond ? 'Totale (incl. comm. e rateo)' : 'Totale (incl. comm.)';
     calcTotal();
+    refreshRateoHint();
+  };
+
+  // Suggerimento del rateo: ricalcolato a ogni modifica dei campi da cui dipende, applicato al
+  // campo solo col click su "usa questo valore" (vedi il commento nel markup del riquadro).
+  const refreshRateoHint = () => {
+    const box = document.getElementById('b_accrued_hint');
+    if (!box) return;
+    const isBond = document.getElementById('b_type_bond')?.classList.contains('theme-btn-active');
+    const calc = !isBond ? null : computeRateo({
+      quantity:     evalAmount(document.getElementById('b_qty')?.value) || 0,
+      couponRate:   evalAmount(document.getElementById('b_coupon_rate')?.value) || 0,
+      couponTax:    evalAmount(document.getElementById('b_coupon_tax')?.value) ?? 12.5,
+      maturityDate: document.getElementById('b_maturity')?.value || '',
+      frequency:    document.getElementById('b_coupon_freq')?.value || 'annual',
+      buyDate:      document.getElementById('b_date')?.value || '',
+    });
+    if (!calc || calc.giorni <= 0) { box.style.display = 'none'; return; }
+    _rateoSuggerito = calc.netto;
+    box.style.display = 'block';
+    box.innerHTML = `
+      Ultima cedola <b>${fmt.date(_dateStr(calc.start))}</b> → maturati <b>${calc.giorni}</b> giorni su ${calc.giorniPeriodo}.<br>
+      Rateo lordo <b>${fmt.currency(calc.lordo)}</b> − storno tassazione ${fmt.currency(calc.storno)}
+      = <b style="color:var(--txt)">rateo netto ${fmt.currency(calc.netto)}</b>
+      <a href="#" onclick="event.preventDefault();_applyRateoCalc()" style="margin-left:4px">usa questo valore →</a>`;
+  };
+
+  window._applyRateoCalc = () => {
+    const el = document.getElementById('b_accrued');
+    if (!el || _rateoSuggerito == null) return;
+    el.value = String(_rateoSuggerito).replace('.', ',');
+    calcTotal();
   };
 
   // Live total calculation
@@ -1294,6 +1346,12 @@ async function showBuyModal(portfolioId, investAccounts, allAccounts) {
     document.getElementById('b_price')?.addEventListener('input', calcTotal);
     document.getElementById('b_accrued')?.addEventListener('input', calcTotal);
     document.getElementById('b_comm')?.addEventListener('input', calcTotal);
+    // Il rateo dipende da nominale, cedola, tassazione, scadenza, frequenza e data d'acquisto:
+    // ognuno di questi cambia il suggerimento, quindi lo si ricalcola su tutti.
+    ['b_qty','b_coupon_rate','b_coupon_tax','b_maturity','b_date']
+      .forEach(id => document.getElementById(id)?.addEventListener('input', refreshRateoHint));
+    document.getElementById('b_coupon_freq')?.addEventListener('change', refreshRateoHint);
+    refreshRateoHint();   // "Acquista altro": i campi del bond arrivano già compilati
   }, 50);
 }
 
@@ -1387,10 +1445,11 @@ async function showSellModal(portfolioId) {
       notes:         document.getElementById('s_notes').value.trim() || null,
       commission:    commission > 0 ? commission : null,
     };
-    if (!data.to_account_id)            { toast('Seleziona il conto di accredito','error'); return; }
-    if (!data.quantity || data.quantity <= 0) { toast('Inserisci una quantità valida','error'); return; }
-    if (data.quantity > pos.quantity)    { toast('Quantità superiore alla disponibile','error'); return; }
-    if (!data.price || data.price <= 0)  { toast('Inserisci un prezzo valido','error'); return; }
+    if (!data.to_account_id)                  return fieldError('s_to_account', 'Seleziona il conto di accredito');
+    if (!data.date)                           return fieldError('s_date',       'Inserisci la data');
+    if (!data.quantity || data.quantity <= 0) return fieldError('s_qty',        'Inserisci una quantità valida');
+    if (data.quantity > pos.quantity)         return fieldError('s_qty',        'Quantità superiore alla disponibile');
+    if (!data.price || data.price <= 0)       return fieldError('s_price',      'Inserisci un prezzo valido');
     try {
       await api.sellStock(data);
       closeModal();
@@ -1543,8 +1602,9 @@ async function showCouponModal(portfolioId) {
       notes:        document.getElementById('c_notes').value.trim() ||
                     `Cedola ${pos.ticker} — lordo ${fmt.currency(gross)}, ritenuta ${taxPct}%`,
     };
-    if (!data.account_id)           { toast('Seleziona il conto di accredito','error'); return; }
-    if (!gross || gross <= 0)        { toast('Inserisci un importo lordo valido','error'); return; }
+    if (!data.account_id)     return fieldError('c_account', 'Seleziona il conto di accredito');
+    if (!data.date)           return fieldError('c_date',    'Inserisci la data');
+    if (!gross || gross <= 0) return fieldError('c_gross',   'Inserisci un importo lordo valido');
     try {
       await api.registerCoupon(data);
       closeModal();
@@ -1641,8 +1701,9 @@ async function showDividendModal(portfolioId) {
       notes:        document.getElementById('d_notes').value.trim() ||
                     `Dividendo ${pos.ticker} — lordo ${fmt.currency(gross)}, ritenuta ${taxPct}%`,
     };
-    if (!data.account_id)     { toast('Seleziona il conto di accredito','error'); return; }
-    if (!gross || gross <= 0) { toast('Inserisci un importo lordo valido','error'); return; }
+    if (!data.account_id)     return fieldError('d_account', 'Seleziona il conto di accredito');
+    if (!data.date)           return fieldError('d_date',    'Inserisci la data');
+    if (!gross || gross <= 0) return fieldError('d_gross',   'Inserisci un importo lordo valido');
     try {
       await api.registerDividend(data);
       closeModal();
@@ -1746,9 +1807,9 @@ async function showExpenseModal(portfolioId) {
       notes:        document.getElementById('ex_notes').value.trim() || null,
       category_id:  catId,
     };
-    if (!data.account_id)       { toast('Seleziona il conto di addebito','error'); return; }
-    if (!amount || amount <= 0) { toast('Inserisci un importo valido','error'); return; }
-    if (!data.date)             { toast('Inserisci la data','error'); return; }
+    if (!data.account_id)       return fieldError('ex_account', 'Seleziona il conto di addebito');
+    if (!amount || amount <= 0) return fieldError('ex_amount',  'Inserisci un importo valido');
+    if (!data.date)             return fieldError('ex_date',    'Inserisci la data');
     try {
       await api.registerPortfolioExpense(data);
       closeModal();
@@ -1841,9 +1902,9 @@ async function showTaxModal(portfolioId) {
       date:         document.getElementById('tx_date').value,
       notes:        document.getElementById('tx_notes').value.trim() || null,
     };
-    if (!data.account_id)       { toast('Seleziona il conto di addebito','error'); return; }
-    if (!amount || amount <= 0) { toast('Inserisci un importo valido','error'); return; }
-    if (!data.date)             { toast('Inserisci la data','error'); return; }
+    if (!data.account_id)       return fieldError('tx_account', 'Seleziona il conto di addebito');
+    if (!amount || amount <= 0) return fieldError('tx_amount',  'Inserisci un importo valido');
+    if (!data.date)             return fieldError('tx_date',    'Inserisci la data');
     try {
       await api.registerPortfolioTax(data);
       closeModal();
@@ -2010,9 +2071,9 @@ async function showEditPositionModal(portfolioId) {
       country:          document.getElementById('e_country').value.trim() || null,
       notes:            document.getElementById('e_notes').value.trim() || null,
     };
-    if (!data.name)                         { toast('Inserisci il nome','error'); return; }
-    if (!data.quantity || data.quantity<=0) { toast('Inserisci una quantità valida','error'); return; }
-    if (isNaN(data.avg_price))              { toast('Inserisci un prezzo medio valido','error'); return; }
+    if (!data.name)                         return fieldError('e_name', 'Inserisci il nome');
+    if (!data.quantity || data.quantity<=0) return fieldError('e_qty',  'Inserisci una quantità valida');
+    if (isNaN(data.avg_price))              return fieldError('e_avg',  'Inserisci un prezzo medio valido');
     try {
       await api.updatePortfolioItem(data);
       closeModal();
@@ -2053,6 +2114,58 @@ function nextCouponDate(maturityDateStr, frequency) {
   if (!candidates.length) return null;
   candidates.sort((a, b) => a - b);
   return _dateStr(candidates[0]);
+}
+
+// Estremi [inizio, fine) del periodo cedola che contiene refDate. Si cammina all'INDIETRO dalla
+// scadenza a passi di frequenza: è la scadenza a dettare il giorno di stacco (la data di
+// emissione non la registriamo), stessa premessa di nextCouponDate — e stesso clamp di fine mese,
+// per lo stesso motivo. Torna null se refDate cade prima della prima cedola raggiungibile.
+function couponPeriodBounds(maturityDateStr, frequency, refDateStr) {
+  const intervalMonths = { annual:12, semiannual:6, quarterly:3, monthly:1 }[frequency] || 12;
+  const mat = new Date(maturityDateStr + 'T00:00:00');
+  const ref = new Date(refDateStr + 'T00:00:00');
+  if (isNaN(mat) || isNaN(ref) || ref >= mat) return null;
+  const day = mat.getDate();
+  const stepBack = d => {
+    const stepped = new Date(d.getFullYear(), d.getMonth() - intervalMonths, 1);
+    const lastDom = new Date(stepped.getFullYear(), stepped.getMonth() + 1, 0).getDate();
+    return new Date(stepped.getFullYear(), stepped.getMonth(), Math.min(day, lastDom));
+  };
+  let end = mat;
+  // 600 passi = 50 anni anche a cedola mensile: oltre, è un dato sbagliato, non un titolo lungo.
+  for (let i = 0; i < 600; i++) {
+    const start = stepBack(end);
+    if (start <= ref) return { start, end };
+    end = start;
+  }
+  return null;
+}
+
+// Rateo maturato alla data d'acquisto, con il suo storno d'imposta.
+//
+// Comprando fra una cedola e l'altra si paga al venditore l'interesse già maturato (rateo
+// LORDO), ma alla cedola successiva la banca tratterrà l'imposta sull'INTERO importo, compresa
+// la parte che è solo la restituzione di quel rateo: per compensare, all'acquisto viene
+// accreditato lo "storno tassazione rateo" (rateo lordo × aliquota). Quello che esce davvero
+// dal conto è quindi il rateo NETTO — ed è quel numero che va in accrued_interest, altrimenti
+// il giro non torna a zero e ogni acquisto lascia una perdita secca pari allo storno.
+//
+// Convenzione giorni: effettivi/effettivi sul periodo cedola (quella dei titoli di Stato in
+// euro). Chi usa 30/360 troverà scarti di pochi centesimi: il campo resta modificabile a mano.
+function computeRateo({ quantity, couponRate, couponTax, maturityDate, frequency, buyDate }) {
+  if (!(quantity > 0) || !(couponRate > 0) || !maturityDate || !buyDate) return null;
+  const bounds = couponPeriodBounds(maturityDate, frequency, buyDate);
+  if (!bounds) return null;
+  const giorniPeriodo = Math.round((bounds.end - bounds.start) / 86400000);
+  const giorni        = Math.round((new Date(buyDate + 'T00:00:00') - bounds.start) / 86400000);
+  if (!(giorniPeriodo > 0) || giorni < 0) return null;
+  const perAnno     = { annual:1, semiannual:2, quarterly:4, monthly:12 }[frequency] || 1;
+  const cedolaLorda = quantity * (couponRate / 100) / perAnno;
+  const r2 = n => Math.round(n * 100) / 100;
+  const lordo  = r2(cedolaLorda * giorni / giorniPeriodo);
+  const storno = r2(lordo * ((couponTax != null ? couponTax : 12.5) / 100));
+  // netto dai due arrotondati, così i tre numeri mostrati tornano fra loro
+  return { ...bounds, giorni, giorniPeriodo, lordo, storno, netto: r2(lordo - storno) };
 }
 
 // Chiude il menu contestuale del portafoglio.
@@ -2211,9 +2324,9 @@ async function showAddCouponToScheduled(portfolioId) {
     const startDate = document.getElementById('cs_start').value;
     const endDate   = document.getElementById('cs_end').value;
     const catId     = parseInt(document.getElementById('cs_cat').value) || null;
-    if (!accountId)           { toast('Seleziona il conto','error'); return; }
-    if (!amount || amount<=0) { toast('Importo non valido','error'); return; }
-    if (!startDate)           { toast('Data inizio mancante','error'); return; }
+    if (!accountId)           return fieldError('cs_account', 'Seleziona il conto');
+    if (!amount || amount<=0) return fieldError('cs_amount',  'Importo non valido');
+    if (!startDate)           return fieldError('cs_start',   'Data inizio mancante');
     const data = {
       description:   document.getElementById('cs_desc').value.trim() || `Cedola ${pos.ticker}`,
       amount,
@@ -2363,7 +2476,8 @@ async function showPortfolioHelp() {
         ${riga('Imposta', `La tassa <b>sul</b> guadagno, non il guadagno: la banca la preleva settimane dopo, spesso cumulata su più vendite. La registri tu quando arriva, col pulsante 🧾 — funziona anche a titolo già venduto. Finisce in ${nome(imp)}.`, budge(imp))}
         ${riga('Cedole e dividendi', `Le rendite periodiche. Finiscono in ${nome(ced)} e restano <b>dentro</b> budget e previsioni: sono ricorrenti, quindi si possono pianificare.`, budge(ced, false))}
         ${riga('Commissione', `Non è una spesa a parte: all'acquisto è dentro il prezzo di carico, alla vendita è già scalata dall'incasso. Registrarla anche come uscita la conterebbe due volte.`, '')}
-        ${riga('Rateo lordo<br>(solo obbligazioni)', `L'interesse già maturato che paghi al venditore comprando fra una cedola e l'altra. Si aggiunge al bonifico d'acquisto ma <b>non</b> al prezzo di carico: se ci entrasse, ogni plusvalenza futura risulterebbe sottostimata di quell'importo. Torna con la prima cedola che incassi, tassata per intero.`, '')}
+        ${riga('Rateo<br>(solo obbligazioni)', `L'interesse già maturato che paghi al venditore comprando fra una cedola e l'altra. Esce dal conto ma <b>non</b> entra nel prezzo di carico: se ci entrasse, ogni plusvalenza futura risulterebbe sottostimata di quell'importo. Torna con la prima cedola che incassi, tassata per intero.`, '')}
+        ${riga('Storno<br>tassazione rateo', `Alla cedola successiva la banca trattiene l'imposta su <b>tutto</b> l'importo, compresa la parte che ti sta solo restituendo il rateo: per compensare, all'acquisto ti accredita lo storno (rateo lordo × aliquota). Quello che paghi davvero è quindi il <b>rateo netto</b>, ed è il numero da mettere nel campo — l'app te lo calcola.`, '')}
       </table>
       <div class="settings-hint" style="margin-top:8px">
         Plusvalenze, minusvalenze e imposte stanno fuori da budget, medie e Salute Finanziaria di proposito:

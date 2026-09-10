@@ -2364,7 +2364,11 @@ window.showBudgetIntegraModal = async function(catId) {
     const end    = document.getElementById('bi_end').value;
     const freq   = document.getElementById('bi_freq').value;
     const desc   = document.getElementById('bi_desc').value;
-    if (!amount || !acc || !start) { toast('Compila i campi obbligatori', 'error'); return; }
+    // Tre controlli separati invece di uno cumulativo: così il rosso finisce sul campo che
+    // manca davvero, invece di dire "compila i campi obbligatori" senza indicare quale.
+    if (!amount) return fieldError('bi_amount', 'Inserisci un importo valido');
+    if (!acc)    return fieldError('bi_acc',    'Seleziona il conto');
+    if (!start)  return fieldError('bi_start',  'Inserisci la data di inizio');
     await api.addScheduled({
       description: desc,
       amount,

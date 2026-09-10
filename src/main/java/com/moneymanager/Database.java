@@ -4486,6 +4486,11 @@ public class Database {
         String date          = p.get("date").getAsString();
         String notes         = p.has("notes") && !p.get("notes").isJsonNull() ? p.get("notes").getAsString() : null;
         String assetType     = p.has("asset_type") && !p.get("asset_type").isJsonNull() ? p.get("asset_type").getAsString() : "equity";
+        // Paese/emittente: serve ai grafici "Esposizione per paese" della tab Analisi, che senza
+        // valore accorpano la posizione in "Sconosciuto". Si scrive solo alla CREAZIONE della
+        // posizione: su "Acquista altro" il campo arriva già valorizzato e in sola lettura, e un
+        // UPDATE qui sovrascriverebbe con un valore vecchio quello corretto a mano da updatePortfolioItem.
+        String country       = p.has("country") && !p.get("country").isJsonNull() ? p.get("country").getAsString() : null;
         double faceValue     = r4(p.has("face_value") && !p.get("face_value").isJsonNull() ? p.get("face_value").getAsDouble() : 1.0);
         String maturityDate  = p.has("maturity_date") && !p.get("maturity_date").isJsonNull() ? p.get("maturity_date").getAsString() : null;
         double couponRate    = p.has("coupon_rate") && !p.get("coupon_rate").isJsonNull() ? p.get("coupon_rate").getAsDouble() : 0.0;
@@ -4553,10 +4558,10 @@ public class Database {
                     : (commissions > 0 ? (qty * price + commissions) / qty : price));
                 portfolioId = execute("""
                     INSERT INTO portfolio(account_id,ticker,name,quantity,avg_price,current_price,notes,
-                                          asset_type,face_value,maturity_date,coupon_rate,coupon_frequency,coupon_tax,total_commissions)
-                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                                          asset_type,face_value,maturity_date,coupon_rate,coupon_frequency,coupon_tax,total_commissions,country)
+                    VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """, investAccountId, ticker, name, qty, initAvg, price, notes,
-                     assetType, faceValue, maturityDate, couponRate, couponFreq, couponTax, commissions);
+                     assetType, faceValue, maturityDate, couponRate, couponFreq, couponTax, commissions, country);
             }
 
             long buyPtId = execute("""

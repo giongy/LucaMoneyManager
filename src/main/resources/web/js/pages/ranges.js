@@ -138,8 +138,10 @@ function showRangePresetModal(preset) {
     const fromUnitV= document.getElementById('rp_from_unit').value;
     const toOffV   = parseInt(document.getElementById('rp_to_off').value);
     const toUnitV  = document.getElementById('rp_to_unit').value;
-    if (!label) { toast('Inserisci un nome', 'error'); return; }
-    if (isNaN(fromOffV) || isNaN(toOffV)) { toast('Offset non valido', 'error'); return; }
+    if (!label)          return fieldError('rp_label',    'Inserisci un nome');
+    // Separati: l'offset sbagliato può essere l'uno o l'altro, e il rosso deve stare sul suo.
+    if (isNaN(fromOffV)) return fieldError('rp_from_off', 'Offset di inizio non valido');
+    if (isNaN(toOffV))   return fieldError('rp_to_off',   'Offset di fine non valido');
     const range_key = `${fromOffV}${fromUnitV}..${toOffV}${toUnitV}`;
     try {
       if (isEdit) await api.updateRangePreset({id: preset.id, label, range_key});

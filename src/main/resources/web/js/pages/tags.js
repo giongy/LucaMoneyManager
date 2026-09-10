@@ -68,7 +68,8 @@ function showTagModal(tag) {
   openModal(isEdit ? 'Modifica Tag' : 'Nuovo Tag', body, async () => {
     const name  = document.getElementById('tg_name').value.trim();
     const color = document.getElementById('tg_color').value;
-    if (!name) { toast('Inserisci un nome', 'error'); return; }
+    // Tiene aperto il modale invece di chiuderlo perdendo il colore scelto (vedi ui-shell.js).
+    if (!name) return fieldError('tg_name', 'Inserisci un nome');
     try {
       if (isEdit) await api.updateTag({id: tag.id, name, color});
       else        await api.addTag({name, color});

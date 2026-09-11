@@ -348,7 +348,7 @@ async function renderPortfolio() {
                     style="font-size:10px;color:var(--expense);font-weight:600" title="Ha una cedola ma nessuna pianificata attiva: clicca per aggiungerla">⏰ Cedola non pianificata</a>`
               : '';
             const couponInfo = isBond && i.coupon_rate
-              ? `<br><small style="color:var(--txt3);font-size:10px">Cedola ${i.coupon_rate}% lordo · ${((1-(i.coupon_tax||12.5)/100)*i.coupon_rate).toFixed(3)}% netto</small>${yieldInfo}${noCouponWarn}`
+              ? `<br><small style="color:var(--txt3);font-size:10px">Cedola ${i.coupon_rate}% lordo · ${((1-(i.coupon_tax??12.5)/100)*i.coupon_rate).toFixed(3)}% netto</small>${yieldInfo}${noCouponWarn}`
               : '';
             const qtyDisplay = isBond
               ? `<span title="Nominale totale">${fmt.currency(i.quantity)}</span>`
@@ -810,16 +810,19 @@ function renderBondAnalisi(bonds, container, today, todayYear) {
   const c1Total  = c1Data.reduce((a,b) => a+b, 0);
 
   // ── Chart 2: Ripartizione per durata (stacked per Paese) ─────────────
-  const durLabels = ['0 anni','1 anno','2 anni','3 anni','4 anni','5 anni','6 anni','Scaduto / N.D.'];
+  // Una colonna per anno fino alla scadenza più lontana (min. 0..6), più "Scaduto / N.D." in coda.
+  // Niente tetto fisso: con un Math.min(6, …) un titolo a 11 anni finiva nella colonna "6 anni".
+  const yearsLeftOf = b => b.maturity_date
+    ? (new Date(b.maturity_date) - today) / (365.25 * 24 * 3600 * 1000) : null;
+  const maxDurYear = Math.max(6, ...bonds.map(yearsLeftOf).filter(y => y != null && y >= 0).map(Math.floor));
+  const durLabels = [...Array.from({length: maxDurYear + 1}, (_, i) => i === 1 ? '1 anno' : `${i} anni`), 'Scaduto / N.D.'];
+  const ndIdx = durLabels.length - 1;
   const durData = {};
-  countries.forEach(c => { durData[c] = new Array(8).fill(0); });
+  countries.forEach(c => { durData[c] = new Array(durLabels.length).fill(0); });
   bonds.forEach(b => {
     const c = bondCountry(b);
-    let idx = 7;
-    if (b.maturity_date) {
-      const yearsLeft = (new Date(b.maturity_date) - today) / (365.25 * 24 * 3600 * 1000);
-      if (yearsLeft >= 0) idx = Math.min(6, Math.floor(yearsLeft));
-    }
+    const yearsLeft = yearsLeftOf(b);
+    const idx = (yearsLeft != null && yearsLeft >= 0) ? Math.floor(yearsLeft) : ndIdx;
     if (durData[c]) durData[c][idx] += b.quantity;
   });
 
@@ -838,12 +841,13 @@ function renderBondAnalisi(bonds, container, today, todayYear) {
   // Nominale in scadenza per anno (per tooltip)
   const ladderDeltaByYear = allYears.map(y => byYear[y] || 0);
 
-  // ── Chart 4: Cedole per mese ──────────────────────────────────────────
+  // ── Calendario cedole (base dei chart 4 e 5) ──────────────────────────
+  // Le cedole cadono nel mese di scadenza e, a ritroso, ogni 12/freq mesi. Nell'anno di scadenza
+  // si incassano solo quelle fino al mese del rimborso: una trimestrale che scade a marzo lì ne
+  // paga una, non quattro. paysIn(anno, mese) è l'unico punto che lo decide, per entrambi i grafici.
   const freqMap = { annual:1, semiannual:2, quarterly:4, monthly:12 };
-  const months  = Array.from({length:12}, (_,i) => `${todayYear}-${String(i+1).padStart(2,'0')}`);
   const couponBonds = bonds.filter(b => b.coupon_rate > 0);
-  const couponMonthData = {};
-  couponBonds.forEach(b => {
+  const couponPlan = couponBonds.map(b => {
     const freq     = freqMap[b.coupon_frequency] || 2;
     const matMonth = b.maturity_date ? new Date(b.maturity_date).getMonth() + 1 : 6;
     const matYear  = b.maturity_date ? new Date(b.maturity_date).getFullYear() : 9999;
@@ -853,19 +857,29 @@ function renderBondAnalisi(bonds, container, today, todayYear) {
       const m = ((matMonth - 1 - Math.round(i * interval)) % 12 + 12) % 12 + 1;
       payMonths.add(m);
     }
-    const netPerPay = b.quantity * (b.coupon_rate / 100) * (1 - (b.coupon_tax || 12.5) / 100) / freq;
-    const data = new Array(12).fill(0);
-    payMonths.forEach(m => { if (matYear >= todayYear) data[m - 1] = netPerPay; });
-    couponMonthData[b.ticker] = data;
+    // ?? e non ||: un'aliquota 0 è un valore vero, non "non impostata" (come nel resto del file)
+    const netPerPay = b.quantity * (b.coupon_rate / 100) * (1 - (b.coupon_tax ?? 12.5) / 100) / freq;
+    const paysIn = (y, m) => payMonths.has(m) && (y < matYear || (y === matYear && m <= matMonth));
+    return { ticker: b.ticker, netPerPay, paysIn };
+  });
+
+  // ── Chart 4: Cedole per mese ──────────────────────────────────────────
+  // Somma per ticker (+=): due posizioni con lo stesso ISIN su conti diversi non si sovrascrivono.
+  const months  = Array.from({length:12}, (_,i) => `${todayYear}-${String(i+1).padStart(2,'0')}`);
+  const couponMonthData = {};
+  couponPlan.forEach(p => {
+    const data = couponMonthData[p.ticker] ||= new Array(12).fill(0);
+    for (let m = 1; m <= 12; m++) if (p.paysIn(todayYear, m)) data[m - 1] += p.netPerPay;
   });
 
   // ── Chart 5: Cedole annue ─────────────────────────────────────────────
   const couponYears = allYears.length >= 2 ? allYears : [todayYear, todayYear + 1];
   const couponYearData = {};
-  couponBonds.forEach(b => {
-    const matYear   = b.maturity_date ? new Date(b.maturity_date).getFullYear() : todayYear + 10;
-    const annualNet = b.quantity * (b.coupon_rate / 100) * (1 - (b.coupon_tax || 12.5) / 100);
-    couponYearData[b.ticker] = couponYears.map(y => y <= matYear ? annualNet : 0);
+  couponPlan.forEach(p => {
+    const data = couponYearData[p.ticker] ||= new Array(couponYears.length).fill(0);
+    couponYears.forEach((y, i) => {
+      for (let m = 1; m <= 12; m++) if (p.paysIn(y, m)) data[i] += p.netPerPay;
+    });
   });
 
   // ── HTML ───────────────────────────────────────────────────────────────
@@ -915,6 +929,8 @@ function renderBondAnalisi(bonds, container, today, todayYear) {
         meta.data.forEach((el, idx) => {
           const val = ds.data[idx];
           if (!val || val === 0) return;
+          // Linea (ladder): etichetta solo dove il valore cambia, sui tratti piatti si sovrapponevano
+          if (type === 'line' && idx > 0 && ds.data[idx - 1] === val) return;
           ctx.save();
           ctx.textAlign = 'center';
           if (type === 'doughnut') {
@@ -1022,10 +1038,14 @@ function renderBondAnalisi(bonds, container, today, todayYear) {
     data: {
       labels: allYears,
       datasets: [{ label: 'Nominale cumulativo', data: ladderData, borderColor: '#7c6cff',
-        backgroundColor: 'rgba(124,124,255,0.15)', fill: true, tension: 0.3, pointRadius: 5 }]
+        backgroundColor: 'rgba(124,124,255,0.15)', fill: true, tension: 0.3, pointRadius: 5,
+        // monotone: una cumulata non scende mai, la spline libera invece "sforava" sopra i
+        // tratti piatti (es. 2032→2033) disegnando un calo che non esiste
+        cubicInterpolationMode: 'monotone' }]
     },
     options: {
       responsive: true,
+      layout: { padding: { right: 36 } },   // spazio per l'etichetta dell'ultimo punto (era tagliata)
       interaction: { mode: 'index', intersect: false },
       plugins: {
         legend: { display: false },

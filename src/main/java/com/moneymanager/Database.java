@@ -1318,6 +1318,22 @@ public class Database {
         }
     }
 
+    /**
+     * Marca col tag di sistema "Investimenti" una transazione generata dal portafoglio.
+     *
+     * Non è cosmetico: il legame vero fra transazione e titolo vive in `portfolio_transactions`,
+     * e quello è anche l'unica cosa che l'eliminazione di un titolo porta via. Il tag è la
+     * traccia che sopravvive — l'appiglio per ritrovare dalla pagina Transazioni ciò che un
+     * giorno dovesse restare scollegato. Fino alla 1.25.15 lo mettevano solo cedole, dividendi,
+     * imposte e spese: i bonifici di acquisto e vendita, il rateo e le plusvalenze — cioè gli
+     * importi grossi — nascevano senza.
+     */
+    private void tagInvestment(long txId) throws SQLException {
+        Integer tagId = getSystemTagIdByKey("investment");
+        if (tagId != null)
+            execute("INSERT OR IGNORE INTO transaction_tags(transaction_id,tag_id) VALUES(?,?)", txId, tagId);
+    }
+
     /** ID del tag di sistema con la system_key data (null se assente). */
     private Integer getSystemTagIdByKey(String key) {
         try {
@@ -4537,6 +4553,7 @@ public class Database {
                 VALUES(?,?,?,?,?,?,?,0)
             """, date, r2(pureAmount + commissions), "transfer", catId, fromAccountId, investAccountId,
                 "Acquisto " + ticker);
+            tagInvestment(txId);
 
             var existing = queryOne("SELECT * FROM portfolio WHERE account_id=? AND ticker=?",
                     investAccountId, ticker);
@@ -4596,6 +4613,7 @@ public class Database {
                     INSERT INTO transactions(date,amount,type,category_id,account_id,description,reconciled)
                     VALUES(?,?,?,?,?,?,0)
                 """, date, accruedInterest, "expense", rateoCatId, fromAccountId, "Rateo acquisto " + ticker);
+                tagInvestment(rateoTxId);
                 // ⚠️ Le note devono restare esattamente "Rateo acquisto": sia il SQL di
                 // total_other_expenses sia IS_ACCRUED_NOTE in portfolio.js escludono questa riga
                 // dai totali/dal rendimento del portafoglio guardando quel testo — il rateo non è
@@ -4697,6 +4715,7 @@ public class Database {
                     VALUES(?,?,?,?,?,?,0)
                 """, date, Math.abs(gain), isGain ? "income" : "expense", gainCatId, investAccountId,
                      (isGain ? "Plusvalenza " : "Minusvalenza ") + ticker);
+                tagInvestment(gainTxId);
                 execute("""
                     INSERT INTO portfolio_transactions(portfolio_id,type,quantity,price,date,transaction_id,notes,parent_pt_id)
                     VALUES(?,?,?,?,?,?,?,?)
@@ -4711,6 +4730,7 @@ public class Database {
                     VALUES(?,?,?,?,?,?,?,0)
                 """, date, credited, "transfer", catId, investAccountId, toAccountId,
                     "Vendita " + ticker + " x" + qty);
+                tagInvestment(txId);
                 execute("UPDATE portfolio_transactions SET transaction_id=? WHERE id=?", txId, sellPtId);
             }
 
@@ -4744,6 +4764,21 @@ public class Database {
      * la transazione collegata. È l'inverso di buyStock/sellStock/registerCoupon.
      */
     public Map<String, Object> deletePortfolioTransaction(int ptId) throws SQLException {
+        return inTx(() -> undoPortfolioTransaction(ptId));
+    }
+
+    /**
+     * Nucleo dell'annullamento, da chiamare SEMPRE dentro una inTx.
+     *
+     * ⚠️ Non apre una transazione propria di proposito: {@link #deletePortfolioItem} lo richiama
+     * in ciclo per svuotare un titolo, e inTx NON è rientrante (fa commit esplicito). Annidarla
+     * committerebbe a metà la transazione del chiamante, lasciando il resto della cancellazione
+     * in autocommit — cioè un titolo smontato per metà, senza errore visibile.
+     *
+     * Anche le validazioni stanno qui e non nel guscio pubblico: devono valere per entrambe le
+     * strade, e una validazione dentro la transazione fa comunque rollback quando lancia.
+     */
+    private Map<String, Object> undoPortfolioTransaction(int ptId) throws SQLException {
         var pt = queryOne("SELECT * FROM portfolio_transactions WHERE id=?", ptId);
         if (pt == null) throw new SQLException("Operazione non trovata (id:" + ptId + ")");
 
@@ -4752,15 +4787,31 @@ public class Database {
         double qty      = ((Number)pt.get("quantity")).doubleValue();
         double comm     = pt.get("commission") != null ? ((Number)pt.get("commission")).doubleValue() : 0.0;
         String ptNotes  = (String) pt.get("notes");
+        String ptDate   = (String) pt.get("date");
         Object txIdObj  = pt.get("transaction_id");
 
-        // Valida prima di aprire la transazione
         if ("buy".equals(type)) {
-            var pos = queryOne("SELECT quantity FROM portfolio WHERE id=?", portfolioId);
-            if (pos == null) throw new SQLException("Posizione non trovata");
-            double curQty = ((Number)pos.get("quantity")).doubleValue();
+            var posQty = queryOne("SELECT quantity FROM portfolio WHERE id=?", portfolioId);
+            if (posQty == null) throw new SQLException("Posizione non trovata");
+            double curQty = ((Number)posQty.get("quantity")).doubleValue();
             if (r4(curQty - qty) < -0.00001)
                 throw new SQLException("Impossibile annullare: la quantità risultante sarebbe negativa (" + r4(curQty - qty) + ")");
+
+            // ⚠️ Annullare un acquisto ricalcola il prezzo medio dai buy rimanenti, ma le
+            // plus/minusvalenze già registrate sono state calcolate sul carico di ALLORA e
+            // nessuno le ricalcola: resterebbero a dichiarare un guadagno che non torna più coi
+            // numeri della posizione, e il conto titoli non chiuderebbe a zero. Si annullano
+            // prima le vendite — che è poi l'ordine in cui procede deletePortfolioItem, motivo
+            // per cui la cancellazione a cascata non inciampa mai in questo rifiuto.
+            var sells = queryOne("""
+                SELECT COUNT(*) AS n FROM portfolio_transactions
+                 WHERE portfolio_id=? AND type='sell' AND date>=?
+            """, portfolioId, ptDate);
+            long nSells = sells != null ? ((Number)sells.get("n")).longValue() : 0;
+            if (nSells > 0)
+                throw new SQLException("Ci sono " + nSells + " vendite in data pari o successiva a questo acquisto: "
+                    + "annulla prima quelle. Altrimenti il prezzo medio verrebbe ricalcolato senza di loro, "
+                    + "mentre le plusvalenze già registrate resterebbero quelle vecchie.");
         }
 
         // Una riga figlia (plusvalenza, imposta, commissione di vendita) non si annulla da sola:
@@ -4771,80 +4822,78 @@ public class Database {
             throw new SQLException("Questo movimento fa parte di un'operazione più grande: "
                 + "annulla la vendita (id:" + ((Number)parentObj).intValue() + "), non il singolo movimento.");
 
-        return inTx(() -> {
-            var pos = queryOne("SELECT asset_type FROM portfolio WHERE id=?", portfolioId);
-            boolean isBond = pos != null && "bond".equals(pos.get("asset_type"));
+        var pos = queryOne("SELECT asset_type FROM portfolio WHERE id=?", portfolioId);
+        boolean isBond = pos != null && "bond".equals(pos.get("asset_type"));
 
-            if ("sell".equals(type)) {
-                execute("UPDATE portfolio SET quantity = quantity + ? WHERE id=?", qty, portfolioId);
-            } else if ("buy".equals(type)) {
-                execute("UPDATE portfolio SET quantity = quantity - ? WHERE id=?", qty, portfolioId);
-                // Ricalcola avg_price dai buy rimanenti includendo le commissioni:
-                // Equity: avg = SUM(qty*price + commission) / SUM(qty)
-                // Bond:   avg% = (SUM(qty*price) + SUM(commission)*100) / SUM(qty)
-                var remaining = queryList(
-                    "SELECT quantity, price, COALESCE(commission,0) AS commission FROM portfolio_transactions WHERE portfolio_id=? AND type='buy' AND id!=?",
-                    portfolioId, ptId);
-                if (!remaining.isEmpty()) {
-                    double tqty  = remaining.stream().mapToDouble(r -> ((Number)r.get("quantity")).doubleValue()).sum();
-                    double tCostNoComm = remaining.stream().mapToDouble(r ->
-                        ((Number)r.get("quantity")).doubleValue() * ((Number)r.get("price")).doubleValue()).sum();
-                    double tComm = remaining.stream().mapToDouble(r ->
-                        ((Number)r.get("commission")).doubleValue()).sum();
-                    double newAvg = 0.0;
-                    if (tqty > 0) {
-                        newAvg = isBond
-                            ? r4((tCostNoComm + tComm * 100.0) / tqty)
-                            : r4((tCostNoComm + tComm) / tqty);
-                    }
-                    execute("UPDATE portfolio SET avg_price=? WHERE id=?", newAvg, portfolioId);
-                } else {
-                    execute("UPDATE portfolio SET avg_price=0 WHERE id=?", portfolioId);
+        if ("sell".equals(type)) {
+            execute("UPDATE portfolio SET quantity = quantity + ? WHERE id=?", qty, portfolioId);
+        } else if ("buy".equals(type)) {
+            execute("UPDATE portfolio SET quantity = quantity - ? WHERE id=?", qty, portfolioId);
+            // Ricalcola avg_price dai buy rimanenti includendo le commissioni:
+            // Equity: avg = SUM(qty*price + commission) / SUM(qty)
+            // Bond:   avg% = (SUM(qty*price) + SUM(commission)*100) / SUM(qty)
+            var remaining = queryList(
+                "SELECT quantity, price, COALESCE(commission,0) AS commission FROM portfolio_transactions WHERE portfolio_id=? AND type='buy' AND id!=?",
+                portfolioId, ptId);
+            if (!remaining.isEmpty()) {
+                double tqty  = remaining.stream().mapToDouble(r -> ((Number)r.get("quantity")).doubleValue()).sum();
+                double tCostNoComm = remaining.stream().mapToDouble(r ->
+                    ((Number)r.get("quantity")).doubleValue() * ((Number)r.get("price")).doubleValue()).sum();
+                double tComm = remaining.stream().mapToDouble(r ->
+                    ((Number)r.get("commission")).doubleValue()).sum();
+                double newAvg = 0.0;
+                if (tqty > 0) {
+                    newAvg = isBond
+                        ? r4((tCostNoComm + tComm * 100.0) / tqty)
+                        : r4((tCostNoComm + tComm) / tqty);
                 }
-                // Sottrai la commissione del buy eliminato dal totale
-                if (comm > 0) {
-                    execute("UPDATE portfolio SET total_commissions = MAX(0, total_commissions - ?) WHERE id=?", comm, portfolioId);
-                }
-            } else if ("expense".equals(type) && "Commissione".equals(ptNotes) && comm > 0) {
-                // Eliminazione di una commissione di vendita: sottrai dal totale
+                execute("UPDATE portfolio SET avg_price=? WHERE id=?", newAvg, portfolioId);
+            } else {
+                execute("UPDATE portfolio SET avg_price=0 WHERE id=?", portfolioId);
+            }
+            // Sottrai la commissione del buy eliminato dal totale
+            if (comm > 0) {
                 execute("UPDATE portfolio SET total_commissions = MAX(0, total_commissions - ?) WHERE id=?", comm, portfolioId);
             }
+        } else if ("expense".equals(type) && "Commissione".equals(ptNotes) && comm > 0) {
+            // Eliminazione di una commissione di vendita: sottrai dal totale
+            execute("UPDATE portfolio SET total_commissions = MAX(0, total_commissions - ?) WHERE id=?", comm, portfolioId);
+        }
 
-            // Righe generate insieme a questa (plusvalenza, imposta, commissione di una vendita):
-            // vanno via con lei, ognuna con la propria transazione. Il vincolo ON DELETE CASCADE
-            // toglierebbe le righe ma NON le transazioni collegate, che resterebbero a muovere il
-            // saldo di un conto per un'operazione che non esiste più: le cancello esplicitamente.
-            var children = queryList("""
-                SELECT id, transaction_id, COALESCE(commission,0) AS commission
-                FROM portfolio_transactions WHERE parent_pt_id=?
-            """, ptId);
-            for (var ch : children) {
-                Object cTx = ch.get("transaction_id");
-                if (cTx != null) execute("DELETE FROM transactions WHERE id=?", ((Number)cTx).longValue());
-                double cComm = ((Number)ch.get("commission")).doubleValue();
-                // ⚠️ Solo se la riga madre non portava già la commissione: su un acquisto lo
-                // stesso importo sta sia sulla riga 'buy' (dove serve a ricalcolare il prezzo
-                // medio) sia sulla riga figlia di storico, e il ramo "buy" qui sopra l'ha già
-                // scalato. Senza questa guardia total_commissions verrebbe ridotto due volte.
-                if (cComm > 0 && comm <= 0)
-                    execute("UPDATE portfolio SET total_commissions = MAX(0, total_commissions - ?) WHERE id=?",
-                            cComm, portfolioId);
-            }
-            if (!children.isEmpty())
-                execute("DELETE FROM portfolio_transactions WHERE parent_pt_id=?", ptId);
+        // Righe generate insieme a questa (plusvalenza, imposta, commissione di una vendita):
+        // vanno via con lei, ognuna con la propria transazione. Il vincolo ON DELETE CASCADE
+        // toglierebbe le righe ma NON le transazioni collegate, che resterebbero a muovere il
+        // saldo di un conto per un'operazione che non esiste più: le cancello esplicitamente.
+        var children = queryList("""
+            SELECT id, transaction_id, COALESCE(commission,0) AS commission
+            FROM portfolio_transactions WHERE parent_pt_id=?
+        """, ptId);
+        for (var ch : children) {
+            Object cTx = ch.get("transaction_id");
+            if (cTx != null) execute("DELETE FROM transactions WHERE id=?", ((Number)cTx).longValue());
+            double cComm = ((Number)ch.get("commission")).doubleValue();
+            // ⚠️ Solo se la riga madre non portava già la commissione: su un acquisto lo
+            // stesso importo sta sia sulla riga 'buy' (dove serve a ricalcolare il prezzo
+            // medio) sia sulla riga figlia di storico, e il ramo "buy" qui sopra l'ha già
+            // scalato. Senza questa guardia total_commissions verrebbe ridotto due volte.
+            if (cComm > 0 && comm <= 0)
+                execute("UPDATE portfolio SET total_commissions = MAX(0, total_commissions - ?) WHERE id=?",
+                        cComm, portfolioId);
+        }
+        if (!children.isEmpty())
+            execute("DELETE FROM portfolio_transactions WHERE parent_pt_id=?", ptId);
 
-            if (txIdObj != null) {
-                long txId = ((Number)txIdObj).longValue();
-                execute("DELETE FROM transactions WHERE id=?", txId);
-            }
+        if (txIdObj != null) {
+            long txId = ((Number)txIdObj).longValue();
+            execute("DELETE FROM transactions WHERE id=?", txId);
+        }
 
-            execute("DELETE FROM portfolio_transactions WHERE id=?", ptId);
+        execute("DELETE FROM portfolio_transactions WHERE id=?", ptId);
 
-            var pos2 = queryOne("SELECT ticker FROM portfolio WHERE id=?", portfolioId);
-            String ticker = pos2 != null ? (String)pos2.get("ticker") : "?";
-            logger.log("OPERAZIONE PORTFOLIO ANNULLATA", "pt_id:" + ptId, "tipo:" + type, "ticker:" + ticker);
-            return Map.of("ok", true, "portfolio_id", portfolioId);
-        });
+        var pos2 = queryOne("SELECT ticker FROM portfolio WHERE id=?", portfolioId);
+        String ticker = pos2 != null ? (String)pos2.get("ticker") : "?";
+        logger.log("OPERAZIONE PORTFOLIO ANNULLATA", "pt_id:" + ptId, "tipo:" + type, "ticker:" + ticker);
+        return Map.of("ok", true, "portfolio_id", portfolioId);
     }
 
     /** Aggiorna solo il prezzo corrente di mercato di una posizione. */
@@ -4930,9 +4979,7 @@ public class Database {
                 VALUES(?,?,?,?,?,?,?)
             """, portfolioId, "tax", 0, amount, date, txId, notes != null ? notes : "Imposta capital gain");
 
-            Integer investTagId = getSystemTagIdByKey("investment");
-            if (investTagId != null)
-                execute("INSERT OR IGNORE INTO transaction_tags(transaction_id,tag_id) VALUES(?,?)", txId, investTagId);
+            tagInvestment(txId);
 
             logger.log("IMPOSTA CAPITAL GAIN REGISTRATA", "ticker:" + ticker,
                        "importo:" + DbLogger.amt(amount), "data:" + date, "note:" + DbLogger.s(notes));
@@ -4972,9 +5019,7 @@ public class Database {
                 VALUES(?,?,?,?,?,?,?)
             """, portfolioId, "coupon", 0, amount, date, txId, notes);
 
-            Integer investTagId = getSystemTagIdByKey("investment");
-            if (investTagId != null)
-                execute("INSERT OR IGNORE INTO transaction_tags(transaction_id,tag_id) VALUES(?,?)", txId, investTagId);
+            tagInvestment(txId);
 
             logger.log("CEDOLA REGISTRATA", "ticker:" + ticker,
                        "importo:" + DbLogger.amt(amount), "data:" + date,
@@ -5011,9 +5056,7 @@ public class Database {
                 VALUES(?,?,?,?,?,?,?)
             """, portfolioId, "dividend", 0, amount, date, txId, notes);
 
-            Integer investTagId = getSystemTagIdByKey("investment");
-            if (investTagId != null)
-                execute("INSERT OR IGNORE INTO transaction_tags(transaction_id,tag_id) VALUES(?,?)", txId, investTagId);
+            tagInvestment(txId);
 
             logger.log("DIVIDENDO REGISTRATO", "ticker:" + ticker,
                        "importo:" + DbLogger.amt(amount), "data:" + date,
@@ -5064,9 +5107,7 @@ public class Database {
                 VALUES(?,?,?,?,?,?,?)
             """, portfolioId, "expense", 0, amount, date, txId, notes != null ? notes : label);
 
-            Integer investTagId = getSystemTagIdByKey("investment");
-            if (investTagId != null)
-                execute("INSERT OR IGNORE INTO transaction_tags(transaction_id,tag_id) VALUES(?,?)", txId, investTagId);
+            tagInvestment(txId);
 
             // La categoria finisce nel log: adesso può legittimamente non esserci, e senza
             // scriverlo qui una spesa senza categoria sembrerebbe una dimenticanza dell'app.
@@ -5079,25 +5120,33 @@ public class Database {
     }
 
     /**
-     * Elimina un'intera posizione di portafoglio. I movimenti (`portfolio_transactions`) cadono
-     * in cascata via FK, mentre le TRANSAZIONI collegate restano — deliberatamente.
+     * Elimina un titolo e TUTTO ciò che ha prodotto: operazioni di portafoglio e transazioni.
      *
-     * Non è una dimenticanza: quelle transazioni sono movimenti di denaro veri fra i tuoi conti
-     * (il bonifico di acquisto, quello di vendita, le cedole incassate, le commissioni pagate).
-     * Cancellarle insieme alla posizione cambierebbe i saldi dei conti e farebbe sparire dai
-     * report entrate e uscite realmente avvenute. Il dialogo di conferma lo dice esplicitamente
-     * ("Le transazioni collegate resteranno").
+     * ⚠️ Fino alla 1.25.15 cancellava la sola scheda: le `portfolio_transactions` cadevano in
+     * cascata via FK e le transazioni restavano, per la ragione — giusta — che sono movimenti di
+     * denaro veri. Il difetto stava altrove: sparendo le righe di storico spariva anche l'UNICO
+     * legame fra transazione e titolo, quindi quei bonifici restavano nei conti senza che niente
+     * dicesse più a cosa si riferivano, e senza nemmeno le protezioni di deleteTransaction (che
+     * riconoscono le righe di portafoglio proprio interrogando portfolio_transactions).
      *
-     * Quello che mancava era la TRACCIABILITÀ: l'operazione non lasciava scritto da nessuna parte
-     * quante transazioni restavano scollegate, quindi a posteriori non c'era modo di ritrovarle.
-     * Ora il conteggio e gli importi finiscono nel log, e vengono restituiti al frontend.
+     * Ora l'eliminazione è un annullamento in blocco: si ripercorrono le operazioni MADRI dalla
+     * più recente alla più vecchia richiamando {@link #undoPortfolioTransaction}, cioè la stessa
+     * identica logica dell'annullamento singolo — quantità, prezzo medio, commissioni, righe
+     * figlie e transazioni collegate. Alla fine non resta niente di orfano e i saldi tornano
+     * dov'erano prima del primo acquisto.
+     *
+     * L'ordine (data DESC, id DESC) non è cosmetico: annullare un acquisto con vendite
+     * successive è vietato, e togliendo prima le vendite quel rifiuto non scatta mai.
+     *
+     * Tutto sotto un'unica inTx: o sparisce l'intero titolo o non cambia nulla. È il motivo per
+     * cui il ciclo chiama il nucleo e non il metodo pubblico (che aprirebbe una inTx annidata).
      */
     public Map<String, Object> deletePortfolioItem(int id) throws SQLException {
         return inTx(() -> {
             Map<String, Object> old = queryOne("SELECT ticker, name FROM portfolio WHERE id=?", id);
             if (old == null) throw new SQLException("Posizione non trovata (id:" + id + ")");
 
-            // Fotografia PRIMA della DELETE: dopo la cascata il legame non è più ricostruibile.
+            // Fotografia PRIMA: dopo la cancellazione non è più ricostruibile, e serve al log.
             var linked = queryList("""
                 SELECT t.type AS tx_type, COUNT(*) AS n, COALESCE(SUM(t.amount),0) AS tot
                   FROM portfolio_transactions pt
@@ -5105,27 +5154,105 @@ public class Database {
                  WHERE pt.portfolio_id = ?
                  GROUP BY t.type
             """, id);
-            long orphanCount = 0;
+            long txCount = 0;
             StringBuilder detail = new StringBuilder();
             for (var row : linked) {
                 long n = ((Number) row.get("n")).longValue();
-                orphanCount += n;
+                txCount += n;
                 if (detail.length() > 0) detail.append(", ");
                 detail.append(row.get("tx_type")).append(":").append(n)
                       .append(" (").append(DbLogger.amt(row.get("tot"))).append(")");
             }
+
+            var mothers = queryList("""
+                SELECT id FROM portfolio_transactions
+                 WHERE portfolio_id=? AND parent_pt_id IS NULL
+                 ORDER BY date DESC, id DESC
+            """, id);
+            for (var m : mothers) undoPortfolioTransaction(((Number) m.get("id")).intValue());
+
+            // Difesa in profondità: dopo il ciclo non dovrebbe restare NIENTE con una transazione
+            // attaccata. Se restasse (una riga senza madre nata da una versione futura), la
+            // cascata della DELETE qui sotto porterebbe via la riga ma non la transazione, cioè
+            // esattamente l'orfana che questo metodo esiste per non lasciare.
+            var leftovers = queryList(
+                "SELECT transaction_id FROM portfolio_transactions WHERE portfolio_id=? AND transaction_id IS NOT NULL", id);
+            for (var l : leftovers)
+                execute("DELETE FROM transactions WHERE id=?", ((Number) l.get("transaction_id")).longValue());
 
             execute("DELETE FROM portfolio WHERE id=?", id);
             touchSyncMeta();
             logger.log("TITOLO ELIMINATO", "id:" + id,
                        "ticker:" + DbLogger.s(old.get("ticker")),
                        "nome:" + DbLogger.s(old.get("name")),
-                       "transazioni-scollegate:" + orphanCount,
+                       "operazioni-annullate:" + mothers.size(),
+                       "transazioni-eliminate:" + txCount,
+                       "residui-ripuliti:" + leftovers.size(),
                        "dettaglio:" + (detail.length() > 0 ? detail.toString() : "-"));
             return Map.of("id", id, "deleted", true,
-                          "unlinked_transactions", orphanCount,
-                          "unlinked_detail", detail.toString());
+                          "operations_undone", mothers.size(),
+                          "transactions_deleted", txCount,
+                          "leftovers_cleaned", leftovers.size(),
+                          "detail", detail.toString());
         });
+    }
+
+    /**
+     * Anteprima di cosa porterà via {@link #deletePortfolioItem}. SOLA LETTURA.
+     *
+     * Esiste perché l'eliminazione è irreversibile e muove i saldi: prima di confermare si deve
+     * poter leggere l'elenco esatto delle transazioni che spariranno e di quanto si sposterà
+     * ogni conto — non una frase generica su "le transazioni collegate".
+     */
+    public Map<String, Object> getPortfolioDeletionPreview(int id) throws SQLException {
+        var pos = queryOne("SELECT ticker, name, quantity FROM portfolio WHERE id=?", id);
+        if (pos == null) throw new SQLException("Posizione non trovata (id:" + id + ")");
+
+        var ops = queryOne(
+            "SELECT COUNT(*) AS n FROM portfolio_transactions WHERE portfolio_id=? AND parent_pt_id IS NULL", id);
+
+        var txs = queryList("""
+            SELECT t.id, t.date, t.type, t.amount, t.description,
+                   a_from.name AS from_account, a_to.name AS to_account
+              FROM portfolio_transactions pt
+              JOIN transactions t       ON t.id      = pt.transaction_id
+              LEFT JOIN accounts a_from ON a_from.id = t.account_id
+              LEFT JOIN accounts a_to   ON a_to.id   = t.to_account_id
+             WHERE pt.portfolio_id = ?
+             ORDER BY t.date, t.id
+        """, id);
+
+        // Effetto sui saldi, col segno del RIPRISTINO: eliminare un'uscita fa risalire il conto,
+        // eliminare un'entrata lo fa scendere. Un giroconto tocca due conti in versi opposti,
+        // da cui la UNION ALL sul conto di destinazione.
+        // ⚠️ Il conto investimenti fa eccezione e il tipo viene esposto apposta: il suo saldo non
+        // deriva dalle transazioni ma dal valore di mercato delle posizioni (vedi getAccounts),
+        // quindi lì il numero non è un delta ma sparisce insieme al titolo.
+        var effects = queryList("""
+            SELECT nome, tipo, ROUND(SUM(delta), 2) AS delta FROM (
+                SELECT a.name AS nome, a.type AS tipo,
+                       CASE t.type WHEN 'income' THEN -t.amount ELSE t.amount END AS delta
+                  FROM portfolio_transactions pt
+                  JOIN transactions t ON t.id = pt.transaction_id
+                  JOIN accounts a     ON a.id = t.account_id
+                 WHERE pt.portfolio_id = ?
+                UNION ALL
+                SELECT a.name AS nome, a.type AS tipo, -t.amount AS delta
+                  FROM portfolio_transactions pt
+                  JOIN transactions t ON t.id = pt.transaction_id
+                  JOIN accounts a     ON a.id = t.to_account_id
+                 WHERE pt.portfolio_id = ? AND t.type = 'transfer'
+            ) GROUP BY nome, tipo ORDER BY nome
+        """, id, id);
+
+        Map<String, Object> out = new java.util.HashMap<>();
+        out.put("ticker",       pos.get("ticker"));
+        out.put("name",         pos.get("name"));
+        out.put("quantity",     pos.get("quantity"));
+        out.put("operations",   ops != null ? ops.get("n") : 0);
+        out.put("transactions", txs);
+        out.put("effects",      effects);
+        return out;
     }
 
     // ─── Log ──────────────────────────────────────────────────────────────────

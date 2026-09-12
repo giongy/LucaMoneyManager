@@ -532,6 +532,7 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             case "registerDividend"         -> db.registerDividend(p);
             case "registerPortfolioExpense" -> db.registerPortfolioExpense(p);
             case "registerPortfolioTax"     -> db.registerPortfolioTax(p);
+            case "getPortfolioDeletionPreview"  -> db.getPortfolioDeletionPreview(p.get("id").getAsInt());
             case "deletePortfolioItem"          -> db.deletePortfolioItem(p.get("id").getAsInt());
             case "deletePortfolioTransaction"   -> db.deletePortfolioTransaction(p.get("id").getAsInt());
 

@@ -739,9 +739,12 @@ window._showSchedCtx = (id, evt) => {
 
   const menu = document.createElement('div');
   menu.id = 'sched-ctx-menu';
+  // Nessuna posizione qui: si calcola dopo l'inserimento (vedi in fondo). Le voci sono tre o
+  // sei a seconda che la pianificata sia attiva e abbia una prossima occorrenza, quindi il
+  // margine fisso di prima (160px dal fondo) tagliava le ultime voci sulle righe in basso.
   menu.style.cssText = `position:fixed;z-index:9999;background:var(--bg2);border:1px solid var(--border);
     border-radius:8px;padding:4px 0;min-width:190px;box-shadow:0 4px 16px rgba(0,0,0,.3);
-    left:${Math.min(evt.clientX, window.innerWidth-210)}px;top:${Math.min(evt.clientY, window.innerHeight-160)}px`;
+    max-height:calc(100vh - 16px);overflow-y:auto;visibility:hidden;left:0;top:0`;
 
   items.forEach(item => {
     if (item.separator) {
@@ -760,6 +763,16 @@ window._showSchedCtx = (id, evt) => {
   });
 
   document.body.appendChild(menu);
+
+  // Posizione misurata sul menu vero, non stimata: stesso schema di _showPortfolioCtx, dove il
+  // margine fisso lasciava fuori schermo le ultime voci. `visibility:hidden` fino a qui evita
+  // il lampo in alto a sinistra prima del salto al posto giusto.
+  const M = 8;
+  const r = menu.getBoundingClientRect();
+  menu.style.left = Math.max(M, Math.min(evt.clientX, window.innerWidth  - r.width  - M)) + 'px';
+  menu.style.top  = Math.max(M, Math.min(evt.clientY, window.innerHeight - r.height - M)) + 'px';
+  menu.style.visibility = 'visible';
+
   setTimeout(() => {
     document.addEventListener('click', closeSchedContextMenu, { once: true });
     document.addEventListener('contextmenu', closeSchedContextMenu, { once: true });

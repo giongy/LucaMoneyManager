@@ -184,6 +184,8 @@ const api = {
   registerPortfolioExpense: async (data)  => { api._invalidateAccounts(); return callJava('registerPortfolioExpense', data); },
   registerPortfolioTax:     async (data)  => { api._invalidateAccounts(); return callJava('registerPortfolioTax', data); },
   updatePortfolioItem:      async (data)  => { api._invalidateAccounts(); return callJava('updatePortfolioItem', data); },
+  // Sola lettura: cosa porterebbe via l'eliminazione del titolo (transazioni + effetto sui saldi).
+  getPortfolioDeletionPreview: (id)    => callJava('getPortfolioDeletionPreview', {id}),
   deletePortfolioItem:      async (id)    => { api._invalidateAccounts(); return callJava('deletePortfolioItem', {id}); },
   deletePortfolioTransaction: async (id)  => { api._invalidateAccounts(); return callJava('deletePortfolioTransaction', {id}); },
 

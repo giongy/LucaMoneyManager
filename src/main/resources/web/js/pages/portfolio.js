@@ -1946,7 +1946,7 @@ async function showPortfolioHistory(portfolioId) {
     <div style="font-weight:600;margin-bottom:12px">${esc(pos?.ticker)} — ${esc(pos?.name)}</div>
     <div class="table-wrap">
       <table style="font-size:12px"><thead><tr>
-        <th>Data</th><th>Tipo</th><th>Quantità</th><th>Prezzo</th><th class="text-right">Totale</th>
+        <th>Data</th><th>Tipo</th><th>Quantità</th><th>Prezzo</th><th class="text-right">Totale</th><th style="width:36px"></th>
       </tr></thead><tbody>
       ${txs.length ? (() => {
         const sorted = [...txs].sort((a,b)=>a.date.localeCompare(b.date));
@@ -1957,32 +1957,57 @@ async function showPortfolioHistory(portfolioId) {
           const isCoupon   = t.type === 'coupon';
           const isDividend = t.type === 'dividend';
           const isExpense  = t.type === 'expense';
-          const isCashOnly = isCoupon || isDividend || isExpense;
-          const color = isBuy || isExpense ? 'var(--expense)' : 'var(--income)';
+          const isTax      = t.type === 'tax';
+          // ⚠️ 'gain' e 'tax' portano l'importo in `price` con quantità 0: senza includerli qui
+          // il totale finiva calcolato come quantità × prezzo, cioè ZERO — una plusvalenza da
+          // 76 € appariva "+ 0,00 €". Finché questo modale era in sola lettura passava
+          // inosservato; da quando è il posto da cui si annulla, è una cifra che inganna.
+          // Sul segno: 'gain' è l'unica riga che può essere negativa (minusvalenza), e il segno
+          // sta dentro price — non nel tipo, come per tutte le altre.
+          const isGain     = t.type === 'gain';
+          const isCashOnly = isCoupon || isDividend || isExpense || isTax || isGain;
+          const negGain    = isGain && t.price < 0;
+          const color = isBuy || isExpense || isTax || negGain ? 'var(--expense)' : 'var(--income)';
           const label = isBuy ? 'Acquisto' : isSell ? 'Vendita'
             : isCoupon ? 'Cedola' : isDividend ? 'Dividendo'
+            : isTax ? 'Imposta'
+            : isGain ? (negGain ? 'Minusvalenza' : 'Plusvalenza')
             : (t.notes || 'Spesa');
-          const sign  = isBuy || isExpense ? -1 : 1;
+          const sign  = isBuy || isExpense || isTax || negGain ? -1 : 1;
           // Bond cash = qty × price / 100 (convenzione percentuale)
           const principal = isBond ? t.quantity * t.price / 100 : t.quantity * t.price;
-          const total = isCashOnly ? t.price : principal;
+          const total = isCashOnly ? Math.abs(t.price) : principal;
           const priceDisp = isCashOnly ? '—' : (isBond ? `${t.price.toFixed(4)} %` : fmt.price(t.price));
-          grandTotal += sign * total;
+          // La plus/minusvalenza NON entra nel totale: non è un movimento di cassa in più, è la
+          // differenza fra carico e ricavo — già dentro le righe di acquisto e vendita. Stessa
+          // scelta della scheda Storico, che dai suoi totali la esclude allo stesso modo.
+          if (!isGain) grandTotal += sign * total;
+          // Colonna azione: fino alla 1.25.15 questo modale era in sola lettura e le ✕ stavano
+          // solo nella scheda Storico — per annullare bisognava sapere di andare lì. Stessa
+          // regola della scheda: le righe figlie non si annullano da sole (il rifiuto vero è
+          // comunque lato Java, qui è solo il suggerimento visivo).
+          const azione = t.parent_pt_id
+            ? `<span style="color:var(--txt3);font-size:11px" title="Generata dall'operazione qui sopra: si annulla insieme a quella">↳</span>`
+            : `<button class="btn btn-ghost" style="padding:2px 6px;font-size:11px;color:var(--txt3)"
+                  onclick="deletePortfolioTransactionConfirm(${t.id},'${t.type}',${portfolioId})"
+                  title="Annulla operazione">✕</button>`;
           return `<tr>
             <td>${t.date}</td>
             <td><span style="color:${color};font-weight:600">${label}</span></td>
             <td>${(isCoupon || isExpense) ? '—' : t.quantity}</td>
             <td>${priceDisp}</td>
             <td class="text-right" style="color:${color}">${sign<0?'-':'+'} ${fmt.currency(total)}</td>
+            <td style="text-align:center">${azione}</td>
           </tr>`;
         }).join('');
         const totColor = grandTotal <= 0 ? 'var(--expense)' : 'var(--income)';
         const totRow = `<tr style="border-top:2px solid var(--border)">
           <td colspan="4" style="font-weight:700;padding-top:6px">Totale</td>
           <td class="text-right" style="font-weight:700;color:${totColor};padding-top:6px">${grandTotal<=0?'-':'+'} ${fmt.currency(Math.abs(grandTotal))}</td>
+          <td></td>
         </tr>`;
         return rows + totRow;
-      })() : '<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--txt3)">Nessuna operazione</td></tr>'}
+      })() : '<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--txt3)">Nessuna operazione</td></tr>'}
       </tbody></table>
     </div>`;
   openModal('Storico operazioni', body, null);
@@ -2214,9 +2239,12 @@ window._showPortfolioCtx = (portfolioId, evt) => {
 
   const menu = document.createElement('div');
   menu.id = 'portfolio-ctx-menu';
+  // Nessuna posizione qui: la si calcola dopo l'inserimento, quando il menu ha una dimensione
+  // vera (vedi in fondo). max-height serve al caso limite in cui il menu sia più alto della
+  // finestra — con lo zoom spinto o una finestra bassa succede — così scorre invece di uscire.
   menu.style.cssText = `position:fixed;z-index:9999;background:var(--bg2);border:1px solid var(--border);
     border-radius:8px;padding:4px 0;min-width:220px;box-shadow:0 4px 16px rgba(0,0,0,.3);
-    left:${Math.min(evt.clientX, window.innerWidth-240)}px;top:${Math.min(evt.clientY, window.innerHeight-260)}px`;
+    max-height:calc(100vh - 16px);overflow-y:auto;visibility:hidden;left:0;top:0`;
 
   const mkItem = (icon, label, cb, danger = false) => {
     const el = document.createElement('div');
@@ -2252,6 +2280,21 @@ window._showPortfolioCtx = (portfolioId, evt) => {
   menu.appendChild(mkItem('🗑️', 'Elimina',  () => deleteStock(portfolioId), true));
 
   document.body.appendChild(menu);
+
+  // ⚠️ La posizione si calcola SOLO ORA, misurando il menu appena inserito.
+  // Prima si usavano due margini fissi (240 di larghezza, 260 di altezza) sottratti alla
+  // finestra: ma l'altezza dipende da quante voci ha il menu — un'obbligazione con cedola ne
+  // mostra quattro più di un'azione e supera i 300px — quindi facendo tasto destro sulle ultime
+  // righe della lista le voci finali (Modifica, Storico, Elimina) restavano fuori schermo,
+  // irraggiungibili. Un numero fisso qui è destinato a scadere a ogni voce aggiunta: la misura
+  // vera no. `visibility:hidden` fino a qui evita che il menu appaia per un istante in alto a
+  // sinistra prima di saltare al suo posto.
+  const M = 8;                                   // respiro dal bordo della finestra
+  const r = menu.getBoundingClientRect();
+  menu.style.left = Math.max(M, Math.min(evt.clientX, window.innerWidth  - r.width  - M)) + 'px';
+  menu.style.top  = Math.max(M, Math.min(evt.clientY, window.innerHeight - r.height - M)) + 'px';
+  menu.style.visibility = 'visible';
+
   setTimeout(() => {
     document.addEventListener('click', closePortfolioContextMenu, { once: true });
     document.addEventListener('contextmenu', closePortfolioContextMenu, { once: true });
@@ -2587,24 +2630,58 @@ window.updateStockPrice = async (id, val) => {
   }
   catch(e) { toast(e.message,'error'); }
 };
-// Elimina un'intera posizione previa conferma (i movimenti cadono in cascata lato DB).
-// Le transazioni collegate (bonifici di acquisto/vendita, cedole, commissioni) NON vengono
-// toccate: sono movimenti di denaro veri fra i conti, cancellarli falserebbe i saldi. Qui le
-// contiamo prima, così la conferma dice quante ne resteranno invece di una frase generica.
+// Elimina un titolo e TUTTO ciò che ha prodotto, mostrando prima cosa sparirà.
+//
+// ⚠️ Fino alla 1.25.15 cancellava la sola scheda e le transazioni restavano — con la
+// motivazione, giusta, che sono movimenti di denaro veri. Il guaio stava altrove: insieme alla
+// scheda spariva `portfolio_transactions`, cioè l'UNICO legame fra quelle transazioni e il
+// titolo, e nessuno poteva più dire a cosa si riferissero. Ora l'app annulla le operazioni una
+// per una (stessa logica dell'annullamento singolo) e i saldi tornano dov'erano prima del primo
+// acquisto: proprio perché i conti si muovono, il modale dice PRIMA di quanto e su quali.
 window.deleteStock = async id => {
-  let avviso = 'Le transazioni collegate resteranno.';
-  try {
-    const movs = await api.getPortfolioTransactions(id);
-    const n = (movs || []).filter(m => m.transaction_id != null).length;
-    if (n > 0) avviso = `Resteranno <b>${n}</b> transazion${n === 1 ? 'e' : 'i'} collegat${n === 1 ? 'a' : 'e'} `
-                      + '(bonifici, cedole, commissioni): sono movimenti di denaro reali fra i conti '
-                      + 'e cancellarli falserebbe i saldi.';
-  } catch (e) { /* conteggio best-effort: se fallisce si mostra la frase generica */ }
-  const ok = await confirm('Elimina posizione', `Eliminare questa posizione dal portafoglio?<br>${avviso}`);
-  if (!ok) return;
-  const res = await api.deletePortfolioItem(id);
-  toast(res && res.unlinked_transactions > 0
-    ? `Posizione eliminata — ${res.unlinked_transactions} transazioni scollegate`
-    : 'Posizione eliminata');
-  renderPortfolio();
+  let prev;
+  try { prev = await api.getPortfolioDeletionPreview(id); }
+  catch (e) { toast('Anteprima non disponibile: ' + (e?.message || e), 'error'); return; }
+
+  const txs = prev.transactions || [];
+  const eff = prev.effects || [];
+  const qty = Number(prev.quantity) || 0;
+
+  const rows = txs.map(t => `<tr>
+      <td style="white-space:nowrap">${fmt.date(t.date)}</td>
+      <td>${esc(t.description || '')}</td>
+      <td class="text-right" style="white-space:nowrap">${fmt.currency(Math.abs(Number(t.amount) || 0))}</td>
+    </tr>`).join('');
+
+  // Il conto investimenti non ha un "delta": il suo saldo è il valore di mercato delle posizioni
+  // (vedi getAccounts lato Java), quindi non si sposta di un importo — sparisce col titolo.
+  const effRows = eff.map(e => {
+    const d = Number(e.delta) || 0;
+    const isInv = e.tipo === 'investment';
+    const col = isInv ? 'var(--txt2)' : (d >= 0 ? 'var(--income)' : 'var(--expense)');
+    const val = isInv ? 'si azzera con la posizione' : `${d >= 0 ? '+' : '−'} ${fmt.currency(Math.abs(d))}`;
+    return `<tr><td>${esc(e.nome)}</td>
+      <td class="text-right" style="white-space:nowrap;color:${col}">${val}</td></tr>`;
+  }).join('');
+
+  const body = `
+    <p style="margin:0 0 10px">Verranno eliminati <b>${esc(prev.ticker || '')}</b> ${esc(prev.name || '')},
+      le sue <b>${prev.operations}</b> operazioni e le <b>${txs.length}</b> transazioni che hanno generato.</p>
+    ${qty > 0 ? `<div style="background:var(--bg3);border-left:3px solid var(--expense);padding:8px 12px;margin-bottom:10px;font-size:12px">
+      ⚠️ Possiedi ancora <b>${qty}</b> di questo titolo. Eliminandolo annulli anche gli acquisti,
+      quindi il denaro speso torna sul conto da cui era uscito.</div>` : ''}
+    ${txs.length ? `<div class="table-wrap" style="max-height:220px;overflow:auto;margin-bottom:12px">
+      <table style="font-size:12px"><thead><tr>
+        <th>Data</th><th>Descrizione</th><th class="text-right">Importo</th>
+      </tr></thead><tbody>${rows}</tbody></table></div>` : ''}
+    ${effRows ? `<div style="font-size:12px;font-weight:600;margin-bottom:4px">Come si muovono i conti</div>
+      <div class="table-wrap" style="margin-bottom:12px"><table style="font-size:12px"><tbody>${effRows}</tbody></table></div>` : ''}
+    <p style="margin:0;font-size:12px;color:var(--txt2)">Non è annullabile dall'app: si recupera solo da un backup.</p>`;
+
+  openModal('Elimina definitivamente', body, async () => {
+    const res = await api.deletePortfolioItem(id);
+    toast(`Titolo eliminato — ${res?.operations_undone ?? 0} operazioni annullate, `
+        + `${res?.transactions_deleted ?? 0} transazioni rimosse`);
+    renderPortfolio();
+  }, 'Elimina tutto', 'btn-danger');
 };

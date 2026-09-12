@@ -355,6 +355,30 @@ public class TestTitoli {
         ok("dopo i rifiuti la categoria è ancora lì, col suo contrassegno",
            count("SELECT COUNT(*) FROM categories WHERE id=" + destId + " AND system_key='plusvalenze'"), 1);
 
+        sez("eliminare un titolo porta via tutto ciò che ha prodotto");
+        double D0 = saldo(tit), Q0 = saldo(uni);
+        long   txD0 = count("SELECT COUNT(*) FROM transactions");
+        d.buyStock(buy("TESTDEL", "Da eliminare", 200, 5, "equity", 10, tit, uni));
+        int pidDel = id("SELECT id FROM portfolio WHERE ticker='TESTDEL'");
+        final int buyPt = id("SELECT id FROM portfolio_transactions WHERE portfolio_id=" + pidDel + " AND type='buy'");
+        ok("il bonifico d'acquisto nasce col tag Investimenti",
+           count("SELECT COUNT(*) FROM transaction_tags tt JOIN tags g ON g.id=tt.tag_id"
+               + " WHERE g.system_key='investment' AND tt.transaction_id="
+               + id("SELECT transaction_id FROM portfolio_transactions WHERE id=" + buyPt)), 1);
+        d.sellStock(sell(pidDel, uni, 80, 7, 3));
+        d.registerPortfolioTax(tax(pidDel, uni, 12, "2026-09-01", "IMPOSTA DEL"));
+        // La vendita è del 15/08 e l'acquisto del 01/08: annullare l'acquisto ricalcolerebbe il
+        // prezzo medio lasciando la plusvalenza calcolata sul carico vecchio.
+        okb("annullare l'acquisto con una vendita successiva",
+            fallisce(() -> d.deletePortfolioTransaction(buyPt)));
+        d.deletePortfolioItem(pidDel);
+        ok("saldo del conto investimenti tornato al punto di partenza", saldo(tit), D0);
+        ok("saldo del conto liquidità tornato al punto di partenza",    saldo(uni), Q0);
+        ok("nessuna transazione residua", count("SELECT COUNT(*) FROM transactions"), txD0);
+        ok("nessuna riga di storico residua",
+           count("SELECT COUNT(*) FROM portfolio_transactions WHERE portfolio_id=" + pidDel), 0);
+        ok("la posizione non esiste più", count("SELECT COUNT(*) FROM portfolio WHERE id=" + pidDel), 0);
+
         sez("pulizia: annullando tutto si torna al punto di partenza");
         for (int p : new int[]{pid, pid2}) {
             for (int pt : ids("SELECT id FROM portfolio_transactions WHERE portfolio_id=" + p

@@ -25,7 +25,7 @@ tali. La documentazione da tenere aggiornata è solo questa terna: `CLAUDE.md`, 
 - **Linguaggio:** Java 25, Maven 3.x
 - **UI:** JCEF v146 (Chromium embedded) + Swing per dialogs/titlebar/splash
 - **Frontend:** Vanilla JS puro (`src/main/resources/web/`, modulare in `js/pages/*.js`), no React/Vue
-- **Versione:** 1.25.15 — output `target/moneymanager-1.25.15.jar` (fat JAR, web/ esclusa)
+- **Versione:** 1.25.16 — output `target/moneymanager-1.25.16.jar` (fat JAR, web/ esclusa)
 - **Web assets:** serviti da filesystem (cartella `web/` accanto al `.exe` in produzione, `target/classes/web/` in IDE)
 - **DB path:** `%APPDATA%\LucaMoneyManager\data.db` (`%APPDATA%` = `...\Roaming`)
 - **Due log distinti, in due posti diversi** — vedi "I due log e OneDrive"
@@ -248,6 +248,28 @@ Il conto titoli torna così a zero sulla posizione chiusa: `carico + plusvalenza
    `'Rateo acquisto'`, punto 6): il Total Return del portafoglio non deve contarla, esattamente
    come la commissione. Solo lato acquisto: la vendita (dirty price incassato dal compratore)
    ha la stessa distorsione in teoria ma non è ancora gestita.
+
+9. **Eliminare un titolo porta via tutto ciò che ha prodotto (1.25.16).** `deletePortfolioItem`
+   non cancella più la sola scheda: ripercorre le operazioni **madri** dalla più recente alla più
+   vecchia annullandole con `undoPortfolioTransaction`, cioè la stessa identica logica
+   dell'annullamento singolo. I saldi tornano dov'erano prima del primo acquisto e non resta
+   nessuna transazione orfana. Prima restavano — con la motivazione giusta che sono movimenti di
+   denaro veri — ma insieme alla scheda spariva `portfolio_transactions`, **l'unico legame** con
+   il titolo: nessuno poteva più dire a cosa si riferissero, e cadevano anche le protezioni di
+   `deleteTransaction`, che riconoscono le righe di portafoglio interrogando proprio quella
+   tabella. Tre cose da non toccare:
+   - **L'ordine `date DESC, id DESC` è funzionale, non estetico.** Annullare un acquisto che ha
+     vendite in data pari o successiva è **vietato** (il PMC verrebbe ricalcolato senza di loro
+     mentre le plusvalenze già scritte resterebbero quelle vecchie): togliendo prima le vendite,
+     quel rifiuto non scatta mai durante la cascata.
+   - **`undoPortfolioTransaction` non apre una `inTx` e va chiamato solo dentro una.** `inTx` fa
+     commit esplicito e **non è rientrante**: annidarla committerebbe a metà la cancellazione,
+     lasciando il resto in autocommit — un titolo smontato per metà, senza errore visibile. Il
+     metodo pubblico `deletePortfolioTransaction` è il guscio che apre la transazione.
+   - **Ogni transazione del portafoglio nasce col tag di sistema `investment`** (`tagInvestment`):
+     il legame vero è `portfolio_transactions`, che una cancellazione porta via, e il tag è la
+     sola traccia che sopravvive. Fino alla 1.25.15 lo mettevano solo cedole, dividendi, imposte
+     e spese — non i bonifici, il rateo e le plusvalenze, cioè gli importi grossi.
 
 La stessa spiegazione, in italiano e con i **nomi veri** delle categorie letti dalla chiave, sta
 dentro l'app: pulsante **❓ Come funziona** nella pagina Investimenti (`showPortfolioHelp` in

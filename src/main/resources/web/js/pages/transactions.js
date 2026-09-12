@@ -1372,9 +1372,21 @@ function _showCtxMenu(txId, x, y) {
     <div class="ctx-separator"></div>
     <div class="ctx-item ctx-danger" onclick="_ctxDo('del')">🗑️ Elimina <kbd>Canc</kbd></div>`;
   m.style.display = 'block';
-  const mw = 230, mh = 160;
-  m.style.left = (x + mw > window.innerWidth  ? x - mw : x) + 'px';
-  m.style.top  = (y + mh > window.innerHeight ? y - mh : y) + 'px';
+  // Dimensioni MISURATE, non stimate. Prima erano cablate (mw 230, mh 160) mentre il menu è
+  // alto 187: nella fascia in cui `y + 160` sta nella finestra ma `y + 187` no, il menu veniva
+  // piazzato verso il basso e l'ultima voce — «Elimina» — restava tagliata a metà. Il vecchio
+  // codice inoltre RIBALTAVA il menu sopra il cursore invece di limitarlo, e sottraendo 160
+  // anziché l'altezza vera sbordava lo stesso vicino al fondo. Ora si limita ai quattro bordi,
+  // come nei menu di Investimenti e Pianificate.
+  // ⚠️ offsetWidth/offsetHeight e non getBoundingClientRect(): l'animazione `slideUp` di
+  // #ctxMenu (style.css) tiene l'elemento ancora traslato nei primi 100ms, e il rect misurato
+  // subito dopo `display:block` risulta ~16px più in basso di dove il menu si fermerà.
+  const M = 8;
+  const mw = m.offsetWidth, mh = m.offsetHeight;
+  m.style.maxHeight = `calc(100vh - ${2 * M}px)`;
+  m.style.overflowY = 'auto';
+  m.style.left = Math.max(M, Math.min(x, window.innerWidth  - mw - M)) + 'px';
+  m.style.top  = Math.max(M, Math.min(y, window.innerHeight - mh - M)) + 'px';
 }
 
 // Nasconde il menu contestuale transazioni.

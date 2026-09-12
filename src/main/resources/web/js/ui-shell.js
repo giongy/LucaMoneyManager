@@ -89,12 +89,15 @@ function fieldError(id, msg) {
 // (Annulla / ✕). TUTTE le vie d'uscita del modale devono risolvere: il ✕ era cablato a
 // closeModal nudo, quindi chiuderlo lasciava la Promise pendente per sempre e il chiamante
 // bloccato sull'await. closeModal() rimette gli handler di default dopo la chiusura.
-function confirm(title, msg) {
+// Le etichette hanno per default quelle di un'eliminazione (il caso più frequente), ma sono
+// sostituibili: una conferma che non distrugge nulla non deve mostrare un bottone rosso
+// "Elimina" — l'utente legge il bottone, non il testo.
+function confirm(title, msg, confirmLabel = 'Elimina', confirmClass = 'btn-danger') {
   return new Promise(resolve => {
     const done = v => { closeModal(); resolve(v); };
     openModal(title, `<p style="color:var(--txt2);line-height:1.6">${msg}</p>`,
       () => done(true),
-      'Elimina', 'btn-danger');
+      confirmLabel, confirmClass);
     document.getElementById('modalCancel').onclick = () => done(false);
     document.getElementById('modalClose').onclick  = () => done(false);
   });

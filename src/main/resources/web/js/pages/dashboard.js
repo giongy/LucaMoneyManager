@@ -385,21 +385,27 @@ window._dashQuickTx = async (accountId, type) => {
 const DASH_W_MIN  = 15;   // sotto questa soglia un widget diventa illeggibile
 const DASH_W_STEP = 5;    // passo del ridimensionamento a tastiera/click
 
-// Ordine e larghezze di default: riproducono ESATTAMENTE il layout storico della
-// dashboard (le percentuali vengono dal CSS che c'era prima dei widget mobili:
-// .dash-accounts-card 36%, .dash-upcoming-card 60%, il resto in parti uguali).
-// rowH: altezza della riga; le prime due card storicamente erano a contenuto libero
-// (nessuna altezza fissata), le righe grafico avevano --dash-row-h = 400px.
+// Disposizione DI FABBRICA: quella con cui l'app si presenta a chi non ha mai
+// personalizzato nulla. Fino alla 1.25.14 riproduceva il layout storico (36/64, 60/40,
+// il resto in parti uguali, ereditato dal CSS che c'era prima dei widget mobili); ora
+// riproduce invece la disposizione messa a punto all'uso — donut accanto alle
+// pianificate, i tre grafici in fondo — perché è quella che regge meglio alla prova
+// dei fatti, ed è ciò che ha senso trovare alla prima apertura.
+// rowH: altezza della riga, letta dal PRIMO widget della riga che ce l'ha (vedi
+// _renderDashWidgets); sulle altre card della stessa riga non va ripetuta.
+//
+// ⚠️ Questo è il default dell'APP, non quello dell'utente: "Ripristina" ci torna solo
+// finché non è stato salvato un default personale (vedi _dashUserDefault).
 const DASH_DEFAULT_LAYOUT = [
-  { id: 'accounts',    row: 0, w: 36 },
-  { id: 'bubbles',     row: 0, w: 64 },
-  { id: 'upcoming',    row: 1, w: 60, rowH: 400 },
-  { id: 'budgetchart', row: 1, w: 40 },
-  { id: 'topcat',      row: 2, w: 50, rowH: 400 },
-  { id: 'recent',      row: 2, w: 50 },
-  { id: 'donut',       row: 3, w: 34, rowH: 400 },
-  { id: 'barchart',    row: 3, w: 33 },
-  { id: 'savings',     row: 3, w: 33 },
+  { id: 'accounts',    row: 0, w: 37, rowH: 485 },
+  { id: 'bubbles',     row: 0, w: 63 },
+  { id: 'upcoming',    row: 1, w: 58, rowH: 400 },
+  { id: 'donut',       row: 1, w: 42 },
+  { id: 'topcat',      row: 2, w: 48, rowH: 419 },
+  { id: 'recent',      row: 2, w: 52 },
+  { id: 'budgetchart', row: 3, w: 29, rowH: 339 },
+  { id: 'barchart',    row: 3, w: 37 },
+  { id: 'savings',     row: 3, w: 34 },
 ];
 
 // Registro dei widget: id → titolo (per il menu) e corpo HTML.
@@ -464,6 +470,13 @@ function _dashWidgetDefs(dashYear) {
 // Layout corrente (in memoria). Caricato da app_settings al primo render.
 let _dashLayout = null;
 
+// Default PERSONALE: la disposizione che l'utente ha eletto a propria base con
+// "Rendi default" (chiave 'dashboard.layout_default'). Se c'è, è lei il bersaglio di
+// "Ripristina" al posto di DASH_DEFAULT_LAYOUT — così si può sperimentare liberamente
+// e tornare al proprio punto fermo, non a quello deciso da chi ha scritto l'app.
+// null = nessuno salvato: si ricade sul default di fabbrica.
+let _dashUserDefault = null;
+
 // Modalità modifica layout. Fuori da questa modalità la dashboard è "sola lettura":
 // niente maniglie, niente selettori larghezza, e le card restano cliccabili come sempre.
 // È di sessione (non salvata): si riparte sempre in visualizzazione normale.
@@ -477,9 +490,17 @@ function _syncDashEditBar() {
   if (!bar) return;
   if (currentPage !== 'dashboard') { bar.style.display = 'none'; bar.innerHTML = ''; return; }
   bar.style.display = '';
+  // Le due voci di sinistra dicono cose diverse a seconda che un default personale
+  // esista o no: senza, "Ripristina" non lascerebbe capire DOVE riporta.
+  const own = !!_dashUserDefault;
   bar.innerHTML = _dashEditMode
     ? `<span class="tb-dash-hint">✋ trascina i widget per riordinarli · i bordi per ridimensionarli</span>
-       <div class="tb-item" onclick="resetDashLayout()" title="Torna all'ordine e alle larghezze originali">↺<span class="tb-label">Ripristina</span></div>
+       <div class="tb-item" onclick="resetDashLayout()" title="${own
+           ? 'Torna alla disposizione che hai salvato come predefinita'
+           : 'Torna all\'ordine e alle larghezze di fabbrica'}">↺<span class="tb-label">Ripristina</span></div>
+       <div class="tb-item" onclick="makeDashLayoutDefault()" title="${own
+           ? 'Sostituisci la tua disposizione predefinita con quella attuale'
+           : 'Salva la disposizione attuale come tua predefinita: sarà quella a cui torna «Ripristina»'}">📌<span class="tb-label">${own ? 'Aggiorna default' : 'Rendi default'}</span></div>
        <div class="tb-item tb-dash-done" onclick="toggleDashEdit(false)" title="Esci dalla personalizzazione">✓<span class="tb-label">Fatto</span></div>`
     : `<div class="tb-item" onclick="toggleDashEdit(true)" title="Sposta i widget e cambiane la larghezza">⚙️<span class="tb-label">Personalizza</span></div>`;
 }
@@ -597,21 +618,63 @@ async function _loadDashLayout() {
   if (_dashLayout) return;
   try {
     const s = await api.getSettings();
-    const raw = s['dashboard.layout'];
     // JSON malformato (modifica a mano, sync a metà): si riparte dai default invece
-    // di lasciare la dashboard vuota.
-    if (raw) { try { _dashLayout = JSON.parse(raw); } catch { _dashLayout = null; } }
+    // di lasciare la dashboard vuota. Array.isArray e non il solo try/catch: un JSON
+    // valido ma non-lista (un oggetto) supererebbe il parse e farebbe poi esplodere
+    // _mergeDashLayout sul .filter.
+    _dashLayout      = _parseDashLayout(s['dashboard.layout']);
+    _dashUserDefault = _parseDashLayout(s['dashboard.layout_default']);
   } catch (e) { console.error('lettura layout dashboard', e); }
 }
 
-/** Ripristina ordine, larghezze e altezze di fabbrica.
- *  Copia PROFONDA: con slice() gli oggetti restano condivisi con DASH_DEFAULT_LAYOUT, e
- *  un rowH salvato dopo un reset finirebbe dentro i default per il resto della sessione. */
+/** Legge una lista di widget salvata come JSON, o null se manca/non è utilizzabile. */
+function _parseDashLayout(raw) {
+  if (!raw) return null;
+  try {
+    const v = JSON.parse(raw);
+    return Array.isArray(v) ? v : null;
+  } catch { return null; }
+}
+
+/** Ripristina ordine, larghezze e altezze: il default personale se ce n'è uno, quello
+ *  di fabbrica altrimenti.
+ *  Copia PROFONDA: con slice() gli oggetti resterebbero condivisi con la sorgente, e il
+ *  primo trascinamento dopo un ripristino scriverebbe dentro il default — che smetterebbe
+ *  di essere un punto fermo proprio mentre lo si usa come tale. */
 window.resetDashLayout = async () => {
-  _dashLayout = DASH_DEFAULT_LAYOUT.map(d => ({ ...d }));
+  const src = _dashUserDefault || DASH_DEFAULT_LAYOUT;
+  _dashLayout = src.map(d => ({ ...d }));
   await _saveDashLayout();
   renderDashboard();
-  toast('Layout ripristinato');
+  toast(_dashUserDefault ? 'Disposizione predefinita ripristinata' : 'Layout di fabbrica ripristinato');
+};
+
+/** Elegge la disposizione attuale a default personale: da qui in poi "Ripristina" torna
+ *  qui invece che al layout di fabbrica.
+ *  Chiede conferma solo se un default personale esiste già: in quel caso il gesto ne
+ *  butta via uno (non c'è cronologia dei default, e il precedente non si recupera).
+ *  Copia PROFONDA anche qui: senza, il default seguirebbe le modifiche successive del
+ *  layout vivo e "Ripristina" non riporterebbe da nessuna parte. */
+window.makeDashLayoutDefault = async () => {
+  if (_dashUserDefault) {
+    const ok = await confirm('Aggiorna la disposizione predefinita',
+      'La disposizione attuale sostituirà quella che avevi salvato come predefinita.<br><br>' +
+      'La precedente non è recuperabile.',
+      'Aggiorna', 'btn-primary');
+    if (!ok) return;
+  }
+  const snapshot = (_dashLayout || DASH_DEFAULT_LAYOUT).map(d => ({ ...d }));
+  try {
+    await api.setSetting('dashboard.layout_default', JSON.stringify(snapshot));
+  } catch (e) {
+    console.error('salvataggio default dashboard', e);
+    return toast('Default non salvato: ' + (e?.message || e), 'error');
+  }
+  // Solo dopo la scrittura andata a buon fine: se fallisce, la barra continuerebbe a
+  // promettere un "Ripristina" verso una disposizione che nel DB non c'è.
+  _dashUserDefault = snapshot;
+  _syncDashEditBar();
+  toast('Disposizione salvata come predefinita');
 };
 
 

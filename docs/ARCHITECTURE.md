@@ -603,7 +603,7 @@ Disabilitabile con `http.enabled=0` in `settings.properties`.
 | Comando | Cosa fa |
 |---------|---------|
 | `mvn exec:java` | Avvio diretto in IDE/CLI, mainClass `com.moneymanager.App` |
-| `mvn package` | Fat JAR via maven-shade-plugin → `target/moneymanager-1.22.1.jar` (esclude `web/`) |
+| `mvn package` | Fat JAR via maven-shade-plugin → `target/moneymanager-<ver>.jar` (esclude `web/`) |
 | `tools\build\build.bat` | Pipeline completa: fat JAR, jlink, jpackage, copia `web/`, deploy (chiede build+deploy o build+ZIP) |
 | `tools\build\build-installer.bat` | Come sopra ma in coda Inno Setup: installer wizard in `dist\installer\` |
 | `prepare-package` | Genera `target/icon.ico` invocando `IconFactory.main()` |
@@ -611,8 +611,8 @@ Disabilitabile con `http.enabled=0` in `settings.properties`.
 In **produzione** (post-jpackage):
 ```
 <deploy>/
-   app/moneymanager.jar
-   moneymanager.exe
+   app/moneymanager-<ver>.jar
+   LucaMoneyManager.exe
    web/               ← serviti dal filesystem, modificabili senza ricompilare
        index.html
        css/style.css

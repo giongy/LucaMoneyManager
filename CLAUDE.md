@@ -397,6 +397,34 @@ dall'app Android in inserimento.
 
 ---
 
+## Budget: blocchi entrate e uscite nella griglia (1.25.17)
+
+Nella griglia del Budget (tab 📊) il tipo di una categoria non era rappresentato in nessun modo,
+e il parent `Entrate` — alfabetico come tutti gli altri — finiva in mezzo alle uscite: andava
+cercato a ogni apertura della pagina. `getBudgetYear` ordina ora il blocco delle entrate per
+primo; **dentro** ciascun blocco l'ordine resta quello di prima, alfabetico per nome del parent.
+La griglia apre una banda di sezione ENTRATE/USCITE al cambio di blocco e segna ogni riga con un
+accento colorato sulla colonna categoria.
+
+⚠️ **Il tipo si ricava dal parent in due punti, che devono restare la stessa espressione**:
+`COALESCE(p.type, c.type)` nell'`ORDER BY` di `getBudgetYear` e `typeOf()` in
+[budget.js](src/main/resources/web/js/pages/budget.js). L'ordine delle righe lo decide il SQL, ma
+le bande si aprono dove il **JS** vede cambiare il tipo: se le due divergessero, una banda
+cadrebbe *dentro* un gruppo invece che al suo confine — senza errori, solo una pagina che si
+legge male.
+
+Due dettagli che sembrano arbitrari e non lo sono:
+
+- **L'accento è un `box-shadow` inset, non un `border-left`.** La colonna categoria è
+  `position:sticky` e petrolio/glassy ne riscrivono lo sfondo con `!important`: un bordo
+  entrerebbe in conflitto con quelle regole.
+- **Le bande non hanno né `data-row-over` né `.budget-cell`**, i due selettori su cui agiscono
+  "solo rossi" e "solo mese corrente". È ciò che le lascia piene mentre il resto sbiadisce, così
+  restano leggibili come intestazioni anche a griglia filtrata. Aggiungendo un filtro nuovo,
+  verificare che non le colpisca.
+
+---
+
 ## Convenzioni
 
 - **Lingua:** tutto in italiano (commenti, stringhe UI, messaggi errore)

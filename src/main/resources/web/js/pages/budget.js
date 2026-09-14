@@ -185,7 +185,12 @@ function renderBudgetTable() {
     return;
   }
 
-  const { budgetMap, actualMap, configMap, parentIds, childrenOf, leafCats, getEffective } = _buildBudgetMaps();
+  const { budgetMap, actualMap, configMap, catById, parentIds, childrenOf, leafCats, getEffective } = _buildBudgetMaps();
+
+  // Entrata o uscita: per una sottocategoria vale il tipo del parent, da cui lo eredita.
+  // È la stessa espressione dell'ORDER BY di getBudgetYear (COALESCE(p.type, c.type)):
+  // devono coincidere, altrimenti una banda di sezione cadrebbe nel punto sbagliato.
+  const typeOf = cat => (cat.parent_id && catById[cat.parent_id]?.type) || cat.type;
 
   const now = new Date();
   const curYear = now.getFullYear(), curMonth = now.getMonth() + 1;
@@ -212,7 +217,7 @@ function renderBudgetTable() {
     return result;
   };
 
-  const rows = categories.map(cat => {
+  const rows = categories.map((cat, i) => {
     const isGroupHeader = parentIds.has(cat.id);
     const isChild = !!cat.parent_id;
     const bm = isGroupHeader ? sumBm(cat.id) : getEffective(cat.id);
@@ -338,7 +343,19 @@ function renderBudgetTable() {
     const rowStyle = parentCollapsed ? 'display:none' : '';
 
     const showParentData = !isGroupHeader || isCollapsed;
-    return `<tr class="${isGroupHeader?'budget-row-parent':''} ${isChild?'budget-row-child':''}" data-cat-id="${cat.id}" data-parent-id="${cat.parent_id||''}" data-row-over="${showParentData&&anyOver?1:0}" style="${rowStyle}" ${isGroupHeader?`ondblclick="_budgetToggle(${cat.id})"`:''}">
+
+    // Banda di sezione: si apre sulla prima riga e a ogni cambio di blocco. Le categorie
+    // arrivano già ordinate entrate-prima dal DB, quindi le bande sono esattamente due.
+    // Niente data-row-over né .budget-cell: i filtri "solo rossi" e "solo mese corrente"
+    // non le toccano, e restano leggibili come intestazioni anche a griglia filtrata.
+    const blockIsIncome = typeOf(cat) === 'income';
+    const bandRow = (i === 0 || typeOf(categories[i-1]) !== typeOf(cat))
+      ? `<tr class="budget-band ${blockIsIncome?'budget-band-income':'budget-band-expense'}">
+           <td colspan="16"><span class="budget-band-label">${blockIsIncome?'Entrate':'Uscite'}</span></td>
+         </tr>`
+      : '';
+
+    return `${bandRow}<tr class="${isGroupHeader?'budget-row-parent':''} ${isChild?'budget-row-child':''} ${blockIsIncome?'budget-row-income':'budget-row-expense'}" data-cat-id="${cat.id}" data-parent-id="${cat.parent_id||''}" data-row-over="${showParentData&&anyOver?1:0}" style="${rowStyle}" ${isGroupHeader?`ondblclick="_budgetToggle(${cat.id})"`:''}">
       <td class="budget-cat-cell ${isChild?'budget-child-indent':''}">
         ${isGroupHeader ? `<button class="btn-budget-toggle" onclick="_budgetToggle(${cat.id})">${isCollapsed?'▶':'▼'}</button>` : ''}
         <span style="color:${esc(cat.color)}">${esc(cat.icon)}</span> ${esc(cat.name)}

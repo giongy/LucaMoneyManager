@@ -3158,7 +3158,13 @@ public class Database {
             WHERE c.type != 'transfer'
               AND COALESCE(c.excluded_from_budget,0)=0
               AND COALESCE(p.excluded_from_budget,0)=0
-            ORDER BY COALESCE(p.name, c.name), c.parent_id NULLS FIRST, c.name
+            -- Entrate in cima, poi le uscite. Il parent "Entrate" è alfabeticamente in mezzo
+            -- alle uscite e andava cercato ogni volta; dentro ciascun blocco l'ordine resta
+            -- quello di prima (alfabetico per nome del parent). Il tipo si prende dal parent
+            -- (COALESCE) così le figlie restano attaccate al proprio gruppo: è la stessa
+            -- nozione che budget.js usa per decidere dove finisce una banda di sezione.
+            ORDER BY CASE WHEN COALESCE(p.type, c.type) = 'income' THEN 0 ELSE 1 END,
+                     COALESCE(p.name, c.name), c.parent_id NULLS FIRST, c.name
         """);
         List<Map<String, Object>> configs = queryList(
             "SELECT category_id, mode, master_amount FROM budget_config WHERE year=?", year);

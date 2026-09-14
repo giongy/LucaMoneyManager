@@ -1513,6 +1513,28 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 .budget-row-child  td { background:var(--bg3); }
 .budget-row-parent:hover td, .budget-row-child:hover td { background:var(--bg4); }
 
+/* Blocchi entrate/uscite. Nella griglia il tipo non era rappresentato in nessun modo e il
+   parent "Entrate", alfabetico, stava in mezzo alle uscite: ora l'ORDER BY di getBudgetYear
+   lo porta in cima e queste regole rendono visibile il confine — banda di sezione + accento
+   sulla colonna categoria. I colori vengono da --income/--expense, definite in tutti e
+   quattro i temi, quindi non serve nessun override per-tema.
+   L'accento è un box-shadow inset e non un border-left: la colonna categoria è sticky e ha
+   il background riscritto con !important da petrolio e glassy, un bordo si scontrerebbe. */
+.budget-band td {
+  padding:6px 8px; background:var(--bg3);
+  border-top:1px solid var(--border); border-bottom:1px solid var(--border);
+}
+/* sticky orizzontale: l'etichetta resta leggibile anche scorrendo i mesi */
+.budget-band-label {
+  position:sticky; left:8px; display:inline-block;
+  font-size:var(--fs-xs,10px); font-weight:700; text-transform:uppercase; letter-spacing:.6px;
+}
+.budget-band-income  .budget-band-label { color:var(--income); }
+.budget-band-expense .budget-band-label { color:var(--expense); }
+/* 1,5px e non 3: l'accento deve distinguere il blocco, non reggere la riga. */
+.budget-row-income  .budget-cat-cell { box-shadow:inset 1.5px 0 0 var(--income); }
+.budget-row-expense .budget-cat-cell { box-shadow:inset 1.5px 0 0 var(--expense); }
+
 .budget-cell {
   padding:5px 5px; text-align:right; cursor:pointer; position:relative;
   border-bottom:1px solid var(--border); border-left:1px solid var(--border);

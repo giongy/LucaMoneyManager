@@ -1569,7 +1569,6 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 .budget-cell-parent { font-weight:600; }
 .budget-cell-readonly { cursor:default; pointer-events:none; opacity:0.85; }
 .budget-cell-readonly:hover { background:inherit !important; }
-.budget-group-hint { font-size:var(--fs-xs,10px); color:var(--txt3); font-weight:400; }
 .budget-cell-val    { display:block; font-size:var(--fs-lg,13px); font-weight:500; color:var(--txt); text-align:right; }
 .budget-cell-actual { display:block; font-size:var(--fs-md,12px); color:var(--txt3); margin-top:2px; text-align:right; }
 .budget-cell-diff   { display:block; font-size:var(--fs-md,12px); font-weight:700; text-align:right;

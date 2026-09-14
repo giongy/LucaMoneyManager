@@ -359,7 +359,6 @@ function renderBudgetTable() {
       <td class="budget-cat-cell ${isChild?'budget-child-indent':''}">
         ${isGroupHeader ? `<button class="btn-budget-toggle" onclick="_budgetToggle(${cat.id})">${isCollapsed?'▶':'▼'}</button>` : ''}
         <span style="color:${esc(cat.color)}">${esc(cat.icon)}</span> ${esc(cat.name)}
-        ${isGroupHeader?'<span class="budget-group-hint"> (riepilogo)</span>':''}
         <button class="btn-budget-detail" title="Dettaglio" onclick="event.stopPropagation();_budgetShowDetail(${cat.id})">📊</button>
       </td>
       ${gestioneCell}

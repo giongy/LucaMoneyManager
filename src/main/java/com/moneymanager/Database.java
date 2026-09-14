@@ -1121,7 +1121,7 @@ public class Database {
         // transactions (la tabella più movimentata). DROP idempotente, sui DB nuovi è un no-op.
         executePlain("DROP INDEX IF EXISTS idx_tx_account");
 
-        // Tag di sistema (idempotente: INSERT OR IGNORE su system_key)
+        // Tag di sistema (idempotente, e senza scritture quando ci sono già tutti)
         ensureSystemTags();
 
         // DB nuovo (o già completo): allinea subito la versione allo schema corrente,
@@ -1310,7 +1310,29 @@ public class Database {
             // dispersione della Previsione Saldo e sporcano ogni "mese tipico".
             {"oneoff", "Straordinario", "#e3b341"}
         };
+        // Quali chiavi esistono già: una SELECT sola, prima del ciclo. Serve a NON eseguire
+        // l'INSERT quando non c'è niente da creare — cioè in tutti gli avvii tranne il primo.
+        //
+        // ⚠️ L'"OR IGNORE" protegge i dati, non il file. La riga viene scartata DOPO che il
+        // rowid è stato allocato da sqlite_sequence (tags.id è AUTOINCREMENT): il contatore
+        // avanza lo stesso, quindi è una transazione di scrittura vera, che nasce e muore
+        // senza cambiare un solo dato. Sei tag = sei scritture a ogni avvio, e per OneDrive
+        // basta l'header del .db riscritto per dover ricaricare l'INTERO file (nessun delta
+        // sui file piccoli): un upload completo del database a ogni apertura dell'app.
+        // Misurato: sqlite_sequence(tags) avanzava di 6 per avvio con zero tag creati.
+        //
+        // L'UPDATE qui sotto invece, quando non matcha nulla, non scrive: resta com'era.
+        // Saltarlo insieme all'INSERT è anzi più sicuro: se la chiave è già su un tag e
+        // ne esistesse un ALTRO con il nome di default e system_key vuota, l'UPDATE
+        // proverebbe a duplicare la chiave → violazione dell'indice UNIQUE su system_key,
+        // cioè un'eccezione in fase di avvio. Con la chiave già presente non c'è comunque
+        // nulla da adottare.
+        Set<String> presenti = new HashSet<>();
+        for (var r : queryList("SELECT system_key FROM tags WHERE system_key IS NOT NULL AND system_key<>''"))
+            presenti.add((String) r.get("system_key"));
+
         for (String[] t : sys) {
+            if (presenti.contains(t[0])) continue;   // già a posto: nessuna scrittura
             // Crea se non esiste ancora un tag con questa system_key
             executePlain("INSERT OR IGNORE INTO tags(name,color,is_system,system_key) VALUES('" + t[1] + "','" + t[2] + "',1,'" + t[0] + "')");
             // Per tag già esistenti (es. creati prima della v3): imposta system_key e is_system se il nome corrisponde

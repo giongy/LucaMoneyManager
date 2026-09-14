@@ -115,6 +115,42 @@ contare come modifiche di sessione, facendo scattare backup a vuoto. `DB IDLE-RE
 uscire dall'elenco perché i `.log` sono stati azzerati nella stessa occasione: dalla 1.25.11 si
 riparte da file nuovi, in cui quel nome non compare.
 
+### Una scrittura a vuoto costa un upload intero (`ensureSystemTags`)
+
+Stessa economia della sezione qui sopra, un piano più in basso: lì era una riga di log, qui è
+una transazione SQLite che non cambia un solo dato. Per OneDrive non c'è differenza — il `.db`
+ha l'header riscritto, quindi va ricaricato **per intero** (nessun delta sui file piccoli).
+
+`ensureSystemTags()` girava così a ogni avvio:
+
+```sql
+INSERT OR IGNORE INTO tags(name,color,is_system,system_key) VALUES(...);   -- 6 volte
+```
+
+⚠️ **`OR IGNORE` protegge i dati, non il file.** La riga viene scartata **dopo** che il rowid è
+stato allocato da `sqlite_sequence` (`tags.id` è `AUTOINCREMENT`): il contatore avanza lo
+stesso, e quel contatore sta in una pagina del database. Sei tag = sei transazioni di scrittura
+a ogni apertura dell'app, con zero tag creati — misurabile su `sqlite_sequence(tags)`, che
+avanzava di 6 per avvio, e sul change counter nell'header (byte 24-27, +6). Ora una `SELECT`
+sola raccoglie le `system_key` presenti e il ciclo salta le chiavi già a posto: avvio a
+scrittura zero sul caso normale.
+
+Da cui la regola generale: **`INSERT OR IGNORE` su una tabella `AUTOINCREMENT` è una
+scrittura**, anche quando non inserisce nulla. Innocua su un percorso che sta già scrivendo
+(sono le altre quattro del progetto: `transaction_tags`, `note_tags`,
+`scheduled_transaction_tags`, `imported_pending` — link table e PK testuali, per giunta senza
+`AUTOINCREMENT`), da evitare su avvio, risveglio o lettura.
+
+⚠️ **Saltare l'`INSERT` senza saltare anche l'`UPDATE` che lo segue sarebbe un bug.** Quello
+adotta un tag pre-v3 riconoscendolo dal nome; se la chiave è già su un tag e ne esiste un
+**altro** col nome di default e `system_key` vuota, tenterebbe di duplicare la chiave →
+violazione dell'indice UNIQUE su `system_key`, cioè un'eccezione in fase di avvio. Con la
+chiave già presente non c'è comunque nulla da adottare.
+
+I tre casi che il metodo deve continuare a coprire, e che vanno riprovati toccandolo: DB nuovo
+(nascono tutti e sei i tag), DB pre-v3 (il tag col nome di default viene adottato, prende
+`system_key` e `is_system=1`), DB già a posto (nessuna scrittura).
+
 ---
 
 ## Schema DB (v26, 22 tabelle)

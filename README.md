@@ -1,9 +1,33 @@
 # LucaMoneyManager
 <img width="1333" height="720" alt="image" src="https://github.com/user-attachments/assets/b4ab0684-6870-4422-90cb-8d5684ee053d" />
 
-A personal finance desktop application built with Java + Chromium (JCEF), backed by a SQLite database shared across devices via OneDrive. Available on **Windows** (primary) and **Android** (companion app).
+**A personal finance and money manager for Windows.** Budgeting, expense tracking, an investment
+portfolio, scheduled transactions and reports — in a desktop app built with Java + Chromium (JCEF),
+backed by a plain SQLite file.
+
+**No account, no subscription, no cloud service.** Your data is a single `.db` file on your own
+disk. Put it in a synced folder (OneDrive, Dropbox…) and the **Android companion app** reads the
+same file — no server in between.
 
 ![Dashboard](anonimizzate/home.png)
+
+---
+
+## Download
+
+**[⬇ Download the latest Windows installer](https://github.com/giongy/LucaMoneyManager/releases/latest)**
+
+A normal wizard installer: no admin rights required (installs per-user by default), no runtime to
+install first — a trimmed Java runtime ships inside. Windows 10/11, 64-bit.
+
+Your data lives in `%APPDATA%\LucaMoneyManager\` and is never touched by install, upgrade or
+uninstall.
+
+The Android companion app (`.apk`) is published on the same releases page. It is a companion, not a
+standalone app: it needs the desktop database to read.
+
+> Windows SmartScreen will warn on first run — the installer is not code-signed (a certificate costs
+> a few hundred euros a year). *More info → Run anyway*, or build it yourself from source.
 
 ---
 
@@ -110,13 +134,13 @@ their own height. The arrangement is saved and restored on the next launch.
 ## Architecture
 
 ```
-JS Frontend (Vanilla JS, ~18,000 LOC across 21 modules)
+JS Frontend (Vanilla JS, ~20,000 LOC across 21 modules)
     ↓  cefQuery (JSON payload, Base64-encoded)   ↑ same API over HTTP on the LAN
-Bridge.java — dispatches 136 operations
+Bridge.java — dispatches 137 operations
     ↓
 Database.java — all JDBC queries
     ↓
-SQLite (schema v23, 22 tables)
+SQLite (schema v26, 22 tables)
 ```
 
 **Tech stack:**
@@ -158,3 +182,16 @@ Output: `target/moneymanager-*.jar` (fat JAR, includes all dependencies — the 
 served from disk, so HTML/CSS/JS can be edited without recompiling)
 
 **Requirements:** Java 25, Maven 3.x
+
+To produce the distributable Windows installer instead (Maven → `jlink` → `jpackage` → Inno Setup),
+run `tools\build\build-installer.bat`. It additionally needs [Inno Setup 6](https://jrsoftware.org/isdl.php).
+
+---
+
+## License
+
+**Source available — all rights reserved.**
+
+The code is public so it can be read, audited and learned from. It is not released under an
+open-source licence: there is no grant to use, modify, redistribute or publish derivative works.
+If you want to do any of that, or are interested in the project commercially, open an issue.

@@ -19,6 +19,27 @@ let _portStoricoExp    = new Set();
 let _portStoricoFilter = 'all'; // 'all' | 'active' | 'closed'
 let _portfolioPriceStatus = {}; // id → 'ok' | 'fail' | undefined (grigio)
 
+// ── Ordine cronologico delle righe di portfolio_transactions ────────────────
+// Il backend le restituisce `date DESC, id DESC`. Per mostrarle servono due cose insieme:
+// rimetterle in ordine cronologico, e tenere le righe FIGLIE (commissione, rateo,
+// plus/minusvalenza — quelle con parent_pt_id) subito SOTTO l'operazione che le ha generate.
+// A parità di data il solo confronto sulla data non basta: Array.sort è stabile, quindi
+// conserva l'id decrescente del backend e le figlie finiscono SOPRA la madre — dove la loro
+// ✕ diventa un "↳ generata dall'operazione qui sopra" che punta alla riga sbagliata.
+// La chiave di gruppo è l'id della madre (per la madre stessa, il proprio id): le figlie
+// portano sempre la data della madre (buyStock/sellStock), quindi il gruppo non si spezza mai.
+// ⚠️ Lo usano sia la scheda Storico sia il modale "Storico operazioni": l'ordine deve essere
+// lo stesso nei due posti, ed è per questo che il comparatore sta qui e non dentro l'uno o
+// l'altro — duplicato, era già divergito una volta.
+function sortPortfolioTxsChrono(txs) {
+  const groupKey = t => t.parent_pt_id || t.id;
+  return [...txs].sort((a, b) =>
+       a.date.localeCompare(b.date)
+    || groupKey(a) - groupKey(b)
+    || (a.parent_pt_id ? 1 : 0) - (b.parent_pt_id ? 1 : 0)
+    || a.id - b.id);
+}
+
 // ── Categorie di sistema degli investimenti (system_key, v25) ───────────────
 // La chiave è l'indirizzo a cui il codice scrive; il NOME lo decide l'utente, che può
 // rinominare la categoria, spostarla sotto un'altra o farla assorbire da un'altra con
@@ -508,18 +529,7 @@ async function renderPortfolioStorico(items) {
     ].filter(Boolean).join('');
 
     const isBond = item.asset_type === 'bond';
-    // Il backend restituisce data DESC, id DESC: qui si rimette in ordine cronologico e si
-    // portano le righe figlie (commissione, plus/minusvalenza) subito SOTTO l'operazione che
-    // le ha generate — altrimenti, a parità di data, l'ordine per id decrescente le mostra
-    // sopra la madre e il loro suggerimento "qui sopra" indica la riga sbagliata.
-    // Chiave di gruppo = id della madre (per la madre stessa, il proprio id): le figlie hanno
-    // sempre la data della madre (buyStock/sellStock), quindi il gruppo non si spezza mai.
-    const groupKey = t => t.parent_pt_id || t.id;
-    const rows = [...txs].sort((a, b) =>
-        a.date.localeCompare(b.date)
-        || groupKey(a) - groupKey(b)
-        || (a.parent_pt_id ? 1 : 0) - (b.parent_pt_id ? 1 : 0)
-        || a.id - b.id).map(t => {
+    const rows = sortPortfolioTxsChrono(txs).map(t => {
       const isValued = t.type === 'buy' || t.type === 'sell';
       const commPart = (t.type === 'buy' && t.commission > 0) ? t.commission : 0;
       const accruedPart = (t.type === 'buy' && t.accrued_interest > 0) ? t.accrued_interest : 0;
@@ -1949,7 +1959,9 @@ async function showPortfolioHistory(portfolioId) {
         <th>Data</th><th>Tipo</th><th>Quantità</th><th>Prezzo</th><th class="text-right">Totale</th><th style="width:36px"></th>
       </tr></thead><tbody>
       ${txs.length ? (() => {
-        const sorted = [...txs].sort((a,b)=>a.date.localeCompare(b.date));
+        // Stesso ordine della scheda Storico: cronologico, con le figlie sotto la madre.
+        // Ordinare per sola data non basta — vedi sortPortfolioTxsChrono.
+        const sorted = sortPortfolioTxsChrono(txs);
         let grandTotal = 0;
         const rows = sorted.map(t=>{
           const isBuy      = t.type === 'buy';

@@ -47,7 +47,14 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release delete latest --yes 2>/dev/null || true
+          # --prerelease non e' cosmetico: questa release viene ricreata a ogni push su
+          # mobile/**, quindi la sua data e' sempre la piu' recente e senza il flag si
+          # prenderebbe il badge "Latest" di GitHub. Li' punta /releases/latest, cioe' il
+          # pulsante Download del README: chi cerca l'app Windows si ritroverebbe un APK.
           gh release create latest \
-            --title "LucaMoney - latest build" \
-            --notes "Build automatico dall'ultimo commit su master." \
+            --prerelease \
+            --title "LucaMoney Android - latest build" \
+            --notes "Automatic build of the Android companion app from the latest commit on master.
+
+            This is the phone app: it reads the database produced by the Windows desktop app and cannot be used on its own. For the desktop installer see the latest release." \
             mobile/android/app/build/outputs/apk/release/app-release.apk#LucaMoney.apk

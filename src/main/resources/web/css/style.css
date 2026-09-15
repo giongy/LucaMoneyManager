@@ -124,8 +124,9 @@ html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy
    il gradiente e creava uno stacco netto contro il contenuto sottostante.
    Rese trasparenti perché il fondo prosegua senza interruzione — serve !important
    per battere lo stile inline.
-   ⚠️ Solo queste: .sched-toolbar e .tx-add-group usano lo stesso var(--bg) ma
-   sono position:sticky, e dietro ci scorre il contenuto → restano opache. */
+   ⚠️ Non tutto ciò che usa var(--bg) può seguirle: .tx-add-group è position:sticky e
+   dietro ci scorre il contenuto → resta opaca. (.sched-toolbar era nello stesso caso
+   fino alla 1.25.17: ora sta dentro una di queste fasce e ne eredita la trasparenza.) */
 html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"]))
   :is(#pg-scheduled, #pg-budgets, #pg-transactions, #pg-settings) > div[style*="background:var(--bg)"] {
   background: transparent !important;
@@ -409,6 +410,7 @@ html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy
 [data-theme="petrolio"] .budget-row-child  .budget-cat-cell { background: #132a30 !important; }
 [data-theme="petrolio"] .analytics-table thead th,
 [data-theme="petrolio"] .budget-sync-table thead th,
+[data-theme="petrolio"] #schedTable thead th,
 [data-theme="petrolio"] #txTable thead th { background: #1a333a !important; }
 /* Badge budget: fondi petrolio saturi con testo chiaro (in scuro le trasparenze rendono). */
 [data-theme="petrolio"] .budget-gestione-badge.monthly { background: #35240f; color: #f0a866; border-color: #5a3d1a; }
@@ -532,6 +534,7 @@ html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy
 /* Stesso problema sulle altre tabelle con thead sticky */
 [data-theme="glassy"] .analytics-table thead th,
 [data-theme="glassy"] .budget-sync-table thead th,
+[data-theme="glassy"] #schedTable thead th,
 [data-theme="glassy"] #txTable thead th { background: #1c2230 !important; }
 /* Notifiche flottanti (#noticeStack): effetto vetro come cards/modali */
 [data-theme="glassy"] .overdue-notice {
@@ -1349,9 +1352,16 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 }
 .bbar-budget { color:var(--txt3); font-size:10px; }
 
+/* Uscite ed Entrate si dividono la larghezza in proporzione alle categorie che mostrano:
+   il flex-grow lo scrive inline _renderDashBudgetBubbles (vedi il commento là). Il 3:1 qui
+   sotto resta come valore di partenza, per il caso in cui il widget venga disegnato senza.
+   ⚠️ min-width è il pavimento della proporzione, e non può tornare a 0: è una card piena
+   (traccia minima della griglia, 150px/130px, + il padding della colonna e della griglia).
+   Senza, un mese con una sola entrata contro venti uscite ridurrebbe quella colonna a poche
+   decine di pixel e la sua griglia — che ha un minimo rigido — sforerebbe la card. */
 .dash-budget-cols { display:flex; gap:0; flex:1; min-height:0; }
-.dash-budget-col-exp { flex:3; min-width:0; padding-right:12px; }
-.dash-budget-col-inc { flex:1; min-width:0; border-left:1px solid var(--border); padding-left:12px; }
+.dash-budget-col-exp { flex:3; min-width:166px; padding-right:12px; }
+.dash-budget-col-inc { flex:1; min-width:146px; border-left:1px solid var(--border); padding-left:12px; }
 
 /* ─── Dashboard "Spese del mese" — barre di quota sul totale ──────────────── */
 /* Diverse dalle .bbar del widget Budget: lì la barra misura il reale CONTRO il budget,
@@ -2321,7 +2331,17 @@ tr.tx-selected td { background:rgba(124,124,255,.07); }
 .btn-xs.btn-success { background:color-mix(in srgb, var(--income) 15%, transparent); color:var(--income); border-color:color-mix(in srgb, var(--income) 30%, transparent); }
 .btn-xs.btn-success:hover { background:color-mix(in srgb, var(--income) 25%, transparent); }
 
-.sched-toolbar { display:flex; align-items:center; gap:10px; margin-bottom:12px; position:sticky; top:0; background:var(--bg); z-index:5; padding-top:12px;padding-bottom:6px; margin-top:-12px; }
+/* Toolbar della tab Lista. Niente position:sticky e niente fondo proprio: sta nella fascia
+   fissa sopra #schedContent (vedi renderScheduled in scheduled.js), quindi non le passa
+   dietro nulla ed eredita il fondo della fascia — trasparente sui temi chiari, dove deve
+   lasciar passare il gradiente del body invece di coprirlo con la tinta piatta di --bg. */
+.sched-toolbar { display:flex; align-items:center; gap:10px; margin-bottom:12px; }
+/* Intestazione fissa in cima a #schedContent mentre le righe le scorrono dietro (come
+   #txTable in Transazioni). Il fondo è var(--bg3), cioè lo stesso che le th hanno già sui
+   temi chiari: sticky senza fondo opaco lascerebbe passare il contenuto.
+   ⚠️ Vale solo finché la tabella NON sta dentro .table-wrap: quell'overflow-x:auto è un
+   scrollport, e lo sticky si aggancerebbe a lui invece che a #schedContent. */
+#schedTable thead th { position:sticky; top:0; z-index:5; background:var(--bg3); }
 .sched-th-sort { cursor:pointer; user-select:none; white-space:nowrap; }
 .sched-tag-filter { position:relative; }
 .sched-tag-btn { text-align:left; cursor:pointer; white-space:nowrap; min-width:110px; }
@@ -3242,6 +3262,14 @@ tr.tx-selected td { background:rgba(124,124,255,.07); }
   #txScrollWrap { padding-left:5px !important; padding-right:5px !important; }
   #txScrollWrap > .card { padding:4px; }
   .tx-add-group { padding-left:5px; padding-right:5px; }
+  /* Stesso recupero di larghezza in Pianificate. Serve da quando la tabella non sta più
+     dentro .table-wrap (che scorreva per conto suo dentro la card): ora scorre
+     #schedContent, e con lui si portano dietro anche i suoi 16px di padding e i 14 della
+     card — 40px di troppo su 390, quanto basta a tagliare la colonna Prossima.
+     :has(#schedTable) tiene la stretta sulla sola tab Lista: le altre (grafici di
+     Proiezione e Flusso) stanno larghe come prima. */
+  #schedContent:has(#schedTable) { padding-left:5px !important; padding-right:5px !important; }
+  #schedContent > .card:has(#schedTable) { padding:4px; }
 
   /* Pianificate: stesso criterio delle transazioni. Delle 12 colonne restano le 4 che
      dicono cosa succederà e quando — categoria, descrizione, importo, prossima data.

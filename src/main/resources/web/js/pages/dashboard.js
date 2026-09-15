@@ -57,7 +57,14 @@ function _renderDashBudgetBubbles(budgetYear) {
     actual: actualMap[c.id] || 0,
     parent_name: c.parent_id ? (catMap[c.parent_id]?.name || '') : '',
   }));
-  const catData = allCatData.filter(c => c.actual > 0 || c.type === 'income');
+  // Chi entra nel widget: una regola sola per entrambi i tipi — la categoria ha un budget
+  // questo mese, oppure ci si è mosso del denaro. Sono i due casi in cui c'è qualcosa da
+  // confrontare; senza né l'uno né l'altro la card direbbe "0,00 € / —".
+  // ⚠️ Prima la regola era `c.actual > 0 || c.type === 'income'`: le entrate entravano
+  // TUTTE, incondizionatamente, anche mai usate e senza budget. Era già una card vuota, ed
+  // è diventato anche un problema di spazio da quando la larghezza delle due colonne
+  // dipende da quante card mostrano (vedi _colWeight più sotto).
+  const catData = allCatData.filter(c => c.actual > 0 || c.budget > 0);
 
   // Nessuna spesa né categoria entrata visibile questo mese: mostra comunque la card con
   // header + placeholder (niente display:none, che lasciava un vuoto a fianco del widget conti).
@@ -125,7 +132,21 @@ function _renderDashBudgetBubbles(budgetYear) {
     return !heavy && !left;
   };
   const expSplit = _splitSort(expCats, _isMinorExp);
-  const incSplit = _splitSort(incCats);   // le entrate sono poche: restano tutte visibili
+  const incSplit = _splitSort(incCats);   // entrate: poche, nessuna finisce nel riepilogo collassato
+
+  // Larghezza contesa fra le due colonne: ognuna cresce in proporzione alle card che mostra
+  // davvero, invece del 3:1 fisso che aveva prima. Il 3:1 era tarato su un mese pieno di
+  // uscite; in un mese con poche uscite quella colonna restava mezza vuota mentre le entrate,
+  // strizzate in un quarto di card, si impilavano su un'unica colonna alta il doppio.
+  // Le due griglie interne sono auto-fill (traccia minima 150px le uscite, 130px le entrate):
+  // dando a ciascuna la larghezza proporzionata, il numero di righe si avvicina invece di
+  // divergere. Non è un pareggio esatto — le tracce sono quantizzate, quindi l'ultima riga
+  // di una colonna può restare spaiata — ma l'ordine di grandezza torna: sul mese corrente
+  // si passa da 3 righe contro 6 a 4 contro 3.
+  // ⚠️ Le "minor" delle uscite NON contano: sono collassate, e non occupano spazio finché
+  // non le si apre. Il pavimento sta in CSS (min-width sulle due colonne): un mese con una
+  // sola entrata non deve ridurla sotto la sua traccia minima, o la griglia sfora la card.
+  const _colWeight = s => Math.max(1, s.bad.length + s.ok.length);
 
   // Totali: actual solo dalle categorie visibili, budget da tutte le foglie
   const totExpBudget = _totExpBudgetAll;
@@ -246,11 +267,11 @@ function _renderDashBudgetBubbles(budgetYear) {
   el.innerHTML = _budgetHeader + `
     <div class="dash-card-scroll" style="padding:0 16px 8px;flex:1;display:flex;flex-direction:column;min-height:0">
       <div class="dash-budget-cols">
-        <div class="dash-budget-col-exp">
+        <div class="dash-budget-col-exp" style="flex-grow:${_colWeight(expSplit)}">
           <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--txt3);margin-bottom:8px">Uscite</div>
           ${_renderCol(expSplit, '')}
         </div>
-        <div class="dash-budget-col-inc">
+        <div class="dash-budget-col-inc" style="flex-grow:${_colWeight(incSplit)}">
           <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--txt3);margin-bottom:8px">Entrate</div>
           ${_renderCol(incSplit, 'bbar-grid-inc')}
         </div>

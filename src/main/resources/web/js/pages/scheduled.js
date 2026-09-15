@@ -30,6 +30,16 @@ async function renderScheduled() {
         <button class="sched-tab ${schedTab==='forecasts'?'active':''}"  data-stab="forecasts"   onclick="setSchedTab('forecasts')">🔮 Previsioni</button>
         <button class="sched-tab ${schedTab==='verificabud'?'active':''}" data-stab="verificabud" onclick="setSchedTab('verificabud')">🔗 Verifica Budget</button>
       </div>
+      ${/* Slot della toolbar della tab Lista: sta QUI, nella fascia fissa insieme alle tab,
+            e non dentro #schedContent — è la stessa struttura della pagina Transazioni
+            (filtri fuori, #txScrollWrap che scorre sotto). Prima la toolbar era dentro
+            l'area che scorre e si teneva a galla con position:sticky: il contenuto le
+            passava dietro e bastava un fondo non perfettamente opaco per vederlo in
+            trasparenza. Fuori dallo scroll il problema non si pone, e il fondo può
+            restare quello della fascia (trasparente sui temi chiari, che lasciano
+            passare il gradiente del body). Lo riempie renderSchedLista(); le altre tab
+            lo trovano vuoto perché renderSchedTab() lo azzera. */''}
+      <div id="schedToolbar"></div>
     </div>
     <div id="schedContent" style="flex:1;overflow-y:auto;padding:0 16px 16px"></div>`;
 
@@ -47,6 +57,9 @@ window.setSchedTab = tab => {
 
 // Dispatcher: renderizza la tab Pianificate attiva nel contenitore #schedContent.
 async function renderSchedTab() {
+  // La toolbar è solo della tab Lista: azzerarla qui evita che resti appesa sopra le altre.
+  const tb = document.getElementById('schedToolbar');
+  if (tb) tb.innerHTML = '';
   if      (schedTab === 'lista')      await renderSchedLista();
   else if (schedTab === 'projection') await renderSchedProjection();
   else if (schedTab === 'cashflow')   await renderSchedCashflow();
@@ -144,7 +157,8 @@ async function renderSchedLista() {
   window._schedCache = Object.fromEntries(scheds.map(s => [s.id, s]));
 
   const el = document.getElementById('schedContent');
-  el.innerHTML = `
+  // Toolbar nella fascia fissa, tabella nell'area che scorre: vedi il commento in renderScheduled().
+  document.getElementById('schedToolbar').innerHTML = `
     <div class="sched-toolbar">
       <div class="filter-bar" style="margin-bottom:0;flex:1;flex-wrap:wrap">
         <select class="form-control" id="sfActive">
@@ -175,24 +189,28 @@ async function renderSchedLista() {
         </div>
       </div>
       <button class="btn btn-primary" id="btnNewSched">+ Nuova pianificata</button>
-    </div>
+    </div>`;
+  // Niente .table-wrap attorno alla tabella: il suo overflow-x:auto creerebbe un secondo
+  // scrollport, e il thead sticky si aggancerebbe a quello (che in verticale non scorre)
+  // invece che a #schedContent — cioè non si fermerebbe in cima. Lo scorrimento orizzontale
+  // non si perde: #schedContent ha overflow-y:auto, quindi anche l'asse x passa da visible
+  // ad auto. Stessa struttura di #txTable dentro #txScrollWrap.
+  el.innerHTML = `
     <div class="card">
-      <div class="table-wrap">
-        <table id="schedTable"><thead><tr>
-          <th class="sched-th-sort" data-scol="active"  onclick="_schedSortBy('active')">Stato<span class="sort-ind"></span></th>
-          <th class="th-portfolio" title="Collegata al portafoglio">📈</th>
-          <th class="sched-th-sort" data-scol="account" onclick="_schedSortBy('account')">Conto<span class="sort-ind"></span></th>
-          <th class="sched-th-sort" data-scol="tag"     onclick="_schedSortBy('tag')">Tag<span class="sort-ind"></span></th>
-          <th class="sched-th-sort" data-scol="freq"    onclick="_schedSortBy('freq')">Frequenza<span class="sort-ind"></span></th>
-          <th class="sched-th-sort" data-scol="cat"     onclick="_schedSortBy('cat')">Categoria<span class="sort-ind"></span></th>
-          <th class="sched-th-sort" data-scol="desc"    onclick="_schedSortBy('desc')">Descrizione<span class="sort-ind"></span></th>
-          <th class="sched-th-sort" data-scol="amount"  onclick="_schedSortBy('amount')">Importo<span class="sort-ind"></span></th>
-          <th class="sched-th-sort" data-scol="next"    onclick="_schedSortBy('next')">Prossima<span class="sort-ind"></span></th>
-          <th class="sched-th-sort th-sort-active" data-scol="days" onclick="_schedSortBy('days')">Giorni<span class="sort-ind">▲</span></th>
-          <th class="sched-th-sort" data-scol="occ" onclick="_schedSortBy('occ')" title="Occorrenze rimanenti fino alla data di scadenza">Occ.<span class="sort-ind"></span></th>
-          <th></th>
-        </tr></thead><tbody id="schedBody"></tbody></table>
-      </div>
+      <table id="schedTable"><thead><tr>
+        <th class="sched-th-sort" data-scol="active"  onclick="_schedSortBy('active')">Stato<span class="sort-ind"></span></th>
+        <th class="th-portfolio" title="Collegata al portafoglio">📈</th>
+        <th class="sched-th-sort" data-scol="account" onclick="_schedSortBy('account')">Conto<span class="sort-ind"></span></th>
+        <th class="sched-th-sort" data-scol="tag"     onclick="_schedSortBy('tag')">Tag<span class="sort-ind"></span></th>
+        <th class="sched-th-sort" data-scol="freq"    onclick="_schedSortBy('freq')">Frequenza<span class="sort-ind"></span></th>
+        <th class="sched-th-sort" data-scol="cat"     onclick="_schedSortBy('cat')">Categoria<span class="sort-ind"></span></th>
+        <th class="sched-th-sort" data-scol="desc"    onclick="_schedSortBy('desc')">Descrizione<span class="sort-ind"></span></th>
+        <th class="sched-th-sort" data-scol="amount"  onclick="_schedSortBy('amount')">Importo<span class="sort-ind"></span></th>
+        <th class="sched-th-sort" data-scol="next"    onclick="_schedSortBy('next')">Prossima<span class="sort-ind"></span></th>
+        <th class="sched-th-sort th-sort-active" data-scol="days" onclick="_schedSortBy('days')">Giorni<span class="sort-ind">▲</span></th>
+        <th class="sched-th-sort" data-scol="occ" onclick="_schedSortBy('occ')" title="Occorrenze rimanenti fino alla data di scadenza">Occ.<span class="sort-ind"></span></th>
+        <th></th>
+      </tr></thead><tbody id="schedBody"></tbody></table>
     </div>`;
 
   document.getElementById('btnNewSched').onclick = () => showScheduledModal(null, accounts, categories, tags);

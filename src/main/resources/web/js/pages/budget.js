@@ -921,6 +921,11 @@ function renderBudgetScostamenti() {
   // Budget uscite dell'anno intero: si somma PRIMA di filtrare, altrimenti una categoria
   // budgetata solo nei mesi a venire sparirebbe dal totale annuo.
   const expBudgetFull = allRows.reduce((s, r) => s + (r.isExp ? r.bFull : 0), 0);
+  // Quota di quel budget che il piano colloca ENTRO il mese di taglio: è il riferimento del
+  // banner qui sotto (che spiega perché non si usa il tempo trascorso). Va sommata sullo
+  // stesso insieme di expBudgetFull — non su `shown` — o le due percentuali finirebbero per
+  // avere denominatori diversi.
+  const expBudgetYtd = allRows.reduce((s, r) => s + (r.isExp ? r.bYTD : 0), 0);
 
   const shown   = allRows.filter(r => r.bYTD > 0 || r.rYTD > 0);
   const expRows = shown.filter(r => r.isExp);
@@ -1000,27 +1005,43 @@ function renderBudgetScostamenti() {
       ${_budgetSortTh('Scostamento','pct',    {...thOpt, extra:';min-width:110px'})}
     </tr>`;
 
-  // ── Andamento dell'anno: stessa idea del banner di Mese, scala annuale ──
+  // ── Andamento dell'anno: quanto del piano è stato consumato ──
   // Si mostra solo sul progressivo "vivo" (anno corrente, taglio al mese in corso): su un
   // anno chiuso o su un taglio arretrato non c'è nessuna proiezione da fare.
+  //
+  // ⚠️ Il riferimento è il PIANO a oggi, non il tempo trascorso, e non è un dettaglio: è la
+  // differenza fra un banner che dice il vero e uno che accusa a vuoto. Il tempo misura il
+  // budget come se uscisse in rate giornaliere uguali, mentre il budget è collocato mese per
+  // mese — e per metà (sui dati reali) in mesi scelti a mano. Una spesa grossa ma PREVISTA in
+  // aprile (arredamento, dentista) manderebbe il banner in rosso da aprile a dicembre, pur
+  // essendo perfettamente in linea: è già uscita, e il piano lo sapeva.
+  // Dove invece il mese è ricavato dal rimanente la ripartizione è uniforme, quindi il
+  // riferimento coincide con quello temporale: il piano non è mai peggio del calendario.
+  // Corollario onesto: se il budget è impostato solo come totale annuo e la spesa si
+  // concentra in un mese, nemmeno questo confronto può saperlo — per quel caso c'è il
+  // "Restano", che non dipende né dal tempo né dalla forma del piano.
   const isLiveYtd = budgetYear === curYear && untilMonth === curMonth;
   let pacingBanner = '';
   if (isLiveYtd && expBudgetFull > 0) {
     const dayOfYear  = Math.floor((now - new Date(curYear, 0, 1)) / 86400000) + 1;
     const daysInYear = ((curYear % 4 === 0 && curYear % 100 !== 0) || curYear % 400 === 0) ? 366 : 365;
-    const yearPct    = dayOfYear / daysInYear * 100;          // % di anno trascorso
+    const planFrac   = expBudgetYtd / expBudgetFull;          // quota di piano collocata a oggi
+    const planPct    = planFrac * 100;
     const budgetPct  = expR / expBudgetFull * 100;            // % del budget ANNUO già speso
-    const projected  = expR / (dayOfYear / daysInYear);       // proiezione lineare a fine anno
+    const remaining  = expBudgetFull - expR;                  // quanto resta da spendere
+    const projected  = planFrac > 0 ? expR / planFrac : 0;    // proiezione a fine anno sul piano
     const projColor  = projected > expBudgetFull ? 'var(--expense)' : 'var(--income)';
     // Stessa cautela del banner di Mese: la proiezione divide per la frazione di periodo
-    // trascorsa, quindi all'inizio moltiplica per un fattore enorme. Mese aspetta 5 giorni
-    // su ~30, cioè un sesto del periodo: qui l'equivalente è ~60 giorni su 365, sotto i
-    // quali il fattore supera 6 e il numero direbbe solo rumore.
-    const PROJ_MIN_DAYS = 60;
-    const projReliable  = dayOfYear >= PROJ_MIN_DAYS;
-    const fillColor = budgetPct > yearPct ? 'var(--expense)' : 'var(--income)';
+    // consumata, quindi finché è piccola moltiplica per un fattore enorme. Mese aspetta 5
+    // giorni su ~30, cioè un sesto del periodo; qui il divisore non è più il tempo ma la
+    // quota di piano, e la soglia si traduce alla lettera: sotto un sesto del budget annuo
+    // il fattore supera 6 e il numero direbbe solo rumore. Legarla al piano invece che ai
+    // giorni la rende anche più utile — un anno che concentra a gennaio ha una proiezione
+    // sensata già a fine gennaio, che la vecchia soglia a 60 giorni nascondeva.
+    const projReliable = planFrac >= 1 / 6;
+    const fillColor = budgetPct > planPct ? 'var(--expense)' : 'var(--income)';
     const fillW     = Math.min(100, budgetPct).toFixed(1);
-    const markerLeft = Math.min(100, yearPct).toFixed(1);
+    const markerLeft = Math.min(100, planPct).toFixed(1);
     pacingBanner = `
       <div style="background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:6px 16px;margin-bottom:8px;display:flex;align-items:center;gap:20px;flex-wrap:wrap">
         <div style="white-space:nowrap">
@@ -1030,19 +1051,24 @@ function renderBudgetScostamenti() {
         <div style="flex:1;min-width:180px">
           <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--txt2);margin-bottom:3px">
             <span>Speso <b style="color:${fillColor}">${budgetPct.toFixed(0)}%</b> del budget annuo</span>
-            <span>Anno trascorso <b>${yearPct.toFixed(0)}%</b></span>
+            <span title="Quanto del budget annuo il piano colloca da gennaio a ${untilName}. È questo il termine di paragone, non il tempo trascorso: una spesa grossa ma prevista in un mese preciso è già uscita, e il piano lo sapeva.">Previsto dal piano <b>${planPct.toFixed(0)}%</b></span>
           </div>
-          <div style="position:relative;height:10px;background:var(--bg3);border-radius:4px;overflow:hidden" title="Riempimento = budget annuo speso · marker = tempo trascorso">
+          <div style="position:relative;height:10px;background:var(--bg3);border-radius:4px;overflow:hidden" title="Riempimento = budget annuo speso · marker = quota di piano prevista fino a ${untilName}">
             <div style="position:absolute;left:0;top:0;height:100%;width:${fillW}%;background:${fillColor};border-radius:4px"></div>
             <div style="position:absolute;left:${markerLeft}%;top:-2px;bottom:-2px;width:2px;background:var(--txt)"></div>
           </div>
         </div>
         <div style="white-space:nowrap;text-align:right">
+          <div style="font-size:11px;color:var(--txt3);text-transform:uppercase;letter-spacing:.5px">Restano</div>
+          <div style="font-size:14px;font-weight:700;color:${remaining < 0 ? 'var(--expense)' : 'var(--txt)'}" title="Budget annuo meno lo speso finora. È l'unico numero che non dipende né dal tempo trascorso né da come il budget è distribuito fra i mesi.">${fmt.currency(remaining)}</div>
+          <div style="font-size:11px;color:var(--txt3)">di ${fmt.currency(expBudgetFull)}</div>
+        </div>
+        <div style="white-space:nowrap;text-align:right">
           <div style="font-size:11px;color:var(--txt3);text-transform:uppercase;letter-spacing:.5px">Proiezione fine anno</div>
           ${projReliable
-            ? `<div style="font-size:14px;font-weight:700;color:${projColor}">${fmt.currency(projected)}</div>`
-            : `<div style="font-size:14px;font-weight:700;color:var(--txt3)" title="Nei primi giorni dell'anno una singola spesa falserebbe la stima: la proiezione compare dal giorno ${PROJ_MIN_DAYS}.">—</div>`}
-          <div style="font-size:11px;color:var(--txt3)">budget ${fmt.currency(expBudgetFull)}</div>
+            ? `<div style="font-size:14px;font-weight:700;color:${projColor}" title="Se il resto dell'anno segue il piano con lo stesso scarto di adesso: speso × budget annuo ÷ previsto dal piano.">${fmt.currency(projected)}</div>`
+            : `<div style="font-size:14px;font-weight:700;color:var(--txt3)" title="Finché il piano ha collocato meno di un sesto del budget annuo, una singola spesa falserebbe la stima: la proiezione compare dopo.">—</div>`}
+          <div style="font-size:11px;color:var(--txt3)">sul piano a ${untilName}</div>
         </div>
       </div>`;
   }

@@ -461,6 +461,46 @@ Due dettagli che sembrano arbitrari e non lo sono:
 
 ---
 
+## Budget "Da inizio anno": il metro è il piano, non il calendario
+
+Il banner in cima alla scheda confronta lo speso col budget di **tutto l'anno**. La domanda è
+quale riga di riferimento usare per dire se si è avanti o indietro, e la risposta **non è il
+tempo trascorso**: il budget non esce in rate giornaliere uguali, è collocato mese per mese —
+e circa metà, sui dati reali, in mesi scelti a mano.
+
+Una spesa grossa ma **prevista** in un mese preciso (arredamento ad aprile, dentista a giugno)
+col righello dei giorni manda il banner in rosso da lì fino a dicembre, pur essendo in linea:
+è già uscita, e il piano lo sapeva. Col budget reale del 2026 il vecchio confronto diceva
+"speso 81%, anno trascorso 72% → in ritardo" e proiettava **74.099 €** su un budget di 65.444;
+il piano a settembre ne prevede l'**84%**, quindi l'81% è *sotto*, e la proiezione è 63.355 €.
+
+| | formula |
+|---|---|
+| marker della barra | `expBudgetYtd / expBudgetFull` — quota di piano collocata entro il mese di taglio |
+| proiezione | `expR / planFrac`, cioè *speso × annuo ÷ previsto* |
+| soglia di affidabilità | `planFrac >= 1/6` (non più i 60 giorni) |
+
+⚠️ **`expBudgetYtd` va sommato su `allRows`, non su `shown`**, esattamente come
+`expBudgetFull`: filtrare i due su insiemi diversi darebbe alle due percentuali denominatori
+diversi, e il marker cadrebbe nel punto sbagliato senza nessun errore visibile.
+
+⚠️ **La soglia della proiezione è legata al piano, non ai giorni.** I 60 giorni di prima erano
+la traduzione di "un sesto del periodo" (la regola del banner di Mese, che aspetta 5 giorni su
+~30); ora che il divisore è la quota di piano, un sesto si scrive `planFrac >= 1/6`. È anche
+più utile: un anno che concentra a gennaio ha una proiezione sensata già a fine gennaio.
+
+**Il limite che resta, e perché c'è il "Restano".** Se una categoria ha solo il totale annuo e
+nessun mese fissato, il piano la spalma in dodici parti: una spesa concentrata risulta in
+anticipo, e nessun calcolo può saperlo — al budget non è mai stato detto *quando*. Per questo
+il banner mostra anche **quanto resta del budget annuo**, l'unico numero che non dipende né dal
+tempo né dalla forma del piano.
+
+⚠️ Il banner della scheda **Mese** usa ancora il tempo trascorso, e deve continuare a farlo:
+lì il budget del mese è un numero solo, senza forma interna, quindi il calendario è l'unico
+riferimento disponibile. Le due schede si somigliano ma questo pezzo non va uniformato.
+
+---
+
 ## Convenzioni
 
 - **Lingua:** tutto in italiano (commenti, stringhe UI, messaggi errore)

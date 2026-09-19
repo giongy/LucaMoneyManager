@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="it" style="background:#dce1e8">
+<html lang="it" style="background:#e3e7f1">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -16,7 +16,7 @@
       if (!c) return;
       var de = document.documentElement;
       de.dataset.theme = c.dataTheme || '';
-      if (c.bg) de.style.background = c.bg;                                    // sfondo html (override #dce1e8)
+      if (c.bg) de.style.background = c.bg;                                    // sfondo html (override #e3e7f1)
       if (c.vars) for (var k in c.vars) de.style.setProperty(k, c.vars[k]);   // tema personalizzato
       if (c.radius != null) de.style.setProperty('--radius', c.radius + 'px');
       if (c.fontSizes) for (var fk in c.fontSizes) de.style.setProperty(fk, c.fontSizes[fk] + 'px');
@@ -24,9 +24,10 @@
   })();
   </script>
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
-  <!-- Font: Segoe UI di sistema (sempre presente su Windows). Nessun caricamento da
-       Google Fonts: il <link> remoto bloccava il primo render finché la rete non
-       rispondeva (secondi persi a ogni avvio a freddo). -->
+  <!-- Font: Segoe UI di sistema per Carta/Petrolio/Vetro; Nebbia usa Geist + Manrope,
+       inclusi in web/fonts/ e dichiarati in style.css. Nessun caricamento da Google
+       Fonts: il <link> remoto bloccava il primo render finché la rete non rispondeva
+       (secondi persi a ogni avvio a freddo). -->
   <link rel="stylesheet" href="css/quill.snow.css">
   <link rel="stylesheet" href="css/style.css">
 </head>

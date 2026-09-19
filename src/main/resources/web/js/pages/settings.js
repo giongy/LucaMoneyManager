@@ -1050,10 +1050,10 @@ let _teDragState = null;
 // Devono restare allineati alle palette in style.css.
 const _BUILTIN_VARS = {
   nebbia: {
-    '--bg':'#dce1e8','--bg2':'#e9edf3','--bg3':'#ccd2db','--bg4':'#bfc7d2',
-    '--border':'#b6bfcb','--accent':'#2f6f8f','--accent2':'#17706b',
-    '--income':'#1d6b3a','--expense':'#b03028','--warn':'#8a5a00',
-    '--txt':'#1b2430','--txt2':'#4c5866','--txt3':'#77828f',
+    '--bg':'#e3e7f1','--bg2':'#f3f5fa','--bg3':'#dde2ec','--bg4':'#d2d9e6',
+    '--border':'#c9d0de','--accent':'#4c56d8','--accent2':'#0f7773',
+    '--income':'#15753f','--expense':'#c1343a','--warn':'#8a5a00',
+    '--txt':'#161d2e','--txt2':'#465269','--txt3':'#56617a',
   },
   carta: {
     '--bg':'#ece5d8','--bg2':'#f4ede0','--bg3':'#e0d8cb','--bg4':'#d4ccbf',

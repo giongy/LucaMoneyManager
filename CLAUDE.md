@@ -521,12 +521,20 @@ il tema scuro non è più il riferimento, ed è la causa della maggior parte del
 
 | Tema | Chiave | Dove vive | `--bg` |
 |---|---|---|---|
-| 🌁 Nebbia (default) | `nebbia` | `:root` — **nessun** `data-theme` | `#dce1e8` |
+| 🌁 Nebbia (default) | `nebbia` | `:root` — **nessun** `data-theme` | `#e3e7f1` |
 | 📜 Carta | `carta` | `[data-theme="carta"]` | `#ece5d8` |
 | 🛢️ Petrolio | `petrolio` | `[data-theme="petrolio"]` | `#0f1e23` |
 | 🪟 Vetro | `glassy` | `[data-theme="glassy"]` | `#161b25` |
 
-Nebbia e Carta sono chiari; Petrolio e Vetro scuri. I temi personalizzati (chiave `c:<id>`)
+Nebbia e Carta sono chiari; Petrolio e Vetro scuri. **Nebbia "aurora"**: fondo a mesh
+gradient, card in vetro smerigliato, accento indaco, card hero sul Saldo totale, e l'unico tema con
+**font propri** — Geist (testo) e Manrope (titoli e grandi importi), inclusi in `web/fonts/` (mai da
+Google Fonts: il link remoto bloccava il primo render). Tutto il tema sta in un solo blocco CSS
+annidato (`html:not(:where(...)) { & ... }`); la palette ha copie in `_BUILTIN_VARS.nebbia`
+(settings.js), nello sfondo del primo paint (index.html) e in `chartColors()` (utils.js).
+⚠️ Cambiando font del corpo, verificare che `tnum` (applicato a tutte le celle) tocchi solo le
+cifre: Inter allarga anche trattino, virgola e spazio ("Famiglia - Noi : Fuori").
+I temi personalizzati (chiave `c:<id>`)
 applicano le proprie variabili **inline** su `<html>`, quindi vincono su qualsiasi regola di tema.
 `applyTheme()` ([settings.js](src/main/resources/web/js/pages/settings.js)) migra le chiavi
 storiche: `dark`→`nebbia`, e `salvia`/`cristallo`/`nebula`/`twilight`/`chiaro`→`petrolio`.

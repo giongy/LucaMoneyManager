@@ -17,7 +17,7 @@ const chartColors = () => {
   if (t === 'carta') return { tick: '#6b5a42', grid: 'rgba(90,70,40,0.10)' };
   if (t === 'petrolio') return { tick: '#9db3b8', grid: 'rgba(157,179,184,0.10)' };
   if (t === 'glassy') return { tick: '#8b949e', grid: 'rgba(255,255,255,0.06)' };
-  return { tick: '#4c5866', grid: 'rgba(45,65,90,0.13)' };   // nebbia
+  return { tick: '#465269', grid: 'rgba(60,70,130,0.12)' };   // nebbia
 };
 
 const zoomOpts = () => ({

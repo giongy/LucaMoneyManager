@@ -185,6 +185,7 @@ public class WebServer {
         if (name.endsWith(".png"))  return "image/png";
         if (name.endsWith(".ico"))  return "image/x-icon";
         if (name.endsWith(".svg"))  return "image/svg+xml";
+        if (name.endsWith(".woff2")) return "font/woff2";
         return "application/octet-stream";
     }
 }

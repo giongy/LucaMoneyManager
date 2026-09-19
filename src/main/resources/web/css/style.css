@@ -9,9 +9,9 @@
    Carta e Nebbia sono i temi chiari; petrolio e glassy restano scuri.
    ⚠️ Diverse regole base hanno colori FISSI nati quando il default era scuro (toast con fondi
    scuri, color:#000 sulle superfici d'accento, trasparenze bianche per righe alternate/hover).
-   Servono ancora a petrolio e glassy, quindi restano: Nebbia le neutralizza in un blocco di
-   override dedicato (vedi "Nebbia — correzioni su regole nate per il default scuro"),
-   con lo stesso approccio già usato per Carta.
+   Servono ancora a petrolio e glassy, quindi restano: Nebbia le neutralizza nel suo blocco
+   (vedi "Nebbia — aurora, vetro e tipografia"), con lo stesso approccio già usato per Carta.
+   Nebbia è anche l'unico tema con font propri (Geist + Manrope, in web/fonts/).
 
    CONVENZIONE COLORI DI SFONDO (vedi CLAUDE.md): gerarchia bg3 < bg < bg2, cioè le card
    (bg2) sono PIÙ CHIARE dello sfondo (bg) — mai bianco puro nei temi chiari. bg3 è il
@@ -35,50 +35,71 @@
 .rh-se { bottom:0; right:0;   width:8px;  height:8px; cursor:se-resize; }
 .rh-sw { bottom:0; left:0;    width:8px;  height:8px; cursor:sw-resize; }
 
+/* ─── Font inclusi (Geist + Manrope) ─────────────────────────────────────── */
+/* File locali in web/fonts/, sottoinsieme "latin" di Google Fonts (accentate italiane
+   ed € comprese), variabili nel peso: ~55 KB in tutto. Licenza OFL, testi accanto ai
+   font. Locali e non dal <link> di Google: il link remoto bloccava il primo render
+   finché la rete non rispondeva (vedi il commento in index.html).
+   Geist per il testo, Manrope per titoli e grandi importi. Li usa solo Nebbia: gli
+   altri temi restano su Segoe UI.
+   ⚠️ Cambiando font del corpo, verificare cosa fa la sua cifra tabulare (`tnum`, che
+   style.css applica a TUTTE le celle di tabella): Inter, provato per primo, con tnum
+   allarga anche trattino, virgola, due punti e spazio, e "Famiglia-Noi : Fuori"
+   diventava "Famiglia - Noi : Fuori". Geist e Manrope toccano solo le cifre. */
+@font-face {
+  font-family:'Geist'; font-style:normal; font-weight:300 800; font-display:swap;
+  src:url('../fonts/geist-latin.woff2') format('woff2');
+}
+@font-face {
+  font-family:'Manrope'; font-style:normal; font-weight:400 800; font-display:swap;
+  src:url('../fonts/manrope-latin.woff2') format('woff2');
+}
+
 /* ─── Variabili — tema Nebbia (default) ─────────────────────────────────── */
-/* Nebbia: chiaro neutro grigio-azzurro, sobrio e riposante. Niente bianco puro
-   (aggressivo) e niente calde beige come Carta: grigi freddi leggermente virati
-   al blu, per far riposare l'occhio sulle tabelle dense di Transazioni/Budget.
+/* Nebbia "aurora": chiaro freddo con un'alba di colore sotto. Il fondo è un mesh
+   gradient (pervinca, lilla, acqua, un filo di pesca) su cui le card galleggiano come
+   vetro smerigliato; l'accento è un indaco pieno, più vivo del vecchio blu petrolio.
+   Niente bianco puro (aggressivo): le superfici più chiare sono bianchi traslucidi,
+   quindi a schermo prendono sempre la tinta del fondo.
    Gerarchia bg3 < bg < bg2: le card (bg2) sono più CHIARE dello sfondo (bg),
    bg3 è il livello basso (header tabella, righe alternate, input).
-   Accenti desaturati e scuri quanto basta per restare leggibili su fondo chiaro. */
+   ⚠️ Queste variabili hanno una copia in settings.js (_BUILTIN_VARS.nebbia, punto di
+   partenza dei temi personalizzati) e --bg anche in index.html (sfondo del primo paint). */
 :root {
-  --bg:       #dce1e8;
-  --bg2:      #e9edf3;
-  --bg3:      #ccd2db;
-  --bg4:      #bfc7d2;
-  --border:   #b6bfcb;
-  --accent:   #2f6f8f;
-  --accent2:  #17706b;
-  --income:   #1d6b3a;
-  --expense:  #b03028;
+  --bg:       #e3e7f1;
+  --bg2:      #f3f5fa;
+  --bg3:      #dde2ec;
+  --bg4:      #d2d9e6;
+  --border:   #c9d0de;
+  /* Indaco: bianco sopra a 5.8:1, sulle card a 5.3:1 come testo. */
+  --accent:   #4c56d8;
+  --accent2:  #0f7773;
+  --income:   #15753f;
+  --expense:  #c1343a;
   --warn:     #8a5a00;
-  --purple:   #5a4a9c;
-  --orange:   #9a5518;
-  --txt:      #1b2430;
-  --txt2:     #4c5866;
+  --purple:   #6a4fd0;
+  --orange:   #ad5418;
+  --txt:      #161d2e;
+  --txt2:     #465269;
   /* --txt3 è il grigio dei sottotesti, spesso a 10-11px (didascalie dei report,
-     "ultimi N mesi", unità sotto i valori). A #77828f stava a 3.33:1 sulle card
-     e 2.57:1 su bg3, sotto il minimo AA di 4.5 proprio dove il testo è più
-     piccolo. Scurito a 4.98:1 sulle card, restando distinguibile da --txt2. */
-  --txt3:     #5a6675;
-  /* Ombre corte: due strati ravvicinati (contatto + diffusione breve) invece di un
-     unico alone da 32px. Su fondo chiaro l'alone lungo si legge come una macchia
-     grigia e appesantisce: le card devono staccarsi, non galleggiare. */
-  --shadow:       0 1px 2px rgba(30,45,65,.07), 0 6px 16px rgba(30,45,65,.09);
-  --shadow-hover: 0 2px 4px rgba(30,45,65,.10), 0 10px 22px rgba(30,45,65,.13);
+     "ultimi N mesi", unità sotto i valori): sta sopra 4.5:1 anche su bg3, dove il
+     vecchio #77828f scendeva a 2.57:1. */
+  --txt3:     #56617a;
+  /* Ombre tinte d'indaco invece che di grigio: su un fondo colorato un'ombra neutra
+     si legge come sporco. Corte e morbide: le card si staccano, non fluttuano. */
+  --shadow:       0 1px 2px rgba(40,48,110,.06), 0 8px 24px -6px rgba(40,48,110,.16);
+  --shadow-hover: 0 2px 4px rgba(40,48,110,.08), 0 16px 34px -8px rgba(40,48,110,.24);
   /* Linea di separazione fra righe di tabella. Il colore pieno di --border, ripetuto
      su decine di righe, produce un reticolo pesante: qui basta un accenno. I temi
      scuri la ridefiniscono più marcata (su fondo scuro un 45% sparirebbe). */
-  --row-line: color-mix(in srgb, var(--border) 45%, transparent);
-  --radius:    14px;
-  /* Raggi coerenti per famiglia: card grandi 14, controlli 8, pill 7. Prima i badge
-     erano a 20px (pillola piena) accanto a bottoni da 6 — l'accostamento più datato. */
-  --radius-ctl:  8px;
+  --row-line: color-mix(in srgb, var(--border) 55%, transparent);
+  --radius:    16px;
+  /* Raggi coerenti per famiglia: card grandi 16, controlli 9, pill 7. */
+  --radius-ctl:  9px;
   --radius-pill: 7px;
   /* Freccia dei <select>, ridisegnata al posto di quella di sistema (vedi la regola
      `select:not([multiple])`). Tratto grigio-blu scuro: pensato per i due temi chiari. */
-  --chevron: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%235a6675' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  --chevron: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2356617a' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
   --fs-xs:     10px;
   --fs-sm:     11px;
   --fs-md:     12px;
@@ -92,126 +113,361 @@
 }
 
 
-/* ─── Nebbia — atmosfera: gradiente, filigrana, card translucide ─────────── */
-/* Nebbia nasceva su un fondo a tinta unita: corretto ma inerte. Qui si aggiunge
-   profondità con tre strati, gli stessi trucchi di Carta e Glassy riletti in
-   chiave fredda:
-     1. due aloni d'ambiente (azzurro in alto a sx, verde-acqua in basso a dx)
-        che accennano il colore senza sporcare la neutralità dei grigi;
-     2. una micro-filigrana incrociata come la grana di Carta, ma con grigio
-        bluastro e opacità ancora più bassa (.02): a schermo non si "vede", si
-        percepisce solo che il fondo non è morto;
-     3. una velatura chiara diagonale che stacca il fondo dalle card.
-   Come Carta, tutto con gradienti CSS: niente SVG/feTurbulence (JCEF non li
-   renderizza). Come Glassy, niente background-attachment:fixed. */
-html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"])) body {
-  background-color: var(--bg);
-  background-image:
-    radial-gradient(1500px 1000px at 8% -10%, rgba(56,124,178,.34), transparent 62%),
-    radial-gradient(1300px 900px at 100% 106%, rgba(20,124,116,.26), transparent 60%),
-    radial-gradient(900px 700px at 62% 42%, rgba(120,95,175,.10), transparent 65%),
-    linear-gradient(158deg, rgba(255,255,255,.72) 0%, rgba(255,255,255,0) 46%),
-    repeating-linear-gradient( 45deg, rgba(45,70,100,.038) 0 1px, transparent 1px 4px),
-    repeating-linear-gradient(-45deg, rgba(45,70,100,.038) 0 1px, transparent 1px 4px);
-}
-/* .main trasparente: lascia passare il gradiente del body invece di coprirlo
-   con la tinta piatta (stessa accortezza di Carta). */
-html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"])) .main {
-  background-color: transparent;
-}
-/* Fasce che ospitano le barre delle schede (Pianificate, Budget, Transazioni,
-   Impostazioni): hanno background:var(--bg) inline, una tinta piatta che copriva
-   il gradiente e creava uno stacco netto contro il contenuto sottostante.
-   Rese trasparenti perché il fondo prosegua senza interruzione — serve !important
-   per battere lo stile inline.
-   ⚠️ Non tutto ciò che usa var(--bg) può seguirle: .tx-add-group è position:sticky e
-   dietro ci scorre il contenuto → resta opaca. (.sched-toolbar era nello stesso caso
-   fino alla 1.25.17: ora sta dentro una di queste fasce e ne eredita la trasparenza.) */
-html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"]))
-  :is(#pg-scheduled, #pg-budgets, #pg-transactions, #pg-settings) > div[style*="background:var(--bg)"] {
-  background: transparent !important;
-}
-/* Sidebar: sfumatura verticale + alone freddo in alto, così la colonna non è un
-   blocco unico di colore. È la superficie grande sempre a schermo, quindi è qui
-   che il tema "si sente" anche nelle pagine dense di tabelle, dove il fondo del
-   body resta quasi tutto coperto. */
-html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"])) .sidebar {
-  background-image:
-    radial-gradient(500px 360px at 50% -12%, rgba(56,124,178,.30), transparent 68%),
-    radial-gradient(400px 300px at 50% 112%, rgba(20,124,116,.18), transparent 66%),
-    linear-gradient(180deg, rgba(255,255,255,.70) 0%, rgba(255,255,255,0) 42%);
-}
-/* Card appena translucide: il gradiente sottostante traspare e le fa "galleggiare",
-   con un filo di luce sul bordo superiore. Nessun backdrop-filter — le card sono
-   decine per pagina e ognuna avvierebbe una passata GPU (lezione di Glassy).
-   ⚠️ La translucenza sta QUI e non su --bg2: quella variabile la usano anche gli
-   elementi sticky (thead, .budget-cat-cell), dietro cui scorre il contenuto. */
-html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"])) .card,
-html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"])) .stat-card {
-  background-color: rgba(255,255,255,.72);
-  border-color: rgba(255,255,255,.85);
-  box-shadow:
-    0 1px 2px rgba(25,40,60,.10),
-    0 10px 30px rgba(25,40,60,.13),
-    inset 0 1px 0 rgba(255,255,255,.9);
-}
-
-/* ─── Nebbia — correzioni su regole nate per il default scuro ────────────── */
-/* Queste regole valgono SOLO sul tema Nebbia (il default in :root). Sono l'equivalente
-   degli override di Carta: servono perché diverse regole base hanno colori fissi pensati
-   per un fondo scuro, che su fondo chiaro diventano illeggibili. Non si possono correggere
-   alla fonte perché petrolio e glassy, scuri, continuano a usarle così come sono.
-
-   ⚠️ Il selettore elenca in negativo i temi alternativi invece di usare :not([data-theme]):
+/* ─── Nebbia — aurora, vetro e tipografia ────────────────────────────────── */
+/* Tutto ciò che dà carattere a Nebbia, in un blocco solo. Usa il nesting CSS
+   (Chromium ≥ 112, JCEF 146 compreso) per scrivere UNA volta la lista dei temi esclusi.
+   Specificità: `&` vale quanto il selettore padre, cioè html (0,0,1) — :not(:where())
+   conta zero — quindi `& .card` vale (0,1,1) e batte le regole base, che stanno più in
+   basso nel file. Aggiungendo un tema built-in va aggiornata anche questa lista.
+   ⚠️ La lista elenca in negativo i temi alternativi invece di usare :not([data-theme]):
    applyTheme imposta dataset.theme = "" (attributo PRESENTE ma vuoto) sia sul default sia
-   sui temi personalizzati, quindi :not([data-theme]) non farebbe mai match. Elencandoli si
-   coprono entrambi i casi. Nota: i temi personalizzati ("c:id") ricadono qui, ma applicano
-   le proprie variabili inline, che vincono su queste regole.
-   ⚠️ Serve anche a superare le regole base (.btn-primary ecc.), che stanno PIÙ IN BASSO nel
-   file: a parità di specificità vincerebbe l'ultima. Gli override di Carta non hanno il
-   problema perché [data-theme="carta"] alza già la specificità.
+   sui temi personalizzati, quindi :not([data-theme]) non farebbe mai match. I temi
+   personalizzati ("c:id") ricadono qui, ma applicano le proprie variabili inline, che
+   vincono. Se la specificità calasse, il testo dei bottoni primari tornerebbe nero su
+   indaco (regola base color:#000) senza altri sintomi evidenti: riverificare con check-ui.
+   Qui dentro stanno anche le correzioni alle regole base nate per il vecchio default
+   scuro (toast su fondi scuri fissi, color:#000 sulle superfici d'accento, bianchi
+   trasparenti per righe alternate e hover): servono ancora a Petrolio e Glassy, quindi
+   non si correggono alla fonte.
 
-   :where() tiene la lista dei temi in un punto solo pur non alzando la specificità (vale 0):
-   il selettore resta html + classe, quanto basta per battere le regole base. Aggiungendo un
-   tema built-in va comunque aggiornata ogni occorrenza qui sotto. Se si tocca questo
-   selettore, riverificare con check-ui.ps1: se la specificità calasse, il testo dei bottoni
-   primari tornerebbe nero su blu (3.79:1) senza altri sintomi evidenti. */
+   Tre scelte da non disfare:
+   - Niente backdrop-filter sulle card: sono decine per pagina e ognuna avvierebbe una
+     passata GPU (lezione di Glassy). Non serve nemmeno: dietro c'è un gradiente ampio e
+     morbido, che sfocato resta identico. Il blur sta solo dove sotto c'è CONTENUTO
+     (modale, popover, titlebar, menu).
+   - La translucenza sta sulle regole delle card e non su --bg2: quella variabile la usano
+     anche gli elementi sticky (thead, .budget-cat-cell), dietro cui scorre il contenuto.
+   - Niente background-attachment:fixed: body è alto quanto la finestra e non scorre
+     (scorrono le .page), quindi il fondo è già fermo senza costi. */
+html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"])) {
 
-/* Toast: le versioni base hanno fondi scuri fissi (#1a3a1c, #3a1a1a…) con testo
-   del colore d'accento → su fondo chiaro spariscono. Fondi tenui + testo scuro. */
-html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"])) .toast         { color: var(--txt); }
-html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"])) .toast-info    { background: #dbe8f0; border-color: var(--accent);  color: #17455c; }
-html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"])) .toast-success { background: #d8ead9; border-color: var(--income);  color: #14512a; }
-html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"])) .toast-error   { background: #f2dcd9; border-color: var(--expense); color: #85231c; }
-html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"])) .toast-warning { background: #f0e6cd; border-color: var(--warn);    color: #5e3d00; }
-html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"])) .toast-action-btn { background: var(--accent) !important; border-color: var(--accent) !important; color: #fff !important; }
+  /* ── Tipografia ── */
+  /* font-size-adjust .5 allinea l'occhio (x-height) a quello di Segoe UI: stessa densità
+     di prima nelle tabelle fitte (Budget, Transazioni), dove un font più grande
+     manderebbe a capo celle e importi. */
+  & body {
+    font-family:'Geist','Segoe UI',system-ui,sans-serif;
+    font-size-adjust:.5;
+  }
+  & :is(.card-title, .modal-title, .section-title, .titlebar-title, .logo-text,
+        .stat-value, .acc-sum-value, .acc-kpi-value, .sidebar-date .sd-day) {
+    font-family:'Manrope','Geist','Segoe UI',sans-serif;
+    font-size-adjust:none;
+  }
+  & .card-title   { font-weight:700; letter-spacing:-.015em; }
+  & .modal-title  { font-size:14px; letter-spacing:-.01em; }
+  & .stat-value   { font-weight:800; letter-spacing:-.025em; }
+  & .acc-sum-value{ font-weight:800; letter-spacing:-.03em; }
+  & .logo-text    { font-weight:800; letter-spacing:-.01em;
+                    background:linear-gradient(100deg, #3d45b8, #7a4fd0 55%, #1f8a86);
+                    -webkit-background-clip:text; background-clip:text; color:transparent; }
+  & .sidebar-date .sd-day { font-weight:600; background:linear-gradient(135deg, #4c56d8, #8a5ad6);
+                    -webkit-background-clip:text; background-clip:text; color:transparent; }
+  & ::selection   { background:rgba(76,86,216,.22); }
 
-/* Superfici riempite d'accento: le regole base scrivono color:#000, che sull'accent
-   viola chiaro del vecchio tema scuro funzionava. Qui l'accento è un blu petrolio
-   scuro → serve testo bianco (nero su #2f6f8f dà 3.79:1, sotto la soglia WCAG). */
-html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"])) .btn-primary,
-html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"])) .calc-eq,
-html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"])) .theme-btn-active { color: #fff; }
-html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"])) .btn-primary:hover { background: #3a86ab; }
+  /* ── Fondo: mesh gradient ── */
+  /* Quattro aloni ai margini (pervinca in alto a sx, lilla in alto a dx, acqua in basso
+     a sx, pesca in basso a dx) più una luce centrale che schiarisce dove stanno le card.
+     Tutto gradienti CSS: niente SVG/feTurbulence, che JCEF non renderizza. */
+  & body {
+    background-color:var(--bg);
+    background-image:
+      radial-gradient(55% 50% at 55% 50%, rgba(246,247,253,.40), transparent 75%),
+      radial-gradient(1000px 760px at 0% 0%,     rgba(104,122,255,.50), transparent 62%),
+      radial-gradient(900px 700px at 100% 0%,    rgba(190,140,255,.42), transparent 60%),
+      radial-gradient(1000px 760px at 0% 100%,   rgba(60,200,205,.38),  transparent 62%),
+      radial-gradient(950px 720px at 100% 100%,  rgba(255,168,140,.38), transparent 60%),
+      linear-gradient(160deg, #e2e6f4 0%, #eaecf6 50%, #e6eaf2 100%);
+  }
+  /* .main trasparente: lascia passare il fondo invece di coprirlo con la tinta piatta. */
+  & .main { background-color:transparent; }
+  /* Fasce che ospitano le barre delle schede (Pianificate, Budget, Transazioni,
+     Impostazioni): hanno background:var(--bg) inline, una tinta piatta che copriva il
+     fondo e creava uno stacco netto. Rese trasparenti — serve !important per battere lo
+     stile inline.
+     ⚠️ Non tutto ciò che usa var(--bg) può seguirle: .tx-add-group è position:sticky e
+     dietro ci scorre il contenuto → resta coperta (vedi sotto, vetro con blur). */
+  & :is(#pg-scheduled, #pg-budgets, #pg-transactions, #pg-settings) > div[style*="background:var(--bg)"],
+  & #txSummaryBar {
+    background:transparent !important;
+  }
+  & .tx-add-group {
+    background:rgba(236,239,248,.72);
+    backdrop-filter:blur(14px) saturate(160%); -webkit-backdrop-filter:blur(14px) saturate(160%);
+    border-top:1px solid rgba(255,255,255,.7);
+  }
 
-/* Righe alternate e marcatore del mese corrente: le versioni base schiariscono con
-   bianco trasparente, invisibile su fondo chiaro. Qui si scurisce, con lo stesso
-   grigio-blu della palette. */
-html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"])) .analytics-table tbody tr:nth-child(even) td { background: rgba(45,65,90,.045); }
-html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"])) .budget-cur-month { box-shadow: inset 2px 0 0 rgba(45,65,90,.45), inset -2px 0 0 rgba(45,65,90,.45); }
+  /* ── Sidebar: pannello di vetro chiaro ── */
+  /* Traslucida sopra l'aurora, con un filo di luce sul bordo destro. Il logo e il piede
+     sono sticky (la nav può scorrere sotto se la finestra è bassa): vetro con blur. */
+  & .sidebar {
+    background:rgba(250,251,255,.46);
+    border-right:1px solid rgba(255,255,255,.75);
+    box-shadow:1px 0 0 rgba(60,70,130,.08), 8px 0 30px -12px rgba(40,48,110,.18);
+  }
+  /* Da telefono (≤ 820px, vedi sezione Responsive) la sidebar diventa un cassetto che si
+     apre SOPRA la pagina: traslucida come sul desktop, il testo sotto trasparirebbe e le
+     voci diventerebbero illeggibili. Qui quasi opaca, con blur per quel poco che resta. */
+  @media (max-width: 820px) {
+    & .sidebar {
+      background:rgba(243,245,251,.95);
+      backdrop-filter:blur(20px) saturate(160%); -webkit-backdrop-filter:blur(20px) saturate(160%);
+    }
+  }
+  & .sidebar-logo, & .sidebar-bottom {
+    background:rgba(248,249,254,.55);
+    backdrop-filter:blur(14px) saturate(160%); -webkit-backdrop-filter:blur(14px) saturate(160%);
+    border-color:rgba(70,80,140,.10);
+  }
+  & .sidebar-section-label, & .sidebar-accounts { border-top-color:rgba(70,80,140,.10); }
+  & .sidebar-section-label { letter-spacing:.12em; }
+  /* Voci: pillole staccate dal bordo invece della barra piena con filetto a sinistra. */
+  & .nav-item {
+    margin:1px 10px; padding:7px 10px; border-left:0; border-radius:11px;
+    font-weight:550; color:#3c4760;
+    transition:background .18s, color .18s, box-shadow .18s;
+  }
+  & .sidebar-nav .nav-item::before { display:none; }
+  & .nav-item:hover { background:rgba(255,255,255,.62); color:var(--txt); }
+  & .nav-item.active {
+    color:#2f37a8;
+    background:linear-gradient(120deg, rgba(255,255,255,.92), rgba(236,238,255,.85));
+    box-shadow:0 1px 2px rgba(40,48,110,.08), 0 6px 16px -6px rgba(76,86,216,.35),
+               inset 0 0 0 1px rgba(255,255,255,.9);
+  }
+  /* Tacca d'accento a sinistra della voce attiva, dentro la pillola. */
+  & .nav-item.active::after {
+    content:""; position:absolute; left:-10px; top:22%; bottom:22%; width:3px;
+    border-radius:0 3px 3px 0; background:linear-gradient(180deg, #6b74ff, #8a5ad6);
+  }
+  & .nav-icon-svg { width:20px; height:20px; padding:3.5px; border-radius:7px; }
+  & .nav-item.active .nav-icon-svg {
+    background:linear-gradient(135deg, color-mix(in srgb, var(--nc) 30%, white), color-mix(in srgb, var(--nc) 16%, white));
+    box-shadow:0 2px 6px -1px color-mix(in srgb, var(--nc) 45%, transparent);
+  }
+  /* Riga Impostazioni + calcolatrice: le pillole qui stanno in un flex a percentuali,
+     i margini laterali pieni le farebbero sforare. */
+  & .sidebar-bottom .nav-item { margin:4px 4px 6px; }
+  & .sidebar-bottom .nav-item[data-page="settings"] { margin-left:10px; flex-basis:calc(80% - 14px); }
+  & .nav-item-icon { border-left:0; }
+  & .sidebar-account-item {
+    background:rgba(255,255,255,.5); border-color:rgba(255,255,255,.7);
+    box-shadow:0 1px 2px rgba(40,48,110,.05);
+  }
+  & .sidebar-account-item:hover { background:rgba(255,255,255,.85); }
+  & .sidebar-histnav { background:rgba(255,255,255,.45); border-color:rgba(70,80,140,.14); }
+  & .sidebar-date .sd-rule { background:linear-gradient(90deg, #6b74ff, #8a5ad6); opacity:.7; }
+  & .web-db-bar { border:1px solid color-mix(in srgb, currentColor 18%, transparent); }
 
-/* Badge gestione: le versioni base usano fondi trasparenti su colori chiari del
-   tema scuro. Su fondo chiaro servono colori solidi (vedi CLAUDE.md). */
-html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"])) .budget-gestione-badge.monthly { background: #d7e6f1; color: #1c5375; border-color: #1c537555; }
-html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"])) .budget-gestione-badge.annual  { background: #d5e8da; color: #1a5a32; border-color: #1a5a3255; }
+  /* ── Titlebar (solo JCEF): vetro, il contenuto scorre sotto ── */
+  & .titlebar {
+    background:rgba(248,249,254,.5);
+    border-bottom-color:rgba(70,80,140,.10);
+    backdrop-filter:blur(14px) saturate(160%); -webkit-backdrop-filter:blur(14px) saturate(160%);
+  }
+  & .tb-btn:hover, & .modal-close:hover { background:rgba(76,86,216,.10); }
 
-/* Tabelle: header e righe gerarchiche sul livello basso della palette. */
-html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"])) th { background: var(--bg3); }
-html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"])) .budget-row-child td  { background: var(--bg); }
-html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy"])) .budget-row-parent td { background: var(--bg2); }
+  /* ── Card: vetro smerigliato ── */
+  /* Bianco al 64% sopra l'aurora (a schermo ~#f4f5fa, mai bianco puro), bordo di luce
+     e un riflesso sul filo superiore. */
+  & :is(.card, .stat-card, .acc-summary, .acc-side-card, .account-card, .filter-bar) {
+    background-color:rgba(255,255,255,.64);
+    border-color:rgba(255,255,255,.82);
+    box-shadow:var(--shadow), inset 0 1px 0 rgba(255,255,255,.95);
+  }
+  /* L'account-card ha il bordo sinistro nel colore del conto: va preservato. */
+  & .account-card { border-left-color:var(--acc-color, var(--border)); }
+  & .card[onclick]:hover, & .stat-card:hover {
+    box-shadow:var(--shadow-hover), inset 0 1px 0 rgba(255,255,255,.95);
+    border-color:rgba(255,255,255,.95);
+  }
+  & .card-header { border-bottom-color:rgba(70,80,140,.10); }
 
-/* (l'aspetto delle card di Nebbia — translucenza e ombra — è definito più sopra,
-   nella sezione "atmosfera") */
+  /* Stat card: al posto della barretta verticale, un alone del colore della metrica
+     nell'angolo in alto a destra e una linea sottile in cima. Stesso significato, più
+     morbido. */
+  & .stat-card { --sc:var(--accent); }
+  & .stat-income  { --sc:var(--income); }
+  & .stat-expense { --sc:var(--expense); }
+  & .stat-net     { --sc:var(--accent2); }
+  & .stat-card {
+    background-image:radial-gradient(260px 120px at 100% 0%, color-mix(in srgb, var(--sc) 14%, transparent), transparent 70%);
+  }
+  & .stat-card::before {
+    top:0; left:14px; right:14px; bottom:auto; width:auto; height:2px; border-radius:0 0 2px 2px;
+    background:linear-gradient(90deg, transparent, var(--sc), transparent); opacity:.55;
+  }
+  & .stat-card:hover::before { width:auto; opacity:.9; }
+  & .stat-label { color:var(--txt3); font-weight:600; }
+
+  /* Saldo totale della Dashboard: la card "hero", l'unica a fondo pieno. Indaco→viola
+     con due luci (bianca in alto a dx, acqua in basso a sx). Il testo si schiarisce
+     ridefinendo le variabili DENTRO la card: così seguono anche gli stili inline del JS
+     (lo .stat-sub ha color:var(--txt3) scritto nel markup). Il bianco al 90% sul punto
+     più chiaro del fondo sta a 4.6:1. */
+  & .stat-card.stat-balance {
+    --txt:#fff; --txt2:rgba(255,255,255,.9); --txt3:rgba(255,255,255,.9); --accent:#fff;
+    color:#fff;
+    background-color:#4c56d8;
+    background-image:
+      radial-gradient(320px 180px at 100% 0%,  rgba(255,255,255,.28), transparent 65%),
+      radial-gradient(300px 200px at 0% 120%, rgba(80,225,225,.45), transparent 65%),
+      linear-gradient(125deg, #4a55d6 0%, #5646c8 55%, #7348c9 100%);
+    border-color:rgba(255,255,255,.35);
+    box-shadow:0 2px 4px rgba(40,48,110,.12), 0 16px 36px -10px rgba(76,70,210,.6),
+               inset 0 1px 0 rgba(255,255,255,.35);
+  }
+  & .stat-card.stat-balance::before { display:none; }
+  & .stat-card.stat-balance .stat-value { text-shadow:0 1px 12px rgba(30,20,120,.25); }
+
+  /* Riepilogo patrimonio (Conti): un velo d'indaco e lilla in diagonale. */
+  & .acc-summary {
+    background-image:linear-gradient(120deg, rgba(108,120,255,.12), rgba(190,150,255,.08) 45%, transparent 70%);
+  }
+  & .acc-kpi {
+    background:rgba(255,255,255,.6); border-color:rgba(255,255,255,.85);
+    box-shadow:0 1px 2px rgba(40,48,110,.06);
+  }
+
+  /* ── Tabelle ── */
+  & th { background:var(--bg3); color:#4a5670; }
+  & tr:hover td { background:rgba(76,86,216,.055); }
+  & .analytics-table tbody tr:nth-child(even) td { background:rgba(60,70,130,.035); }
+  & .budget-cur-month { box-shadow:inset 2px 0 0 rgba(76,86,216,.45), inset -2px 0 0 rgba(76,86,216,.45); }
+  & .budget-row-child td  { background:var(--bg); }
+  & .budget-row-parent td { background:var(--bg2); }
+
+  /* ── Pulsanti ── */
+  /* Primario: gradiente indaco→viola con alone. Testo bianco: sul punto più chiaro del
+     gradiente (#5a63e6) il contrasto resta 4.9:1. */
+  & .btn-primary, & .calc-eq, & .theme-btn-active {
+    color:#fff;
+    background:linear-gradient(135deg, #5a63e6 0%, #4c56d8 50%, #5f45c8 100%);
+    box-shadow:0 1px 2px rgba(40,48,110,.18), 0 4px 14px -2px rgba(76,86,216,.45),
+               inset 0 1px 0 rgba(255,255,255,.22);
+  }
+  & .btn-primary:hover {
+    background:linear-gradient(135deg, #6670ee 0%, #5660e0 50%, #6a50d2 100%);
+    box-shadow:0 2px 4px rgba(40,48,110,.18), 0 8px 20px -4px rgba(76,86,216,.55),
+               inset 0 1px 0 rgba(255,255,255,.25);
+    transform:translateY(-1px);
+  }
+  & .btn-primary:active { transform:translateY(0); }
+  & .btn-ghost {
+    background:rgba(255,255,255,.58); color:#3c4760;
+    box-shadow:inset 0 0 0 1px rgba(70,80,140,.14), 0 1px 2px rgba(40,48,110,.05);
+  }
+  & .btn-ghost:hover { background:rgba(255,255,255,.9); color:var(--txt); box-shadow:inset 0 0 0 1px rgba(76,86,216,.30), 0 2px 6px rgba(40,48,110,.08); }
+  & .btn-danger  { background:linear-gradient(135deg, #d0414a, #b52f3a); box-shadow:0 4px 12px -3px rgba(193,52,58,.45); }
+  & .btn-success { background:linear-gradient(135deg, #1b8a4c, #15753f); box-shadow:0 4px 12px -3px rgba(21,117,63,.40); }
+  & .btn-add-income   { background:rgba(21,117,63,.10);  border-color:rgba(21,117,63,.30); }
+  & .btn-add-expense  { background:rgba(193,52,58,.09);  border-color:rgba(193,52,58,.30); }
+  & .btn-add-transfer { background:rgba(76,86,216,.09);  border-color:rgba(76,86,216,.30); }
+  & .btn-add-income:hover   { background:rgba(21,117,63,.18); }
+  & .btn-add-expense:hover  { background:rgba(193,52,58,.16); }
+  & .btn-add-transfer:hover { background:rgba(76,86,216,.16); }
+  & .acc-range-btn { border-color:rgba(70,80,140,.18); background:rgba(255,255,255,.45); }
+  & .acc-range-btn.on { background:linear-gradient(135deg, #5a63e6, #5f45c8); border-color:transparent; box-shadow:0 3px 10px -3px rgba(76,86,216,.5); }
+
+  /* ── Campi ── */
+  /* Incassati ma chiari: vetro bianco sopra la card, bordo freddo, anello d'indaco al
+     focus. Molti select ricevono dal JS background:var(--bg3) inline: restano più scuri,
+     ed è voluto (sono i filtri, un livello sotto i campi di un modale). */
+  & .form-control {
+    background-color:rgba(255,255,255,.7);
+    border-color:#cdd4e2;
+    box-shadow:inset 0 1px 2px rgba(40,48,110,.05);
+  }
+  & .form-control:hover { border-color:#b4bdd2; }
+  /* .form-input (i percorsi in Impostazioni) non ha una regola base: senza questa resta
+     il bordo nativo inset, grigio scuro e squadrato. */
+  & .form-input {
+    padding:6px 10px; border-radius:var(--radius-ctl); border:1px solid #cdd4e2;
+    background:rgba(255,255,255,.55); box-shadow:inset 0 1px 2px rgba(40,48,110,.05);
+  }
+  & :is(.form-control, input, select, textarea):focus {
+    border-color:var(--accent);
+    box-shadow:0 0 0 3px rgba(76,86,216,.16), inset 0 1px 2px rgba(40,48,110,.04);
+  }
+  & select option { background-color:#f3f5fa; }
+
+  /* ── Schede (Budget, Pianificate, Impostazioni…) ── */
+  /* L'attiva diventa una pillola di vetro; la barretta sotto resta, in gradiente. */
+  /* Impostazioni ha una barra sua (.settings-tab), gemella di .sched-tab: stesso stile. */
+  & :is(.sched-tab, .settings-tab) { border-radius:10px; transition:color .18s, background .18s, box-shadow .18s; }
+  & .sched-tab:hover:not(.active), & .settings-tab:hover:not(.settings-tab-active) { background:rgba(255,255,255,.45); }
+  & :is(.sched-tab.active, .settings-tab-active) {
+    color:#2f37a8; background:rgba(255,255,255,.78);
+    box-shadow:0 1px 2px rgba(40,48,110,.08), 0 4px 12px -4px rgba(76,86,216,.28);
+  }
+  & :is(.sched-tab, .settings-tab)::after { background:linear-gradient(90deg, #6b74ff, #8a5ad6); }
+  & :is(.sched-tab.active, .settings-tab-active)::after { width:34%; bottom:3px; height:2px; }
+
+  /* ── Badge ── */
+  & .badge { box-shadow:inset 0 0 0 1px color-mix(in srgb, currentColor 26%, transparent);
+             background:color-mix(in srgb, currentColor 7%, transparent); }
+  & .budget-gestione-badge.monthly { background:#e2e5fb; color:#343ca6; border-color:#343ca655; }
+  & .budget-gestione-badge.annual  { background:#d8eee0; color:#1a5a32; border-color:#1a5a3255; }
+
+  /* ── Modale ── */
+  /* Velo indaco appena scuro con blur (base: nero al 55%, pesante su un tema chiaro), e
+     il modale in vetro quasi opaco: sotto c'è una pagina piena di testo, e il blur a 24px
+     la riduce a una tinta. */
+  & .modal-overlay { background:rgba(40,46,90,.22); }
+  & .modal {
+    background:rgba(246,247,252,.86);
+    border-color:rgba(255,255,255,.9);
+    border-radius:20px;
+    backdrop-filter:blur(24px) saturate(170%); -webkit-backdrop-filter:blur(24px) saturate(170%);
+    box-shadow:0 2px 6px rgba(40,48,110,.08), 0 30px 70px -12px rgba(40,48,110,.38),
+               inset 0 1px 0 rgba(255,255,255,.95);
+  }
+  & .modal-header, & .modal-footer { border-color:rgba(70,80,140,.10); }
+  & .modal-header { padding:14px 18px; }
+  & .modal-footer { padding:12px 18px; background:rgba(230,234,245,.45); border-radius:0 0 20px 20px; }
+
+  /* ── Popover e menu: vetro con blur, sotto c'è contenuto ── */
+  & :is(.ctx-menu, .cat-picker-list, .sched-tag-dropdown, #dash-tooltip, #portfolio-ctx-menu,
+        #sched-ctx-menu, #shortcutsPanel, .nav-sub-flyout, .calc-panel) {
+    background:rgba(248,249,254,.88) !important;
+    border-color:rgba(255,255,255,.95);
+    backdrop-filter:blur(18px) saturate(170%); -webkit-backdrop-filter:blur(18px) saturate(170%);
+    box-shadow:0 2px 6px rgba(40,48,110,.08), 0 18px 40px -10px rgba(40,48,110,.32);
+    border-radius:12px;
+  }
+  & :is(.ctx-item, .cat-picker-item, .nav-sub-item):hover, & .cat-picker-item.active, & .sched-tag-opt:hover {
+    background:rgba(76,86,216,.10); color:var(--txt);
+  }
+  & .ctx-item.ctx-danger:hover { background:rgba(193,52,58,.10); }
+  & .ctx-separator { background:rgba(70,80,140,.12); }
+
+  /* ── Toast e notifiche ── */
+  /* Le versioni base hanno fondi scuri fissi (#1a3a1c, #3a1a1a…) con testo del colore
+     d'accento → su fondo chiaro spariscono. Qui vetro chiaro, testo scuro e una tacca del
+     colore dell'esito a sinistra. */
+  & .toast {
+    color:var(--txt); border:1px solid rgba(255,255,255,.9); border-left-width:4px;
+    background:rgba(248,249,254,.9);
+    backdrop-filter:blur(16px) saturate(170%); -webkit-backdrop-filter:blur(16px) saturate(170%);
+    box-shadow:0 18px 40px -10px rgba(40,48,110,.35);
+  }
+  & .toast-info    { border-left-color:var(--accent);  color:#2a318f; }
+  & .toast-success { border-left-color:var(--income);  color:#14512a; }
+  & .toast-error   { border-left-color:var(--expense); color:#85231c; }
+  & .toast-warning { border-left-color:var(--warn);    color:#5e3d00; }
+  & .toast-action-btn { background:var(--accent) !important; border-color:var(--accent) !important; color:#fff !important; }
+  & .overdue-notice {
+    background:rgba(248,249,254,.9);
+    backdrop-filter:blur(16px) saturate(170%); -webkit-backdrop-filter:blur(16px) saturate(170%);
+    box-shadow:0 18px 40px -10px rgba(40,48,110,.35);
+    border-radius:14px;
+  }
+
+  /* ── Scrollbar ── */
+  & ::-webkit-scrollbar-thumb { background:rgba(70,80,140,.22); background-clip:padding-box; }
+  & ::-webkit-scrollbar-thumb:hover { background:rgba(76,86,216,.5); background-clip:padding-box; }
+}
+
 
 
 /* ─── Carta theme (carta calda, beige pergamena) ─────────────────────────── */

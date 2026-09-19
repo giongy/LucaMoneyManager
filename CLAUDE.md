@@ -58,6 +58,28 @@ SQLite
 
 **Moduli JS di supporto** (non pagine, caricati prima): `bridge` (`callJava` + oggetto `api`), `utils` (formattazione, `evalAmount`, colori grafici per tema), `calculator` (calcolatrice nei campi importo), `ui-shell` (modali, drag titlebar, maniglie di resize), `router` (`navigate`/`renderPage`), `sidebar`, `init` (bootstrap).
 
+### Dove va la logica — regola per tutto il codice nuovo
+
+`Bridge` e `Database` sono i due posti dove finisce qualsiasi cosa, se nessuno lo impedisce. La
+regola, da applicare **ogni volta** che si aggiunge qualcosa:
+
+- **`Bridge` è un adattatore.** Un `case` legge i parametri, chiama **un** metodo, restituisce
+  il risultato. Se serve un `if` che decide qualcosa sui dati (una guardia, una regola, passi
+  che devono restare insieme), va **sotto** il Bridge: messa lì, una guardia protegge solo le
+  chiamate che passano da lì, e una seconda via d'ingresso (uno strumento in `tools/`, un job)
+  la salterebbe senza saperlo. Esempio da non ripetere: il backup obbligatorio prima di
+  `archiveTransactions`, che oggi sta nel `case`.
+- **`Database` è persistenza**: SQL, transazioni, schema, migrazioni. Prima di aggiungere un
+  metodo, la domanda: *è una query, o è una regola di dominio (un calcolo, una decisione, una
+  sequenza di operazioni)?* Le regole vanno in una **classe di dominio** dello stesso package,
+  che usa gli helper di `Database` (`queryList`, `queryOne`, `execute`, `inTx` — oggi privati,
+  si aprono al package con la prima classe di dominio) e **non tocca mai `conn`**: così le tre
+  regole della connessione qui sotto restano in un posto solo.
+- **Il codice esistente si sposta un dominio alla volta, in un commit che non cambia nessun
+  risultato**: `confronta-query.ps1` identico e, per il portafoglio, `test-titoli.ps1` verde,
+  prima e dopo. Mai spostamento e modifica di comportamento nello stesso commit: una differenza
+  di risultato non direbbe più se viene dallo spostamento o dalla modifica.
+
 ### Connessione DB — invariante da rispettare
 
 `Database` usa **una sola `Connection`**, condivisa da più thread: thread UI di JCEF, virtual thread del `WebServer` e dei dialog async, EDT Swing (tray/iconify/backup), thread del timer di auto-release. **Non** c'è nulla che serializzi le chiamate. Le tre regole che tengono in piedi il tutto:

@@ -3159,14 +3159,14 @@ public class Database {
                 FROM transactions t
                 WHERE t.category_id IS NOT NULL
                   AND NOT EXISTS (SELECT 1 FROM transaction_splits ts WHERE ts.transaction_id = t.id)
-                  AND COALESCE((SELECT excluded_from_budget FROM categories WHERE id=t.category_id),0)=0
+                  AND """ + countsInBudget("t.category_id") + """
                   AND t.date >= ? AND t.date < ? AND t.type IN ('expense','income')
                 UNION ALL
                 SELECT ts.category_id AS cat_id, t.type,
                        CAST(strftime('%m', t.date) AS INTEGER) AS month, ts.amount
                 FROM transactions t
                 JOIN transaction_splits ts ON ts.transaction_id = t.id
-                WHERE COALESCE((SELECT excluded_from_budget FROM categories WHERE id=ts.category_id),0)=0
+                WHERE """ + countsInBudget("ts.category_id") + """
                   AND t.date >= ? AND t.date < ? AND t.type IN ('expense','income')
             )
             SELECT cat_id AS category_id, month, SUM(amount) AS total
@@ -3204,12 +3204,12 @@ public class Database {
                 SELECT t.category_id, t.date, t.amount FROM transactions t
                 WHERE t.category_id IS NOT NULL
                   AND NOT EXISTS (SELECT 1 FROM transaction_splits ts WHERE ts.transaction_id = t.id)
-                  AND COALESCE((SELECT excluded_from_budget FROM categories WHERE id=t.category_id),0)=0
+                  AND """ + countsInBudget("t.category_id") + """
                   AND t.date >= ? AND t.date < ? AND t.type IN ('expense','income')
                 UNION ALL
                 SELECT ts.category_id, t.date, ts.amount FROM transactions t
                 JOIN transaction_splits ts ON ts.transaction_id = t.id
-                WHERE COALESCE((SELECT excluded_from_budget FROM categories WHERE id=ts.category_id),0)=0
+                WHERE """ + countsInBudget("ts.category_id") + """
                   AND t.date >= ? AND t.date < ? AND t.type IN ('expense','income')
             )
             SELECT category_id, CAST(strftime('%m', date) AS INTEGER) AS month, SUM(amount) AS total
@@ -5360,12 +5360,12 @@ public class Database {
             WITH cat_amounts AS (
                 SELECT t.type, t.amount FROM transactions t
                 WHERE NOT EXISTS (SELECT 1 FROM transaction_splits ts WHERE ts.transaction_id = t.id)
-                  AND COALESCE((SELECT excluded_from_budget FROM categories WHERE id=t.category_id),0)=0
+                  AND """ + countsInBudget("t.category_id") + """
                   AND t.date >= ? AND t.date < ?
                 UNION ALL
                 SELECT t.type, ts.amount FROM transactions t
                 JOIN transaction_splits ts ON ts.transaction_id = t.id
-                WHERE COALESCE((SELECT excluded_from_budget FROM categories WHERE id=ts.category_id),0)=0
+                WHERE """ + countsInBudget("ts.category_id") + """
                   AND t.date >= ? AND t.date < ?
             )
             SELECT COALESCE(SUM(CASE WHEN type='income'  THEN amount ELSE 0 END),0) AS income,
@@ -5373,7 +5373,8 @@ public class Database {
                    (SELECT COUNT(*) FROM transactions t2
                      WHERE t2.date >= ? AND t2.date < ?
                        AND (EXISTS (SELECT 1 FROM transaction_splits ts2 WHERE ts2.transaction_id = t2.id)
-                            OR COALESCE((SELECT excluded_from_budget FROM categories WHERE id=t2.category_id),0)=0)
+                            OR """ + countsInBudget("t2.category_id") + """
+                           )
                    ) AS transaction_count
             FROM cat_amounts
         """, yearStart(year), yearEnd(year), yearStart(year), yearEnd(year),
@@ -5433,12 +5434,12 @@ public class Database {
             WITH cat_amounts AS (
                 SELECT t.type, t.amount FROM transactions t
                 WHERE NOT EXISTS (SELECT 1 FROM transaction_splits ts WHERE ts.transaction_id = t.id)
-                  AND COALESCE((SELECT excluded_from_budget FROM categories WHERE id=t.category_id),0)=0
+                  AND """ + countsInBudget("t.category_id") + """
                   AND t.date >= ? AND t.date <= ?
                 UNION ALL
                 SELECT t.type, ts.amount FROM transactions t
                 JOIN transaction_splits ts ON ts.transaction_id = t.id
-                WHERE COALESCE((SELECT excluded_from_budget FROM categories WHERE id=ts.category_id),0)=0
+                WHERE """ + countsInBudget("ts.category_id") + """
                   AND t.date >= ? AND t.date <= ?
             )
             SELECT COALESCE(SUM(CASE WHEN type='income'  THEN amount ELSE 0 END),0) AS income,
@@ -5458,12 +5459,12 @@ public class Database {
             WITH cat_amounts AS (
                 SELECT t.date, t.type, t.amount FROM transactions t
                 WHERE NOT EXISTS (SELECT 1 FROM transaction_splits ts WHERE ts.transaction_id = t.id)
-                  AND COALESCE((SELECT excluded_from_budget FROM categories WHERE id=t.category_id),0)=0
+                  AND """ + countsInBudget("t.category_id") + """
                   AND t.date >= ? AND t.date < ? AND t.type IN ('income','expense')
                 UNION ALL
                 SELECT t.date, t.type, ts.amount FROM transactions t
                 JOIN transaction_splits ts ON ts.transaction_id = t.id
-                WHERE COALESCE((SELECT excluded_from_budget FROM categories WHERE id=ts.category_id),0)=0
+                WHERE """ + countsInBudget("ts.category_id") + """
                   AND t.date >= ? AND t.date < ? AND t.type IN ('income','expense')
             )
             SELECT CAST(strftime('%m',date) AS INTEGER) AS month,
@@ -5481,12 +5482,12 @@ public class Database {
                 SELECT t.category_id, t.amount FROM transactions t
                 WHERE t.category_id IS NOT NULL
                   AND NOT EXISTS (SELECT 1 FROM transaction_splits ts WHERE ts.transaction_id = t.id)
-                  AND COALESCE((SELECT excluded_from_budget FROM categories WHERE id=t.category_id),0)=0
+                  AND """ + countsInBudget("t.category_id") + """
                   AND t.date >= ? AND t.date < ? AND t.type=?
                 UNION ALL
                 SELECT ts.category_id, ts.amount FROM transactions t
                 JOIN transaction_splits ts ON ts.transaction_id = t.id
-                WHERE COALESCE((SELECT excluded_from_budget FROM categories WHERE id=ts.category_id),0)=0
+                WHERE """ + countsInBudget("ts.category_id") + """
                   AND t.date >= ? AND t.date < ? AND t.type=?
             )
             SELECT c.name, p.name AS parent_name, c.color, c.icon, SUM(ca.amount) AS total
@@ -5611,12 +5612,12 @@ public class Database {
                 WITH cat_amounts AS (
                     SELECT t.date, t.type, t.amount FROM transactions t
                     WHERE NOT EXISTS (SELECT 1 FROM transaction_splits ts WHERE ts.transaction_id = t.id)
-                      AND COALESCE((SELECT excluded_from_budget FROM categories WHERE id=t.category_id),0)=0
+                      AND """ + countsInBudget("t.category_id") + """
                       AND t.date >= ? AND t.type IN ('income','expense')
                     UNION ALL
                     SELECT t.date, t.type, ts.amount FROM transactions t
                     JOIN transaction_splits ts ON ts.transaction_id = t.id
-                    WHERE COALESCE((SELECT excluded_from_budget FROM categories WHERE id=ts.category_id),0)=0
+                    WHERE """ + countsInBudget("ts.category_id") + """
                       AND t.date >= ? AND t.type IN ('income','expense')
                 )
                 -- amount SENZA ABS, allineato a getMonthlyChartData e al calcolo dei SALDI dei
@@ -5962,6 +5963,31 @@ public class Database {
         return forecast;
     }
 
+    // ── Categorie escluse da budget e report (categories.excluded_from_budget) ──
+    /**
+     * Predicato SQL vero quando la categoria di un movimento CONTA nelle statistiche: budget,
+     * dashboard, report, Analytics e previsioni. `categoryCol` è la colonna che porta l'id della
+     * categoria nella query chiamante: `t.category_id` per le righe non suddivise, `ts.category_id`
+     * per le righe split. Un movimento senza categoria (NULL) conta.
+     * <p>
+     * Era ripetuto letterale in 25 punti, quasi sempre in coppia fra righe normali e righe split:
+     * cambiare la regola (per esempio far valere l'esclusione del parent anche sulle figlie)
+     * richiedeva di trovarli tutti, e uno dimenticato avrebbe fatto dare a due schermate due totali
+     * diversi per lo stesso periodo, senza alcun segnale.
+     * <p>
+     * Gli spazi in testa e in coda servono: un text block toglie gli spazi a fine riga, anche quello
+     * prima del `"""` di chiusura, quindi senza lo spazio in testa `AND` si attaccherebbe a
+     * `COALESCE`; e il pezzo che segue può ripartire senza rientro.
+     * <p>
+     * ⚠️ La stessa regola resta scritta a mano, in un'altra forma, dove la categoria è già in JOIN:
+     * `COALESCE(c.excluded_from_budget,0)=0` in getExpenseNatureReport e forecastOneoffCandidates,
+     * e nell'elenco categorie di getBudgetYear, che la applica anche al parent. Cambiando la
+     * regola vanno riviste anche quelle.
+     */
+    private static String countsInBudget(String categoryCol) {
+        return " COALESCE((SELECT excluded_from_budget FROM categories WHERE id=" + categoryCol + "),0)=0 ";
+    }
+
     // ── Movimenti straordinari (tag di sistema "oneoff") ─────────────────────
     /**
      * Predicato SQL da concatenare a una WHERE per ESCLUDERE i movimenti marcati come
@@ -6105,15 +6131,13 @@ public class Database {
                     FROM transactions t
                     WHERE NOT EXISTS (SELECT 1 FROM transaction_splits ts WHERE ts.transaction_id = t.id)
                       AND t.type='expense' AND t.date >= ? AND t.date < ?
-                      AND COALESCE((SELECT excluded_from_budget FROM categories WHERE id=t.category_id),0)=0
-                """ + notOneoff("t") + """
+                      AND """ + countsInBudget("t.category_id") + notOneoff("t") + """
                     UNION ALL
                     SELECT strftime('%Y-%m', t.date) AS ym, ts.category_id AS cid, ts.amount AS amt
                     FROM transactions t
                     JOIN transaction_splits ts ON ts.transaction_id = t.id
                     WHERE t.type='expense' AND t.date >= ? AND t.date < ?
-                      AND COALESCE((SELECT excluded_from_budget FROM categories WHERE id=ts.category_id),0)=0
-                """ + notOneoff("t") + """
+                      AND """ + countsInBudget("ts.category_id") + notOneoff("t") + """
                 )
                 SELECT a.ym AS ym,
                        CASE WHEN p.name IS NOT NULL THEN p.name || ':' || c.name
@@ -6266,7 +6290,7 @@ public class Database {
                    SUM(CASE WHEN type='expense' THEN amount ELSE 0 END) AS expense
             FROM transactions t
             WHERE date >= ? AND date < ? AND type IN ('income','expense')
-              AND COALESCE((SELECT excluded_from_budget FROM categories WHERE id=t.category_id),0)=0
+              AND """ + countsInBudget("t.category_id") + """
             GROUP BY ym ORDER BY ym
         """, histFrom, histToExcl);
 
@@ -6275,7 +6299,7 @@ public class Database {
             "SELECT SUM(CASE WHEN type='income' THEN amount ELSE 0 END) " +
             "     - SUM(CASE WHEN type='expense' THEN amount ELSE 0 END) AS net " +
             "FROM transactions t WHERE date >= ? AND type IN ('income','expense') " +
-            "  AND COALESCE((SELECT excluded_from_budget FROM categories WHERE id=t.category_id),0)=0", histToExcl);
+            "  AND" + countsInBudget("t.category_id"), histToExcl);
         double currentPartialNet = partialRow != null && partialRow.get("net") != null
                 ? ((Number) partialRow.get("net")).doubleValue() : 0.0;
 
@@ -6291,7 +6315,7 @@ public class Database {
             "SUM(CASE WHEN t.type='income'  THEN t.amount ELSE 0 END) AS inc, " +   // niente ABS: vedi sopra
             "SUM(CASE WHEN t.type='expense' THEN t.amount ELSE 0 END) AS exp " +
             "FROM transactions t WHERE t.date >= ? AND t.date < ? AND t.type IN ('income','expense')" + notInCat +
-            " AND COALESCE((SELECT excluded_from_budget FROM categories WHERE id=t.category_id),0)=0" +
+            " AND" + countsInBudget("t.category_id") +
             notOneoff("t") +
             " GROUP BY ym ORDER BY ym", histFrom, histToExcl);
 
@@ -6312,7 +6336,7 @@ public class Database {
             "SUM(CASE WHEN t.type='income'  THEN t.amount ELSE 0 END) AS income, " +
             "SUM(CASE WHEN t.type='expense' THEN t.amount ELSE 0 END) AS expense " +
             "FROM transactions t WHERE t.date >= ? AND t.date < ? AND t.type IN ('income','expense') " +
-            "  AND COALESCE((SELECT excluded_from_budget FROM categories WHERE id=t.category_id),0)=0" +
+            "  AND" + countsInBudget("t.category_id") +
             notOneoff("t") +
             " GROUP BY ym ORDER BY ym", histFrom, histToExcl);
         List<Double> histNets = new ArrayList<>();
@@ -6510,12 +6534,12 @@ public class Database {
                 SELECT t.category_id, t.date, t.amount FROM transactions t
                 WHERE t.category_id IS NOT NULL
                   AND NOT EXISTS (SELECT 1 FROM transaction_splits ts WHERE ts.transaction_id = t.id)
-                  AND COALESCE((SELECT excluded_from_budget FROM categories WHERE id=t.category_id),0)=0
+                  AND """ + countsInBudget("t.category_id") + """
                   AND t.date >= ? AND t.type IN ('expense','income')
                 UNION ALL
                 SELECT ts.category_id, t.date, ts.amount FROM transactions t
                 JOIN transaction_splits ts ON ts.transaction_id = t.id
-                WHERE COALESCE((SELECT excluded_from_budget FROM categories WHERE id=ts.category_id),0)=0
+                WHERE """ + countsInBudget("ts.category_id") + """
                   AND t.date >= ? AND t.type IN ('expense','income')
             )
             SELECT c.id, c.name, c.type, c.color, c.icon,
@@ -6566,12 +6590,12 @@ public class Database {
                 SELECT t.category_id, t.date, t.amount, %s AS oneoff FROM transactions t
                 WHERE t.category_id IS NOT NULL
                   AND NOT EXISTS (SELECT 1 FROM transaction_splits ts WHERE ts.transaction_id = t.id)
-                  AND COALESCE((SELECT excluded_from_budget FROM categories WHERE id=t.category_id),0)=0
+                  AND %s
                   AND t.type IN ('expense','income')
                 UNION ALL
                 SELECT ts.category_id, t.date, ts.amount, %s AS oneoff FROM transactions t
                 JOIN transaction_splits ts ON ts.transaction_id = t.id
-                WHERE COALESCE((SELECT excluded_from_budget FROM categories WHERE id=ts.category_id),0)=0
+                WHERE %s
                   AND t.type IN ('expense','income')
             )
             SELECT %s AS id, %s AS name, %s AS type, %s AS color, %s AS icon, %s AS parent_name, %s AS parent_id,
@@ -6587,7 +6611,8 @@ public class Database {
             GROUP BY %s
             HAVING total_a > 0 OR total_b > 0
             """.formatted(
-                isOneoff("t"), isOneoff("t"),
+                isOneoff("t"), countsInBudget("t.category_id"),
+                isOneoff("t"), countsInBudget("ts.category_id"),
                 byParent ? "COALESCE(c.parent_id, c.id)"        : "c.id",
                 byParent ? "COALESCE(p.name, c.name)"           : "c.name",
                 byParent ? "COALESCE(root.type, c.type)"        : "c.type",

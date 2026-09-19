@@ -2128,8 +2128,13 @@ async function showEditPositionModal(portfolioId) {
       country:          document.getElementById('e_country').value.trim() || null,
       notes:            document.getElementById('e_notes').value.trim() || null,
     };
+    // Quantità 0 ammessa solo se la posizione è GIÀ a 0 (titolo venduto per intero): prima
+    // era sempre rifiutata, e un titolo chiuso non si poteva più modificare in nessun campo —
+    // nome, note, commissioni. Per le posizioni aperte la regola resta quella di prima: si
+    // chiudono con una vendita, che registra l'incasso.
+    const qtyOk = data.quantity > 0 || (data.quantity === 0 && !(pos.quantity > 0));
     if (!data.name)                         return fieldError('e_name', 'Inserisci il nome');
-    if (!data.quantity || data.quantity<=0) return fieldError('e_qty',  'Inserisci una quantità valida');
+    if (!qtyOk)                             return fieldError('e_qty',  'Inserisci una quantità valida');
     if (isNaN(data.avg_price))              return fieldError('e_avg',  'Inserisci un prezzo medio valido');
     try {
       await api.updatePortfolioItem(data);

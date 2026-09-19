@@ -505,7 +505,7 @@ riferimento disponibile. Le due schede si somigliano ma questo pezzo non va unif
 
 - **Lingua:** tutto in italiano (commenti, stringhe UI, messaggi errore)
 - **Naming:** PascalCase classi, camelCase metodi/variabili, UPPER_SNAKE_CASE costanti, snake_case tabelle DB
-- **Nessun test automatico** sulla logica — test manuale via UI. Per la **resa grafica** esiste però una verifica automatizzabile: vedi "Verifica visiva dell'UI" più sotto
+- **Nessun test automatico** sulla logica — test manuale via UI. Fanno eccezione due verifiche di non regressione: `test-titoli.ps1` (portafoglio) e `confronta-query.ps1` (ogni lettura di `Database`, prima/dopo una modifica). Per la **resa grafica** esiste una verifica automatizzabile: vedi "Verifica visiva dell'UI" più sotto
 - **Nessun framework JS** — Vanilla JS puro
 - **Commenti sezione** con separatori Unicode `── ──`
 - **SQL:** text blocks Java (`"""..."""`)
@@ -807,6 +807,60 @@ Il classpath mette `target\classes` **prima** del fat JAR: nel JAR ci sono le cl
 dell'ultima build, in `target\classes` quelle appena compilate. Senza quest'ordine si
 verificherebbe il codice vecchio credendo di provare il nuovo — quindi prima serve
 `mvn -o compile`. Esce con codice diverso da zero se un controllo fallisce.
+
+---
+
+## Verifica di non regressione sulle letture: `confronta-query.ps1`
+
+`test-titoli.ps1` controlla regole scritte a mano; questo strumento risponde a un'altra
+domanda: **la modifica che sto facendo cambia un numero che l'app mostra?** È la rete sotto
+ogni intervento su `Database.java` che *non dovrebbe* cambiare nulla (riscrittura di query,
+frammenti SQL messi in comune, ottimizzazioni), e dice esattamente cosa si sposta quando
+invece un cambiamento è voluto.
+
+```powershell
+.\tools\confronta-query.ps1                  # modifiche in corso contro HEAD, sul DB di progetto
+.\tools\confronta-query.ps1 -Database prod   # sui dati veri, senza toccarli
+.\tools\confronta-query.ps1 -Rif HEAD~1      # l'ultimo commit contro quello prima
+.\tools\confronta-query.ps1 -Keep            # conserva la cartella di lavoro in %TEMP%
+```
+
+**Come lavora.** Estrae i sorgenti di `-Rif` con `git archive` e compila con `javac`, **con lo
+stesso comando**, quella versione e il working tree. Copia il DB una volta sola, così le due
+versioni leggono gli stessi byte. Poi [ConfrontaQuery.java](tools/ConfrontaQuery.java) chiama
+circa 250 letture di `Database` (conti, categorie, transazioni con i filtri della pagina,
+pianificate, portafoglio, budget, dashboard, Analytics, previsioni, più `generateBudget` in
+fondo) e salva per ognuna il risultato e il **testo SQL** di ogni query, intercettato da una
+spia sulla `Connection`. Due scenari: `reale`, e `escluse`, con le categorie più usate (anche
+dagli split) marcate escluse da budget. Senza il secondo, il filtro sulle escluse non
+verrebbe mai messo alla prova, perché sui dati veri quasi nulla ci ricade.
+
+**Come si legge.**
+- `risultati` è l'esito: IDENTICI → exit 0; DIVERSI → exit 1, con il punto esatto in cui il
+  JSON diverge (es. `current_partial_net: -3271.7` → `-2739.54`).
+- `testo SQL` è informativo: elenca le chiamate con SQL cambiato **e** risultato identico,
+  che è normale per una riscrittura ma sospetto se non si voleva toccare quella query. Gli
+  spazi non contano (a capo, rientri, spazi attorno a parentesi e virgole).
+- Il riferimento gira **due volte**: una chiamata che cambia fra le due esecuzioni dello
+  stesso codice non è deterministica e viene elencata a parte, invece di far fallire il
+  confronto per un motivo finto.
+
+⚠️ Quattro dettagli su cui si regge, da non togliere:
+1. **`-Xprefer:source` in `javac`.** Il fat JAR contiene anche le classi dell'app, compilate
+   all'ultimo `mvn package`. Con la regola di default ("vince il più recente") `javac`
+   potrebbe usare quelle invece dei sorgenti estratti, e si confronterebbe altro codice.
+2. **Stesso nome di file per la copia in tutte le esecuzioni** (`lavoro.db`): alcune letture
+   restituiscono il path del DB, e con nomi diversi risulterebbero cambiate.
+3. **Gli id da iterare si leggono con una connessione a parte**, prima di aprire `Database`:
+   se venissero dal codice sotto esame, una modifica a `getAccounts` cambierebbe l'elenco
+   stesso delle chiamate.
+4. **Chiavi ordinate prima di serializzare**: `Map.of` ha un ordine di iterazione diverso a
+   ogni avvio della JVM, e senza questo due esecuzioni dello stesso codice non coinciderebbero.
+
+**Limiti.** Copre `Database` e basta: non il `Bridge`, non il JS, non la resa (per quella c'è
+"Verifica visiva dell'UI"). Le date dei parametri sono relative a oggi, e le due versioni girano
+a pochi secondi l'una dall'altra. Sulle scritture copre solo `generateBudget`: per acquisti,
+vendite e annullamenti c'è `test-titoli.ps1`. Dura circa un minuto.
 
 ---
 

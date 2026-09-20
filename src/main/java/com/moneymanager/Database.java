@@ -37,7 +37,24 @@ public class Database {
     // volatile: letto senza lock da isOpen(), che il polling del tray chiama ogni 2s
     private volatile Connection conn;
     private String currentDbPath;
-    private final DbLogger logger;
+    private final Giornale logger;
+
+    // ── Lock di scrittura ─────────────────────────────────────────────────────
+    // Tenuto per TUTTA l'operazione (dalla prima scrittura alla fine della richiesta), non per
+    // il singolo statement. Serve a due cose che prima non erano garantite:
+    //   1. un solo scrittore per volta — il giornale assegna le righe catturate con
+    //      `WHERE op_id IS NULL`, e due operazioni concorrenti se le ruberebbero a vicenda;
+    //   2. atomicità del gesto — fino alla 1.26.0 solo le scritture dentro inTx erano
+    //      serializzate; due execute() nude potevano incrociarsi con una transazione altrui
+    //      e finirci dentro.
+    //
+    // ⚠️ ORDINE DI ACQUISIZIONE, non negoziabile: **lockScrittura PRIMA del monitor** di questa
+    // istanza, mai il contrario. Un metodo `synchronized` che poi prendesse il lock si
+    // bloccherebbe contro chi tiene il lock e aspetta il monitor (beginQuery, close, …). È il
+    // motivo per cui reconnect/backup/restoreBackup/withExclusiveAccess sono stati divisi in un
+    // guscio pubblico che prende il lock e un corpo privato `synchronized`.
+    private final java.util.concurrent.locks.ReentrantLock lockScrittura =
+            new java.util.concurrent.locks.ReentrantLock();
 
     // ── Auto-release del lock per la sync OneDrive ────────────────────────────
     // Il file SQLite è condiviso via OneDrive con Android. Finché il desktop tiene
@@ -131,12 +148,62 @@ public class Database {
     /** Apre il DB e prepara lo schema: crea tabelle, applica migrazioni e dati di default. */
     public Database(String dbPath) throws SQLException {
         currentDbPath = dbPath;
-        logger = new DbLogger(dbPath);
+        logger = new Giornale(dbPath, this);
         conn = openConnection(dbPath);
-        initSchema();
-        migrate();
-        seedDefaultData();
-        logger.log("AVVIO", "db:" + dbPath);
+        avvia(dbPath, "AVVIO");
+    }
+
+    /**
+     * Prepara lo schema dentro UNA sola operazione del giornale.
+     *
+     * <p>Non è un dettaglio: {@code initSchema} e {@code migrate} possono toccare dati (i tag di
+     * sistema, il backfill delle chiavi di categoria), e i trigger di cattura di una sessione
+     * precedente sono già in piedi. Senza un'operazione dichiarata attorno, quelle righe
+     * resterebbero con {@code op_id IS NULL} e verrebbero assegnate al <b>primo gesto
+     * dell'utente</b>, che si ritroverebbe in cronologia modifiche che non ha fatto.</p>
+     *
+     * <p>⚠️ Su un DB già a posto qui non si scrive niente: nessuna scrittura ⇒ nessuna
+     * transazione aperta ⇒ nessuna riga di {@code op_log}. L'avvio resta a costo zero, come
+     * preteso dalla sezione "scrittura a vuoto" di CLAUDE.md.</p>
+     */
+    private void avvia(String dbPath, String etichetta) throws SQLException {
+        // ⚠️ Può girare DENTRO una richiesta: il cambio di database arriva dal Bridge
+        // (`reloadDb`). Il contesto di quella richiesta va messo da parte e rimesso, altrimenti
+        // glielo rubiamo e le sue eventuali scritture successive resterebbero senza operazione.
+        Giornale.Operazione esterna = logger.corrente();
+        iniziaRichiesta(etichetta, "avvio");
+        boolean ok = false;
+        try {
+            initSchema();
+            migrate();
+            logger.allineaTrigger();   // dopo migrate: le colonne devono essere quelle finali
+            seedDefaultData();
+            logger.log(etichetta, "db:" + dbPath);
+            ok = true;
+        } finally {
+            terminaRichiesta(ok);
+            logger.ripristina(esterna);
+        }
+    }
+
+    /**
+     * Rifiuta un'operazione che chiude e riapre il file DB mentre un gesto è a metà.
+     *
+     * <p>⚠️ Non è teoria: {@code close()} non chiude se {@code activeQueries > 0}, e
+     * un'operazione aperta ne tiene uno alzato per tutta la sua durata. Il {@code close()} di
+     * {@code reconnect}/{@code restoreBackup} diventerebbe allora un no-op silenzioso, e la
+     * {@code openConnection} subito dopo lascerebbe la vecchia connessione <b>orfana</b>, con il
+     * file handle aperto fino alla fine del processo — cioè il lock su OneDrive per sempre,
+     * esattamente ciò che tutto l'auto-release esiste per evitare.</p>
+     *
+     * <p>Oggi i due {@code case} del Bridge non scrivono prima di arrivarci, quindi non
+     * succede. Questa guardia serve al giorno in cui qualcuno ci aggiungerà una scrittura.</p>
+     */
+    private void vietaSeOperazioneAperta(String cosa) throws SQLException {
+        Giornale.Operazione op = logger.corrente();
+        if (op != null && op.aperta)
+            throw new SQLException(cosa + " non è possibile mentre un'operazione è in corso"
+                    + " ('" + op.metodo + "'): chiudi il gesto prima di sostituire il database.");
     }
 
     /**
@@ -154,9 +221,28 @@ public class Database {
         return DriverManager.getConnection("jdbc:sqlite:" + dbPath, config.toProperties());
     }
 
-    /** Chiude il DB corrente e ne apre un altro (cambio file DB da Impostazioni).
-     *  synchronized: riassegna conn, non deve incrociarsi con ensureOpen()/reopen(). */
-    public synchronized void reconnect(String dbPath) throws SQLException {
+    /**
+     * Chiude il DB corrente e ne apre un altro (cambio file DB da Impostazioni).
+     *
+     * <p>Diviso in due per rispettare l'ordine dei lock: il guscio prende {@code lockScrittura}
+     * (nessun'altra scrittura deve incrociarsi con un cambio di file), il corpo
+     * {@code synchronized} riassegna {@code conn} senza incrociarsi con ensureOpen()/reopen().
+     * Tenerli insieme in un metodo {@code synchronized} significherebbe prendere il monitor e
+     * <i>poi</i> il lock — l'ordine che porta allo stallo.</p>
+     */
+    public void reconnect(String dbPath) throws SQLException {
+        vietaSeOperazioneAperta("Cambiare database");
+        lockScrittura.lock();
+        try {
+            preparaCambioDb(dbPath);
+            avvia(dbPath, "DB CAMBIATO");
+        } finally {
+            lockScrittura.unlock();
+        }
+    }
+
+    /** Chiude il DB corrente, sposta il puntatore sul nuovo file e apre la connessione. */
+    private synchronized void preparaCambioDb(String dbPath) throws SQLException {
         close();                 // punto unico di chiusura (null-safe, aggiorna la baseline)
         currentDbPath = dbPath;
         // La baseline mtime/size appena scritta da close() si riferisce al DB PRECEDENTE:
@@ -166,10 +252,6 @@ public class Database {
         lastClosedSize  = -1;
         logger.setDbPath(dbPath);
         conn = openConnection(dbPath);
-        initSchema();
-        migrate();
-        seedDefaultData();
-        logger.log("DB CAMBIATO", "db:" + dbPath);
     }
 
     /** True se la connessione è aperta e valida. */
@@ -443,7 +525,20 @@ public class Database {
      * Il lock esclude le scritture applicative (tutte passano da {@code inTx}, anch'esso
      * synchronized) per la durata della copia.</p>
      */
-    public synchronized String backup(String backupDir, int maxBackups) throws IOException {
+    public String backup(String backupDir, int maxBackups) throws IOException {
+        // Guscio che prende lockScrittura PRIMA del monitor: è l'ordine unico di acquisizione
+        // (vedi lockScrittura). Prima l'esclusione con le scritture la dava il solo
+        // `synchronized` condiviso con inTx; ora che inTx non è più synchronized, senza questo
+        // lock un backup potrebbe partire a metà di un'operazione.
+        lockScrittura.lock();
+        try {
+            return backupInterno(backupDir, maxBackups);
+        } finally {
+            lockScrittura.unlock();
+        }
+    }
+
+    private synchronized String backupInterno(String backupDir, int maxBackups) throws IOException {
         if (backupDir == null || backupDir.isBlank())
             throw new IOException("Cartella backup non configurata");
 
@@ -611,7 +706,17 @@ public class Database {
      * copia il backup al suo posto e riapre la connessione. In caso di errore fa
      * rollback automatico ripristinando il DB originale.
      */
-    public synchronized Map<String, Object> restoreBackup(String backupPath, String backupDir) throws Exception {
+    public Map<String, Object> restoreBackup(String backupPath, String backupDir) throws Exception {
+        vietaSeOperazioneAperta("Ripristinare un backup");
+        lockScrittura.lock();   // come backup(): il lock prima del monitor, mai il contrario
+        try {
+            return restoreBackupInterno(backupPath, backupDir);
+        } finally {
+            lockScrittura.unlock();
+        }
+    }
+
+    private synchronized Map<String, Object> restoreBackupInterno(String backupPath, String backupDir) throws Exception {
         Path bak = Path.of(backupPath);
         if (!Files.exists(bak)) throw new IOException("File backup non trovato: " + backupPath);
 
@@ -670,12 +775,168 @@ public class Database {
         }
     }
 
+    // ─── Operazioni del giornale ──────────────────────────────────────────────
+
+    /**
+     * Dichiara l'inizio di una richiesta. <b>Non scrive niente</b>: una lettura non deve
+     * costare una riga di giornale, e su OneDrive costerebbe il ricaricamento dell'intero
+     * file. L'operazione vera nasce alla prima scrittura ({@link #apriOperazioneSeServe()}).
+     */
+    public void iniziaRichiesta(String metodo, String origine) {
+        logger.iniziaRichiesta(metodo, origine);
+    }
+
+    /**
+     * Chiude la richiesta: materializza l'operazione (se ha cambiato dati) e conclude la
+     * transazione. Da chiamare sempre, anche quando la richiesta è fallita — con
+     * {@code ok=false} si annulla tutto il gesto invece di lasciarlo a metà.
+     */
+    public void terminaRichiesta(boolean ok) {
+        try {
+            chiudiOperazione(ok);
+        } catch (SQLException e) {
+            System.err.println("Database.terminaRichiesta: " + e.getMessage());
+        } finally {
+            logger.fineRichiesta();
+        }
+    }
+
+    /**
+     * Apre l'operazione se non lo è già: prende il lock di scrittura e la transazione che
+     * copriranno tutto il gesto.
+     *
+     * <p>Chiamato da ogni scrittura ({@code execute}, {@code executePlain}, {@code executeRaw},
+     * {@code inTx}). Se la scrittura avviene fuori da una richiesta dichiarata (avvio,
+     * manutenzione, uno strumento) apre un'operazione <b>implicita</b>, che chi l'ha aperta
+     * chiuderà subito dopo: senza, le righe catturate dai trigger resterebbero con
+     * {@code op_id IS NULL} e finirebbero assegnate al gesto successivo — cioè a quello
+     * sbagliato.</p>
+     *
+     * <p>⚠️ <b>Chiude l'operazione solo chi ha creato il contesto.</b> Una scrittura dentro una
+     * richiesta dichiarata apre la transazione ma non la chiude: la chiude il confine della
+     * richiesta ({@link #terminaRichiesta}). Altrimenti la prima scrittura committerebbe a metà
+     * gesto e il resto della richiesta proseguirebbe in autocommit — e un gesto solo
+     * comparirebbe in cronologia come più operazioni.</p>
+     *
+     * @return true se questa chiamata ha creato un contesto <b>implicito</b>, e deve quindi
+     *         chiuderlo lei
+     */
+    private boolean apriOperazioneSeServe() throws SQLException {
+        Giornale.Operazione op = logger.corrente();
+        boolean implicita = (op == null);
+        if (implicita) { logger.iniziaImplicita(); op = logger.corrente(); }
+        if (!op.aperta) apriTransazione(op);
+        return implicita;
+    }
+
+    /** Prende il lock di scrittura e apre la transazione che coprirà tutta l'operazione. */
+    private void apriTransazione(Giornale.Operazione op) throws SQLException {
+        // ⚠️ Il lock PRIMA di qualunque metodo synchronized (beginQuery): è l'ordine su cui si
+        // regge l'assenza di stalli. Vedi il commento su lockScrittura.
+        lockScrittura.lock();
+        boolean fatto = false;
+        try {
+            suspendAutoRelease();   // il timer non deve chiudere conn a metà operazione
+            try {
+                Connection c = beginQuery();   // activeQueries resta alto per tutta l'operazione
+                c.setAutoCommit(false);
+                op.conn   = c;
+                op.aperta = true;
+                fatto = true;
+            } catch (RuntimeException | SQLException e) {
+                resumeAutoRelease();
+                throw e;
+            }
+        } finally {
+            if (!fatto) lockScrittura.unlock();
+        }
+    }
+
+    /**
+     * Chiude l'operazione in corso: scrive la riga di cronologia e commit, oppure rollback.
+     *
+     * <p>⚠️ {@code materializza} gira <b>dentro</b> la transazione, appena prima del commit: la
+     * riga di {@code op_log} e i dati che descrive o ci sono entrambi, o non c'è nessuno dei
+     * due. Un giornale che può disallinearsi dai dati produce un annullamento sbagliato, che è
+     * peggio di nessun annullamento.</p>
+     */
+    private void chiudiOperazione(boolean ok) throws SQLException {
+        Giornale.Operazione op = logger.corrente();
+        if (op == null || !op.aperta) return;
+        Connection c = op.conn;
+        try {
+            if (ok) {
+                logger.materializza(op);
+                c.commit();
+            } else {
+                c.rollback();
+            }
+        } catch (SQLException e) {
+            try { c.rollback(); } catch (SQLException re) { e.addSuppressed(re); }
+            throw e;
+        } finally {
+            op.aperta = false;
+            op.conn   = null;
+            try { c.setAutoCommit(true); } catch (SQLException ignored) {
+                // connessione già chiusa (errore fatale): niente da ripristinare
+            }
+            endQuery();
+            resumeAutoRelease();
+            lockScrittura.unlock();
+        }
+    }
+
+    /**
+     * Apre la transazione dell'operazione in corso, se non lo è già.
+     *
+     * <p>Serve a chi deve impostare un PRAGMA <b>di transazione</b> prima di scrivere: oggi
+     * {@code defer_foreign_keys}, che l'annullamento attiva e che SQLite azzera a ogni commit —
+     * quindi va impostato a transazione già aperta, non prima.</p>
+     */
+    void assicuraTransazioneAperta() throws SQLException {
+        Giornale.Operazione op = logger.corrente();
+        if (op == null) throw new SQLException("nessuna operazione in corso");
+        if (!op.aperta) apriTransazione(op);
+    }
+
+    // Gusci: la regola sta in Giornale, qui c'è solo l'inoltro (vedi CLAUDE.md, "Dove va la logica").
+
+    /** Annulla un'operazione del giornale, se niente la blocca. */
+    public Map<String, Object> annullaOperazione(long opId) throws SQLException {
+        return logger.annulla(opId);
+    }
+
+    /** Annulla un'operazione e l'insieme minimo di quelle che la bloccano. */
+    public Map<String, Object> annullaOperazioneACatena(long opId) throws SQLException {
+        return logger.annullaACatena(opId);
+    }
+
+    /** Riporta il database a prima di un'operazione: annulla lei e tutto ciò che è venuto dopo. */
+    public Map<String, Object> riportaAOperazione(long opId) throws SQLException {
+        return logger.riportaA(opId);
+    }
+
+    /** Chiude un'operazione implicita (creata da una scrittura fuori da una richiesta
+     *  dichiarata) e ne dimentica il contesto. */
+    private void chiudiImplicita(boolean ok) throws SQLException {
+        try {
+            chiudiOperazione(ok);
+        } finally {
+            logger.fineRichiesta();
+        }
+    }
+
     // ─── Helpers JDBC ─────────────────────────────────────────────────────────
 
     private static final long SLOW_QUERY_MS = 50;  // soglia oltre cui logga "[SLOW QUERY]" su stderr
 
+    // ⚠️ queryList/queryOne/execute/executeRaw/executePlain/inTx sono visibili al package, non
+    // privati: è l'apertura prevista da CLAUDE.md per le classi di dominio dello stesso package
+    // (oggi Giornale). Restano l'UNICO modo di toccare il DB da fuori: `conn` non si espone, così
+    // le tre regole della connessione continuano a vivere in un posto solo.
+
     /** Esegue una SELECT e restituisce le righe come lista di mappe colonna→valore. */
-    private List<Map<String, Object>> queryList(String sql, Object... params) throws SQLException {
+    List<Map<String, Object>> queryList(String sql, Object... params) throws SQLException {
         Connection c = beginQuery();  // guardia: l'auto-release non chiude finché non facciamo endQuery()
         try {
             long t0 = System.nanoTime();
@@ -693,46 +954,80 @@ public class Database {
     }
 
     /** Come {@link #queryList} ma ritorna solo la prima riga (o null se vuota). */
-    private Map<String, Object> queryOne(String sql, Object... params) throws SQLException {
+    Map<String, Object> queryOne(String sql, Object... params) throws SQLException {
         List<Map<String, Object>> rows = queryList(sql, params);
         return rows.isEmpty() ? null : rows.get(0);
     }
 
     /** Esegue INSERT/UPDATE/DELETE e ritorna la chiave generata (o -1). */
-    private long execute(String sql, Object... params) throws SQLException {
-        Connection c = beginQuery();  // guardia: l'auto-release non chiude finché non facciamo endQuery()
+    long execute(String sql, Object... params) throws SQLException {
+        boolean mia = apriOperazioneSeServe();   // ⚠️ prima di beginQuery: vedi lockScrittura
+        boolean ok = false;
         try {
-            long t0 = System.nanoTime();
-            try (PreparedStatement ps = c.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
-                bind(ps, params);
-                ps.executeUpdate();
-                long id;
-                try (ResultSet keys = ps.getGeneratedKeys()) {
-                    id = keys.next() ? keys.getLong(1) : -1;
+            Connection c = beginQuery();  // guardia: l'auto-release non chiude finché non facciamo endQuery()
+            try {
+                long t0 = System.nanoTime();
+                try (PreparedStatement ps = c.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+                    bind(ps, params);
+                    ps.executeUpdate();
+                    long id;
+                    try (ResultSet keys = ps.getGeneratedKeys()) {
+                        id = keys.next() ? keys.getLong(1) : -1;
+                    }
+                    long ms = (System.nanoTime() - t0) / 1_000_000;
+                    if (ms >= SLOW_QUERY_MS)
+                        System.err.printf("[SLOW QUERY %dms] %s%n", ms, sql.substring(0, Math.min(120, sql.length())).replaceAll("\\s+", " ").trim());
+                    ok = true;
+                    return id;
                 }
-                long ms = (System.nanoTime() - t0) / 1_000_000;
-                if (ms >= SLOW_QUERY_MS)
-                    System.err.printf("[SLOW QUERY %dms] %s%n", ms, sql.substring(0, Math.min(120, sql.length())).replaceAll("\\s+", " ").trim());
-                return id;
+            } finally {
+                endQuery();
             }
         } finally {
-            endQuery();
+            if (mia) chiudiImplicita(ok);
         }
     }
 
-    /** Esegue uno script SQL multi-istruzione (usato da initSchema/migrate). */
-    private void executePlain(String sql) throws SQLException {
-        Connection c = beginQuery();  // guardia: l'auto-release non chiude finché non facciamo endQuery()
+    /** Esegue uno script SQL multi-istruzione (usato da initSchema/migrate).
+     *  ⚠️ Spezza lo script sui ';', quindi NON va usato per i trigger (il loro corpo ne
+     *  contiene): per quelli c'è {@link #executeRaw}. */
+    void executePlain(String sql) throws SQLException {
+        boolean mia = apriOperazioneSeServe();
+        boolean ok = false;
         try {
-            // JDBC esegue solo la prima istruzione: splittiamo per ";"
-            for (String stmt : sql.split(";")) {
-                String s = stmt.strip();
-                if (!s.isEmpty()) {
-                    try (Statement st = c.createStatement()) { st.execute(s); }
+            Connection c = beginQuery();  // guardia: l'auto-release non chiude finché non facciamo endQuery()
+            try {
+                // JDBC esegue solo la prima istruzione: splittiamo per ";"
+                for (String stmt : sql.split(";")) {
+                    String s = stmt.strip();
+                    if (!s.isEmpty()) {
+                        try (Statement st = c.createStatement()) { st.execute(s); }
+                    }
                 }
+                ok = true;
+            } finally {
+                endQuery();
             }
         } finally {
-            endQuery();
+            if (mia) chiudiImplicita(ok);
+        }
+    }
+
+    /** Esegue UNA istruzione SQL così com'è, senza spezzarla e senza parametri.
+     *  Serve al DDL che contiene ';' nel corpo — cioè i trigger di {@link Giornale}. */
+    void executeRaw(String sql) throws SQLException {
+        boolean mia = apriOperazioneSeServe();
+        boolean ok = false;
+        try {
+            Connection c = beginQuery();
+            try (Statement st = c.createStatement()) {
+                st.execute(sql);
+                ok = true;
+            } finally {
+                endQuery();
+            }
+        } finally {
+            if (mia) chiudiImplicita(ok);
         }
     }
 
@@ -794,49 +1089,57 @@ public class Database {
     private interface SqlSupplier<T> { T get() throws SQLException; }
 
     /**
-     * Esegue fn in un'unica transazione SQLite: commit se va bene, rollback se lancia
-     * (anche su RuntimeException — senza rollback il finally setAutoCommit(true) committerebbe
-     * silenziosamente la transazione parziale).
+     * Esegue fn come blocco atomico: o tutto, o niente.
      *
-     * synchronized: setAutoCommit/commit/rollback agiscono su stato condiviso della singola
-     * Connection. Due transazioni concorrenti (es. thread UI + richiesta dal WebServer) si
-     * incrocerebbero: il commit dell'una chiude anche la transazione parziale dell'altra, che
-     * poi prosegue in autocommit e scrive a metà. Il lock è rientrante, quindi le execute()
-     * interne continuano a passare da beginQuery() senza bloccarsi.
+     * <p>Dalla 1.26.0 non è più lui ad aprire la transazione — la apre <b>l'operazione</b>
+     * (vedi {@link #apriOperazioneSeServe()}), che copre l'intera richiesta. {@code inTx}
+     * diventa quindi un <b>SAVEPOINT</b> annidato dentro quella transazione.</p>
      *
-     * Usa beginQuery()/endQuery() (e non ensureOpen() + campo conn) per due motivi: prende la
-     * Connection sotto lock, e tiene activeQueries > 0 per TUTTA la transazione — così né il
-     * timer di auto-release né una close() manuale possono troncarla a metà.
+     * <p>⚠️ <b>Il savepoint non è un dettaglio implementativo: renderlo un no-op sarebbe un
+     * bug.</b> {@code importPending} cattura l'eccezione riga per riga e prosegue; con un
+     * {@code inTx} annidato reso inerte, una riga fallita a metà lascerebbe le sue scritture
+     * parziali dentro la transazione esterna e il {@code catch} le nasconderebbe. Il
+     * {@code SAVEPOINT} conserva l'atomicità interna esattamente com'era, mentre quella
+     * esterna diventa atomicità <b>del gesto</b>.</p>
+     *
+     * <p>⚠️ <b>Cambio di comportamento voluto:</b> prima una richiesta che falliva a metà
+     * poteva lasciare committate le scritture già fatte; ora l'intera richiesta viene annullata
+     * ({@code terminaRichiesta(false)}).</p>
+     *
+     * <p>Non più {@code synchronized}: la serializzazione delle scritture è passata a
+     * {@code lockScrittura}, che si prende <b>prima</b> del monitor e copre l'operazione intera
+     * invece della sola transazione — quindi protegge anche le {@code execute()} nude, che
+     * prima non erano serializzate affatto.</p>
      */
-    private synchronized <T> T inTx(SqlSupplier<T> fn) throws SQLException {
-        // Sospendi l'auto-release: il lock non deve essere rilasciato a metà transazione,
-        // altrimenti conn verrebbe chiusa tra un'operazione e l'altra invalidandola.
-        suspendAutoRelease();
-        Connection c;
+    <T> T inTx(SqlSupplier<T> fn) throws SQLException {
+        boolean mia = apriOperazioneSeServe();
+        boolean ok = false;
         try {
-            // beginQuery() e setAutoCommit stanno DENTRO il try: se uno dei due lancia (DB non
-            // raggiungibile, connessione già chiusa) la sospensione va comunque annullata,
-            // altrimenti resterebbe appesa per sempre — proprio la perdita che il contatore
-            // deve impedire.
-            c = beginQuery();
-            c.setAutoCommit(false);
-        } catch (RuntimeException | SQLException e) {
-            resumeAutoRelease();
-            throw e;
+            T result = eseguiInSavepoint(fn);
+            ok = true;
+            return result;
+        } finally {
+            if (mia) chiudiImplicita(ok);
         }
+    }
+
+    /** Esegue fn dentro un SAVEPOINT della transazione dell'operazione in corso:
+     *  {@code RELEASE} se va bene, {@code ROLLBACK TO} se lancia (anche su RuntimeException —
+     *  senza, la transazione esterna committerebbe silenziosamente il pezzo scritto a metà). */
+    private <T> T eseguiInSavepoint(SqlSupplier<T> fn) throws SQLException {
+        Connection c = logger.corrente().conn;   // catturata all'apertura, non riletta dal campo
+        String sp = logger.nomeSavepoint();
+        try (Statement st = c.createStatement()) { st.execute("SAVEPOINT " + sp); }
         try {
             T result = fn.get();
-            c.commit();
+            try (Statement st = c.createStatement()) { st.execute("RELEASE " + sp); }
             return result;
-        } catch (Exception e) {
-            try { c.rollback(); } catch (SQLException re) { e.addSuppressed(re); }
+        } catch (SQLException | RuntimeException e) {
+            try (Statement st = c.createStatement()) {
+                st.execute("ROLLBACK TO " + sp);
+                st.execute("RELEASE " + sp);
+            } catch (SQLException re) { e.addSuppressed(re); }
             throw e;
-        } finally {
-            try { c.setAutoCommit(true); } catch (SQLException ignored) {
-                // connessione già chiusa (es. errore fatale): niente da ripristinare
-            }
-            endQuery();
-            resumeAutoRelease();  // riarma il timer solo alla fine della transazione
         }
     }
 
@@ -1068,6 +1371,46 @@ public class Database {
             );
         """);
 
+        // ─── Giornale delle operazioni (v27) ──────────────────────────────────
+        // op_log = il gesto (la riga che l'utente legge), change_log = le conseguenze sui dati
+        // (la riga com'era prima, da rieseguire a ritroso per annullare). Vedi Giornale.java
+        // e docs/DISEGNO_CRONOLOGIA.md.
+        executePlain("""
+            CREATE TABLE IF NOT EXISTS op_log (
+                id            INTEGER PRIMARY KEY,
+                ts            TEXT    NOT NULL,
+                etichetta     TEXT    NOT NULL,
+                dettaglio     TEXT,
+                origine       TEXT    NOT NULL,
+                tipo          TEXT    NOT NULL,
+                stato         TEXT    NOT NULL DEFAULT 'attiva',
+                motivo        TEXT,
+                annulla_op    INTEGER REFERENCES op_log(id) ON DELETE SET NULL,
+                annullata_da  INTEGER REFERENCES op_log(id) ON DELETE SET NULL
+            );
+            CREATE TABLE IF NOT EXISTS change_log (
+                id       INTEGER PRIMARY KEY,
+                op_id    INTEGER REFERENCES op_log(id) ON DELETE CASCADE,
+                tabella  TEXT NOT NULL,
+                chiave   TEXT NOT NULL,
+                verso    TEXT NOT NULL,
+                riga     TEXT
+            );
+        """);
+        // ⚠️ Niente AUTOINCREMENT su queste due: su una tabella AUTOINCREMENT il contatore in
+        // sqlite_sequence avanza anche per una riga poi scartata, e quella è una pagina scritta
+        // — cioè un ricaricamento OneDrive del file intero (lezione di ensureSystemTags, 1.25.9).
+        // ⚠️ annulla_op/annullata_da sono ON DELETE SET NULL, non CASCADE: con CASCADE potare
+        // un'operazione vecchia porterebbe via anche l'operazione recente che l'ha annullata,
+        // cioè la potatura mangerebbe in avanti invece che all'indietro.
+        // ⚠️ change_log.op_id è invece ON DELETE CASCADE: è ciò che rende la potatura una sola
+        // DELETE su op_log, con le due retention allineate per costruzione e non per disciplina.
+        executePlain("CREATE INDEX IF NOT EXISTS idx_op_log_ts       ON op_log(ts)");
+        executePlain("CREATE INDEX IF NOT EXISTS idx_change_log_op   ON change_log(op_id)");
+        // Indice sulla riga toccata: è quello che il rilevamento conflitti interroga per
+        // sapere se un'operazione successiva ha già modificato le stesse righe.
+        executePlain("CREATE INDEX IF NOT EXISTS idx_change_log_riga ON change_log(tabella, chiave)");
+
         // ─── Indici per performance (idempotenti) ─────────────────────────────
         executePlain("CREATE INDEX IF NOT EXISTS idx_tx_date        ON transactions(date)");
         executePlain("CREATE INDEX IF NOT EXISTS idx_tx_to_account   ON transactions(to_account_id)");
@@ -1133,7 +1476,7 @@ public class Database {
         }
     }
 
-    private static final int SCHEMA_VERSION = 26;
+    private static final int SCHEMA_VERSION = 27;
 
     /**
      * Migrazioni incrementali dello schema per DB creati con versioni precedenti.
@@ -1220,8 +1563,15 @@ public class Database {
             catch (SQLException ignored) {}
         }
 
-        // ── v27+: aggiungere qui i blocchi futuri, es.:
-        //   if (currentVersion < 27) { try { executePlain("ALTER TABLE ..."); } catch (SQLException ignored) {} }
+        // ── v27: giornale delle operazioni (op_log + change_log + trigger di cattura).
+        // Qui non c'è niente da fare: le due tabelle e i loro indici nascono in initSchema(),
+        // che gira PRIMA di migrate() ed è idempotente, quindi copre sia i DB nuovi sia quelli
+        // esistenti; i trigger li installa Giornale.allineaTrigger(), subito dopo di qui.
+        // Il blocco resta per non lasciare un buco nella sequenza: a chi legge la migrazione
+        // deve risultare che la v27 esiste e dove sta.
+
+        // ── v28+: aggiungere qui i blocchi futuri, es.:
+        //   if (currentVersion < 28) { try { executePlain("ALTER TABLE ..."); } catch (SQLException ignored) {} }
 
         // Segna il DB come aggiornato all'ultima versione
         executePlain("DELETE FROM schema_version");
@@ -5285,8 +5635,8 @@ public class Database {
 
     // ─── Log ──────────────────────────────────────────────────────────────────
 
-    /** Espone il logger per uso esterno (es. Bridge). */
-    public DbLogger getLogger() { return logger; }
+    /** Espone il giornale per uso esterno (es. Bridge). */
+    public Giornale getLogger() { return logger; }
 
     /** Prima/ultima data e totale righe nel file di log, con percorso e dimensione file. */
     public Map<String, Object> getLogInfo() {
@@ -5504,7 +5854,16 @@ public class Database {
     @FunctionalInterface
     private interface DbOp { void run(Connection c) throws SQLException; }
 
-    private synchronized void withExclusiveAccess(DbOp op) throws SQLException {
+    private void withExclusiveAccess(DbOp op) throws SQLException {
+        lockScrittura.lock();   // come backup(): il lock prima del monitor, mai il contrario
+        try {
+            withExclusiveAccessInterno(op);
+        } finally {
+            lockScrittura.unlock();
+        }
+    }
+
+    private synchronized void withExclusiveAccessInterno(DbOp op) throws SQLException {
         // Sospendi l'auto-release: il file va tenuto sotto il nostro controllo per tutta
         // l'operazione esclusiva, senza che il timer chiuda/riapra conn a metà.
         suspendAutoRelease();

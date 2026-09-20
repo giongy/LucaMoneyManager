@@ -354,6 +354,29 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
      * Transazioni, Budget, ecc.). Un metodo sconosciuto solleva eccezione → failure al JS.
      */
     public Object dispatch(String method, JsonObject p, CefBrowser browser) throws Exception {
+        // ─── Confine dell'operazione ──────────────────────────────────────
+        // Una richiesta = un gesto dell'utente = al più una riga di cronologia. Il confine sta
+        // qui e non nei singoli case perché è l'unico punto attraversato da ENTRAMBE le vie
+        // d'ingresso: JCEF (browser != null) e la LAN via WebServer (browser == null, ed è
+        // così che si distingue l'origine).
+        //
+        // ⚠️ iniziaRichiesta NON scrive nulla: l'operazione nasce alla prima scrittura e si
+        // materializza solo se ha cambiato dati. Una lettura non deve costare una riga di
+        // giornale — su OneDrive costerebbe il ricaricamento dell'intero file.
+        db.iniziaRichiesta(method, browser != null ? "desktop" : "lan");
+        boolean ok = false;
+        try {
+            Object risultato = dispatchInterno(method, p, browser);
+            ok = true;
+            return risultato;
+        } finally {
+            // Con ok=false l'intero gesto viene annullato invece di restare a metà: è il
+            // cambio di comportamento introdotto dalla transazione per richiesta (vedi inTx).
+            db.terminaRichiesta(ok);
+        }
+    }
+
+    private Object dispatchInterno(String method, JsonObject p, CefBrowser browser) throws Exception {
         return switch (method) {
 
             // ─── Finestra ──────────────────────────────────────────────────

@@ -1,0 +1,281 @@
+import com.moneymanager.Database;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * Verifica di non regressione sul giornale delle operazioni (op_log + change_log).
+ * Lo lancia tools\test-giornale.ps1, sempre su una COPIA del database.
+ *
+ * <p>Le proprietà difese sono quelle che si rompono in silenzio:</p>
+ * <ul>
+ *   <li><b>l'avvio non scrive</b> — su OneDrive ogni scrittura costa il ricaricamento del file
+ *       intero, e un avvio che scrive lo fa a ogni apertura, per sempre;</li>
+ *   <li><b>una lettura non lascia traccia</b> — sarebbe lo stesso danno, moltiplicato per ogni
+ *       pagina aperta;</li>
+ *   <li><b>le figlie eliminate dalla CASCADE vengono catturate</b> — senza, annullare la
+ *       cancellazione di una transazione ne restituirebbe il guscio senza split né tag: saldi
+ *       plausibili e totali per categoria sbagliati;</li>
+ *   <li><b>nessuna riga resta orfana</b> ({@code op_id IS NULL}) — verrebbe assegnata al gesto
+ *       successivo, cioè a quello sbagliato;</li>
+ *   <li><b>un gesto fallito non lascia niente a metà</b>;</li>
+ *   <li><b>niente di ciò che il vecchio log registrava è sparito</b> — il confronto 1:1 fra le
+ *       righe di {@code <db>.log} e le righe di {@code op_log}.</li>
+ * </ul>
+ */
+public class TestGiornale {
+
+    static int passati = 0, falliti = 0;
+    static boolean verboso = false;
+    static String url;
+
+    public static void main(String[] args) throws Exception {
+        System.setOut(new java.io.PrintStream(new java.io.FileOutputStream(java.io.FileDescriptor.out),
+                true, java.nio.charset.StandardCharsets.UTF_8));
+        Path db = Path.of(args[0]);
+        for (String a : args) if ("-v".equals(a)) verboso = true;
+        url = "jdbc:sqlite:" + db.toString().replace(java.io.File.separatorChar, '/');
+
+        sezione("SCHEMA E TRIGGER");
+        // ⚠️ Tutto si misura a DIFFERENZE, mai a valori assoluti: il DB di partenza è quello
+        // vero e il suo giornale contiene già le operazioni di chi usa l'app. Un banco che
+        // pretende un giornale vuoto passa solo il primo giorno.
+        int opIniziali = contaTollerante("SELECT COUNT(*) FROM op_log");
+        Database d = new Database(db.toString());
+        d.close();
+        try (Connection c = DriverManager.getConnection(url); Statement st = c.createStatement()) {
+            eq("schema allineato alla v27", "27", uno(st, "SELECT version FROM schema_version"));
+            eq("op_log e change_log esistono", "2", uno(st,
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('op_log','change_log')"));
+            eq("un trigger per ogni verso di ogni tabella journalata", "57", uno(st,
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND name LIKE 'jr\\_%' ESCAPE '\\'"));
+            vero("il trigger di app_settings tiene fuori lo stato di navigazione",
+                 String.valueOf(uno(st, "SELECT sql FROM sqlite_master WHERE name='jr_app_settings_u'"))
+                       .contains("NOT LIKE 'tx.range%'"));
+        }
+        eq("il solo avvio non registra operazioni", opIniziali, conta("SELECT COUNT(*) FROM op_log"));
+
+        sezione("AVVIO A SCRITTURA ZERO");
+        long mtime = Files.getLastModifiedTime(db).toMillis();
+        long size  = Files.size(db);
+        int  cc    = changeCounter(db);
+        Thread.sleep(1100);                    // l'mtime ha risoluzione di un secondo
+        new Database(db.toString()).close();
+        eq("change counter nell'header invariato", String.valueOf(cc), String.valueOf(changeCounter(db)));
+        eq("dimensione del file invariata", String.valueOf(size), String.valueOf(Files.size(db)));
+        eq("mtime invariato", String.valueOf(mtime),
+           String.valueOf(Files.getLastModifiedTime(db).toMillis()));
+
+        Database app = new Database(db.toString());
+
+        sezione("UNA LETTURA NON LASCIA TRACCIA");
+        app.iniziaRichiesta("getAccounts", "desktop");
+        app.getAccounts();
+        app.getTransactions(json("{}"));
+        app.terminaRichiesta(true);
+        eq("nessuna operazione dopo due letture", opIniziali, conta("SELECT COUNT(*) FROM op_log"));
+
+        sezione("UN GESTO, CON LE SUE FIGLIE");
+        // Una transazione che abbia davvero split e tag: eliminandola, SQLite ne cancella
+        // quattro righe in tre tabelle, e il giornale deve averle tutte.
+        int tx = intUno("""
+            SELECT t.id FROM transactions t
+            WHERE (SELECT COUNT(*) FROM transaction_splits s WHERE s.transaction_id=t.id) > 0
+              AND (SELECT COUNT(*) FROM transaction_tags   g WHERE g.transaction_id=t.id) > 0
+            ORDER BY t.date DESC LIMIT 1""");
+        int split = conta("SELECT COUNT(*) FROM transaction_splits WHERE transaction_id=" + tx);
+        int tag   = conta("SELECT COUNT(*) FROM transaction_tags   WHERE transaction_id=" + tx);
+        app.iniziaRichiesta("deleteTransaction", "desktop");
+        app.deleteTransaction(tx);
+        app.terminaRichiesta(true);
+
+        try (Connection c = DriverManager.getConnection(url); Statement st = c.createStatement()) {
+            String op = uno(st, "SELECT MAX(id) FROM op_log");   // l'operazione appena nata
+            eq("una sola operazione per un solo gesto", opIniziali + 1, conta("SELECT COUNT(*) FROM op_log"));
+            eq("etichetta presa dall'annotazione", "TRANSAZIONE ELIMINATA",
+               uno(st, "SELECT etichetta FROM op_log WHERE id=" + op));
+            eq("origine e tipo", "desktop|utente", uno(st, "SELECT origine||'|'||tipo FROM op_log WHERE id=" + op));
+            vero("il dettaglio riporta i campi dell'annotazione",
+                 String.valueOf(uno(st, "SELECT dettaglio FROM op_log WHERE id=" + op)).contains("id:" + tx));
+            eq("righe catturate = 1 transazione + " + split + " split + " + tag + " tag",
+               String.valueOf(1 + split + tag), uno(st, "SELECT COUNT(*) FROM change_log WHERE op_id=" + op));
+            eq("nessuna riga orfana", "0", uno(st, "SELECT COUNT(*) FROM change_log WHERE op_id IS NULL"));
+            vero("la riga vecchia conserva i dati della transazione",
+                 String.valueOf(uno(st, "SELECT riga FROM change_log WHERE op_id=" + op + " AND tabella='transactions'"))
+                       .contains("\"id\":" + tx));
+            vero("le chiavi composte sono coppie",
+                 String.valueOf(uno(st, "SELECT chiave FROM change_log WHERE op_id=" + op + " AND tabella='transaction_tags'"))
+                       .matches("\\[\\d+,\\d+\\]"));
+        }
+
+        sezione("LE IMPOSTAZIONI: PREFERENZE SI, NAVIGAZIONE NO");
+        int opPrima = conta("SELECT COUNT(*) FROM op_log");
+        app.iniziaRichiesta("setSetting", "desktop");
+        app.setAppSetting("tx.range.acct.3", "2026");
+        app.terminaRichiesta(true);
+        eq("cambiare periodo non entra nel giornale", opPrima, conta("SELECT COUNT(*) FROM op_log"));
+
+        app.iniziaRichiesta("setSetting", "desktop");
+        app.setAppSetting("backup.max", "12");
+        app.terminaRichiesta(true);
+        eq("una preferenza vera entra", opPrima + 1, conta("SELECT COUNT(*) FROM op_log"));
+        eq("e senza annotazione resta un'operazione di sistema", 1,
+           conta("SELECT COUNT(*) FROM op_log WHERE tipo='sistema' AND etichetta='setSetting'"));
+
+        sezione("UN GESTO FALLITO NON LASCIA NIENTE A META'");
+        int op0  = conta("SELECT COUNT(*) FROM op_log");
+        int tag0 = conta("SELECT COUNT(*) FROM tags");
+        app.iniziaRichiesta("addTag", "desktop");
+        try {
+            app.addTag(json("{\"name\":\"prova-rollback\"}"));
+            throw new IllegalStateException("errore simulato a meta' gesto");
+        } catch (IllegalStateException atteso) {
+            app.terminaRichiesta(false);
+        }
+        eq("nessuna operazione registrata", op0,  conta("SELECT COUNT(*) FROM op_log"));
+        eq("nessun dato scritto",           tag0, conta("SELECT COUNT(*) FROM tags"));
+        eq("nessuna riga orfana rimasta",   0,    conta("SELECT COUNT(*) FROM change_log WHERE op_id IS NULL"));
+
+        sezione("IL CAMBIO DI DATABASE NON AVVIENE A META' GESTO");
+        // close() non chiude se c'è lavoro in volo, e un'operazione aperta ne tiene uno alzato:
+        // senza guardia, il close() di reconnect sarebbe un no-op silenzioso e la connessione
+        // vecchia resterebbe orfana, col lock sul file per sempre.
+        Path db2 = db.resolveSibling(db.getFileName().toString().replace(".db", "-2.db"));
+        Files.copy(db, db2, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        app.iniziaRichiesta("reloadDb", "desktop");
+        app.addTag(json("{\"name\":\"prova-guardia\"}"));      // apre l'operazione
+        boolean rifiutato = false;
+        try { app.reconnect(db2.toString()); } catch (SQLException atteso) { rifiutato = true; }
+        app.terminaRichiesta(false);
+        vero("rifiutato: cambiare database con un'operazione aperta", rifiutato);
+
+        // E viceversa: un cambio DB legittimo (nessuna scrittura prima) non deve rubare il
+        // contesto alla richiesta che lo ha chiesto — la scrittura successiva è ancora sua.
+        String url2 = "jdbc:sqlite:" + db2.toString().replace(java.io.File.separatorChar, '/');
+        int opDb2;   // la copia porta con sé le operazioni già registrate: si conta il delta
+        try (Connection c = DriverManager.getConnection(url2); Statement st = c.createStatement()) {
+            opDb2 = Integer.parseInt(uno(st, "SELECT COUNT(*) FROM op_log"));
+        }
+        app.iniziaRichiesta("reloadDb", "desktop");
+        app.reconnect(db2.toString());
+        app.addTag(json("{\"name\":\"dopo-il-cambio\"}"));
+        app.terminaRichiesta(true);
+        try (Connection c = DriverManager.getConnection(url2); Statement st = c.createStatement()) {
+            eq("dopo il cambio la scrittura resta un solo gesto",
+               String.valueOf(opDb2 + 1), uno(st, "SELECT COUNT(*) FROM op_log"));
+            eq("con la sua etichetta", "TAG AGGIUNTO",
+               uno(st, "SELECT etichetta FROM op_log ORDER BY id DESC LIMIT 1"));
+        }
+        app.reconnect(db.toString());   // si torna sul DB di prova per il resto dei controlli
+
+        sezione("CONFRONTO 1:1 COL VECCHIO LOG");
+        Path log = db.resolveSibling(db.getFileName().toString().replaceAll("\\.[^.]+$", "") + ".log");
+        for (Object[] g : gesti(app)) {
+            String nome = (String) g[0];
+            int opPre = conta("SELECT COUNT(*) FROM op_log");
+            int lgPre = righeLog(log);
+            app.iniziaRichiesta(nome, "desktop");
+            ((Azione) g[1]).esegui();
+            app.terminaRichiesta(true);
+            String etichettaGiornale = uno("SELECT etichetta FROM op_log ORDER BY id DESC LIMIT 1");
+            String etichettaLog      = ultimaAzioneLog(log);
+            vero(nome + ": una riga di log e una operazione, stessa etichetta (" + etichettaGiornale + ")",
+                 righeLog(log) == lgPre + 1 && conta("SELECT COUNT(*) FROM op_log") == opPre + 1
+                 && etichettaGiornale.equals(etichettaLog));
+        }
+
+        app.close();
+        System.out.println();
+        System.out.println(falliti == 0
+                ? "════ " + passati + " superate, 0 fallite ════"
+                : "════ " + passati + " superate, " + falliti + " FALLITE ════");
+        System.exit(falliti == 0 ? 0 : 1);
+    }
+
+    // ── I gesti di tutti i giorni ───────────────────────────────────────────────
+
+    @FunctionalInterface interface Azione { void esegui() throws Exception; }
+
+    static List<Object[]> gesti(Database app) {
+        List<Object[]> g = new ArrayList<>();
+        final int[]  tag = new int[1];
+        final long[] tx  = new long[1];
+        g.add(new Object[]{"addTag", (Azione) () ->
+                tag[0] = ((Number) app.addTag(json("{\"name\":\"prova-giornale\",\"color\":\"#58a6ff\"}")).get("id")).intValue()});
+        g.add(new Object[]{"updateTag", (Azione) () ->
+                app.updateTag(tag[0], json("{\"name\":\"prova-giornale-bis\",\"color\":\"#d29922\"}"))});
+        g.add(new Object[]{"addTransaction", (Azione) () ->
+                tx[0] = ((Number) app.addTransaction(json(
+                        "{\"date\":\"2026-09-20\",\"amount\":12.34,\"type\":\"expense\","
+                        + "\"account_id\":" + primoConto() + ",\"description\":\"prova giornale\"}")).get("id")).longValue()});
+        g.add(new Object[]{"deleteTransaction", (Azione) () -> app.deleteTransaction((int) tx[0])});
+        g.add(new Object[]{"deleteTag",         (Azione) () -> app.deleteTag(tag[0])});
+        return g;
+    }
+
+    static int primoConto() throws SQLException { return intUno("SELECT MIN(id) FROM accounts"); }
+
+    // ── Utilità ─────────────────────────────────────────────────────────────────
+
+    /** Contatore di modifica nell'header SQLite (byte 24-27): avanza a ogni transazione che
+     *  scrive davvero. È il modo più diretto di dimostrare "l'avvio non ha scritto". */
+    static int changeCounter(Path db) throws Exception {
+        byte[] h = new byte[28];
+        try (var in = Files.newInputStream(db)) { in.read(h); }
+        return ((h[24] & 0xff) << 24) | ((h[25] & 0xff) << 16) | ((h[26] & 0xff) << 8) | (h[27] & 0xff);
+    }
+
+    static int righeLog(Path log) throws Exception {
+        return Files.exists(log) ? Files.readAllLines(log).size() : 0;
+    }
+
+    /** Etichetta dell'ultima riga del vecchio log (formato a larghezza fissa, colonne 22-56). */
+    static String ultimaAzioneLog(Path log) throws Exception {
+        List<String> r = Files.readAllLines(log);
+        for (int i = r.size() - 1; i >= 0; i--)
+            if (r.get(i).length() >= 57) return r.get(i).substring(22, 57).trim();
+        return "-";
+    }
+
+    static com.google.gson.JsonObject json(String s) {
+        return com.google.gson.JsonParser.parseString(s).getAsJsonObject();
+    }
+
+    static String uno(String sql) throws SQLException {
+        try (Connection c = DriverManager.getConnection(url); Statement st = c.createStatement()) {
+            return uno(st, sql);
+        }
+    }
+    static String uno(Statement st, String sql) throws SQLException {
+        try (ResultSet rs = st.executeQuery(sql)) { return rs.next() ? String.valueOf(rs.getString(1)) : "-"; }
+    }
+    static int conta(String sql)  throws SQLException { return Integer.parseInt(uno(sql)); }
+
+    /** Come {@link #conta} ma tollera la tabella assente: serve prima della migrazione a v27,
+     *  quando op_log non esiste ancora. */
+    static int contaTollerante(String sql) {
+        try { return conta(sql); } catch (SQLException e) { return 0; }
+    }
+    static int intUno(String sql) throws SQLException { return Integer.parseInt(uno(sql)); }
+
+    static void sezione(String titolo) {
+        System.out.println();
+        System.out.println("═══ " + titolo + " " + "═".repeat(Math.max(0, 60 - titolo.length())));
+    }
+    static void eq(String cosa, Object atteso, Object ottenuto) {
+        boolean ok = String.valueOf(atteso).equals(String.valueOf(ottenuto));
+        if (verboso && !ok) System.out.println("       atteso: " + atteso + "  ottenuto: " + ottenuto);
+        vero(cosa + (verboso && ok ? "  [" + ottenuto + "]" : ""), ok);
+    }
+    static void vero(String cosa, boolean ok) {
+        System.out.println(ok ? "   [OK] " + cosa : "   [FALLITO] " + cosa);
+        if (ok) passati++; else falliti++;
+    }
+}

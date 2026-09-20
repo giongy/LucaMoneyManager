@@ -12,10 +12,11 @@ Due piattaforme: **desktop (primaria)** e **Android (secondaria)**, database SQL
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Mappa del flusso: avvio, bridge, router, DB, tray, WebServer, build. Da leggere prima di toccare il codice. |
 | [docs/AUDIT_JAVA_2026-07.md](docs/AUDIT_JAVA_2026-07.md) | Audit dei 52 finding Java + rilettura indipendente. **Storico, non aggiornare** |
 | [docs/AUDIT_ROBUSTEZZA_JAVA.md](docs/AUDIT_ROBUSTEZZA_JAVA.md) · [docs/AUDIT-RESOURCES.md](docs/AUDIT-RESOURCES.md) | Altri audit datati. Stessa regola: sono fotografie, non documentazione viva. |
+| [docs/DISEGNO_CRONOLOGIA.md](docs/DISEGNO_CRONOLOGIA.md) | **Progetto in corso**, non ancora implementato: giornale delle operazioni, annullamento, backup e manutenzione (1.26.0 / schema v27). Fonte unica finché il lavoro è aperto; a fine lavoro le invarianti migrano qui, il flusso in `ARCHITECTURE.md`, e il file si elimina. |
 
 ⚠️ I file `AUDIT*` sono **registri storici**: descrivono lo stato a una certa data e vanno letti come
 tali. La documentazione da tenere aggiornata è solo questa terna: `CLAUDE.md`, `README.md`,
-`docs/ARCHITECTURE.md`.
+`docs/ARCHITECTURE.md` — più `DISEGNO_*` finché il lavoro che descrivono è aperto.
 
 ---
 
@@ -52,7 +53,7 @@ Database.java (~5890 LOC) — tutte le query JDBC
 SQLite
 ```
 
-**Classi Java:** `App` (entry point), `MainWindow` (Swing + JCEF), `Bridge` (dispatch JS↔Java), `Database` (JDBC), `Settings` (preferenze utente), `IconFactory` (icona app + tray per stato DB), `SplashWindow` (splash Swing 70%×70%, fade 350ms), `TrayManager` (system tray), `SingleInstance` (lock istanza unica), `WebServer` (serve web/ da filesystem + bridge LAN), `DbLogger` (logging query), `ContextMenuHandler` (menu tasto destro nativo: modifica/zoom/devtools)
+**Classi Java:** `App` (entry point), `MainWindow` (Swing + JCEF), `Bridge` (dispatch JS↔Java), `Database` (JDBC), `Settings` (preferenze utente), `IconFactory` (icona app + tray per stato DB), `SplashWindow` (splash Swing 70%×70%, fade 350ms), `TrayManager` (system tray), `SingleInstance` (lock istanza unica), `WebServer` (serve web/ da filesystem + bridge LAN), `Giornale` (cronologia delle operazioni: confine del gesto, trigger di cattura), `DbLogger` (vecchio log testuale, in parallelo fino alla fase 3), `ContextMenuHandler` (menu tasto destro nativo: modifica/zoom/devtools)
 
 **Moduli JS pagine** (LOC indicativi): `analytics` (3915), `portfolio` (2100), `budget` (1985), `settings` (1785), `transactions` (1470), `dashboard` (1460), `scheduled` (1075), `accounts` (825), `notes` (360), `categories` (320), `forecasts` (240), `logviewer` (210), `ranges` (195), `tags` (105)
 
@@ -72,9 +73,10 @@ regola, da applicare **ogni volta** che si aggiunge qualcosa:
 - **`Database` è persistenza**: SQL, transazioni, schema, migrazioni. Prima di aggiungere un
   metodo, la domanda: *è una query, o è una regola di dominio (un calcolo, una decisione, una
   sequenza di operazioni)?* Le regole vanno in una **classe di dominio** dello stesso package,
-  che usa gli helper di `Database` (`queryList`, `queryOne`, `execute`, `inTx` — oggi privati,
-  si aprono al package con la prima classe di dominio) e **non tocca mai `conn`**: così le tre
-  regole della connessione qui sotto restano in un posto solo.
+  che usa gli helper di `Database` (`queryList`, `queryOne`, `execute`, `executeRaw`,
+  `executePlain`, `inTx` — visibili al package dalla 1.26.0, quando è arrivata la prima classe
+  di dominio: `Giornale`) e **non tocca mai `conn`**: così le regole della connessione qui sotto
+  restano in un posto solo.
 - **Il codice esistente si sposta un dominio alla volta, in un commit che non cambia nessun
   risultato**: `confronta-query.ps1` identico e, per il portafoglio, `test-titoli.ps1` verde,
   prima e dopo. Mai spostamento e modifica di comportamento nello stesso commit: una differenza
@@ -82,15 +84,40 @@ regola, da applicare **ogni volta** che si aggiunge qualcosa:
 
 ### Connessione DB — invariante da rispettare
 
-`Database` usa **una sola `Connection`**, condivisa da più thread: thread UI di JCEF, virtual thread del `WebServer` e dei dialog async, EDT Swing (tray/iconify/backup), thread del timer di auto-release. **Non** c'è nulla che serializzi le chiamate. Le tre regole che tengono in piedi il tutto:
+`Database` usa **una sola `Connection`**, condivisa da più thread: thread UI di JCEF, virtual thread del `WebServer` e dei dialog async, EDT Swing (tray/iconify/backup), thread del timer di auto-release. Le **letture** non sono serializzate; le **scritture** sì, dalla 1.26.0. Le quattro regole che tengono in piedi il tutto:
 
 1. `conn` si legge e si scrive **solo** sotto il lock di `Database` (`synchronized`);
 2. la connessione si chiude **solo** da `close()` — unico punto, che aggiorna anche la baseline mtime/size per il rilevamento delle modifiche esterne;
-3. `close()` **non chiude** se `activeQueries > 0`; ci penserà l'auto-release, riprogrammato da `endQuery()`.
+3. `close()` **non chiude** se `activeQueries > 0`; ci penserà l'auto-release, riprogrammato da `endQuery()`;
+4. le scritture passano tutte da `lockScrittura`, tenuto per l'**operazione intera** (dalla prima scrittura alla fine della richiesta), non per il singolo statement.
 
-Le query girano deliberatamente **fuori** dal lock (per non serializzarle): è per questo che serve il contatore `activeQueries` oltre al `synchronized`. `inTx()` lo tiene alzato per tutta la transazione, non solo per i singoli statement.
+Le query girano deliberatamente **fuori** dal lock (per non serializzarle): è per questo che serve il contatore `activeQueries` oltre al `synchronized`. L'operazione lo tiene alzato per tutta la sua durata, non solo per i singoli statement.
 
-⚠️ Aggiungendo un metodo che tocca `conn`, rispetta le tre regole: violarle produce corruzione dati silenziosa (transazione committata a metà) o una connessione orfana che tiene il lock su OneDrive per sempre.
+⚠️ **Ordine di acquisizione, non negoziabile: `lockScrittura` PRIMA del monitor di `Database`, mai
+il contrario.** Un metodo `synchronized` che poi prendesse il lock si bloccherebbe contro chi
+tiene il lock e aspetta il monitor (`beginQuery`, `close`, …). È il motivo per cui `reconnect`,
+`backup`, `restoreBackup` e `withExclusiveAccess` sono divisi in un **guscio pubblico che prende
+il lock** e un corpo privato `synchronized`: prima l'esclusione fra backup e scritture la dava il
+solo `synchronized` condiviso con `inTx`, che ora non è più `synchronized`.
+
+⚠️ Aggiungendo un metodo che tocca `conn`, rispetta le regole: violarle produce corruzione dati silenziosa (transazione committata a metà) o una connessione orfana che tiene il lock su OneDrive per sempre.
+
+### Transazioni: l'unità è il gesto, non lo statement (1.26.0)
+
+La transazione SQLite **non la apre più `inTx`**: la apre l'**operazione**, alla prima scrittura
+della richiesta, e la chiude il confine della richiesta in `Bridge.dispatch`. Conseguenze:
+
+- una richiesta che fallisce a metà **annulla tutto il gesto** (prima poteva lasciare committate
+  le scritture già fatte) — cambio di comportamento voluto;
+- `inTx` è diventato un **`SAVEPOINT` annidato** dentro quella transazione. ⚠️ Renderlo un no-op
+  sarebbe un bug: `importPending` cattura l'eccezione riga per riga e prosegue, quindi senza
+  savepoint una riga fallita a metà lascerebbe le sue scritture parziali nella transazione
+  esterna, col `catch` a nasconderle;
+- una scrittura **fuori** da una richiesta dichiarata (avvio, uno strumento in `tools/`) apre
+  un'operazione **implicita** per singolo statement. È il comportamento sicuro — nessuna riga
+  resta orfana — ma è anche il motivo per cui un ciclo di scritture lanciato da uno strumento
+  produce una riga di cronologia per statement. In produzione non capita: ogni via d'ingresso
+  passa dal Bridge.
 
 ### I due log e OneDrive (1.25.11)
 
@@ -175,7 +202,7 @@ I tre casi che il metodo deve continuare a coprire, e che vanno riprovati toccan
 
 ---
 
-## Schema DB (v26, 22 tabelle)
+## Schema DB (v27, 24 tabelle)
 
 - **Core:** `accounts` (3 stati: `is_closed`, `is_hidden` — nascosto ⇒ sempre chiuso; per le carte anche `payment_day`, `payment_account_id`, `auto_settle` — vedi "Saldo automatico carte"), `categories` (gerarchiche, `expense_nature`, `mobile_favorite` — vedi "Categorie per Android" — `system_key` — vedi "Titoli"), `transactions` (`reconciled`, `attachment_path`, `color`), `transaction_splits`, `transaction_tags`, `tags` (`is_system`, `system_key`)
 - **Budget:** `budgets`, `budget_config` (master_amount mensile/annuale)
@@ -184,6 +211,10 @@ I tre casi che il metodo deve continuare a coprire, e che vanno riprovati toccan
 - **Previsioni:** `forecasts` (archived), `forecast_categories` — snapshot "Salva previsione" in Pianificate
 - **Note:** `notes` (`pinned`, `color`, editor Quill), `note_tags`
 - **Sistema:** `reports`, `range_presets`, `app_settings`, `schema_version`
+- **Giornale (v27):** `op_log` (il gesto: una riga per operazione, quella che l'utente legge) e
+  `change_log` (le conseguenze sui dati: la riga com'era prima, in JSON, da rieseguire a ritroso
+  per annullare). Popolate da **57 trigger generati** da `Giornale.TABELLE`, non dai metodi di
+  scrittura. Vedi [docs/DISEGNO_CRONOLOGIA.md](docs/DISEGNO_CRONOLOGIA.md)
 - **Sync Android:** `sync_meta` (marcatori `last_modified`/`last_modified_by`), `imported_pending` (id delle righe di `pending.jsonl` già importate → idempotenza dell'import). ⚠️ Queste 2 tabelle **non** sono in `initSchema`: nascono a runtime in `touchSyncMeta()` e `importPending()`. Le altre 20 sì.
 
 **Indici (oltre alle PK):** su `transactions(date, account_id, category_id, to_account_id)` + composito `(account_id, date)`; su `transaction_splits(transaction_id)` e `portfolio_transactions(transaction_id)` (FK non indicizzate da SQLite); su `categories(parent_id)`, `budgets(year)`, `scheduled_transactions(is_active)`, `transaction_tags(tag_id)`, `note_tags(tag_id)`, `portfolio(account_id)`
@@ -320,10 +351,13 @@ Il conto titoli torna così a zero sulla posizione chiusa: `carico + plusvalenza
      vendite in data pari o successiva è **vietato** (il PMC verrebbe ricalcolato senza di loro
      mentre le plusvalenze già scritte resterebbero quelle vecchie): togliendo prima le vendite,
      quel rifiuto non scatta mai durante la cascata.
-   - **`undoPortfolioTransaction` non apre una `inTx` e va chiamato solo dentro una.** `inTx` fa
-     commit esplicito e **non è rientrante**: annidarla committerebbe a metà la cancellazione,
-     lasciando il resto in autocommit — un titolo smontato per metà, senza errore visibile. Il
-     metodo pubblico `deletePortfolioTransaction` è il guscio che apre la transazione.
+   - **`undoPortfolioTransaction` non apre una `inTx` e va chiamato solo dentro una.** Il metodo
+     pubblico `deletePortfolioTransaction` è il guscio che apre la transazione.
+     Storico: fino alla 1.26.0 il motivo era che `inTx` faceva commit esplicito e **non era
+     rientrante**, quindi annidarla committava a metà la cancellazione lasciando il resto in
+     autocommit — un titolo smontato per metà, senza errore visibile. Ora `inTx` è un
+     `SAVEPOINT` e annidarla è lecito; la separazione resta perché è la forma giusta (il guscio
+     decide il confine, il corpo no), non più perché annidare rompeva.
    - **Ogni transazione del portafoglio nasce col tag di sistema `investment`** (`tagInvestment`):
      il legame vero è `portfolio_transactions`, che una cancellazione porta via, e il tag è la
      sola traccia che sopravvive. Fino alla 1.25.15 lo mettevano solo cedole, dividendi, imposte
@@ -527,7 +561,8 @@ riferimento disponibile. Le due schede si somigliano ma questo pezzo non va unif
 
 - **Lingua:** tutto in italiano (commenti, stringhe UI, messaggi errore)
 - **Naming:** PascalCase classi, camelCase metodi/variabili, UPPER_SNAKE_CASE costanti, snake_case tabelle DB
-- **Nessun test automatico** sulla logica — test manuale via UI. Fanno eccezione due verifiche di non regressione: `test-titoli.ps1` (portafoglio) e `confronta-query.ps1` (ogni lettura di `Database`, prima/dopo una modifica). Per la **resa grafica** esiste una verifica automatizzabile: vedi "Verifica visiva dell'UI" più sotto
+- **Nessun test automatico** sulla logica — test manuale via UI. Fanno eccezione quattro verifiche di non regressione: `test-titoli.ps1` (portafoglio), `test-giornale.ps1` (cattura delle modifiche), `test-annulla.ps1` (annullamento, 63 scenari) e `confronta-query.ps1` (ogni lettura di `Database`, prima/dopo una modifica). Per la **resa grafica** esiste una verifica automatizzabile: vedi "Verifica visiva dell'UI" più sotto
+- ⚠️ **I banchi di prova si misurano a differenze, mai a valori assoluti.** Partono da una copia del DB vero, il cui giornale contiene già le operazioni di chi usa l'app: un controllo che pretende `COUNT(*) = 0` passa solo il primo giorno
 - **Nessun framework JS** — Vanilla JS puro
 - **Commenti sezione** con separatori Unicode `── ──`
 - **SQL:** text blocks Java (`"""..."""`)
@@ -829,6 +864,89 @@ Il classpath mette `target\classes` **prima** del fat JAR: nel JAR ci sono le cl
 dell'ultima build, in `target\classes` quelle appena compilate. Senza quest'ordine si
 verificherebbe il codice vecchio credendo di provare il nuovo — quindi prima serve
 `mvn -o compile`. Esce con codice diverso da zero se un controllo fallisce.
+
+---
+
+## Verifica di non regressione sulla cronologia: `test-giornale.ps1`
+
+Il giornale registra ciò che serve ad **annullare**: se sbaglia, i dati restano plausibili e lo
+si scopre il giorno in cui si prova a tornare indietro. Difende le proprietà che cedono in
+silenzio.
+
+```powershell
+.\tools\test-giornale.ps1                 # sul DB di progetto
+.\tools\test-giornale.ps1 -Database prod  # sui dati veri, senza toccarli
+.\tools\test-giornale.ps1 -Verbose        # stampa anche atteso/ottenuto
+```
+
+**Trentuno controlli**, in sette gruppi:
+
+| gruppo | cosa difende |
+|---|---|
+| schema e trigger | i 57 trigger ci sono tutti, e quello di `app_settings` tiene fuori lo stato di navigazione |
+| **avvio a scrittura zero** | change counter nell'header, dimensione e mtime invariati dopo una seconda apertura. Su OneDrive un avvio che scrive costa il ricaricamento del file **a ogni apertura, per sempre** |
+| una lettura non lascia traccia | stesso danno, moltiplicato per ogni pagina aperta |
+| un gesto con le sue figlie | eliminando una transazione con split e tag, il giornale deve averle **tutte** (le figlie arrivano dalle `ON DELETE CASCADE`): senza, l'annullamento restituirebbe il guscio, con i totali per categoria sbagliati e nessun segnale |
+| preferenze sì, navigazione no | cambiare periodo in Transazioni non deve scrivere in cronologia |
+| gesto fallito | niente operazione, niente dati, **nessuna riga orfana** (`op_id IS NULL`): una riga orfana verrebbe assegnata al gesto successivo, cioè a quello sbagliato |
+| cambio di database | rifiutato a metà gesto (`close()` non chiude con lavoro in volo: la connessione vecchia resterebbe **orfana**, col lock su OneDrive per sempre), e un cambio legittimo non ruba il contesto alla richiesta che l'ha chiesto |
+
+L'ultimo gruppo è il confronto **1:1 col vecchio log**: per cinque gesti veri, una riga in
+`<db>.log` e una in `op_log`, con la stessa etichetta. Finché `DbLogger` scrive in parallelo
+(fase 1 e 2) è la prova che nel passaggio non si è perso niente.
+
+Valgono le stesse regole di `test-titoli.ps1`: **lo strumento scrive**, quindi lavora su una
+copia temporanea che cancella alla fine, si può lanciare ad app aperta, e `-Database prod` è
+innocuo. Il classpath mette `target\classes` **prima** del fat JAR, quindi serve prima
+`mvn -o compile`.
+
+---
+
+## Audit dell'annullamento: `test-annulla.ps1`
+
+Per ogni **tipo** di scrittura dell'app: esegue il gesto, lo annulla dal solo giornale, e
+confronta **l'intero database riga per riga** con com'era prima.
+
+```powershell
+.\tools\test-annulla.ps1                 # sul DB di progetto
+.\tools\test-annulla.ps1 -Database prod  # sui dati veri, senza toccarli
+.\tools\test-annulla.ps1 -Verbose        # stampa il motivo anche dove l'esito è quello atteso
+```
+
+⚠️ **Il confronto è sul contenuto completo di tutte le tabelle journalate, non sui saldi né su
+qualche campo scelto a mano.** È l'unico modo per vedere i danni che non si vedono: la riga
+figlia sparita, il tag perso, il prezzo medio ricalcolato invece che ripristinato. Un banco che
+guardasse solo i totali li dichiarerebbe tutti superati — ed è esattamente l'errore che ha
+lasciato passare per mezza giornata il bug di `INSERT OR REPLACE` qui sotto.
+
+**71 scenari**: 67 che devono tornare **identici** (conti, categorie con riassegnazione,
+transazioni con split e tag, giroconti, allegati, tag, note, budget in tutte le forme
+— compresa la generazione da ~300 scritture — pianificate con avanzamento, l'intero
+portafoglio, previsioni, report, periodi, preferenze) e **4 che devono essere rifiutati**,
+perché annullare lì farebbe danno:
+
+| rifiuto atteso | chi lo intercetta |
+|---|---|
+| annullare un acquisto che ha già una vendita | controllo 1 (stessa riga `portfolio` toccata dopo) |
+| ripristinare una transazione il cui tag è stato poi eliminato | controllo 2 (dipendenza mancante) |
+| annullare un budget la cui categoria è stata poi eliminata | tutti e tre |
+| annullare la prima registrazione di una pianificata registrata due volte | controllo 1 |
+
+⚠️ Un rifiuto con un messaggio opaco (`FOREIGN KEY constraint failed`) conta come fallimento
+quanto un annullamento sbagliato: il banco verifica che il motivo sia leggibile.
+
+Gli stessi quattro scenari girano poi **due volte ancora**: con `annullaACatena` (che annulla
+anche l'insieme minimo di chi blocca) e con `riportaA` (che annulla tutto ciò che è venuto
+dopo). In entrambi i casi il database deve tornare al punto fissato prima del gesto.
+
+⚠️ **L'annullamento a catena applica gli inversi di tutte le operazioni come UN solo gesto.**
+Annullarle una per una non funzionerebbe: ogni annullamento è a sua volta un'operazione che
+tocca quelle stesse righe, quindi l'annullamento della seconda diventerebbe subito un conflitto
+per la prima. In cronologia resta una riga sola, che si può disfare in un colpo.
+
+**Non copre** tre scritture, e per scelta: `seedExampleData` (procedura di primo avvio),
+`syncCardSettlements` (automatica, e già coperta da `test-titoli.ps1` per i suoi effetti) e
+`importPending` (richiede un `pending.jsonl` vero).
 
 ---
 

@@ -487,6 +487,38 @@ La voce **Log** in sidebar ([index.html:139](../src/main/resources/web/index.htm
 - Filtri già esistenti (ricerca, tipo record) + *"solo annullabili"*; le operazioni
   `tipo='sistema'` sono nascoste di default.
 
+### Tre dettagli della pagina, decisi provando gli scenari
+
+1. **I nomi congelati vanno mostrati, ma non da soli.** Il giornale registra il nome del momento
+   (`categoria:Carburante`). Dopo un rinomina, in cronologia si leggerebbe «Carburante» per una
+   categoria che ora si chiama «Benzina»: è la verità storica, ma da sola confonde. La pagina
+   mostra **`categoria: Carburante (oggi: Benzina)`**, e il confronto lo può fare perché
+   `change_log` conserva l'id. ⚠️ Il nome storico non si sostituisce con quello attuale: quel
+   giorno si chiamava così, e riscriverlo falsificherebbe la storia.
+2. **Le operazioni composte hanno una riga di sintesi.** Registrare una pianificata produce due
+   annotazioni attaccate (`TRANSAZIONE AGGIUNTA: … | PIANIFICATA AVANZATA: …`): corretto ma
+   illeggibile. In pagina va una sintesi — *«Registrata "stipendio" · 3.375,00 · 27/09 →
+   prossima 27/10»* — col resto sotto, espandendo. Sono poche operazioni, e sono proprio quelle
+   che vale la pena leggere bene.
+3. **Il rifiuto offre due strade, e ne ha già una pronta.** `annullaACatena` esiste ed è
+   verificata; la seconda — *«rimetti senza il legame mancante»* — va costruita qui, perché è
+   una scelta che si fa guardando un messaggio. Disponibile **solo** quando il pezzo assente è
+   un legame (tag, split) o una colonna che ammette il vuoto: se manca il conto, una transazione
+   non può esistere senza, e resta solo la prima strada. Dice sempre cosa si perde, prima di
+   farlo.
+
+### Che fine fa il `luca.log` esistente
+
+L'app **smette di scriverlo e non lo tocca**. Non è inutile: contiene tutta la storia
+**precedente** alla migrazione, che il giornale non ha. Diventa un archivio di sola lettura —
+e siccome non cambia più, OneDrive smette di ricaricarlo a ogni azione. Lo cancella l'utente
+quando vuole; l'app non cancella file suoi.
+
+⚠️ Da lì in poi vale la divisione: **`app.log` = cosa ha fatto il programma** (avvio, errori
+del Bridge, query lente, i tre avvisi `[Giornale]`), **giornale = cosa ha fatto l'utente**. Un
+evento di sistema nuovo va su `app.log`, che non è sincronizzato e quindi non costa niente a
+nessuno — mai nel giornale.
+
 **In Impostazioni resta solo ciò che è preferenza**: cartella backup, copie da conservare, backup
 all'uscita, retention. Le due sezioni che oggi contengono *azioni* — *Ripristina backup*
 ([settings.js:109](../src/main/resources/web/js/pages/settings.js#L109)) e *Log operazioni*

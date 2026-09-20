@@ -53,7 +53,7 @@ Database.java (~5890 LOC) — tutte le query JDBC
 SQLite
 ```
 
-**Classi Java:** `App` (entry point), `MainWindow` (Swing + JCEF), `Bridge` (dispatch JS↔Java), `Database` (JDBC), `Settings` (preferenze utente), `IconFactory` (icona app + tray per stato DB), `SplashWindow` (splash Swing 70%×70%, fade 350ms), `TrayManager` (system tray), `SingleInstance` (lock istanza unica), `WebServer` (serve web/ da filesystem + bridge LAN), `Giornale` (cronologia delle operazioni: confine del gesto, trigger di cattura, annullamento), `DbLogger` (il vecchio log testuale: non scrive più niente, resta solo per leggere l'archivio — sparisce in fase 5), `ContextMenuHandler` (menu tasto destro nativo: modifica/zoom/devtools)
+**Classi Java:** `App` (entry point), `MainWindow` (Swing + JCEF), `Bridge` (dispatch JS↔Java), `Database` (JDBC), `Settings` (preferenze utente), `IconFactory` (icona app + tray per stato DB), `SplashWindow` (splash Swing 70%×70%, fade 350ms), `TrayManager` (system tray), `SingleInstance` (lock istanza unica), `WebServer` (serve web/ da filesystem + bridge LAN), `Giornale` (cronologia delle operazioni: confine del gesto, trigger di cattura, annullamento), `Manutenzione` (il blocco backup → potatura → compattazione, e il backup obbligatorio prima dello svecchiamento), `DbLogger` (il vecchio log testuale: non scrive più niente, resta solo per leggere l'archivio — sparisce in fase 5), `ContextMenuHandler` (menu tasto destro nativo: modifica/zoom/devtools)
 
 **Moduli JS pagine** (LOC indicativi): `analytics` (3915), `portfolio` (2100), `budget` (1985), `settings` (1590), `transactions` (1470), `dashboard` (1460), `scheduled` (1075), `accounts` (825), `cronologia` (535), `notes` (360), `categories` (320), `forecasts` (240), `ranges` (195), `tags` (105)
 
@@ -68,15 +68,20 @@ regola, da applicare **ogni volta** che si aggiunge qualcosa:
   il risultato. Se serve un `if` che decide qualcosa sui dati (una guardia, una regola, passi
   che devono restare insieme), va **sotto** il Bridge: messa lì, una guardia protegge solo le
   chiamate che passano da lì, e una seconda via d'ingresso (uno strumento in `tools/`, un job)
-  la salterebbe senza saperlo. Esempio da non ripetere: il backup obbligatorio prima di
-  `archiveTransactions`, che oggi sta nel `case`.
+  la salterebbe senza saperlo. L'esempio da non ripetere era il backup obbligatorio prima di
+  `archiveTransactions`, che stava nel `case`: dalla 1.26.0 è in `Manutenzione.svecchia()`,
+  dove non lo si può aggirare, e il `case` è tornato a leggere gli id e chiamare un metodo.
 - **`Database` è persistenza**: SQL, transazioni, schema, migrazioni. Prima di aggiungere un
   metodo, la domanda: *è una query, o è una regola di dominio (un calcolo, una decisione, una
   sequenza di operazioni)?* Le regole vanno in una **classe di dominio** dello stesso package,
   che usa gli helper di `Database` (`queryList`, `queryOne`, `execute`, `executeRaw`,
   `executePlain`, `inTx` — visibili al package dalla 1.26.0, quando è arrivata la prima classe
   di dominio: `Giornale`) e **non tocca mai `conn`**: così le regole della connessione qui sotto
-  restano in un posto solo.
+  restano in un posto solo. Le classi di dominio sono due: `Giornale` (cattura e annullamento)
+  e `Manutenzione` (backup, potatura, compattazione). Il taglio fra le due e `Database` è
+  sempre lo stesso: **la regola sta nella classe di dominio, il meccanismo in `Database`** —
+  *quando* fare un backup e cosa succede se fallisce è regola, *come* si produce un `.bak` è
+  meccanismo.
 - **Il codice esistente si sposta un dominio alla volta, in un commit che non cambia nessun
   risultato**: `confronta-query.ps1` identico e, per il portafoglio, `test-titoli.ps1` verde,
   prima e dopo. Mai spostamento e modifica di comportamento nello stesso commit: una differenza
@@ -204,6 +209,89 @@ all'uscita). Le due sezioni che contenevano *azioni* — «Ripristina backup» e
 sono diventate un rimando alla Cronologia. La regola che ne esce, valida anche per il futuro:
 
 > **Impostazioni = come voglio che si comporti · Cronologia = la cosa in sé.**
+
+### Backup e manutenzione: un blocco solo (1.26.0)
+
+Alla chiusura dell'app, e dal pulsante **«Backup e manutenzione ora»** in Cronologia, gira sempre
+la stessa sequenza ([Manutenzione.java](src/main/java/com/moneymanager/Manutenzione.java)):
+
+```
+1. backup     -> .bak, se c'è qualcosa da salvare
+2. potatura   -> DELETE FROM op_log WHERE ts < taglio   (change_log segue per CASCADE)
+3. vacuum     -> solo se le pagine libere superano il 25%
+```
+
+⚠️ **L'ordine backup → potatura, mai l'inverso.** Il `.bak` conserva così la cronologia
+**intera** fino a quell'istante: la storia più vecchia della retention non si perde, si sposta
+nei backup. È ciò che rende accettabile una finestra corta (30 giorni di default,
+`journal.retention_days`, `0` = nessun limite) sul DB vivo.
+
+⚠️ **La potatura gira anche a backup disattivato**, altrimenti spegnendo il backup il giornale
+crescerebbe all'infinito in silenzio. **Ma non gira se un backup richiesto è fallito**: backup
+*spento* è una scelta dell'utente, backup *rotto* è un'altra cosa — potare lì butterebbe la
+storia senza averne messa da parte una copia, e non si torna indietro.
+
+⚠️ **Un `.bak` identico al precedente non è innocuo.** Il pulsante manuale fa il backup solo se
+`hasChanges()` dice di sì: con la rotazione a numero fisso di copie, un backup a vuoto ne
+butterebbe fuori uno vecchio e davvero diverso — si perderebbe storia premendo un pulsante che
+sembra prudente.
+
+⚠️ **Il `VACUUM` non va fatto a ogni chiusura**: riscrive il file intero, cioè un ricaricamento
+OneDrive completo ogni volta. Cancellare righe non rimpicciolisce il file ma libera pagine che
+SQLite riusa, quindi in regime il file **si stabilizza da sé**. Si compatta solo oltre il 25% di
+pagine libere (due `PRAGMA`, costo nullo).
+
+⚠️ **Una `DELETE` che non tocca niente è comunque una transazione**, cioè un upload OneDrive del
+file intero a ogni chiusura: la potatura conta prima e scrive solo se c'è davvero qualcosa da
+togliere. Stessa economia di `ensureSystemTags`.
+
+⚠️ **La manutenzione non lascia una riga di cronologia**, ed è voluto: non è un gesto
+dell'utente. Il suo resoconto va su `app.log` (`[Manutenzione] …`), che non è sincronizzato.
+Tecnicamente non potrebbe nemmeno lasciarla — `op_log` e `change_log` non sono tabelle
+journalate, quindi cancellarne righe non ne produce altre.
+
+#### Il backup è a caldo
+
+`Files.copy` + `close()` + retry sul `-journal` è stato sostituito dall'**Online Backup API**,
+che il driver espone come comando esteso `backup to <file>`: copia il database pagina per pagina
+**a connessione aperta**. Misurato sul DB vero: **24 ms**.
+
+⚠️ Il vecchio retry **non poteva funzionare**, ed è la ragione per cui è sparito senza rimpianti:
+il metodo era `synchronized` e `Thread.sleep` non rilascia il monitor, mentre `endQuery()` —
+l'unico che abbassa `activeQueries` — è a sua volta `synchronized`. Si dormiva un secondo e si
+falliva.
+
+⚠️ **`backup to` va eseguito fuori da ogni transazione.** Dentro risponde `SQLITE_BUSY` e
+**lascia un file di 0 byte** (misurato): senza la cancellazione nel `catch` resterebbe in
+cartella un `.bak` troncato dall'aria innocente, cioè esattamente il file su cui conteresti il
+giorno del ripristino. `backup()` rifiuta quindi in partenza se c'è un'operazione aperta, con un
+messaggio leggibile invece di un `SQLITE_BUSY` opaco.
+
+⚠️ Il nome del file finisce **dentro l'SQL**, non come parametro: gli apici vanno raddoppiati
+(`sqlLiteral`), o una cartella con un apostrofo nel nome spezzerebbe l'istruzione.
+
+#### Il sidecar `.json` è sparito
+
+Un `.bak` **è** un database SQLite e contiene il proprio `op_log`: «cosa c'era dentro questo
+backup?» si risponde aprendolo in sola lettura (`operazioniDelBackup`, mostrato espandendo il
+punto di ripristino in Cronologia). Una fonte sola invece di due che possono divergere — il
+sidecar poteva mancare, corrompersi o descrivere un backup diverso da quello accanto a cui stava.
+⚠️ Un `.bak` **anteriore alla v27** non ha `op_log`: l'elenco torna vuoto e **non è un errore**.
+
+#### La potatura gira in accesso esclusivo, e serve
+
+Potatura e `VACUUM` passano entrambe da `withExclusiveAccess`, non da `execute()`: quest'ultimo
+aprirebbe l'operazione della richiesta in corso e lascerebbe una transazione aperta sotto il
+`VACUUM`, che non può girarci dentro.
+
+⚠️ **Quella connessione è nuda: le foreign key NON sono attive.** Le accende `openConnection`,
+che lì non passa. Senza `PRAGMA foreign_keys=ON` la `DELETE` su `op_log` lascerebbe **tutte** le
+righe di `change_log` orfane: il giornale peserebbe uguale e i dati per annullare sarebbero
+appesi a operazioni che non esistono più. È un controllo di `test-giornale.ps1`.
+
+⚠️ **Potare non può spezzare la catena degli annullamenti.** Chi annulla è sempre più recente di
+ciò che annulla, e si pota dal più vecchio: un annullamento non può quindi sparire lasciando in
+piedi l'operazione che aveva disfatto. Vale per costruzione, non per disciplina.
 
 ### Una scrittura a vuoto costa un upload intero (`ensureSystemTags`)
 
@@ -713,6 +801,13 @@ Sfrutta due cose già presenti, senza installare nulla (niente Node/npm/Playwrig
   così non c'è modo di confondersi coi dati reali su OneDrive.
 - ⚠️ Prima di test che **scrivono**, verificare sempre su quale DB si sta operando:
   `getSettings` restituisce `db.path`.
+- ⚠️ **E anche `backup.dir`.** Il DB di progetto è una copia di quello vero, quindi si porta
+  dietro la sua cartella di backup: **quella di produzione su OneDrive**. Un «Backup e
+  manutenzione ora» dall'istanza di sviluppo scriverebbe lì un `.bak` del DB di prova e — peggio
+  — la rotazione a `backup.max` copie ne butterebbe fuori uno **vero**. Sul DB di progetto la
+  cartella va puntata in locale (`D:\LucaMoneyManager\backups-test`, in `.gitignore`), e va
+  rifatto **ogni volta che si rinfresca il DB con `copy-db.ps1`**, che riporta indietro anche
+  quell'impostazione.
 
 ### Uso
 
@@ -927,7 +1022,7 @@ silenzio.
 .\tools\test-giornale.ps1 -Verbose        # stampa anche atteso/ottenuto
 ```
 
-**Trentadue controlli**, in sette gruppi:
+**Quarantotto controlli**, in dieci gruppi:
 
 | gruppo | cosa difende |
 |---|---|
@@ -938,12 +1033,14 @@ silenzio.
 | preferenze sì, navigazione no | cambiare periodo in Transazioni non deve scrivere in cronologia |
 | gesto fallito | niente operazione, niente dati, **nessuna riga orfana** (`op_id IS NULL`): una riga orfana verrebbe assegnata al gesto successivo, cioè a quello sbagliato |
 | cambio di database | rifiutato a metà gesto (`close()` non chiude con lavoro in volo: la connessione vecchia resterebbe **orfana**, col lock su OneDrive per sempre), e un cambio legittimo non ruba il contesto alla richiesta che l'ha chiesto |
+| il vecchio `.log` non si scrive più | cinque gesti veri producono **una riga di cronologia ciascuno** e **non toccano di un byte** il file di testo, che dalla 1.26.0 è un archivio di sola lettura |
+| **backup a caldo** | il `.bak` nasce a connessione aperta, è integro, contiene gli stessi dati **e il proprio giornale** (che ha preso il posto del sidecar); dentro un'operazione è rifiutato e **non lascia il file parziale da 0 byte** |
+| **potatura** | con retention 0 non si pota; con retention 30 restano solo le operazioni dentro la finestra e le loro righe di dati **se ne vanno con loro** — è il controllo che smaschera la connessione esclusiva senza `foreign_keys=ON`, dove resterebbero tutte |
+| **ripristino a caldo** | il `.bak` prodotto così si rimette davvero al suo posto, e quello che è successo dopo sparisce |
 
-L'ultimo gruppo difende il passaggio alla 1.26.0: cinque gesti veri producono **una riga di
-cronologia ciascuno** e **non toccano di un byte** il vecchio `<db>.log`, che da quella versione
-è un archivio di sola lettura. Fino alla fase 2 lo stesso gruppo faceva il confronto opposto —
-una riga di log e una di `op_log`, stessa etichetta — per dimostrare che nel passaggio non si
-perdeva niente.
+Il gruppo sul `.log` difende il passaggio alla 1.26.0. Fino alla fase 2 faceva il confronto
+opposto — una riga di log e una di `op_log`, stessa etichetta — per dimostrare che nel passaggio
+non si perdeva niente.
 
 Valgono le stesse regole di `test-titoli.ps1`: **lo strumento scrive**, quindi lavora su una
 copia temporanea che cancella alla fine, si può lanciare ad app aperta, e `-Database prod` è

@@ -514,18 +514,30 @@ public class Database {
     public void resetModifications() { logger.resetSession(); }
 
     /**
-     * Copia il DB nella cartella di backup come nomedb_YYYY-MM-DD_HH-mm-ss.db.bak,
-     * con un sidecar .json delle modifiche di sessione. Mantiene al massimo
-     * maxBackups file, eliminando i più vecchi (con relativo sidecar).
+     * Backup <b>a caldo</b> del DB come nomedb_YYYY-MM-DD_HH-mm-ss.db.bak, mantenendo al
+     * massimo maxBackups file.
      *
-     * <p><b>synchronized</b> come {@code restoreBackup}: con journal=DELETE una transazione in
-     * corso tiene un file {@code <db>-journal} accanto al database e alcune pagine non sono
-     * ancora nel .db. Copiare in quel momento produce un <b>.bak corrotto</b> — o comunque
-     * incoerente — che però sembra a posto e lo si scopre solo il giorno del ripristino.
-     * Il lock esclude le scritture applicative (tutte passano da {@code inTx}, anch'esso
-     * synchronized) per la durata della copia.</p>
+     * <p>Usa l'<b>Online Backup API</b> di SQLite, che il driver espone come comando esteso
+     * {@code backup to <file>}: copia il database pagina per pagina <b>a connessione aperta</b>,
+     * in modo coerente, senza chiuderla. Misurato sul DB vero: <b>24 ms</b>.</p>
+     *
+     * <p>Prima era {@code Files.copy} preceduto da {@code close()} per costringere SQLite a
+     * consolidare il {@code -journal}, con dieci tentativi di attesa. ⚠️ Quel retry <b>non
+     * poteva funzionare</b>: il metodo era {@code synchronized} e {@code Thread.sleep} non
+     * rilascia il monitor, mentre {@code endQuery()} — l'unico che abbassa {@code activeQueries}
+     * — è a sua volta {@code synchronized}. Si dormiva un secondo e si falliva. Con l'Online
+     * Backup API il problema non esiste più: non c'è nessuna corsa col journal da vincere.</p>
+     *
+     * <p>⚠️ <b>Va eseguito fuori da ogni transazione.</b> Dentro, risponde {@code SQLITE_BUSY} e
+     * <b>lascia un file di 0 byte</b> (misurato): senza la cancellazione nel {@code catch}
+     * resterebbe in cartella un {@code .bak} troncato dall'aria innocente, che è esattamente il
+     * file su cui conteresti il giorno del ripristino.</p>
      */
     public String backup(String backupDir, int maxBackups) throws IOException {
+        // L'Online Backup API rifiuta dentro una transazione: meglio dirlo con un messaggio
+        // leggibile che lasciare a SQLite un SQLITE_BUSY opaco.
+        try { vietaSeOperazioneAperta("Il backup"); }
+        catch (SQLException e) { throw new IOException(e.getMessage(), e); }
         // Guscio che prende lockScrittura PRIMA del monitor: è l'ordine unico di acquisizione
         // (vedi lockScrittura). Prima l'esclusione con le scritture la dava il solo
         // `synchronized` condiviso con inTx; ora che inTx non è più synchronized, senza questo
@@ -554,65 +566,34 @@ public class Database {
         String backupName = baseName + "_" + timestamp + ".db.bak";
         Path dest = dir.resolve(backupName);
 
-        // Auto-release sospeso per tutta la copia: il timer non deve chiudere/riaprire il file
-        // mentre lo stiamo leggendo. Ripristinato nel finally, come fanno inTx/withExclusiveAccess.
+        // Auto-release sospeso per tutta la copia: il timer non deve chiudere la connessione
+        // mentre l'Online Backup API la sta usando. Ripristinato nel finally.
         suspendAutoRelease();
         try {
-            // Il lock esclude le scritture APPLICATIVE (tutte passano da inTx, synchronized),
-            // ma se un -journal fosse ancora presente vorrebbe dire che ci sono dati non
-            // consolidati nel .db: con journal=DELETE copiare in quel momento darebbe un .bak
-            // incoerente. Si forza allora un checkpoint pulito chiudendo la connessione (punto
-            // unico, aggiorna la baseline): SQLite elimina il journal committando o annullando.
-            // La prossima query riapre da sola via ensureOpen().
-            //
-            // close() però NON chiude se activeQueries > 0 (una lettura in volo su un altro
-            // thread).
-            //
-            // ⚠️ Il retry qui sotto NON è un'attesa cooperativa, anche se lo sembra: questo
-            // metodo è synchronized e Thread.sleep NON rilascia il monitor, mentre endQuery()
-            // — l'unico che decrementa activeQueries — è a sua volta synchronized. Durante i
-            // 10 tentativi il contatore quindi non può scendere: si dorme 1s e si fallisce.
-            // Il ciclo serve solo per il caso in cui il journal sparisca da sé (transazione
-            // chiusa da SQLite). Difetto noto e ACCETTATO (audit 2026-07-28): la finestra
-            // richiede un journal orfano da una transazione interrotta PIÙ una query in volo,
-            // e l'esito è dal lato sicuro — si rifiuta un .bak incoerente e resetModifications()
-            // non viene eseguito, quindi il backup si ritenta alla chiusura successiva.
-            // Per renderlo una vera attesa servirebbe far dormire il retry FUORI dal monitor.
-            Path journal = src.resolveSibling(src.getFileName() + "-journal");
-            for (int attempt = 0; attempt < 10 && Files.exists(journal); attempt++) {
-                try {
-                    close();
-                } catch (SQLException e) {
-                    System.err.println("Database.backup: chiusura pre-copia fallita: " + e.getMessage());
+            Connection c;
+            try { c = beginQuery(); }
+            catch (SQLException e) { throw new IOException("Database non apribile: " + e.getMessage(), e); }
+            try (Statement st = c.createStatement()) {
+                st.executeUpdate("backup to '" + sqlLiteral(dest) + "'");
+            } catch (SQLException e) {
+                // ⚠️ Un backup fallito lascia un file parziale (misurato: 0 byte su
+                // SQLITE_BUSY). Va tolto, altrimenti resta un .bak troncato che sembra buono.
+                try { Files.deleteIfExists(dest); } catch (IOException ignored) {
+                    // se non si riesce a cancellarlo, l'eccezione sotto resta comunque il segnale
                 }
-                if (!Files.exists(journal)) break;
-                try { Thread.sleep(100); }
-                catch (InterruptedException ie) { Thread.currentThread().interrupt(); break; }
+                throw new IOException("Backup fallito: " + e.getMessage(), e);
+            } finally {
+                endQuery();
             }
-            if (Files.exists(journal)) {
-                // Dopo ~1s il journal è ancora lì: meglio fallire in modo rumoroso che scrivere
-                // un .bak incoerente spacciandolo per buono — è esattamente il file su cui
-                // conteresti il giorno del ripristino.
-                throw new IOException("Backup annullato: transazione in corso sul database "
-                        + "(journal presente). Riprova fra qualche istante.");
-            }
-
-            Files.copy(src, dest, StandardCopyOption.REPLACE_EXISTING);
         } finally {
             resumeAutoRelease();
         }
         logger.log("BACKUP ESEGUITO", "dest:" + dest);
 
-        // Sidecar JSON con le modifiche della sessione
-        var entries = logger.getSessionEntries();
-        if (!entries.isEmpty()) {
-            Path sidecar = dest.resolveSibling(backupName + ".json");
-            var gson = new com.google.gson.Gson();
-            Files.writeString(sidecar, gson.toJson(Map.of("entries", entries)),
-                    StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
-        }
-
-        // Pulizia vecchi backup (ordine cronologico, elimina i più vecchi)
+        // Pulizia vecchi backup (ordine cronologico, elimina i più vecchi).
+        // Il `.json` accanto non si scrive più dalla 1.26.0 — un .bak È un database e contiene
+        // il proprio op_log — ma si continua a cancellarlo insieme al suo .bak, così i sidecar
+        // rimasti dalle versioni precedenti se ne vanno da soli.
         if (maxBackups > 0) {
             try (DirectoryStream<Path> ds = Files.newDirectoryStream(dir, baseName + "_*.db.bak")) {
                 List<Path> baks = new ArrayList<>();
@@ -629,10 +610,23 @@ public class Database {
         return dest.toAbsolutePath().toString();
     }
 
+    /** Un percorso come letterale SQL: separatori normalizzati e apici raddoppiati.
+     *  ⚠️ `backup to` prende il nome del file <b>dentro l'SQL</b>, non come parametro: senza
+     *  raddoppiare gli apici, una cartella con un apostrofo nel nome (`D'Angelo`) spezzerebbe
+     *  l'istruzione. */
+    private static String sqlLiteral(Path p) {
+        return p.toAbsolutePath().toString().replace('\\', '/').replace("'", "''");
+    }
+
     /**
-     * Elenca i file di backup trovati nella cartella configurata e in quella del DB,
-     * con timestamp formattato, dimensione e le modifiche lette dal sidecar JSON.
-     * Ordinati dal più recente.
+     * Elenca i file di backup trovati nella cartella configurata e in quella del DB, con
+     * timestamp formattato e dimensione. Ordinati dal più recente.
+     *
+     * <p>Dalla 1.26.0 <b>non c'è più il sidecar {@code .json}</b> con le modifiche di sessione,
+     * e nemmeno la gestione del sidecar corrotto: un {@code .bak} <b>è</b> un database SQLite e
+     * contiene il proprio {@code op_log}, che si legge in sola lettura con
+     * {@link #operazioniDelBackup(String, int)} quando si espande la voce in Cronologia. Una
+     * fonte sola invece di due che possono divergere.</p>
      */
     public List<Map<String, Object>> listBackups(String backupDir) throws IOException {
         Path src = Path.of(currentDbPath);
@@ -661,44 +655,49 @@ public class Database {
                         ts = m.group(1);
                         try { displayTs = LocalDateTime.parse(ts, fmt).format(display); } catch (Exception ignored) {}
                     }
-                    // Leggi sidecar JSON con le modifiche della sessione (se presente)
-                    List<?> changes = List.of();
-                    Path sidecar = f.resolveSibling(name + ".json");
-                    if (Files.exists(sidecar)) {
-                        try {
-                            var parsed = com.google.gson.JsonParser.parseString(
-                                    Files.readString(sidecar, java.nio.charset.StandardCharsets.UTF_8))
-                                    .getAsJsonObject();
-                            var arr = parsed.getAsJsonArray("entries");
-                            var list = new ArrayList<Map<String,Object>>();
-                            for (var el : arr) {
-                                var obj = el.getAsJsonObject();
-                                list.add(Map.of(
-                                    "time", obj.get("time").getAsString(),
-                                    "op",   obj.get("op").getAsString(),
-                                    "desc", obj.get("desc").getAsString()
-                                ));
-                            }
-                            changes = list;
-                        } catch (Exception e) {
-                            // Sidecar corrotto: mostra il backup senza le modifiche, ma logga
-                            // (indica un file .json malformato accanto al .db.bak).
-                            System.err.println("Database.listBackups: sidecar illeggibile " + sidecar + ": " + e.getMessage());
-                        }
-                    }
                     var entry = new java.util.HashMap<String,Object>();
                     entry.put("name",      name);
                     entry.put("path",      f.toAbsolutePath().toString());
                     entry.put("timestamp", ts != null ? ts : "");
                     entry.put("displayTs", displayTs);
                     entry.put("size",      Files.size(f));
-                    entry.put("changes",   changes);
                     result.add(entry);
                 }
             }
         }
         result.sort(Comparator.comparing(r -> ((String) r.get("timestamp")), Comparator.reverseOrder()));
         return result;
+    }
+
+    /**
+     * Le operazioni registrate <b>dentro</b> un file di backup, lette in sola lettura.
+     *
+     * <p>È ciò che ha preso il posto del sidecar {@code .json}: un {@code .bak} è un database
+     * SQLite con il suo {@code op_log}, quindi la domanda «cosa c'era dentro questo backup?»
+     * si risponde aprendolo, non tenendo accanto un secondo file che può perdersi, corrompersi
+     * o divergere.</p>
+     *
+     * <p>⚠️ Un backup <b>anteriore alla v27</b> non ha {@code op_log}: l'elenco torna vuoto e
+     * non è un errore — è una storia che, quel giorno, non veniva ancora registrata.</p>
+     */
+    public List<Map<String, Object>> operazioniDelBackup(String backupPath, int limite) throws IOException {
+        Path bak = Path.of(backupPath);
+        if (!Files.exists(bak)) throw new IOException("File backup non trovato: " + backupPath);
+        SQLiteConfig cfg = new SQLiteConfig();
+        cfg.setReadOnly(true);   // un .bak non si tocca: è la copia su cui si conta
+        int n = Math.max(1, Math.min(limite, 500));
+        try (Connection c = DriverManager.getConnection(
+                     "jdbc:sqlite:" + bak.toAbsolutePath().toString().replace('\\', '/'),
+                     cfg.toProperties());
+             Statement st = c.createStatement();
+             ResultSet rs = st.executeQuery(
+                     "SELECT ts, etichetta, dettaglio, stato FROM op_log WHERE tipo='utente'"
+                     + " ORDER BY id DESC LIMIT " + n)) {
+            return toList(rs);
+        } catch (SQLException e) {
+            System.err.println("Database.operazioniDelBackup: " + bak.getFileName() + ": " + e.getMessage());
+            return List.of();
+        }
     }
 
     /**
@@ -5869,6 +5868,89 @@ public class Database {
         } finally {
             resumeAutoRelease();
         }
+    }
+
+    /**
+     * Pota il giornale e compatta il file se serve: il secondo e il terzo passo del momento di
+     * manutenzione (le regole e l'ordine stanno in {@link Manutenzione}, qui c'è il come).
+     *
+     * <p>I due passi stanno insieme perché vogliono la stessa cosa: il file <b>fuori da ogni
+     * transazione</b>. Girano quindi sulla connessione esclusiva di
+     * {@link #withExclusiveAccess}, non attraverso {@code execute()} — che aprirebbe
+     * l'operazione della richiesta in corso e lascerebbe una transazione aperta sotto il
+     * {@code VACUUM}, che non può girarci dentro.</p>
+     *
+     * <p>⚠️ <b>La potatura non passa dal giornale, ed è corretto così.</b> {@code op_log} e
+     * {@code change_log} non sono tabelle journalate: cancellarne righe non produce altre
+     * righe, quindi la manutenzione non lascia traccia in cronologia — che è quello che
+     * vogliamo (vedi {@link Manutenzione}).</p>
+     *
+     * @param giorni        finestra da conservare; {@code 0} = nessun limite, non si pota
+     * @param sogliaVacuum  quota di pagine libere oltre la quale compattare
+     */
+    Map<String, Object> potaECompatta(int giorni, double sogliaVacuum) throws SQLException {
+        long[] potate = {0};
+        boolean[] compattato = {false};
+        long prima = dimensioneFile();
+
+        withExclusiveAccess(c -> {
+            try (Statement st = c.createStatement()) {
+                // ⚠️ La connessione esclusiva è una `DriverManager.getConnection` nuda: le
+                // foreign key NON sono attive di default (le accende openConnection, che qui
+                // non passa). Senza, la DELETE su op_log lascerebbe tutte le righe di
+                // change_log orfane — il giornale peserebbe uguale e i dati per annullare
+                // sarebbero appesi a operazioni che non esistono più.
+                st.execute("PRAGMA foreign_keys=ON");
+
+                if (giorni > 0) {
+                    // `ts` è scritto con l'ora locale, quindi anche il taglio va in locale:
+                    // con 'now' puro si poterebbe un'ora o due di troppo (o di meno).
+                    String taglio = "datetime('now','localtime','-" + giorni + " days')";
+                    try (ResultSet rs = st.executeQuery(
+                            "SELECT COUNT(*) FROM op_log WHERE ts < " + taglio)) {
+                        potate[0] = rs.next() ? rs.getLong(1) : 0;
+                    }
+                    // ⚠️ Una DELETE che non tocca niente è comunque una transazione, cioè un
+                    // upload OneDrive del file intero a ogni chiusura dell'app. Si esegue solo
+                    // se c'è davvero qualcosa da togliere: stessa economia di ensureSystemTags.
+                    if (potate[0] > 0) st.executeUpdate("DELETE FROM op_log WHERE ts < " + taglio);
+                }
+
+                long pagine = 0, libere = 0;
+                try (ResultSet rs = st.executeQuery("PRAGMA page_count")) {
+                    if (rs.next()) pagine = rs.getLong(1);
+                }
+                try (ResultSet rs = st.executeQuery("PRAGMA freelist_count")) {
+                    if (rs.next()) libere = rs.getLong(1);
+                }
+                if (pagine > 0 && (double) libere / pagine > sogliaVacuum) {
+                    st.execute("VACUUM");
+                    compattato[0] = true;
+                }
+            }
+        });
+
+        Map<String, Object> out = new java.util.LinkedHashMap<>();
+        out.put("operazioni_potate", potate[0]);
+        out.put("compattato",        compattato[0]);
+        out.put("byte_prima",        prima);
+        out.put("byte_dopo",         dimensioneFile());
+        return out;
+    }
+
+    private long dimensioneFile() {
+        try { return Files.exists(Path.of(currentDbPath)) ? Files.size(Path.of(currentDbPath)) : 0; }
+        catch (IOException e) { return 0; }
+    }
+
+    /** Il momento unico di backup e manutenzione. La regola sta in {@link Manutenzione}. */
+    public Map<String, Object> manutenzione(boolean manuale) {
+        return new Manutenzione(this).esegui(manuale);
+    }
+
+    /** Svecchiamento con il backup obbligatorio che lo precede: vedi {@link Manutenzione#svecchia}. */
+    public Map<String, Object> svecchiaTransazioni(List<Integer> ids) throws SQLException {
+        return new Manutenzione(this).svecchia(ids);
     }
 
     /** Info diagnostiche sul DB: dimensione file, pagine, spazio libero, conteggi, versione schema. */

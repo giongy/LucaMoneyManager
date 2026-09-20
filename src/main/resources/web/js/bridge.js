@@ -213,9 +213,12 @@ const api = {
   getAppLogErrors:       ()             => callJava('getAppLogErrors', {}),
   openUrl:           (url)   => callJava('openUrl', {url}),
   exportHtmlReport:  (html, filename) => callJava('exportHtmlReport', {html, filename}),
-  doBackup:        ()         => callJava('doBackup', {}),
-  listBackups:     ()         => callJava('listBackups', {}),
-  restoreBackup:   (path)     => callJava('restoreBackup', {path}),
+  listBackups:      ()        => callJava('listBackups', {}),
+  restoreBackup:    (path)    => callJava('restoreBackup', {path}),
+  // Backup, potatura della cronologia e compattazione: un blocco solo, lo stesso della chiusura.
+  manutenzioneOra:  ()        => callJava('manutenzioneOra', {}),
+  // Cosa c'era dentro un .bak: si legge il suo op_log, non un file accanto.
+  operazioniBackup: (path)    => callJava('operazioniBackup', {path}),
 
   // Pianificate
   getScheduled:    ()    => callJava('getScheduled'),

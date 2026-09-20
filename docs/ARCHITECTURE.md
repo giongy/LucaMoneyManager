@@ -198,8 +198,9 @@ Switch gigante in [Bridge.java](../src/main/java/com/moneymanager/Bridge.java) �
 | Statistiche | getDashboardStats, getMonthlyChartData, getCategoryChartData, getCategoryComparison | `db.*` |
 | Impostazioni | getSettings, setSetting, openSettingsFile | `settings` + `db.app_settings` |
 | Allegati | attachFile, openAttachment, setAttachmentPath, removeAttachment | filesystem + `db.*` |
-| Backup / DB | doBackup, listBackups, restoreBackup, dbVacuum, dbIntegrityCheck, dbReindex, dbAnalyze, archiveTransactions | `db.*` |
-| Log | openAppLog, getAppLogErrors, clearAppLog, readLog, purgeLog, purgeSystemLog | `DbLogger` + filesystem |
+| Backup / DB | listBackups, operazioniBackup, restoreBackup, manutenzioneOra, dbVacuum, dbIntegrityCheck, dbReindex, dbAnalyze, archiveTransactions | `db.*` |
+| Cronologia | getCronologia, getOperazione, annullaOperazione, annullaACatena, riportaAOperazione | `Giornale` |
+| Log | openAppLog, getAppLogErrors, clearAppLog, readLog (archivio del vecchio .log) | filesystem |
 | Sistema | openUrl, openDataDir, openLogFolder, exportHtmlReport, reloadDb, seedExampleData | `java.awt.Desktop` |
 | Performance | setPerfEnabled, getPerfLog, clearPerfLog | buffer in-memory in Bridge |
 | Stato DB | dbStatus, dbOpen, dbClose | usato soprattutto via WebServer (vedi §7) |
@@ -439,17 +440,25 @@ al database. È il desktop a importarli: `importPending()` legge la coda, salta 
 in `imported_pending` (idempotenza) e aggancia il tag di sistema `phone` tramite `phoneTagId()` —
 un unico punto deterministico. Viene invocata da `init()` a ogni avvio.
 
-### Logging scritture
-[DbLogger.java](../src/main/java/com/moneymanager/DbLogger.java) — ogni operazione di modifica scrive
-una riga formattata in `<dbname>.log`. La sessione corrente è delimitata da `startOffset` (byte size
-all'avvio): permette al backup automatico di sapere se ci sono cambiamenti reali e di generare il
-sidecar JSON `<backup>.db.bak.json` con la lista delle modifiche.
+### Registrazione delle scritture (giornale)
+[Giornale.java](../src/main/java/com/moneymanager/Giornale.java) — ogni gesto dell'utente lascia
+una riga in `op_log` e, sotto, le righe di dati che ha cambiato in `change_log` (catturate da 57
+trigger generati, non dai metodi di scrittura). Da lì si annulla, e da lì `hasChanges()` sa se il
+backup all'uscita serve davvero. Il confine del gesto è la richiesta del `Bridge`.
 
-⚠️ Questo file sta **accanto al DB**, quindi su OneDrive, e ogni riga costa il ricaricamento del
-file intero. Ci va solo ciò che ha fatto **l'utente**: gli eventi di sfondo (tocchi esterni al
-`.db`, diagnostica) vanno su `app.log`, che dalla 1.25.11 vive nella cartella dati ed è fuori
-dalla sincronizzazione. Il perché per esteso — e cosa si rompeva prima — sta in `CLAUDE.md`,
-sezione "I due log e OneDrive".
+[Manutenzione.java](../src/main/java/com/moneymanager/Manutenzione.java) — alla chiusura e dal
+pulsante in Cronologia: backup a caldo (`backup to`), potatura del giornale oltre la retention,
+compattazione solo se il file è frammentato.
+
+⚠️ Il giornale sta **dentro il `.db`**, quindi su OneDrive, e ogni scrittura costa il
+ricaricamento del file intero. Ci va solo ciò che ha fatto **l'utente**: gli eventi di sfondo
+(tocchi esterni al `.db`, diagnostica, resoconti di manutenzione) vanno su `app.log`, che dalla
+1.25.11 vive nella cartella dati ed è fuori dalla sincronizzazione. Il perché per esteso — e cosa
+si rompeva prima — sta in `CLAUDE.md`, sezioni "I due registri e OneDrive" e "Backup e
+manutenzione".
+
+Il vecchio `<dbname>.log` scritto da `DbLogger` **non viene più aggiornato dalla 1.26.0**: resta
+come archivio di sola lettura della storia precedente, consultabile da Cronologia → Archivio.
 
 ---
 

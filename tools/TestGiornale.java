@@ -118,6 +118,9 @@ public class TestGiornale {
 
         sezione("LE IMPOSTAZIONI: PREFERENZE SI, NAVIGAZIONE NO");
         int opPrima = conta("SELECT COUNT(*) FROM op_log");
+        // ⚠️ A differenze, non a valore assoluto: il DB di partenza è quello vero, e basta aver
+        // cambiato una preferenza dall'app perché una riga 'setSetting' ci sia già.
+        int sysPrima = conta("SELECT COUNT(*) FROM op_log WHERE tipo='sistema' AND etichetta='setSetting'");
         app.iniziaRichiesta("setSetting", "desktop");
         app.setAppSetting("tx.range.acct.3", "2026");
         app.terminaRichiesta(true);
@@ -127,7 +130,7 @@ public class TestGiornale {
         app.setAppSetting("backup.max", "12");
         app.terminaRichiesta(true);
         eq("una preferenza vera entra", opPrima + 1, conta("SELECT COUNT(*) FROM op_log"));
-        eq("e senza annotazione resta un'operazione di sistema", 1,
+        eq("e senza annotazione resta un'operazione di sistema", sysPrima + 1,
            conta("SELECT COUNT(*) FROM op_log WHERE tipo='sistema' AND etichetta='setSetting'"));
 
         sezione("UN GESTO FALLITO NON LASCIA NIENTE A META'");
@@ -197,6 +200,106 @@ public class TestGiornale {
         long logDopo = Files.exists(log) ? Files.size(log) : -1;
         eq("dopo cinque gesti il file .log è intatto", String.valueOf(logPrima), String.valueOf(logDopo));
 
+
+        // ── Backup a caldo e manutenzione ───────────────────────────────────────
+        // Le proprietà che si rompono in silenzio: un .bak incoerente sembra a posto e lo si
+        // scopre il giorno del ripristino; una potatura che non porta via change_log lascia il
+        // giornale pesante e i dati per annullare appesi a operazioni che non esistono più.
+        sezione("BACKUP A CALDO");
+        // La cartella sta accanto alla copia e ne porta il nome: così la pulizia dello script
+        // (che cancella tutto ciò che inizia col nome della copia) se la porta via, invece di
+        // lasciare backup di prova nel %TEMP% a ogni giro.
+        Path cartellaBak = db.resolveSibling(
+                db.getFileName().toString().replaceAll("\\.[^.]+$", "") + "-bak");
+        Files.createDirectories(cartellaBak);
+        app.iniziaRichiesta("setSetting", "desktop");
+        app.setAppSetting("backup.dir", cartellaBak.toString());
+        app.setAppSetting("backup.max", "9");
+        app.terminaRichiesta(true);
+
+        int txPrima = conta("SELECT COUNT(*) FROM transactions");
+        String dest = app.backup(cartellaBak.toString(), 9);
+        vero("il .bak esiste ed è stato prodotto a connessione aperta",
+             Files.exists(Path.of(dest)) && app.isOpen());
+        eq("niente sidecar .json accanto al backup", 0,
+           (int) java.util.stream.StreamSupport.stream(
+                   Files.newDirectoryStream(cartellaBak, "*.json").spliterator(), false).count());
+        try (Connection c = DriverManager.getConnection(
+                     "jdbc:sqlite:" + dest.replace(java.io.File.separatorChar, '/'));
+             Statement st = c.createStatement()) {
+            eq("il backup è integro", "ok", uno(st, "PRAGMA integrity_check"));
+            eq("e contiene gli stessi dati dell'originale", String.valueOf(txPrima),
+               uno(st, "SELECT COUNT(*) FROM transactions"));
+            vero("compreso il proprio giornale (al posto del vecchio sidecar)",
+                 Integer.parseInt(uno(st, "SELECT COUNT(*) FROM op_log")) > 0);
+        }
+
+        // ⚠️ Dentro una transazione l'Online Backup API risponde SQLITE_BUSY e lascia un file
+        // di 0 byte: se non lo si cancella resta in cartella un .bak troncato dall'aria buona.
+        app.iniziaRichiesta("addTag", "desktop");
+        app.addTag(json("{\"name\":\"prova-backup-busy\"}"));   // apre l'operazione
+        boolean bakRifiutato = false;
+        int bakPrima = (int) java.util.stream.StreamSupport.stream(
+                Files.newDirectoryStream(cartellaBak, "*.db.bak").spliterator(), false).count();
+        try { app.backup(cartellaBak.toString(), 9); }
+        catch (Exception atteso) { bakRifiutato = true; }
+        app.terminaRichiesta(false);
+        vero("rifiutato: backup con un'operazione aperta", bakRifiutato);
+        eq("e nessun file parziale lasciato in cartella", bakPrima,
+           (int) java.util.stream.StreamSupport.stream(
+                   Files.newDirectoryStream(cartellaBak, "*.db.bak").spliterator(), false).count());
+
+        sezione("POTATURA DEL GIORNALE");
+        // Un giornale finto di 90 giorni: tre operazioni vecchie con le loro righe di dati, e
+        // una di ieri. Con retention 30 devono sparire le tre vecchie e restare quella recente.
+        try (Connection c = DriverManager.getConnection(url); Statement st = c.createStatement()) {
+            for (int g : new int[]{90, 60, 31, 1}) {
+                st.executeUpdate("INSERT INTO op_log(ts,etichetta,dettaglio,origine,tipo,stato)"
+                        + " VALUES(datetime('now','localtime','-" + g + " days'),'PROVA POTATURA','g:"
+                        + g + "','desktop','utente','attiva')");
+                long id = Long.parseLong(uno(st, "SELECT MAX(id) FROM op_log"));
+                for (int k = 0; k < 2; k++)
+                    st.executeUpdate("INSERT INTO change_log(op_id,tabella,chiave,verso,riga)"
+                            + " VALUES(" + id + ",'tags','[999]','U','{\"id\":999}')");
+            }
+        }
+        int opVecchie   = conta("SELECT COUNT(*) FROM op_log WHERE etichetta='PROVA POTATURA'");
+        int righeVecchie = conta("SELECT COUNT(*) FROM change_log WHERE chiave='[999]'");
+        eq("giornale finto pronto: 4 operazioni", 4, opVecchie);
+        eq("con 2 righe di dati ciascuna", 8, righeVecchie);
+
+        app.iniziaRichiesta("setSetting", "desktop");
+        app.setAppSetting("journal.retention_days", "0");
+        app.terminaRichiesta(true);
+        app.manutenzione(true);
+        eq("con retention 0 non si pota niente", 4,
+           conta("SELECT COUNT(*) FROM op_log WHERE etichetta='PROVA POTATURA'"));
+
+        app.iniziaRichiesta("setSetting", "desktop");
+        app.setAppSetting("journal.retention_days", "30");
+        app.terminaRichiesta(true);
+        app.manutenzione(true);
+        eq("con retention 30 restano solo le operazioni dentro la finestra", 1,
+           conta("SELECT COUNT(*) FROM op_log WHERE etichetta='PROVA POTATURA'"));
+        // ⚠️ La connessione esclusiva usata dalla potatura non ha le foreign key attive per
+        // default: senza PRAGMA foreign_keys=ON queste righe resterebbero tutte e otto.
+        eq("e le loro righe di dati se ne vanno con loro (CASCADE)", 2,
+           conta("SELECT COUNT(*) FROM change_log WHERE chiave='[999]'"));
+        eq("nessuna riga di dati orfana", 0,
+           conta("SELECT COUNT(*) FROM change_log c"
+                 + " WHERE c.op_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM op_log o WHERE o.id=c.op_id)"));
+
+        sezione("RIPRISTINO DI UN BACKUP FATTO A CALDO");
+        // La prova che conta davvero: il .bak prodotto a caldo si può rimettere al suo posto,
+        // e quello che è successo dopo sparisce.
+        app.iniziaRichiesta("addTag", "desktop");
+        app.addTag(json("{\"name\":\"dopo-il-backup\"}"));
+        app.terminaRichiesta(true);
+        vero("il tag creato dopo il backup c'è", conta("SELECT COUNT(*) FROM tags WHERE name='dopo-il-backup'") == 1);
+        app.restoreBackup(dest, cartellaBak.toString());
+        eq("dopo il ripristino il database è tornato a prima", 0,
+           conta("SELECT COUNT(*) FROM tags WHERE name='dopo-il-backup'"));
+        eq("con i dati del backup al loro posto", txPrima, conta("SELECT COUNT(*) FROM transactions"));
         app.close();
         System.out.println();
         System.out.println(falliti == 0

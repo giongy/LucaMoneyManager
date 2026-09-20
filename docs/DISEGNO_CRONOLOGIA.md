@@ -1,7 +1,34 @@
 # Disegno — Cronologia, annullamento, backup e manutenzione
 
-**Stato:** fasi 1 (cattura), 2 (annullamento) e 3 (pagina Cronologia) **fatte**; restano la 4
-(backup e manutenzione) e la 5 (pulizia). Versione bersaglio **1.26.0**, schema **v27**.
+**Stato:** fasi 1 (cattura), 2 (annullamento), 3 (pagina Cronologia) e 4 (backup e manutenzione)
+**fatte**; resta la 5 (pulizia). Versione bersaglio **1.26.0**, schema **v27**.
+
+### Cosa è cambiato scrivendo la fase 4
+
+Tre precisazioni al disegno, tutte nate da cose che si vedono solo col codice in mano.
+
+1. ⚠️ **La potatura gira a backup *spento*, non a backup *rotto*.** Il disegno diceva «la
+   potatura gira SEMPRE», per impedire che spegnendo il backup il giornale cresca all'infinito.
+   Ma backup disattivato è una scelta dell'utente, backup fallito è un'altra cosa: potare lì
+   butterebbe la storia senza averne messa da parte una copia, e non si torna indietro. Quindi:
+   backup non richiesto → si pota; backup richiesto e riuscito → si pota; **backup richiesto e
+   fallito → non si pota**, e il motivo si legge nel resoconto.
+2. ⚠️ **Il pulsante manuale non fa un backup se non c'è niente da salvare.** Sembrava giusto il
+   contrario («l'ha chiesto l'utente»), ma con la rotazione a numero fisso di copie un `.bak`
+   identico al precedente ne butta fuori uno vecchio e davvero diverso: si perderebbe storia
+   premendo un pulsante che sembra prudente.
+3. ⚠️ **La potatura ha bisogno di `PRAGMA foreign_keys=ON` esplicito.** Gira sulla connessione
+   esclusiva (serve a `VACUUM`, che non può stare dentro una transazione), e quella è una
+   `DriverManager.getConnection` nuda: le foreign key non sono attive, quindi la `CASCADE` da
+   `op_log` a `change_log` non scatterebbe. Il giornale peserebbe uguale dopo la potatura, con
+   le righe di dati appese a operazioni che non esistono più. C'è un controllo apposta.
+
+Un pezzo del disegno è stato invece **tolto**: il pulsante `[pota…]` della §9. Con la retention
+in Impostazioni e la potatura dentro il momento di manutenzione, quel pulsante non avrebbe quasi
+mai niente da fare — e un pulsante che di solito non fa niente insegna a non fidarsi. Nello
+stesso spirito è sparita l'operazione `doBackup`: averne due (backup da solo, o backup +
+manutenzione) significa poter fare il backup senza potare, che è il modo in cui un giornale
+cresce all'infinito senza che nessuno se ne accorga.
 
 ### Cosa è cambiato scrivendo la fase 3
 
@@ -489,12 +516,14 @@ La voce **Log** in sidebar ([index.html:139](../src/main/resources/web/index.htm
 ✅ **Fatta**, in [cronologia.js](../src/main/resources/web/js/pages/cronologia.js), con due
 differenze dal disegno qui sotto, entrambe volute:
 
-- i due pulsanti di manutenzione (**`[pota…]`** e **«Backup e manutenzione ora»**) **non ci sono
-  ancora**: arrivano con la fase 4, insieme a ciò che fanno. Un pulsante che non fa niente è
-  peggio di un pulsante che manca. La banda in testa mostra però già il peso del giornale e la
-  retention letta da `app_settings`;
+- **`[pota…]` non c'è**, e non arriverà: vedi «Cosa è cambiato scrivendo la fase 4» in testa.
+  **«Backup e manutenzione ora»** c'è, in alto a destra, e apre un resoconto di cosa ha fatto
+  davvero (backup, quante operazioni potate, se ha compattato);
 - in più rispetto al disegno c'è **📜 Archivio**, che apre in sola lettura il vecchio `<db>.log`:
   è l'unico posto da cui si legge la storia precedente al giornale.
+
+Espandendo un **punto di ripristino** si legge il suo `op_log`: cosa c'era dentro quel backup,
+letto dal backup stesso (§8, «Il sidecar `.json` sparisce»).
 
 ```
  Cronologia                       [🔍 filtra…] [tutte ▾] [💾 Backup e manutenzione ora]
@@ -591,12 +620,15 @@ caratteri · `getLogInfo` / `purgeLog` / `purgeSystemLog` in `Database` e nel `B
 sezioni di Impostazioni che li usavano · l'elenco dei backup e il ripristino da Impostazioni (ora
 sulla linea del tempo).
 
-**Ancora da togliere:** il sidecar `.json` e la gestione del sidecar corrotto · il retry sul
-`-journal` (fase 4) · il backup pre-operazione dentro il `case` del Bridge (che `CLAUDE.md` già
-indica come errore da non ripetere, fase 4) · la classe `DbLogger` intera, coi suoi
-`purgeLogBefore` / `purgeSystemEntries` ormai senza chiamanti (fase 5).
+**Già sparito (fase 4):** il sidecar `.json` e la gestione del sidecar corrotto · il retry sul
+`-journal` e la `close()` prima della copia · il backup pre-operazione dentro il `case` del
+Bridge (che `CLAUDE.md` indicava come errore da non ripetere) · l'operazione `doBackup`.
 
-`hasChanges()` diventa `SELECT EXISTS(SELECT 1 FROM op_log WHERE id > ? AND tipo='utente')`.
+**Ancora da togliere:** `undoPortfolioTransaction` (dopo prova di equivalenza) · la classe
+`DbLogger` intera, coi suoi `purgeLogBefore` / `purgeSystemEntries` / `SYSTEM_ACTIONS` ormai
+senza chiamanti (fase 5).
+
+`hasChanges()` **è** `SELECT EXISTS(SELECT 1 FROM op_log WHERE id > ? AND tipo='utente')`.
 
 ---
 
@@ -638,7 +670,7 @@ comportamento.
 | ~~**1 — cattura**~~ ✅ | schema v27, trigger generati + guardia, `inTx` con `SAVEPOINT`, contesto operazione, `DbLogger` → `Giornale` (call-site invariati). Il `.log` continua a essere scritto **in parallelo** | ✅ `confronta-query.ps1` **IDENTICI** (2 scenari × 257 letture) · `test-titoli.ps1` **87/87** · `test-giornale.ps1` **28/28**, compreso il confronto 1:1 col `.log` |
 | ~~**2 — annullamento**~~ ✅ | `Giornale.annulla` con i **tre controlli**, `annullaACatena` (insieme minimo dei bloccanti), `riportaA`, `tools\test-annulla.ps1`. Resta da fare la seconda strada, «rimetti senza il legame mancante», che ha senso solo con l'interfaccia davanti | ✅ **71 scenari**: 67 identici dopo l'annullamento, 4 rifiutati come previsto, 0 differenze |
 | ~~**3 — pagina Cronologia**~~ ✅ | la pagina legge da `op_log`, timeline con i `.bak`, annulla / riporta indietro / ripeti, archivio del vecchio `.log`. Spenta la scrittura del `.log`, `hasChanges()` è un `EXISTS` su `op_log`, via `startOffset` e l'aritmetica dell'offset, via le azioni sul log da Impostazioni | ✅ `check-ui.ps1` sui 4 temi (Cronologia aggiunta all'elenco delle pagine controllate) · `interact.ps1` sui percorsi veri: annulla, ripeti, catena di 4, rifiuto con annullamento a catena · `test-giornale.ps1` **32/32** · `test-annulla.ps1` **71** · `test-titoli.ps1` **87/87** · `confronta-query.ps1` **IDENTICI** |
-| **4 — manutenzione e backup** | `backup to`, il blocco backup→potatura→vacuum, retention in Impostazioni, via il sidecar, via il backup dal `case` del Bridge | ripristino di un `.bak` prodotto a caldo · potatura su un giornale finto di 90 giorni |
+| ~~**4 — manutenzione e backup**~~ ✅ | `backup to` (24 ms, a connessione aperta), classe `Manutenzione` col blocco backup→potatura→vacuum, retention in Impostazioni, via il sidecar (un `.bak` si legge il proprio `op_log`), via `doBackup`, il backup pre-svecchiamento sceso sotto il Bridge | ✅ `test-giornale.ps1` **48/48**, con tre gruppi nuovi: backup a caldo (integro, col suo giornale, rifiutato dentro una transazione e **senza file parziale**), potatura (retention 0 e 30, CASCADE su `change_log`, nessuna riga orfana), ripristino di un `.bak` prodotto a caldo · `test-annulla.ps1` **71** · `test-titoli.ps1` **87/87** · `confronta-query.ps1` **IDENTICI** · manutenzione provata dall'app vera |
 | **5 — pulizia** | via `undoPortfolioTransaction` (dopo prova di equivalenza), via `DbLogger`, invarianti in `CLAUDE.md`, flusso in `ARCHITECTURE.md`, eliminazione di questo file, bump **1.26.0** | `test-titoli.ps1` + `test-annulla.ps1` + `confronta-query.ps1` |
 
 Le fasi 1 e 2 sono la metà della fatica e **non cambiano nulla di visibile**. La 3 è la prima che

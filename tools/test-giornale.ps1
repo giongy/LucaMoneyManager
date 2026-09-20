@@ -78,7 +78,9 @@ if ($Keep) {
   Write-Host "`nCopia conservata: $copia"
 } else {
   $base = [IO.Path]::Combine([IO.Path]::GetDirectoryName($copia), [IO.Path]::GetFileNameWithoutExtension($copia))
-  Get-ChildItem "$base*" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+  # -Recurse perché il gruppo sul backup crea una cartella "<copia>-bak" accanto alla copia:
+  # senza, i .bak di prova si accumulerebbero nel %TEMP% a ogni esecuzione.
+  Get-ChildItem "$base*" -ErrorAction SilentlyContinue | Remove-Item -Force -Recurse -ErrorAction SilentlyContinue
 }
 
 exit $esito

@@ -827,16 +827,23 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             // Popola il DB corrente con dati di esempio (wizard di primo avvio)
             case "seedExampleData" -> db.seedExampleData();
 
-            case "doBackup" -> {
-                String bDir = db.getAppSetting("backup.dir", "");
-                String dest = db.backup(bDir, db.getBackupMax());
-                yield Map.of("ok", true, "path", dest);
-            }
-
+            // Il backup da solo non è più un'operazione esposta: la via unica è
+            // `manutenzioneOra` (backup + potatura + compattazione), lo stesso blocco che gira
+            // alla chiusura. Averne due significava poter fare il backup senza potare, che è
+            // il modo in cui un giornale cresce all'infinito senza che nessuno se ne accorga.
             case "listBackups" -> {
                 String bDir = db.getAppSetting("backup.dir", "");
                 yield Map.of("backups", db.listBackups(bDir));
             }
+
+            // Cosa c'era dentro un .bak: si legge il suo op_log, in sola lettura. Ha preso il
+            // posto del sidecar .json, che poteva perdersi o divergere dal backup che descriveva.
+            case "operazioniBackup" -> Map.of("operazioni", db.operazioniDelBackup(
+                    p.get("path").getAsString(),
+                    p.has("limite") ? p.get("limite").getAsInt() : 50));
+
+            // Il momento unico: backup, potatura, compattazione. `true` = l'ha chiesto l'utente.
+            case "manutenzioneOra" -> db.manutenzione(true);
 
             case "restoreBackup" -> {
                 String bDir = db.getAppSetting("backup.dir", "");
@@ -856,26 +863,13 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                 for (var el : p.get("categoryIds").getAsJsonArray()) catIds.add(el.getAsInt());
                 yield db.archivePreview(p.get("from").getAsString(), p.get("to").getAsString(), catIds);
             }
+            // Il backup obbligatorio che precede lo svecchiamento sta SOTTO il Bridge
+            // (Manutenzione.svecchia): qui era una guardia che proteggeva solo le chiamate in
+            // arrivo da questo `case`.
             case "archiveTransactions" -> {
                 java.util.List<Integer> ids = new java.util.ArrayList<>();
                 for (var el : p.get("ids").getAsJsonArray()) ids.add(el.getAsInt());
-                // Backup automatico pre-operazione (rispetta cartella/numero max configurati)
-                String bDir = db.getAppSetting("backup.dir", "");
-                String backupPath = null;
-                try {
-                    backupPath = db.backup(bDir, db.getBackupMax());
-                } catch (Exception backupErr) {
-                    // Se il backup fallisce non procediamo: l'operazione è irreversibile.
-                    // Si LANCIA invece di restituire Map.of("error",…): così l'errore passa dal
-                    // catch centrale di onQuery, finisce in app.log e incrementa il badge errori.
-                    // Il frontend vede la stessa cosa di prima (_checkError in bridge.js
-                    // trasformava già il campo "error" in un throw), ma qui resta una traccia.
-                    // La causa è concatenata per non perdere lo stack del fallimento vero.
-                    throw new IllegalStateException(
-                            "Backup pre-operazione fallito: " + backupErr.getMessage(), backupErr);
-                }
-                Map<String, Object> res = db.archiveTransactions(ids);
-                yield Map.of("created", res.get("created"), "deleted", res.get("deleted"), "backup", backupPath);
+                yield db.svecchiaTransazioni(ids);
             }
 
             // ─── Analytics ─────────────────────────────────────────────────────────

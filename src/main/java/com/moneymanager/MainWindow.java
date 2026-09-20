@@ -133,13 +133,12 @@ public class MainWindow {
                 // prima di terminare, altrimenti si otterrebbe un .bak troncato.
                 new Thread(() -> {
                     try {
-                        if ("1".equals(db.getAppSetting("backup.enabled", "0")) && db.hasModifications()) {
-                            String bDir = db.getAppSetting("backup.dir", "");
-                            // Lettura tollerante centralizzata in Database.getBackupMax:
-                            // era l'unico dei 3 punti già protetto, ora la protezione è una sola.
-                            try { db.backup(bDir, db.getBackupMax()); db.resetModifications(); }
-                            catch (Exception ex) { System.err.println("Backup fallito: " + ex.getMessage()); }
-                        }
+                        // Un blocco solo: backup (se serve), potatura del giornale (sempre,
+                        // anche a backup disattivato) e compattazione (solo se il file è
+                        // davvero frammentato). Le condizioni e l'ordine stanno in
+                        // Manutenzione: qui non si decide niente, si chiama al momento giusto.
+                        // Non lancia: il resoconto, errori compresi, finisce in app.log.
+                        db.manutenzione(false);
                         try { db.close(); } catch (Exception ex) {
                             System.err.println("Errore chiusura DB: " + ex.getMessage());
                         }

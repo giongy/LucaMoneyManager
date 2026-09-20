@@ -55,7 +55,7 @@ async function renderSettings() {
       </div>
 
       <div class="settings-section">
-        <div class="settings-section-title">💾 Backup automatico</div>
+        <div class="settings-section-title">💾 Backup e cronologia</div>
         <div class="settings-row">
           <div class="settings-label">
             <strong>Backup all'uscita</strong>
@@ -96,12 +96,28 @@ async function renderSettings() {
         </div>
         <div class="settings-row">
           <div class="settings-label">
-            <strong>Backup manuale</strong>
-            <span class="settings-hint">Esegui subito un backup</span>
+            <strong>Cronologia da conservare</strong>
+            <span class="settings-hint">Per quanti giorni tenere le operazioni annullabili. La potatura
+              avviene insieme al backup, e ciò che esce dalla finestra resta comunque dentro i .bak già
+              fatti: la storia vecchia non si perde, si sposta.<br>
+              <strong>0 = nessun limite</strong> — la poti tu, quando vuoi.</span>
           </div>
           <div class="settings-control">
-            <button class="btn btn-secondary" onclick="settingsDoBackup()">💾 Esegui backup ora</button>
-            <span class="settings-hint" id="backupHint" style="margin-left:10px"></span>
+            <input type="number" class="form-control" style="width:80px" min="0" max="3650"
+                   value="${s['journal.retention_days'] ?? '30'}"
+                   onchange="settingsSetRetention(this.value)">
+            <span class="settings-hint" style="margin-left:8px">giorni</span>
+          </div>
+        </div>
+        <div class="settings-row">
+          <div class="settings-label">
+            <strong>Backup e manutenzione ora</strong>
+            <span class="settings-hint">Backup, potatura della cronologia e compattazione del file, in un
+              blocco solo — lo stesso che gira alla chiusura. Il pulsante sta in Cronologia, insieme a ciò
+              che produce.</span>
+          </div>
+          <div class="settings-control">
+            <button class="btn btn-secondary" onclick="navigate('cronologia')">🕘 Vai a Cronologia</button>
           </div>
         </div>
         <!-- ⚠️ Qui ci sono solo preferenze: "come voglio che si comporti". I backup veri —
@@ -1465,6 +1481,15 @@ async function settingsSetBackup(key, value) {
   renderSettings();
 }
 
+// Giorni di cronologia da conservare. 0 = nessun limite (la potatura non gira).
+// Il valore si normalizza qui: il campo number non impedisce di incollarci testo, e un valore
+// sporco in app_settings farebbe ricadere la manutenzione sul default senza dirlo a nessuno.
+async function settingsSetRetention(value) {
+  const n = Math.max(0, Math.min(3650, parseInt(value, 10) || 0));
+  await api.setSetting('journal.retention_days', String(n));
+  renderSettings();
+}
+
 // Imposta una preferenza del WebServer LAN (abilitato, porta).
 async function settingsSetHttp(key, value) {
   await api.setSetting('http.' + key, value);
@@ -1551,18 +1576,6 @@ async function settingsShowPendingQueue() {
       </div>`;
   } catch(e) {
     view.innerHTML = `<span class="settings-hint">❌ Errore lettura coda: ${e.message}</span>`;
-  }
-}
-
-// Esegue un backup manuale del DB mostrando lo stato nell'hint.
-async function settingsDoBackup() {
-  const hint = document.getElementById('backupHint');
-  if (hint) hint.textContent = '⏳ Backup in corso...';
-  try {
-    const res = await api.doBackup();
-    if (hint) hint.textContent = `✅ Salvato: ${res.path}`;
-  } catch(e) {
-    if (hint) hint.textContent = `❌ ${e.message}`;
   }
 }
 

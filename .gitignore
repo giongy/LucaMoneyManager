@@ -11,6 +11,8 @@ dist/
 *.db.bak
 *.db.bak-*
 backups/
+# Cartella di backup dell'istanza di sviluppo (DB di progetto): artefatti, non codice
+backups-test/
 allegati/
 # Coda pendenti dal telefono: dati runtime locali
 pending.jsonl

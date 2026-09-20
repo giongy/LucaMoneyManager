@@ -32,6 +32,8 @@ async function renderCronologia() {
         <button class="btn btn-ghost" id="btnCronRefresh" title="Aggiorna">↻</button>
         <button class="btn btn-ghost" id="btnCronArchive"
                 title="Il vecchio file .log: la storia precedente alla cronologia, in sola lettura">📜 Archivio</button>
+        <button class="btn btn-secondary" id="btnCronManut"
+                title="Backup, potatura della cronologia e compattazione del file: lo stesso blocco che gira alla chiusura">💾 Backup e manutenzione ora</button>
       </div>
     </div>
     <div class="cron-info" id="cronInfo">Caricamento…</div>
@@ -43,6 +45,7 @@ async function renderCronologia() {
 
   document.getElementById('btnCronRefresh').onclick = cronLoad;
   document.getElementById('btnCronArchive').onclick = cronMostraArchivio;
+  document.getElementById('btnCronManut').onclick   = cronManutenzione;
 
   let t;
   document.getElementById('cronSearch').addEventListener('input', () => {
@@ -140,14 +143,14 @@ function cronRender() {
     return;
   }
 
-  let html = '', giornoCorrente = null;
+  let html = '', giornoCorrente = null, iBak = 0;
   for (const v of voci) {
     const g = v.ts.slice(0, 10);
     if (g !== giornoCorrente) {
       giornoCorrente = g;
       html += `<div class="cron-day">${esc(_cronGiorno(g))}</div>`;
     }
-    html += v.tipo === 'op' ? cronRigaOp(v.op) : cronRigaBak(v.bak);
+    html += v.tipo === 'op' ? cronRigaOp(v.op) : cronRigaBak(v.bak, iBak++);
   }
   wrap.innerHTML = html;
 
@@ -165,6 +168,9 @@ function cronRender() {
   });
   wrap.querySelectorAll('.cron-row[data-op]').forEach(r => {
     r.onclick = () => cronEspandi(Number(r.dataset.op));
+  });
+  wrap.querySelectorAll('.cron-row[data-bak]').forEach(r => {
+    r.onclick = () => cronEspandiBak(Number(r.dataset.bak), r.dataset.path);
   });
   _cronAperte.forEach(id => cronEspandi(id, true));
 }
@@ -204,8 +210,8 @@ function cronRigaOp(o) {
     <div class="cron-body hidden" id="cron-body-${o.id}"></div>`;
 }
 
-function cronRigaBak(b) {
-  return `<div class="cron-row cron-bak">
+function cronRigaBak(b, i) {
+  return `<div class="cron-row cron-bak" data-bak="${i}" data-path="${esc(b.path)}">
       <span class="cron-time">${esc(b.displayTs.slice(11, 16))}</span>
       <span class="cron-label">▣ PUNTO DI RIPRISTINO</span>
       <span class="cron-detail"><span class="cron-field">${esc(b.name)}</span>
@@ -217,7 +223,39 @@ function cronRigaBak(b) {
         <button class="btn btn-ghost cron-act" data-cron-act="folder"
                 data-path="${esc(b.path)}" title="Apri la cartella">📂</button>
       </span>
-    </div>`;
+    </div>
+    <div class="cron-body hidden" id="cron-bak-${i}"></div>`;
+}
+
+/**
+ * Cosa c'era dentro un backup: si apre il .bak e si legge il suo op_log.
+ *
+ * ⚠️ Un .bak È un database, quindi la domanda ha una risposta esatta senza tenere accanto un
+ * secondo file. Fino alla 1.25.x c'era un sidecar .json con le modifiche di sessione: poteva
+ * mancare, corrompersi o descrivere un backup diverso da quello che gli stava accanto.
+ * Un backup anteriore alla v27 non ha op_log: l'elenco torna vuoto, e non è un errore.
+ */
+async function cronEspandiBak(i, path) {
+  const body = document.getElementById('cron-bak-' + i);
+  if (!body) return;
+  if (!body.classList.contains('hidden')) { body.classList.add('hidden'); return; }
+  body.classList.remove('hidden');
+  if (body.dataset.loaded === '1') return;
+  body.innerHTML = '<div class="cron-loading">…</div>';
+  try {
+    const ops = (await api.operazioniBackup(path)).operazioni || [];
+    body.innerHTML = ops.length
+      ? `<div class="cron-meta" style="margin:0 0 6px">Ultime operazioni registrate dentro questo backup:</div>`
+        + ops.map(o => `<div class="cron-change">
+             <span class="cron-time">${esc(String(o.ts || '').slice(5, 16))}</span>
+             <span class="cron-table" style="color:var(--txt)">${esc(o.etichetta || '')}</span>
+             <span class="cron-fields"><span class="cron-field">${esc(String(o.dettaglio || '').slice(0, 200))}</span></span>
+           </div>`).join('')
+      : '<div class="cron-loading">Questo backup non contiene una cronologia: è precedente alla v27.</div>';
+    body.dataset.loaded = '1';
+  } catch (e) {
+    body.innerHTML = `<div class="cron-loading" style="color:var(--expense)">❌ ${esc(e.message || e)}</div>`;
+  }
 }
 
 /**
@@ -418,6 +456,47 @@ async function cronRipristina(path, displayTs) {
       () => { closeModal(); location.reload(); }, 'Ok', 'btn-primary');
   } catch (e) {
     toast('Ripristino fallito: ' + (e.message || e), 'error');
+  }
+}
+
+/* ─── Backup e manutenzione ───────────────────────────────────────────────── */
+
+// Un blocco solo: backup (se c'è qualcosa da salvare), potatura della cronologia oltre la
+// finestra di retention, compattazione del file se è davvero frammentato. È lo stesso che gira
+// alla chiusura dell'app: qui c'è solo il pulsante per anticiparlo.
+async function cronManutenzione() {
+  const btn = document.getElementById('btnCronManut');
+  const testo = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '⏳ In corso…';
+  try {
+    const r = await api.manutenzioneOra();
+    const righe = [];
+    if (r.backup)             righe.push(`✅ Backup: <code style="font-size:11px">${esc(r.backup)}</code>`);
+    else if (r.backup_errore) righe.push(`❌ Backup fallito: ${esc(r.backup_errore)}`);
+    else                      righe.push(`➖ Nessun backup: ${esc(r.backup_saltato || '')}`);
+
+    if (r.potatura_saltata)      righe.push(`➖ Potatura saltata: ${esc(r.potatura_saltata)}`);
+    else if (r.potatura_errore)  righe.push(`❌ Potatura fallita: ${esc(r.potatura_errore)}`);
+    else if (r.operazioni_potate) righe.push(`🗑️ Potate ${r.operazioni_potate} operazioni oltre i ${r.retention_giorni} giorni`);
+    else if (r.retention_giorni === 0) righe.push('➖ Nessuna potatura: retention illimitata');
+    else                         righe.push(`➖ Niente da potare: la cronologia sta nei ${r.retention_giorni} giorni`);
+
+    if (r.compattato) {
+      const risparmio = Math.max(0, (r.byte_prima || 0) - (r.byte_dopo || 0));
+      righe.push(`📦 File compattato: ${(risparmio / 1024).toFixed(0)} KB liberati`);
+    }
+    openModal('Backup e manutenzione',
+      `<div style="color:var(--txt2);line-height:1.9">${righe.join('<br>')}</div>`
+      + `<p class="settings-hint" style="margin-top:10px">Durata: ${r.ms} ms. `
+      + `La finestra di conservazione si cambia in Impostazioni → Backup e cronologia.</p>`,
+      null);
+    await cronLoad();
+  } catch (e) {
+    toast('Manutenzione fallita: ' + (e.message || e), 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = testo;
   }
 }
 

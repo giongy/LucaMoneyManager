@@ -510,6 +510,65 @@ public class TestAnnulla {
             gesto("ri-ri-annulla",  () -> app.annullaOperazione(opRiAnnulla));
             return daQui;
         });
+        gruppo("ANNULLA A CATENA DOPO UN REDO");
+        giro = 5;
+        // ⚠️ Il secondo caso trovato da Luca esplorando a mano, dopo la cronologia. Modifico una
+        // transazione con split e tag (op X), la annullo (torna com'era), annullo quell'annullo
+        // (redo: torna modificata) — e provo a riannullare X. Il rifiuto diretto è corretto e
+        // dice "prima annulla il redo", ma "Annulla anche quelle" (annullaOperazioneACatena)
+        // falliva con un messaggio opaco: X e il redo hanno lo STESSO effetto in avanti (stessi
+        // split, stessi tag), quindi l'insieme {X, redo} chiedeva di rifare la stessa mossa due
+        // volte sulle righe di transaction_splits/transaction_tags — la seconda trovava righe già
+        // al posto giusto (o già sparite) e il controllo 3 lo scambiava per un'incoerenza vera.
+        // Deve invece riconoscerla come un'eco e assorbirla. Se torna a fallire con "non esiste
+        // più" o "esiste già" su transaction_splits, è tornata a mancare quel riconoscimento.
+        catena("transazione con split e tag, annullata e ri-fatta (redo), poi ricatena", () -> {
+            int t = ((Number) app.addTag(j("{'name':'tag redo" + giro + "'}")).get("id")).intValue();
+            int tx = ((Number) app.addTransaction(j("{'date':'2026-08-20','amount':64.30,'type':'expense',"
+                    + "'account_id':" + liq + ",'category_id':" + spesa + ",'description':'prima del redo',"
+                    + "'tag_ids':[" + t + "],"
+                    + "'splits':[{'category_id':" + spesa + ",'amount':40.30,'description':'a'},"
+                    + "{'category_id':" + spesa + ",'amount':24.00,'description':'b'}]}")).get("id")).intValue();
+            puntoDiRitorno();
+            gesto("modifica", () -> app.updateTransaction(tx, j("{'date':'2026-08-20','amount':70,"
+                    + "'type':'expense','account_id':" + liq + ",'category_id':" + spesa
+                    + ",'description':'dopo la modifica','tag_ids':[" + t + "],"
+                    + "'splits':[{'category_id':" + spesa + ",'amount':50,'description':'a'},"
+                    + "{'category_id':" + spesa + ",'amount':20,'description':'b'}]}")));
+            long opModifica = ultimaOp();
+            gesto("annulla",  () -> app.annullaOperazione(opModifica));
+            long opAnnulla = ultimaOp();
+            gesto("ri-annulla (redo)", () -> app.annullaOperazione(opAnnulla));
+            return opModifica;
+        });
+
+        gruppo("RIPORTA INDIETRO CON UNA CATEGORIA NATA E MORTA NELLA FINESTRA");
+        giro = 6;
+        // ⚠️ Il terzo caso trovato da Luca. Nella finestra di riportaA nascono e muoiono insieme:
+        // una categoria (creata, poi sposta-ed-elimina) e una transazione che ci nasce dentro e
+        // viene spostata via prima che la finestra finisca. Il controllo 2 rifiutava con
+        // "categories NNN che non esiste più": guardava le dipendenze della riga U che
+        // riporterebbe la transazione alla vecchia categoria, e quella categoria — nata e morta
+        // tutta nella finestra — nel simulato FINALE risulta correttamente assente (si torna a
+        // prima che nascesse). Ma quella U non conta: la transazione stessa nasce nella finestra
+        // (l'addTransaction è dentro l'insieme), quindi finisce cancellata del tutto dal suo
+        // stesso INSERT annullato — la sua colonna category_id non sopravvive a nessuno. Il
+        // controllo 2 ora salta le dipendenze di una riga il cui destino finale, nello stesso
+        // simulato, è comunque sparire.
+        riportaA("categoria creata, usata e sposta-ed-eliminata, tutto nella finestra", () -> {
+            fissa();
+            long daQui = ultimaOp() + 1;
+            int[] cat = new int[1]; int[] tx = new int[1];
+            gesto("addCategory", () -> cat[0] = ((Number) app.addCategory(
+                    j("{'name':'Cat nata e morta" + giro + "','type':'expense'}")).get("id")).intValue());
+            gesto("addTransaction", () -> tx[0] = ((Number) app.addTransaction(
+                    j("{'date':'2026-08-21','amount':8,'type':'expense','account_id':" + liq
+                    + ",'category_id':" + cat[0] + ",'description':'nella categoria temporanea'}"))
+                    .get("id")).intValue());
+            gesto("reassignCategory", () -> app.reassignCategory(cat[0], spesa));
+            return daQui;
+        });
+
         app.close();
         System.out.println();
         System.out.println("════════════════════════════════════════════════════════════════");

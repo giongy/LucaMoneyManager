@@ -11,6 +11,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Deque;
 import java.util.Set;
 import java.util.TreeSet;
@@ -434,27 +435,48 @@ public class Giornale {
         // compare sia come I sia come D. Controllando le righe isolatamente, la D direbbe "esiste
         // già" (è vero: la I non è ancora stata disfatta) e ogni modifica con tag o split
         // risulterebbe non annullabile.
+        //
+        // ⚠️ Un'eco fra DUE operazioni dell'insieme non è un conflitto. Capita nel ping-pong
+        // annulla/ripeti: annullo un gesto, annullo quell'annullamento (ripeti), e provo a
+        // riannullare il gesto insieme al suo blocco. Le due operazioni hanno lo STESSO effetto
+        // in avanti — annullarle assieme chiederebbe di rifare due volte la stessa cosa: la più
+        // recente (processata per prima, essendo l'ordine per data decrescente) porta già la riga
+        // dove deve stare, e la più vecchia ripete la stessa mossa a vuoto. Si riconosce dallo
+        // stesso verso ripetuto sulla stessa chiave — dentro una singola operazione i due tocchi
+        // hanno sempre verso opposto (sopra), quindi qui non scatta mai per errore. Una D ripetuta
+        // si assorbe solo se la riga rimessa è la STESSA: se cambia, è un conflitto vero, non un'eco.
         Map<String, Boolean> simulato = new LinkedHashMap<>();
+        Map<String, String> ultimaRigaD = new HashMap<>();
+        List<Map<String, Object>> daApplicare = new ArrayList<>();
         for (Map<String, Object> r : righe) {
             String tabella = (String) r.get("tabella"), verso = (String) r.get("verso");
-            String chiave = (String) r.get("chiave");
+            String chiave = (String) r.get("chiave"), riga = (String) r.get("riga");
             String k = tabella + "#" + chiave;
-            boolean esiste = simulato.containsKey(k) ? simulato.get(k) : rigaEsiste(tabella, chiave);
+            boolean giaToccata = simulato.containsKey(k);
+            boolean esiste = giaToccata ? simulato.get(k) : rigaEsiste(tabella, chiave);
             if ("D".equals(verso)) {
-                if (esiste) return rifiuto("Una riga che l'annullamento dovrebbe ricreare esiste già ("
-                        + tabella + "): il database non corrisponde al giornale.", List.of());
+                if (esiste) {
+                    if (giaToccata && Objects.equals(riga, ultimaRigaD.get(k))) continue;   // eco
+                    return rifiuto("Una riga che l'annullamento dovrebbe ricreare esiste già ("
+                            + tabella + "): il database non corrisponde al giornale.", List.of());
+                }
                 simulato.put(k, true);            // la reinseriamo
+                ultimaRigaD.put(k, riga);
             } else {
-                if (!esiste) return rifiuto("Una riga che l'annullamento dovrebbe " +
-                        ("I".equals(verso) ? "eliminare" : "modificare")
-                        + " non esiste più (" + tabella + "): il database non corrisponde al giornale.",
-                        List.of());
+                if (!esiste) {
+                    if (giaToccata && "I".equals(verso)) continue;   // eco: già sparita
+                    return rifiuto("Una riga che l'annullamento dovrebbe " +
+                            ("I".equals(verso) ? "eliminare" : "modificare")
+                            + " non esiste più (" + tabella + "): il database non corrisponde al giornale.",
+                            List.of());
+                }
                 simulato.put(k, !"I".equals(verso));   // la I la cancella, la U la lascia
             }
+            daApplicare.add(r);
         }
 
         // ── Controllo 2: le righe da rimettere puntano a roba che esiste ancora? ──
-        Map<String, Object> mancante = dipendenzaMancante(righe, simulato);
+        Map<String, Object> mancante = dipendenzaMancante(daApplicare, simulato);
         if (mancante != null) {
             List<Map<String, Object>> colpevole = db.queryList("""
                     SELECT DISTINCT o.id, o.ts, o.etichetta, o.dettaglio
@@ -467,7 +489,7 @@ public class Giornale {
                     + mancante.get("descrizione") + ".", colpevole);
         }
 
-        for (Map<String, Object> r : righe) applicaInverso(r);
+        for (Map<String, Object> r : daApplicare) applicaInverso(r);
 
         // L'annullamento è a sua volta un'operazione: il legame si scrive in materializza(),
         // che è l'unico punto in cui si conosce il suo id.
@@ -475,9 +497,12 @@ public class Giornale {
         // ⚠️ L'annotazione non è decorativa: senza, l'operazione nascerebbe senza etichetta e
         // quindi `tipo='sistema'` — cioè nascosta di default nella pagina che l'ha appena
         // prodotta. Annullare è un gesto dell'utente e va letto come tale.
+        // ⚠️ Il conteggio è sulle righe DAVVERO applicate, non su tutte quelle lette: un'eco
+        // assorbita (sopra) non ha toccato niente, e contarla farebbe dire alla cronologia un
+        // numero più alto di quante scritture sono realmente successe.
         log(insieme.size() == 1 ? "OPERAZIONE ANNULLATA" : "OPERAZIONI ANNULLATE",
-            "operazioni:" + String.join(" · ", etichette), "righe:" + righe.size());
-        return Map.of("ok", true, "righe", righe.size(), "operazioni", new ArrayList<>(insieme));
+            "operazioni:" + String.join(" · ", etichette), "righe:" + daApplicare.size());
+        return Map.of("ok", true, "righe", daApplicare.size(), "operazioni", new ArrayList<>(insieme));
     }
 
     /**
@@ -577,6 +602,15 @@ public class Giornale {
         for (Map<String, Object> r : righe) {
             if ("I".equals(r.get("verso"))) continue;   // questa riga sparisce, non ha dipendenze
             String tabella = (String) r.get("tabella"), riga = (String) r.get("riga");
+            String chiave = (String) r.get("chiave");
+            // ⚠️ Se la riga che questo U/D sta per rimettere finisce comunque cancellata da
+            // un'altra operazione dello STESSO lotto — nata e morta nella stessa finestra di
+            // riportaA — le sue dipendenze non contano: il valore intermedio non sopravvive al
+            // commit (le chiavi esterne sono rimandate, quindi conta solo lo stato finale).
+            // Senza questo, riportare indietro una transazione che ha anche cambiato categoria
+            // — quando sia la transazione sia la categoria nascono e muoiono nella stessa
+            // finestra — si rifiuta per una dipendenza che, alla fine, nessuno legge più.
+            if (Boolean.FALSE.equals(simulato.get(tabella + "#" + chiave))) continue;
             if (riga == null) continue;
             for (String[] fk : chiaviEsterne(tabella)) {
                 String valore = jsonCampo(riga, fk[0]);

@@ -300,6 +300,42 @@ d'uscita. Quando la strada larga è già stata tentata non ce n'è una più larg
 giornale non riesce a descrivere quel punto, e ciò che resta è un **punto di ripristino**, che
 sta lì accanto sulla stessa linea del tempo.
 
+#### Due errori nel combinare più operazioni, trovati testando a mano le combinazioni strane
+
+Il primo disegno di `annullaInsieme` bastava per un'operazione sola o per una catena di modifiche
+che cambiano *valore* nel tempo (due modifiche consecutive, per esempio). Due sessioni di prove
+esplorative — non gli scenari scritti a mano, proprio provando a rompere l'app — hanno trovato
+due modi in cui **combinare più operazioni** rompe il meccanismo, entrambi con un rifiuto opaco
+al posto del risultato giusto.
+
+1. ⚠️ **Un'eco fra due operazioni dell'insieme non è un conflitto.** Capita nel ping-pong
+   annulla → ripeti → annulla: annullo un'operazione, annullo quell'annullamento (ripeti), e
+   provo a riannullare l'originale insieme al suo blocco (`annullaACatena`). Le due operazioni
+   nell'insieme — quella originale e il ripeti — hanno lo **stesso identico effetto in avanti**
+   (stessi split, stessi tag): combinarle chiede di rifare la stessa mossa due volte sulle
+   stesse righe, e il controllo 3 la scambiava per un'incoerenza vera («una riga che
+   l'annullamento dovrebbe eliminare non esiste più» o «dovrebbe ricreare esiste già»). Si
+   riconosce dallo **stesso verso ripetuto sulla stessa chiave**: dentro una singola operazione i
+   due tocchi hanno sempre verso opposto (sopra, il caso di `updateTransaction` con I e D), quindi
+   questo non scatta mai per errore su quel caso. Una `I` ripetuta si assorbe sempre (non c'è
+   niente da confrontare: eliminare una riga già sparita è innocuo); una `D` ripetuta si assorbe
+   **solo se la riga rimessa è la stessa** — se cambia, è un conflitto vero e resta rifiutato.
+   Difeso da `ANNULLA A CATENA DOPO UN REDO` in `test-annulla.ps1`.
+2. ⚠️ **Le dipendenze di una riga non contano se la riga stessa non sopravvive al lotto.** Una
+   categoria creata e sposta-ed-eliminata **tutta dentro la finestra** di `riportaA`, usata da
+   una transazione anch'essa nata e poi spostata dentro la stessa finestra: il controllo 2
+   rifiutava («categories NNN che non esiste più») guardando la riga `U` che rimetterebbe la
+   transazione sulla vecchia categoria — quella categoria, nata e morta nella finestra, nel
+   simulato finale è correttamente assente. Ma quella `U` non conta: la transazione stessa nasce
+   nella finestra, quindi sparisce del tutto per l'annullamento del proprio `INSERT` — la sua
+   colonna non sopravvive a nessuno. Il controllo 2 ora salta le dipendenze di una riga il cui
+   stato finale, nello stesso `simulato` già calcolato dal controllo 3, è comunque «sparita».
+   Difeso da `RIPORTA INDIETRO CON UNA CATEGORIA NATA E MORTA NELLA FINESTRA`.
+
+In entrambi i casi la correzione riusa `simulato` — la mappa che il controllo 3 già calcola per
+sapere se una riga esiste — invece di aggiungere una seconda fonte di verità sullo stato finale
+di una riga.
+
 #### Due errori già pagati, da riconoscere se ricompaiono
 
 1. ⚠️ **`INSERT OR REPLACE` per rimettere una riga modificata distrugge le figlie.** È il modo
@@ -886,7 +922,7 @@ riferimento disponibile. Le due schede si somigliano ma questo pezzo non va unif
 
 - **Lingua:** tutto in italiano (commenti, stringhe UI, messaggi errore)
 - **Naming:** PascalCase classi, camelCase metodi/variabili, UPPER_SNAKE_CASE costanti, snake_case tabelle DB
-- **Nessun test automatico** sulla logica — test manuale via UI. Fanno eccezione quattro verifiche di non regressione: `test-titoli.ps1` (portafoglio), `test-giornale.ps1` (cattura delle modifiche), `test-annulla.ps1` (annullamento, 72 scenari) e `confronta-query.ps1` (ogni lettura di `Database`, prima/dopo una modifica). Per la **resa grafica** esiste una verifica automatizzabile: vedi "Verifica visiva dell'UI" più sotto
+- **Nessun test automatico** sulla logica — test manuale via UI. Fanno eccezione quattro verifiche di non regressione: `test-titoli.ps1` (portafoglio), `test-giornale.ps1` (cattura delle modifiche), `test-annulla.ps1` (annullamento, 74 scenari) e `confronta-query.ps1` (ogni lettura di `Database`, prima/dopo una modifica). Per la **resa grafica** esiste una verifica automatizzabile: vedi "Verifica visiva dell'UI" più sotto
 - ⚠️ **I banchi di prova si misurano a differenze, mai a valori assoluti.** Partono da una copia del DB vero, il cui giornale contiene già le operazioni di chi usa l'app: un controllo che pretende `COUNT(*) = 0` passa solo il primo giorno
 - **Nessun framework JS** — Vanilla JS puro
 - **Commenti sezione** con separatori Unicode `── ──`
@@ -1263,7 +1299,7 @@ figlia sparita, il tag perso, il prezzo medio ricalcolato invece che ripristinat
 guardasse solo i totali li dichiarerebbe tutti superati — ed è esattamente l'errore che ha
 lasciato passare per mezza giornata il bug di `INSERT OR REPLACE` qui sotto.
 
-**72 scenari**: 68 che devono tornare **identici** (conti, categorie con riassegnazione,
+**74 scenari**: 70 che devono tornare **identici** (conti, categorie con riassegnazione,
 transazioni con split e tag, giroconti, allegati, tag, note, budget in tutte le forme
 — compresa la generazione da ~300 scritture — pianificate con avanzamento, l'intero
 portafoglio, previsioni, report, periodi, preferenze) e **4 che devono essere rifiutati**,
@@ -1293,6 +1329,15 @@ MEZZO`**: una nota eliminata, rimessa, rieliminata e rimessa di nuovo, poi ripor
 tutta. Difende l'invariante di `riportaA` — l'insieme comprende anche le operazioni già
 annullate, vedi "Le due strade larghe" — ed è il caso che l'ha rotta nell'uso vero. Se torna a
 essere `[RIFIUTATO]`, è tornato il filtro `stato='attiva'`.
+
+Gli altri due sono arrivati da una sessione di test esplorativi (simulare operazioni vere e
+provare i ripristini in condizioni strane), non da un caso d'uso singolo: **`ANNULLA A CATENA
+DOPO UN REDO`** (una transazione con split e tag, modificata, annullata, ri-fatta, poi
+ricatenata) e **`RIPORTA INDIETRO CON UNA CATEGORIA NATA E MORTA NELLA FINESTRA`** (categoria
+creata, usata da una transazione, sposta-ed-eliminata, tutto nella stessa finestra). Difendono
+i due errori descritti in "Due errori nel combinare più operazioni" qui sopra. Se tornano a
+fallire con un messaggio su `transaction_splits` o su una categoria "che non esiste più", sono
+tornati quei due bug.
 
 **Non copre** tre scritture, e per scelta: `seedExampleData` (procedura di primo avvio),
 `syncCardSettlements` (automatica, e già coperta da `test-titoli.ps1` per i suoi effetti) e

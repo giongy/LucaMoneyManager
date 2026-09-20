@@ -262,6 +262,42 @@ cancellandoli e reinserendoli, quindi la stessa chiave compare come `I` e come `
 isolatamente, la `D` direbbe «esiste già» e **ogni modifica con tag o split risulterebbe non
 annullabile**.
 
+#### Le due strade larghe, quando il rifiuto è legittimo
+
+Se i tre controlli dicono di no, restano due modi di allargare il gesto — e **non sono lo stesso
+in due misure**: rispondono a due domande diverse, e la differenza sta in *quali* operazioni
+finiscono nell'insieme.
+
+| | `annullaACatena` | `riportaA` |
+|---|---|---|
+| insieme | **l'insieme minimo** di chi blocca, calcolato all'indietro (`bloccantiTransitivi`) | **tutto** ciò che sta da lì in poi (`id >= ?`) |
+| in cronologia | «annullate N operazioni», una riga sola | idem |
+
+⚠️ **L'insieme di `riportaA` comprende anche le operazioni già annullate, e non è un dettaglio:
+è la differenza fra funzionare e no.** Filtrare per `stato='attiva'` sembra ovvio — disfare
+qualcosa che è già stato disfatto non ha senso — ma salta **anelli in mezzo alla catena** e
+rompe il replay a ritroso. Caso vero, arrivato dall'uso: una nota eliminata (#6), rimessa
+annullando (#7), rieliminata (#8), rimessa di nuovo (#9). Le attive sono solo #7 e #9, e
+**tutte e due la inseriscono**: disfarle in fila significa cancellare la riga due volte, e la
+seconda volta non c'è più — il controllo 3 rifiuta, giustamente, con «una riga che
+l'annullamento dovrebbe eliminare non esiste più». Con tutte e quattro gli inversi si alternano
+(cancella, inserisci, cancella, inserisci) e si arriva esattamente a prima di #6. È il motivo
+per cui `annullaInsieme` prende `intervalloCompleto`: solo su un intervallo chiuso è lecito
+includere le annullate, mentre l'annullamento singolo continua a rifiutarle. Lo difende lo
+scenario `RIPORTA INDIETRO CON ANNULLAMENTI IN MEZZO` di `test-annulla.ps1`.
+
+⚠️ **L'insieme di `riportaA` è chiuso per costruzione, quindi non può avere conflitti:** chi
+annulla è sempre più recente di ciò che annulla, quindi se un'operazione è nell'intervallo ci
+sono dentro anche tutti i suoi annullamenti, e fuori non resta niente che abbia toccato quelle
+righe dopo.
+
+⚠️ **Il rifiuto non propone la strada che si sta già percorrendo.** Suggerire «riporta il
+database a prima di qui» a chi ha appena chiesto proprio quello fa sembrare l'app rotta: è
+successo davvero, e `cronMostraRifiuto` riceve quindi il `metodo` per cambiare titolo e via
+d'uscita. Quando la strada larga è già stata tentata non ce n'è una più larga da offrire — il
+giornale non riesce a descrivere quel punto, e ciò che resta è un **punto di ripristino**, che
+sta lì accanto sulla stessa linea del tempo.
+
 #### Due errori già pagati, da riconoscere se ricompaiono
 
 1. ⚠️ **`INSERT OR REPLACE` per rimettere una riga modificata distrugge le figlie.** È il modo
@@ -848,7 +884,7 @@ riferimento disponibile. Le due schede si somigliano ma questo pezzo non va unif
 
 - **Lingua:** tutto in italiano (commenti, stringhe UI, messaggi errore)
 - **Naming:** PascalCase classi, camelCase metodi/variabili, UPPER_SNAKE_CASE costanti, snake_case tabelle DB
-- **Nessun test automatico** sulla logica — test manuale via UI. Fanno eccezione quattro verifiche di non regressione: `test-titoli.ps1` (portafoglio), `test-giornale.ps1` (cattura delle modifiche), `test-annulla.ps1` (annullamento, 71 scenari) e `confronta-query.ps1` (ogni lettura di `Database`, prima/dopo una modifica). Per la **resa grafica** esiste una verifica automatizzabile: vedi "Verifica visiva dell'UI" più sotto
+- **Nessun test automatico** sulla logica — test manuale via UI. Fanno eccezione quattro verifiche di non regressione: `test-titoli.ps1` (portafoglio), `test-giornale.ps1` (cattura delle modifiche), `test-annulla.ps1` (annullamento, 72 scenari) e `confronta-query.ps1` (ogni lettura di `Database`, prima/dopo una modifica). Per la **resa grafica** esiste una verifica automatizzabile: vedi "Verifica visiva dell'UI" più sotto
 - ⚠️ **I banchi di prova si misurano a differenze, mai a valori assoluti.** Partono da una copia del DB vero, il cui giornale contiene già le operazioni di chi usa l'app: un controllo che pretende `COUNT(*) = 0` passa solo il primo giorno
 - **Nessun framework JS** — Vanilla JS puro
 - **Commenti sezione** con separatori Unicode `── ──`
@@ -1225,7 +1261,7 @@ figlia sparita, il tag perso, il prezzo medio ricalcolato invece che ripristinat
 guardasse solo i totali li dichiarerebbe tutti superati — ed è esattamente l'errore che ha
 lasciato passare per mezza giornata il bug di `INSERT OR REPLACE` qui sotto.
 
-**71 scenari**: 67 che devono tornare **identici** (conti, categorie con riassegnazione,
+**72 scenari**: 68 che devono tornare **identici** (conti, categorie con riassegnazione,
 transazioni con split e tag, giroconti, allegati, tag, note, budget in tutte le forme
 — compresa la generazione da ~300 scritture — pianificate con avanzamento, l'intero
 portafoglio, previsioni, report, periodi, preferenze) e **4 che devono essere rifiutati**,
@@ -1249,6 +1285,12 @@ dopo). In entrambi i casi il database deve tornare al punto fissato prima del ge
 Annullarle una per una non funzionerebbe: ogni annullamento è a sua volta un'operazione che
 tocca quelle stesse righe, quindi l'annullamento della seconda diventerebbe subito un conflitto
 per la prima. In cronologia resta una riga sola, che si può disfare in un colpo.
+
+Il settantaduesimo scenario sta a sé, nel gruppo **`RIPORTA INDIETRO CON ANNULLAMENTI IN
+MEZZO`**: una nota eliminata, rimessa, rieliminata e rimessa di nuovo, poi riportata indietro
+tutta. Difende l'invariante di `riportaA` — l'insieme comprende anche le operazioni già
+annullate, vedi "Le due strade larghe" — ed è il caso che l'ha rotta nell'uso vero. Se torna a
+essere `[RIFIUTATO]`, è tornato il filtro `stato='attiva'`.
 
 **Non copre** tre scritture, e per scelta: `seedExampleData` (procedura di primo avvio),
 `syncCardSettlements` (automatica, e già coperta da `test-titoli.ps1` per i suoi effetti) e

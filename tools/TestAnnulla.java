@@ -486,6 +486,30 @@ public class TestAnnulla {
         giro = 3;
         for (Object[] c : conflitti) riportaA((String) c[0], (Scenario) c[1]);
 
+
+        gruppo("RIPORTA INDIETRO CON ANNULLAMENTI IN MEZZO");
+        giro = 4;
+        // ⚠️ Il caso che ha rotto "riporta a prima di qui" nell'uso vero, trovato da Luca.
+        // Sulla stessa riga: la si elimina, si annulla (torna), si annulla l'annullamento
+        // (sparisce), si annulla ancora (torna). Le operazioni ATTIVE sono solo la seconda e la
+        // quarta — e tutte e due INSERISCONO la riga: disfarle in fila vuol dire cancellarla due
+        // volte, e la seconda volta non c'e' piu' (il controllo 3 rifiutava, giustamente).
+        // La correzione e' includere anche gli anelli gia' annullati: cosi' gli inversi si
+        // alternano (cancella, inserisci, cancella, inserisci) e si arriva allo stato di
+        // partenza. Se qui torna a fallire, e' tornata la vecchia SELECT con stato='attiva'.
+        riportaA("nota: elimina, annulla, ri-annulla, ri-ri-annulla", () -> {
+            int n = ((Number) app.saveNote(j("{'title':'Nota catena','content':'x'}")).get("id")).intValue();
+            fissa();
+            long daQui = ultimaOp() + 1;          // tutto quello che viene dopo la fotografia
+            gesto("deleteNote",     () -> app.deleteNote(n));
+            long opElimina = ultimaOp();
+            gesto("annulla",        () -> app.annullaOperazione(opElimina));
+            long opAnnulla = ultimaOp();
+            gesto("ri-annulla",     () -> app.annullaOperazione(opAnnulla));
+            long opRiAnnulla = ultimaOp();
+            gesto("ri-ri-annulla",  () -> app.annullaOperazione(opRiAnnulla));
+            return daQui;
+        });
         app.close();
         System.out.println();
         System.out.println("════════════════════════════════════════════════════════════════");

@@ -465,25 +465,49 @@ async function cronEsegui(metodo, id, o) {
     await cronLoad();
     return;
   }
-  cronMostraRifiuto(o, id, res);
+  cronMostraRifiuto(o, id, res, metodo);
 }
 
-function cronMostraRifiuto(o, id, res) {
+/**
+ * Il rifiuto, spiegato — e con la strada che resta, se ce n'è una.
+ *
+ * ⚠️ La via d'uscita dipende da **cosa si stava facendo**: suggerire «riporta il database a
+ * prima di qui» a chi sta già facendo esattamente quello è il modo di far sembrare l'app rotta.
+ * È successo davvero, e `metodo` serve a impedirlo.
+ */
+function cronMostraRifiuto(o, id, res, metodo) {
   const bloccanti = res.bloccanti || [];
+  const stoRiportando = metodo === 'riportaAOperazione';
   const lista = bloccanti.length ? `
     <div class="cron-blockers">
       ${bloccanti.map(b => `<div><strong>#${b.id}</strong> ${esc(b.ts || '')} — ${esc(b.etichetta || '')}
         <div class="cron-blocker-detail">${esc((b.dettaglio || '').slice(0, 160))}</div></div>`).join('')}
     </div>` : '';
-  openModal('Non si può annullare così',
-    `<p style="color:var(--txt2);line-height:1.6">${esc(res.motivo)}</p>${lista}` +
-    (bloccanti.length ? `<p class="settings-hint" style="margin-top:10px">
+
+  let coda;
+  if (bloccanti.length && !stoRiportando) {
+    coda = `<p class="settings-hint" style="margin-top:10px">
         Puoi annullare <strong>anche quelle</strong>: verranno disfatte tutte insieme, come un solo gesto.
         Non è «torna indietro a quel giorno» — si annulla solo l'insieme minimo che blocca.
-      </p>` : `<p class="settings-hint" style="margin-top:10px">
+      </p>`;
+  } else if (stoRiportando) {
+    // Qui la strada larga è già stata tentata: se non basta nemmeno lei, il giornale non
+    // descrive più il database, e l'unica via che resta è una copia.
+    coda = `<p class="settings-hint" style="margin-top:10px">
+        Hai già chiesto la strada più larga, quindi non ce n'è una più larga da proporti: il
+        giornale non riesce a descrivere com'era il database a quel punto. Resta il
+        <strong>ripristino di un punto di ripristino</strong> precedente, che trovi qui sotto
+        nella stessa linea del tempo.
+      </p>`;
+  } else {
+    coda = `<p class="settings-hint" style="margin-top:10px">
         Resta la strada larga: <strong>riporta il database a prima di qui</strong>, dal menu ⋯.
-      </p>`),
-    bloccanti.length ? async () => {
+      </p>`;
+  }
+
+  openModal(stoRiportando ? 'Non si può riportare indietro così' : 'Non si può annullare così',
+    `<p style="color:var(--txt2);line-height:1.6">${esc(res.motivo)}</p>${lista}${coda}`,
+    (bloccanti.length && !stoRiportando) ? async () => {
       closeModal();
       await cronEsegui('annullaACatena', id, o);
     } : null,

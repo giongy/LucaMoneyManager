@@ -334,16 +334,31 @@ public class Giornale {
         return annullaInsieme(bloccantiTransitivi(opId));
     }
 
-    /** Riporta il database a prima di un'operazione: annulla lei e tutto ciò che è venuto dopo.
-     *  Per costruzione non ha conflitti — è la stessa ragione per cui {@code deletePortfolioItem}
-     *  annulla in {@code date DESC, id DESC}. */
+    /**
+     * Riporta il database a prima di un'operazione: disfa lei e <b>tutto</b> ciò che è venuto
+     * dopo, annullamenti compresi.
+     *
+     * <p>⚠️ <b>«Tutto» vuol dire anche le operazioni già annullate, e non è un dettaglio: è la
+     * differenza fra funzionare e no.</b> Prendendo le sole {@code attiva} si saltano anelli in
+     * mezzo alla catena, e il replay a ritroso si rompe. Caso vero: una nota eliminata (#6),
+     * rimessa annullando (#7), rieliminata (#8), rimessa di nuovo (#9). Attive sono solo #7 e
+     * #9 — e <b>tutte e due la inseriscono</b>: disfarle in fila significa cancellarla due
+     * volte, e la seconda volta non c'è più. Con tutte e quattro, invece, gli inversi si
+     * alternano (cancella, inserisci, cancella, inserisci) e si arriva esattamente allo stato
+     * di prima di #6.</p>
+     *
+     * <p>L'insieme è <b>chiuso</b> per costruzione: chi annulla è sempre più recente di ciò che
+     * annulla, quindi se un'operazione è nell'intervallo ci sono anche tutti i suoi
+     * annullamenti. Da qui discende che <b>non può avere conflitti</b>: non resta niente, fuori
+     * dall'insieme, che abbia toccato quelle righe dopo.</p>
+     */
     public Map<String, Object> riportaA(long opId) throws SQLException {
         Set<Long> insieme = new TreeSet<>();
         for (Map<String, Object> r : db.queryList(
-                "SELECT id FROM op_log WHERE id >= ? AND stato='attiva' ORDER BY id", opId))
+                "SELECT id FROM op_log WHERE id >= ? ORDER BY id", opId))
             insieme.add(((Number) r.get("id")).longValue());
         if (insieme.isEmpty()) return rifiuto("Non c'è niente da riportare indietro da qui.", List.of());
-        return annullaInsieme(insieme);
+        return annullaInsieme(insieme, true);
     }
 
     /**
@@ -355,6 +370,17 @@ public class Giornale {
      * resta una riga sola, «annullate 3 operazioni», che si può disfare in un colpo.</p>
      */
     private Map<String, Object> annullaInsieme(Set<Long> insieme) throws SQLException {
+        return annullaInsieme(insieme, false);
+    }
+
+    /**
+     * @param intervalloCompleto true quando l'insieme è <b>tutto</b> ciò che sta da un punto in
+     *        poi ({@link #riportaA}). Solo allora è lecito includere operazioni già annullate:
+     *        lì servono a chiudere la catena (vedi {@code riportaA}), mentre disfare la singola
+     *        operazione già annullata, da sola, non avrebbe senso — i suoi effetti non ci sono.
+     */
+    private Map<String, Object> annullaInsieme(Set<Long> insieme, boolean intervalloCompleto)
+            throws SQLException {
         Operazione op = corrente.get();
         if (op == null) throw new SQLException("annulla() va chiamato dentro una richiesta");
 
@@ -365,7 +391,7 @@ public class Giornale {
             if (testa == null) throw new SQLException("Operazione " + id + " non trovata.");
             etichette.add("#" + id + " " + testa.get("etichetta"));
             String stato = String.valueOf(testa.get("stato"));
-            if ("annullata".equals(stato))
+            if ("annullata".equals(stato) && !intervalloCompleto)
                 return rifiuto("L'operazione #" + id + " è già stata annullata.", List.of());
             if ("non_annullabile".equals(stato))
                 return rifiuto("L'operazione #" + id + " non è annullabile: " + testa.get("motivo"), List.of());

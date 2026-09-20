@@ -253,10 +253,8 @@ const api = {
   saveReport:   data   => callJava('saveReport',   data),
   deleteReport: id     => callJava('deleteReport', {id}),
 
-  // Log
+  // Archivio del vecchio .log (sola lettura, dalla Cronologia)
   readLog:    (lines) => callJava('readLog', {lines: lines || 1000}),
-  getLogInfo: ()      => callJava('getLogInfo'),
-  purgeLog:   (p)     => callJava('purgeLog', p),
 
   // Prestazioni
   setPerfEnabled: (enabled) => callJava('setPerfEnabled', {enabled}),

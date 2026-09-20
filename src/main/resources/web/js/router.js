@@ -9,7 +9,7 @@ const PAGE_TITLES = {
   dashboard:'Dashboard', transactions:'Transazioni', accounts:'Conti',
   budgets:'Budget', portfolio:'Portafoglio', analytics:'Reports', reports:'Filtri', forecasts:'Previsioni', settings:'Impostazioni',
   scheduled:'Transazioni Pianificate', ranges:'Periodi personalizzati', notes:'Note',
-  categories:'Categorie', tags:'Tag', logviewer:'Log'
+  categories:'Categorie', tags:'Tag', cronologia:'Cronologia'
 };
 let currentPage = 'dashboard';
 let charts = {};
@@ -226,7 +226,7 @@ function renderPage(page) {
     case 'settings':     _run(renderSettings);     break;
     case 'scheduled':    _run(renderScheduled);    break;
     case 'forecasts':    _run(renderForecasts);    break;
-    case 'logviewer':    _run(renderLogViewer);    break;
+    case 'cronologia':   _run(renderCronologia);  break;
     case 'notes':        _run(renderNotes);        break;
   }
 }

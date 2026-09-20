@@ -1,7 +1,30 @@
 # Disegno — Cronologia, annullamento, backup e manutenzione
 
-**Stato:** fasi 1 (cattura) e 2 (annullamento) **fatte**; fasi 3-5 da fare. Versione bersaglio
-**1.26.0**, schema **v27**.
+**Stato:** fasi 1 (cattura), 2 (annullamento) e 3 (pagina Cronologia) **fatte**; restano la 4
+(backup e manutenzione) e la 5 (pulizia). Versione bersaglio **1.26.0**, schema **v27**.
+
+### Cosa è cambiato scrivendo la fase 3
+
+Una cosa sola, ma tocca il modello e non l'interfaccia — per questo sta qui e non in un commento.
+
+⚠️ **`stato` e `annullata_da` non sono cronaca: sono derivati.** Il disegno diceva «su `X`
+imposta `stato='annullata'`», e basta. Non basta: un annullamento può essere a sua volta
+annullato, e allora ciò che aveva disfatto **torna in vigore**. Provato dall'interfaccia con
+*annulla → ripeti → annulla → ripeti*: il dato era tornato al suo posto e la riga restava
+barrata, col pulsante «ripeti» puntato a un annullamento a sua volta annullato.
+
+La regola giusta è ricorsiva — *X è annullata se e solo se esiste un annullamento **ancora in
+vigore** che l'ha disfatta* — ma non serve ricorrere: chi annulla è sempre più recente di ciò che
+annulla, quindi una passata sola dalla più recente alla più vecchia basta
+(`Giornale.ricalcolaStati()`, che gira **solo** quando l'operazione appena chiusa è un
+annullamento). Un singolo `annullata_da` per riga regge anche quando la stessa operazione viene
+annullata due volte in momenti diversi: perché il vecchio annullatore torni in vigore servirebbe
+un gesto che il **controllo 1** rifiuta sempre — tocca righe che qualcuno di più recente ha già
+toccato.
+
+⚠️ Quello che **non** si tocca resta quello di prima: le righe di `change_log`. La storia si
+aggiunge, non si corregge. Questi due campi non sono storia, sono un fatto su com'è il database
+adesso.
 
 ### Due bug veri trovati dall'audit
 
@@ -463,6 +486,16 @@ nella sezione backup (rinominata **«Backup e cronologia»**).
 La voce **Log** in sidebar ([index.html:139](../src/main/resources/web/index.html#L139)) diventa
 **Cronologia**, icona `history`. Non nasce una pagina nuova.
 
+✅ **Fatta**, in [cronologia.js](../src/main/resources/web/js/pages/cronologia.js), con due
+differenze dal disegno qui sotto, entrambe volute:
+
+- i due pulsanti di manutenzione (**`[pota…]`** e **«Backup e manutenzione ora»**) **non ci sono
+  ancora**: arrivano con la fase 4, insieme a ciò che fanno. Un pulsante che non fa niente è
+  peggio di un pulsante che manca. La banda in testa mostra però già il peso del giornale e la
+  retention letta da `app_settings`;
+- in più rispetto al disegno c'è **📜 Archivio**, che apre in sola lettura il vecchio `<db>.log`:
+  è l'unico posto da cui si legge la storia precedente al giornale.
+
 ```
  Cronologia                       [🔍 filtra…] [tutte ▾] [💾 Backup e manutenzione ora]
  ──────────────────────────────────────────────────────────────────────────────────
@@ -551,11 +584,17 @@ alla Cronologia. La regola che ne esce, valida anche per il futuro:
 
 ## 11. Cosa sparisce
 
-`startOffset` · `shiftSessionOffset` · `removedBytesBeforeOffset` · `SYSTEM_ACTIONS` ·
-`purgeLogBefore` · `purgeSystemEntries` · il parsing per posizione dei caratteri · il sidecar
-`.json` e la gestione del sidecar corrotto · il retry sul `-journal` · il backup pre-operazione
-dentro il `case` del Bridge (che `CLAUDE.md` già indica come errore da non ripetere) · il file
-`<db>.log` e il suo ricaricamento OneDrive a ogni riga scritta.
+**Già sparito (fase 3):** la scrittura del file `<db>.log` e il suo ricaricamento OneDrive a ogni
+riga · l'uso di `startOffset` / `shiftSessionOffset` / `removedBytesBeforeOffset` /
+`SYSTEM_ACTIONS` (`hasChanges()` è un `EXISTS` su `op_log`) · il parsing per posizione dei
+caratteri · `getLogInfo` / `purgeLog` / `purgeSystemLog` in `Database` e nel `Bridge`, con le due
+sezioni di Impostazioni che li usavano · l'elenco dei backup e il ripristino da Impostazioni (ora
+sulla linea del tempo).
+
+**Ancora da togliere:** il sidecar `.json` e la gestione del sidecar corrotto · il retry sul
+`-journal` (fase 4) · il backup pre-operazione dentro il `case` del Bridge (che `CLAUDE.md` già
+indica come errore da non ripetere, fase 4) · la classe `DbLogger` intera, coi suoi
+`purgeLogBefore` / `purgeSystemEntries` ormai senza chiamanti (fase 5).
 
 `hasChanges()` diventa `SELECT EXISTS(SELECT 1 FROM op_log WHERE id > ? AND tipo='utente')`.
 
@@ -598,8 +637,14 @@ comportamento.
 |---|---|---|
 | ~~**1 — cattura**~~ ✅ | schema v27, trigger generati + guardia, `inTx` con `SAVEPOINT`, contesto operazione, `DbLogger` → `Giornale` (call-site invariati). Il `.log` continua a essere scritto **in parallelo** | ✅ `confronta-query.ps1` **IDENTICI** (2 scenari × 257 letture) · `test-titoli.ps1` **87/87** · `test-giornale.ps1` **28/28**, compreso il confronto 1:1 col `.log` |
 | ~~**2 — annullamento**~~ ✅ | `Giornale.annulla` con i **tre controlli**, `annullaACatena` (insieme minimo dei bloccanti), `riportaA`, `tools\test-annulla.ps1`. Resta da fare la seconda strada, «rimetti senza il legame mancante», che ha senso solo con l'interfaccia davanti | ✅ **71 scenari**: 67 identici dopo l'annullamento, 4 rifiutati come previsto, 0 differenze |
-| **3 — pagina Cronologia** | la pagina legge da `op_log`, timeline con i `.bak`, pulsanti. Si spegne la scrittura del `.log` e cade l'aritmetica dell'offset | `check-ui.ps1` sui 4 temi · `interact.ps1` sui percorsi di annullamento |
+| ~~**3 — pagina Cronologia**~~ ✅ | la pagina legge da `op_log`, timeline con i `.bak`, annulla / riporta indietro / ripeti, archivio del vecchio `.log`. Spenta la scrittura del `.log`, `hasChanges()` è un `EXISTS` su `op_log`, via `startOffset` e l'aritmetica dell'offset, via le azioni sul log da Impostazioni | ✅ `check-ui.ps1` sui 4 temi (Cronologia aggiunta all'elenco delle pagine controllate) · `interact.ps1` sui percorsi veri: annulla, ripeti, catena di 4, rifiuto con annullamento a catena · `test-giornale.ps1` **32/32** · `test-annulla.ps1` **71** · `test-titoli.ps1` **87/87** · `confronta-query.ps1` **IDENTICI** |
 | **4 — manutenzione e backup** | `backup to`, il blocco backup→potatura→vacuum, retention in Impostazioni, via il sidecar, via il backup dal `case` del Bridge | ripristino di un `.bak` prodotto a caldo · potatura su un giornale finto di 90 giorni |
 | **5 — pulizia** | via `undoPortfolioTransaction` (dopo prova di equivalenza), via `DbLogger`, invarianti in `CLAUDE.md`, flusso in `ARCHITECTURE.md`, eliminazione di questo file, bump **1.26.0** | `test-titoli.ps1` + `test-annulla.ps1` + `confronta-query.ps1` |
 
-Le fasi 1 e 2 sono la metà della fatica e **non cambiano nulla di visibile**.
+Le fasi 1 e 2 sono la metà della fatica e **non cambiano nulla di visibile**. La 3 è la prima che
+si vede: da lì in poi il giornale è l'unico registro di cosa ha fatto l'utente.
+
+⚠️ **Da qui in avanti il `.log` non c'è più come rete di sicurezza.** Fino alla fase 2 girava in
+parallelo e un errore del giornale sarebbe stato ricostruibile da lì. Adesso no: quello che il
+giornale non registra è perso. È il motivo per cui `test-giornale.ps1` e `test-annulla.ps1` vanno
+tenuti verdi a ogni passo, non a fine lavoro.

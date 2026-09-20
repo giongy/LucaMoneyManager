@@ -104,14 +104,18 @@ async function renderSettings() {
             <span class="settings-hint" id="backupHint" style="margin-left:10px"></span>
           </div>
         </div>
-        <div class="settings-row" style="align-items:flex-start">
+        <!-- ⚠️ Qui ci sono solo preferenze: "come voglio che si comporti". I backup veri —
+             vederli, ripristinarli — stanno in Cronologia, sulla stessa linea del tempo delle
+             operazioni: è lì che si sceglie fra annullare un gesto e tornare indietro del
+             tutto, e quella scelta si fa guardando una schermata sola. -->
+        <div class="settings-row">
           <div class="settings-label">
-            <strong>Ripristina backup</strong>
-            <span class="settings-hint">Seleziona un backup da ripristinare. Il database attuale verrà archiviato prima di procedere.</span>
+            <strong>Ripristina un backup</strong>
+            <span class="settings-hint">I punti di ripristino stanno in Cronologia, in mezzo alle operazioni:
+              da lì si vede cos'è successo prima e dopo ciascuno.</span>
           </div>
-          <div class="settings-control" style="flex-direction:column;align-items:flex-start;gap:6px">
-            <button class="btn btn-secondary" onclick="settingsLoadBackupList()">📂 Mostra backup disponibili</button>
-            <div id="backupRestoreList" style="width:100%"></div>
+          <div class="settings-control">
+            <button class="btn btn-secondary" onclick="navigate('cronologia')">🕘 Vai a Cronologia</button>
           </div>
         </div>
       </div>
@@ -328,57 +332,22 @@ async function renderSettings() {
         </div>
       </div>
 
+      <!-- ⚠️ Impostazioni = come voglio che si comporti · Cronologia = la cosa in sé.
+           Qui non ci sono più azioni sul log: il file di testo non viene più scritto (la
+           storia sta nel giornale, dentro il database) e quello vecchio è un archivio di
+           sola lettura, che l'app non tocca. -->
       <div class="settings-section">
-        <div class="settings-section-title">📋 Log operazioni</div>
+        <div class="settings-section-title">🕘 Cronologia delle operazioni</div>
         <div class="settings-row">
           <div class="settings-label">
-            <strong>File di log</strong>
-            <span class="settings-hint">Percorso e dimensione del file di log</span>
-          </div>
-          <div class="settings-control" style="display:flex;flex-direction:column;gap:4px">
-            <span class="settings-hint" id="logPathText" style="word-break:break-all;font-family:monospace">—</span>
-            <div class="flex-center-8">
-              <span class="settings-hint" id="logSizeText">—</span>
-              <button class="btn btn-ghost" style="white-space:nowrap;padding:2px 8px;font-size:11px"
-                      onclick="callJava('openLogFolder')">Apri cartella ↗</button>
-            </div>
-          </div>
-        </div>
-        <div class="settings-row">
-          <div class="settings-label">
-            <strong>Contenuto log</strong>
-            <span class="settings-hint">Prima e ultima registrazione nel file di log</span>
+            <strong>Cosa hai fatto, e come tornare indietro</strong>
+            <span class="settings-hint">Ogni gesto è registrato dentro il database, insieme alle righe che ha
+              cambiato: da Cronologia si annulla una singola operazione o si riporta indietro tutto
+              da un punto preciso. Lì ci sono anche i punti di ripristino (.bak) e l'archivio del
+              vecchio file di log.</span>
           </div>
           <div class="settings-control">
-            <span class="settings-hint" id="logInfoText">Caricamento...</span>
-          </div>
-        </div>
-        <div class="settings-row">
-          <div class="settings-label">
-            <strong>Elimina righe precedenti a</strong>
-            <span class="settings-hint">Rimuove dal file di log tutte le righe antecedenti alla data scelta</span>
-          </div>
-          <div class="settings-control maint-op-control">
-            <select class="form-control" id="logCutoffSelect" onchange="maintUpdateLogCutoff()">
-              <option value="3m">Mantieni ultimi 3 mesi</option>
-              <option value="6m">Mantieni ultimi 6 mesi</option>
-              <option value="1y">Mantieni ultimo anno</option>
-              <option value="2y">Mantieni ultimi 2 anni</option>
-              <option value="custom">Personalizzato…</option>
-            </select>
-            <input type="date" class="form-control" id="logCutoffDate" style="display:none">
-            <button class="btn btn-danger" onclick="maintPurgeLog()">🗑️ Elimina</button>
-            <span class="settings-hint maint-result" id="logPurgeResult"></span>
-          </div>
-        </div>
-        <div class="settings-row">
-          <div class="settings-label">
-            <strong>Elimina voci di sistema</strong>
-            <span class="settings-hint">Rimuove avvio, backup, manutenzione — conserva transazioni e modifiche dati</span>
-          </div>
-          <div class="settings-control maint-op-control">
-            <button class="btn btn-danger" onclick="maintPurgeSystemLog()">🗑️ Elimina voci sistema</button>
-            <span class="settings-hint maint-result" id="logSystemPurgeResult"></span>
+            <button class="btn btn-secondary" onclick="navigate('cronologia')">🕘 Vai a Cronologia</button>
           </div>
         </div>
       </div>`,
@@ -549,7 +518,7 @@ async function renderSettings() {
         ${tabContent[_settingsTab] || ''}
       </div>
     </div>`;
-  if (_settingsTab === 'maintenance') setTimeout(() => { maintLoadInfo(); maintLoadLogInfo(); }, 50);
+  if (_settingsTab === 'maintenance') setTimeout(maintLoadInfo, 50);
   if (_settingsTab === 'archive')     setTimeout(() => { archiveLoadCategories(); }, 50);
   if (_settingsTab === 'info')        setTimeout(_fillLogErrCount, 50);
 }
@@ -951,53 +920,6 @@ window.archiveRun = async () => {
 };
 
 
-// ─── Manutenzione log ────────────────────────────────────────────────────────
-
-// Carica le info sul log operazioni (intervallo date, numero righe, percorso/dimensione file).
-async function maintLoadLogInfo() {
-  const el = document.getElementById('logInfoText');
-  if (!el) return;
-  try {
-    const info = await callJava('getLogInfo');
-    // percorso e dimensione
-    const pathEl = document.getElementById('logPathText');
-    const sizeEl = document.getElementById('logSizeText');
-    if (pathEl) pathEl.textContent = info.log_path || '—';
-    if (sizeEl && info.log_size != null) {
-      const kb = (info.log_size / 1024).toFixed(1);
-      sizeEl.textContent = kb >= 1024
-        ? `${(kb / 1024).toFixed(2)} MB`
-        : `${kb} KB`;
-    } else if (sizeEl) sizeEl.textContent = '—';
-    // contenuto
-    if (info.empty)        el.textContent = 'Log vuoto o non trovato';
-    else if (info.error)   el.textContent = 'Errore: ' + info.error;
-    else                   el.textContent = `Prima registrazione: ${info.first}  ·  Ultima: ${info.last}  ·  ${info.total_lines} righe`;
-  } catch(e) { el.textContent = 'Errore: ' + e; }
-}
-
-// Aggiorna l'anteprima della data di taglio per la pulizia del log.
-window.maintUpdateLogCutoff = () => {
-  const v = document.getElementById('logCutoffSelect').value;
-  document.getElementById('logCutoffDate').style.display = v === 'custom' ? '' : 'none';
-};
-
-// Elimina le righe di log di sistema (avvii, backup, ecc.) mantenendo le operazioni utente.
-window.maintPurgeSystemLog = async () => {
-  const ok = await confirm('Elimina voci di sistema', 'Eliminare tutte le voci di sistema dal log (avvio, backup, manutenzione)?');
-  if (!ok) return;
-  const res = await callJava('purgeSystemLog');
-  const result = document.getElementById('logSystemPurgeResult');
-  if (res.error) {
-    result.style.color = 'var(--expense)';
-    result.textContent = 'Errore: ' + res.error;
-  } else {
-    result.style.color = res.deleted > 0 ? 'var(--income)' : '';
-    result.textContent = res.deleted > 0 ? `Eliminate ${res.deleted} righe` : 'Nessuna voce di sistema trovata';
-    maintLoadLogInfo();
-  }
-};
-
 // Svuota il file app.log (errori Java), troncandolo.
 window._clearAppLog = async () => {
   const ok = await confirm('Pulisci log Java', 'Eliminare il contenuto di app.log?');
@@ -1009,34 +931,6 @@ window._clearAppLog = async () => {
   if (typeof window.refreshLogErrors === 'function') window.refreshLogErrors();
 };
 
-// Elimina dal log le righe più vecchie della data di taglio scelta.
-window.maintPurgeLog = async () => {
-  const sel = document.getElementById('logCutoffSelect').value;
-  let cutoff;
-  if (sel === 'custom') {
-    cutoff = document.getElementById('logCutoffDate').value;
-    if (!cutoff) { document.getElementById('logPurgeResult').textContent = 'Seleziona una data'; return; }
-  } else {
-    const d = new Date();
-    if      (sel === '3m') d.setMonth(d.getMonth() - 3);
-    else if (sel === '6m') d.setMonth(d.getMonth() - 6);
-    else if (sel === '1y') d.setFullYear(d.getFullYear() - 1);
-    else if (sel === '2y') d.setFullYear(d.getFullYear() - 2);
-    cutoff = _dateStr(d);
-  }
-  const ok = await confirm('Elimina log', `Eliminare tutte le righe di log precedenti al ${cutoff}?`);
-  if (!ok) return;
-  const res = await callJava('purgeLog', { cutoff });
-  const result = document.getElementById('logPurgeResult');
-  if (res.error) {
-    result.style.color = 'var(--expense)';
-    result.textContent = 'Errore: ' + res.error;
-  } else {
-    result.style.color = res.deleted > 0 ? 'var(--income)' : '';
-    result.textContent = res.deleted > 0 ? `Eliminate ${res.deleted} righe` : 'Nessuna riga da eliminare';
-    maintLoadLogInfo();
-  }
-};
 
 /* ─── Custom themes ──────────────────────────────────────────────────────── */
 let _customThemes  = [];
@@ -1669,111 +1563,6 @@ async function settingsDoBackup() {
     if (hint) hint.textContent = `✅ Salvato: ${res.path}`;
   } catch(e) {
     if (hint) hint.textContent = `❌ ${e.message}`;
-  }
-}
-
-// Carica e mostra l'elenco dei backup disponibili (con data, dimensione e modifiche di sessione).
-async function settingsLoadBackupList() {
-  const container = document.getElementById('backupRestoreList');
-  if (!container) return;
-  container.innerHTML = '<span class="settings-hint">⏳ Caricamento...</span>';
-  try {
-    const res = await api.listBackups();
-    const list = res.backups || [];
-    if (!list.length) {
-      container.innerHTML = '<span class="settings-hint">Nessun backup trovato.</span>';
-      return;
-    }
-    container.innerHTML = `
-      <table style="width:100%;border-collapse:collapse;font-size:12px;margin-top:4px">
-        <thead>
-          <tr style="color:var(--txt2);border-bottom:1px solid var(--border)">
-            <th style="text-align:left;padding:4px 8px">Data e ora</th>
-            <th style="text-align:left;padding:4px 8px">Modifiche</th>
-            <th style="text-align:right;padding:4px 8px">Dim.</th>
-            <th style="padding:4px 8px"></th>
-          </tr>
-        </thead>
-        <tbody>
-          ${list.map((b,i) => {
-            const changes = b.changes || [];
-            const nChanges = changes.length;
-            const rowBg = i%2===1 ? 'background:rgba(255,255,255,.025)' : '';
-            const detailId = `bak-detail-${i}`;
-            const changesCell = nChanges === 0
-              ? `<span style="color:var(--txt3)">—</span>`
-              : `<button class="btn-bak-changes" data-detail="${detailId}">
-                   ${nChanges} ${nChanges===1?'modifica':'modifiche'}
-                 </button>`;
-            const detailRows = changes.map(c => {
-              let descHtml = '';
-              if (c.desc) {
-                // desc viene dal log, che include i campi delle transazioni (descrizione
-                // compresa): è testo utente e va escapato prima di finire in innerHTML.
-                descHtml = c.desc.split(' · ').map(part => {
-                  const colon = part.indexOf(':');
-                  if (colon === -1) return `<span style="color:var(--txt3)">${esc(part)}</span>`;
-                  const key = part.slice(0, colon);
-                  const val = part.slice(colon + 1);
-                  if (key === 'importo') return `<span style="color:var(--txt3)">${esc(key)}:</span><span style="color:var(--income);font-weight:700"> ${esc(val)}</span>`;
-                  if (key === 'categoria') return `<span style="color:var(--txt3)">${esc(key)}:</span><span style="color:var(--accent);font-weight:600"> ${esc(val)}</span>`;
-                  return `<span style="color:var(--txt3)">${esc(part)}</span>`;
-                }).join('<span style="color:var(--border)"> · </span>');
-              }
-              return `<tr class="bak-detail-row ${detailId}" style="background:var(--bg3)">
-                <td colspan="4" style="padding:3px 8px 3px 24px;font-size:11px;color:var(--txt2)">
-                  <span style="color:var(--txt3);margin-right:6px">${esc(c.time)}</span>
-                  <strong>${esc(c.op)}</strong>
-                  ${descHtml ? `<span style="margin-left:6px">${descHtml}</span>` : ''}
-                </td>
-              </tr>`;
-            }).join('');
-            return `
-            <tr style="border-bottom:1px solid var(--border);${rowBg}">
-              <td style="padding:5px 8px;font-weight:600;color:var(--accent)">${b.displayTs}</td>
-              <td style="padding:5px 8px">${changesCell}</td>
-              <td style="padding:5px 8px;text-align:right;color:var(--txt3)">${(b.size/1024).toFixed(1)} KB</td>
-              <td style="padding:5px 8px">
-                <button class="btn btn-secondary btn-restore-bak" style="font-size:11px;padding:2px 10px"
-                  data-path="${b.path.replace(/\\/g,'\\\\')}" data-ts="${b.displayTs}">
-                  ♻️ Ripristina
-                </button>
-              </td>
-            </tr>
-            ${detailRows}`;
-          }).join('')}
-        </tbody>
-      </table>`;
-    container.querySelectorAll('.bak-detail-row').forEach(r => r.classList.add('hidden'));
-    container.querySelectorAll('.btn-bak-changes').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const rows = container.querySelectorAll(`.${btn.dataset.detail}`);
-        const open = !rows[0]?.classList.contains('hidden');
-        rows.forEach(r => r.classList.toggle('hidden', open));
-        btn.classList.toggle('active', !open);
-      });
-    });
-    container.querySelectorAll('.btn-restore-bak').forEach(btn => {
-      btn.addEventListener('click', () => settingsConfirmRestore(btn.dataset.path, btn.dataset.ts));
-    });
-  } catch(e) {
-    container.innerHTML = `<span class="settings-hint" style="color:var(--expense)">❌ ${e.message}</span>`;
-  }
-}
-
-// Chiede conferma e ripristina un backup (il DB corrente viene archiviato prima del ripristino).
-async function settingsConfirmRestore(path, displayTs) {
-  const ok = await confirm('Ripristina backup', `Ripristinare il backup del <strong>${displayTs}</strong>?<br><br>Il database corrente verrà archiviato nella cartella backup prima di procedere.`);
-  if (!ok) return;
-  const container = document.getElementById('backupRestoreList');
-  if (container) container.innerHTML = '<span class="settings-hint">⏳ Ripristino in corso...</span>';
-  try {
-    const res = await api.restoreBackup(path);
-    openModal('✅ Ripristino completato',
-      `<p style="color:var(--txt2);line-height:1.6">Database precedente archiviato in:<br><code style="font-size:11px">${esc(res.archived)}</code><br><br>L'applicazione verrà ricaricata.</p>`,
-      () => { closeModal(); location.reload(); }, 'Ok', 'btn-primary');
-  } catch(e) {
-    if (container) container.innerHTML = `<span class="settings-hint" style="color:var(--expense)">❌ ${e.message}</span>`;
   }
 }
 

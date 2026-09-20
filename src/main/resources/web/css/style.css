@@ -1663,16 +1663,6 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 .dshare-over .dshare-amt { color:var(--expense); }
 .dshare-other .dshare-name, .dshare-other .dshare-amt { color:var(--txt3); font-style:italic; }
 
-/* ─── Backup list — badge modifiche ──────────────────────────────────────── */
-.btn-bak-changes {
-  display:inline-block; cursor:pointer; border:none; outline:none;
-  background:rgba(63,185,80,.15); color:var(--income);
-  border-radius:12px; padding:1px 9px; font-size:11px; font-weight:600;
-  transition:background .15s;
-}
-.btn-bak-changes:hover  { background:rgba(63,185,80,.28); }
-.btn-bak-changes.active { background:var(--income); color:#fff; }
-
 /* ─── Dashboard bubble tooltip ───────────────────────────────────────────── */
 #dash-tooltip {
   position:fixed; z-index:9999; pointer-events:none; display:none;
@@ -2972,7 +2962,135 @@ tr.tx-selected td { background:rgba(124,124,255,.07); }
 
 /* .tag-chip è definita una volta sola, nella sezione dei componenti condivisi. */
 
-/* ─── Log Viewer ──────────────────────────────────────────────────────────── */
+/* ─── Cronologia ───────────────────────────────────────────────────────────
+   Operazioni e punti di ripristino sulla stessa linea del tempo. Le righe
+   restano a due livelli: il gesto (sempre visibile) e cosa ha cambiato nei
+   dati (aperto su richiesta) — leggere la storia non deve costare una lettura
+   di JSON.                                                                   */
+.cron-info {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  font-size: 12px;
+  color: var(--txt2);
+  padding: 6px 12px;
+  margin-bottom: 8px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.cron-info strong { color: var(--txt); }
+.cron-check {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--txt2);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.cron-wrap { flex: 1; overflow-y: auto; font-size: 12px; padding: 4px 0; min-height: 0; }
+.cron-day {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg3);
+  color: var(--txt3);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.cron-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+.cron-row:hover { background: var(--bg3); }
+.cron-time  { color: var(--txt3); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.cron-label { font-weight: 600; min-width: 190px; white-space: nowrap; }
+.cron-detail {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+}
+.cron-field {
+  background: var(--bg3);
+  border-radius: 4px;
+  padding: 0 6px;
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cron-row:hover .cron-field { background: var(--bg4, var(--bg)); }
+/* Il nome di oggi accanto a quello congelato: si distingue, ma non prende il posto
+   di quello storico — che resta la verità di quel giorno. */
+.cron-today { color: var(--accent); margin-left: 4px; font-style: italic; }
+.cron-more {
+  background: var(--accent);
+  color: #fff;
+  border-radius: 8px;
+  padding: 0 6px;
+  font-size: 10px;
+  font-weight: 700;
+}
+.cron-actions { display: flex; gap: 4px; white-space: nowrap; }
+.cron-act { padding: 1px 8px !important; font-size: 11px !important; }
+.cron-nope { color: var(--txt3); font-size: 11px; }
+/* Le annullate restano: la storia si aggiunge, non si riscrive. */
+.cron-undone .cron-label,
+.cron-undone .cron-detail { text-decoration: line-through; opacity: .55; }
+.cron-bak { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.cron-bak .cron-label { color: var(--accent); }
+
+.cron-body {
+  padding: 6px 12px 10px 60px;
+  background: var(--bg3);
+  border-bottom: 1px solid var(--border);
+}
+.cron-loading { color: var(--txt3); padding: 6px 0; }
+.cron-steps {
+  color: var(--txt2);
+  font-size: 11px;
+  margin-bottom: 6px;
+  padding-left: 8px;
+  border-left: 2px solid var(--border);
+}
+.cron-change { display: flex; gap: 8px; align-items: baseline; padding: 2px 0; flex-wrap: wrap; }
+.cron-verso {
+  min-width: 78px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.cron-verso-I { color: var(--income); }
+.cron-verso-U { color: var(--accent); }
+.cron-verso-D { color: var(--expense); }
+.cron-table { color: var(--txt2); font-family: 'Consolas', 'Fira Mono', monospace; min-width: 150px; }
+.cron-fields { display: flex; flex-wrap: wrap; gap: 4px; flex: 1; }
+.cron-meta { color: var(--txt3); font-size: 11px; margin-top: 6px; }
+.cron-blockers {
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px;
+  background: var(--bg3);
+  font-size: 12px;
+  color: var(--txt2);
+}
+.cron-blocker-detail { color: var(--txt3); font-size: 11px; }
+
+/* ─── Archivio del vecchio .log (modale in Cronologia) ────────────────────── */
 .log-wrap {
   flex: 1;
   overflow-y: auto;

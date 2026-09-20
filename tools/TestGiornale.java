@@ -26,8 +26,9 @@ import java.util.List;
  *   <li><b>nessuna riga resta orfana</b> ({@code op_id IS NULL}) — verrebbe assegnata al gesto
  *       successivo, cioè a quello sbagliato;</li>
  *   <li><b>un gesto fallito non lascia niente a metà</b>;</li>
- *   <li><b>niente di ciò che il vecchio log registrava è sparito</b> — il confronto 1:1 fra le
- *       righe di {@code <db>.log} e le righe di {@code op_log}.</li>
+ *   <li><b>il vecchio {@code <db>.log} non viene più scritto</b> — dalla 1.26.0 è un archivio
+ *       di sola lettura, e cinque gesti veri non devono cambiarlo di un byte; ciascuno di
+ *       quei gesti resta però una riga sola di cronologia.</li>
  * </ul>
  */
 public class TestGiornale {
@@ -175,21 +176,26 @@ public class TestGiornale {
         }
         app.reconnect(db.toString());   // si torna sul DB di prova per il resto dei controlli
 
-        sezione("CONFRONTO 1:1 COL VECCHIO LOG");
+        // Fino alla fase 2 questo gruppo era il confronto 1:1 col vecchio `<db>.log`: serviva a
+        // dimostrare che nel passaggio non si perdeva nessuna riga. Ora che il giornale è
+        // l'unico registro, la proprietà da difendere è l'opposto — il file di testo non deve
+        // più essere toccato — e resta quella che contava: un gesto, una riga di cronologia.
+        sezione("IL VECCHIO .LOG NON VIENE PIU' SCRITTO");
         Path log = db.resolveSibling(db.getFileName().toString().replaceAll("\\.[^.]+$", "") + ".log");
+        long logPrima = Files.exists(log) ? Files.size(log) : -1;
         for (Object[] g : gesti(app)) {
             String nome = (String) g[0];
             int opPre = conta("SELECT COUNT(*) FROM op_log");
-            int lgPre = righeLog(log);
             app.iniziaRichiesta(nome, "desktop");
             ((Azione) g[1]).esegui();
             app.terminaRichiesta(true);
-            String etichettaGiornale = uno("SELECT etichetta FROM op_log ORDER BY id DESC LIMIT 1");
-            String etichettaLog      = ultimaAzioneLog(log);
-            vero(nome + ": una riga di log e una operazione, stessa etichetta (" + etichettaGiornale + ")",
-                 righeLog(log) == lgPre + 1 && conta("SELECT COUNT(*) FROM op_log") == opPre + 1
-                 && etichettaGiornale.equals(etichettaLog));
+            String etichetta = uno("SELECT etichetta FROM op_log ORDER BY id DESC LIMIT 1");
+            vero(nome + ": un gesto, una operazione (" + etichetta + ")",
+                 conta("SELECT COUNT(*) FROM op_log") == opPre + 1
+                 && etichetta != null && !etichetta.isBlank());
         }
+        long logDopo = Files.exists(log) ? Files.size(log) : -1;
+        eq("dopo cinque gesti il file .log è intatto", String.valueOf(logPrima), String.valueOf(logDopo));
 
         app.close();
         System.out.println();
@@ -231,19 +237,6 @@ public class TestGiornale {
         try (var in = Files.newInputStream(db)) { in.read(h); }
         return ((h[24] & 0xff) << 24) | ((h[25] & 0xff) << 16) | ((h[26] & 0xff) << 8) | (h[27] & 0xff);
     }
-
-    static int righeLog(Path log) throws Exception {
-        return Files.exists(log) ? Files.readAllLines(log).size() : 0;
-    }
-
-    /** Etichetta dell'ultima riga del vecchio log (formato a larghezza fissa, colonne 22-56). */
-    static String ultimaAzioneLog(Path log) throws Exception {
-        List<String> r = Files.readAllLines(log);
-        for (int i = r.size() - 1; i >= 0; i--)
-            if (r.get(i).length() >= 57) return r.get(i).substring(22, 57).trim();
-        return "-";
-    }
-
     static com.google.gson.JsonObject json(String s) {
         return com.google.gson.JsonParser.parseString(s).getAsJsonObject();
     }

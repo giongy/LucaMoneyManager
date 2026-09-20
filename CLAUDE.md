@@ -12,7 +12,7 @@ Due piattaforme: **desktop (primaria)** e **Android (secondaria)**, database SQL
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Mappa del flusso: avvio, bridge, router, DB, tray, WebServer, build. Da leggere prima di toccare il codice. |
 | [docs/AUDIT_JAVA_2026-07.md](docs/AUDIT_JAVA_2026-07.md) | Audit dei 52 finding Java + rilettura indipendente. **Storico, non aggiornare** |
 | [docs/AUDIT_ROBUSTEZZA_JAVA.md](docs/AUDIT_ROBUSTEZZA_JAVA.md) · [docs/AUDIT-RESOURCES.md](docs/AUDIT-RESOURCES.md) | Altri audit datati. Stessa regola: sono fotografie, non documentazione viva. |
-| [docs/DISEGNO_CRONOLOGIA.md](docs/DISEGNO_CRONOLOGIA.md) | **Progetto in corso**, non ancora implementato: giornale delle operazioni, annullamento, backup e manutenzione (1.26.0 / schema v27). Fonte unica finché il lavoro è aperto; a fine lavoro le invarianti migrano qui, il flusso in `ARCHITECTURE.md`, e il file si elimina. |
+| [docs/DISEGNO_CRONOLOGIA.md](docs/DISEGNO_CRONOLOGIA.md) | **Lavoro in corso**: giornale delle operazioni, annullamento, pagina Cronologia, backup e manutenzione (1.26.0 / schema v27). Fasi 1-3 fatte, restano 4 (manutenzione e backup) e 5 (pulizia). Fonte unica finché il lavoro è aperto; a fine lavoro le invarianti migrano qui, il flusso in `ARCHITECTURE.md`, e il file si elimina. |
 
 ⚠️ I file `AUDIT*` sono **registri storici**: descrivono lo stato a una certa data e vanno letti come
 tali. La documentazione da tenere aggiornata è solo questa terna: `CLAUDE.md`, `README.md`,
@@ -29,7 +29,7 @@ tali. La documentazione da tenere aggiornata è solo questa terna: `CLAUDE.md`, 
 - **Versione:** 1.25.17 — output `target/moneymanager-1.25.17.jar` (fat JAR, web/ esclusa)
 - **Web assets:** serviti da filesystem (cartella `web/` accanto al `.exe` in produzione, `target/classes/web/` in IDE)
 - **DB path:** `%APPDATA%\LucaMoneyManager\data.db` (`%APPDATA%` = `...\Roaming`)
-- **Due log distinti, in due posti diversi** — vedi "I due log e OneDrive"
+- **Due registri distinti, in due posti diversi** — vedi "I due registri e OneDrive"
 - **Build:** `mvn package` oppure `tools\build\build.bat`
 
 ### Android
@@ -53,9 +53,9 @@ Database.java (~5890 LOC) — tutte le query JDBC
 SQLite
 ```
 
-**Classi Java:** `App` (entry point), `MainWindow` (Swing + JCEF), `Bridge` (dispatch JS↔Java), `Database` (JDBC), `Settings` (preferenze utente), `IconFactory` (icona app + tray per stato DB), `SplashWindow` (splash Swing 70%×70%, fade 350ms), `TrayManager` (system tray), `SingleInstance` (lock istanza unica), `WebServer` (serve web/ da filesystem + bridge LAN), `Giornale` (cronologia delle operazioni: confine del gesto, trigger di cattura), `DbLogger` (vecchio log testuale, in parallelo fino alla fase 3), `ContextMenuHandler` (menu tasto destro nativo: modifica/zoom/devtools)
+**Classi Java:** `App` (entry point), `MainWindow` (Swing + JCEF), `Bridge` (dispatch JS↔Java), `Database` (JDBC), `Settings` (preferenze utente), `IconFactory` (icona app + tray per stato DB), `SplashWindow` (splash Swing 70%×70%, fade 350ms), `TrayManager` (system tray), `SingleInstance` (lock istanza unica), `WebServer` (serve web/ da filesystem + bridge LAN), `Giornale` (cronologia delle operazioni: confine del gesto, trigger di cattura, annullamento), `DbLogger` (il vecchio log testuale: non scrive più niente, resta solo per leggere l'archivio — sparisce in fase 5), `ContextMenuHandler` (menu tasto destro nativo: modifica/zoom/devtools)
 
-**Moduli JS pagine** (LOC indicativi): `analytics` (3915), `portfolio` (2100), `budget` (1985), `settings` (1785), `transactions` (1470), `dashboard` (1460), `scheduled` (1075), `accounts` (825), `notes` (360), `categories` (320), `forecasts` (240), `logviewer` (210), `ranges` (195), `tags` (105)
+**Moduli JS pagine** (LOC indicativi): `analytics` (3915), `portfolio` (2100), `budget` (1985), `settings` (1590), `transactions` (1470), `dashboard` (1460), `scheduled` (1075), `accounts` (825), `cronologia` (535), `notes` (360), `categories` (320), `forecasts` (240), `ranges` (195), `tags` (105)
 
 **Moduli JS di supporto** (non pagine, caricati prima): `bridge` (`callJava` + oggetto `api`), `utils` (formattazione, `evalAmount`, colori grafici per tema), `calculator` (calcolatrice nei campi importo), `ui-shell` (modali, drag titlebar, maniglie di resize), `router` (`navigate`/`renderPage`), `sidebar`, `init` (bootstrap).
 
@@ -119,15 +119,21 @@ della richiesta, e la chiude il confine della richiesta in `Bridge.dispatch`. Co
   produce una riga di cronologia per statement. In produzione non capita: ogni via d'ingresso
   passa dal Bridge.
 
-### I due log e OneDrive (1.25.11)
+### I due registri e OneDrive (1.26.0)
 
-Sono due file distinti, con due destini diversi. La differenza non è cosmetica: uno vive dentro
-la cartella sincronizzata, l'altro no.
+Sono due, con due destini diversi. La differenza non è cosmetica: uno vive dentro il file
+sincronizzato, l'altro no.
 
-| file | dove | chi scrive | apertura |
+| registro | dove | chi scrive | cosa contiene |
 |---|---|---|---|
-| `<nomedb>.log` (es. `luca.log`) | **accanto al DB**, quindi su OneDrive | `DbLogger` — una riga per operazione sui dati | apre e **richiude a ogni riga** (`Files.writeString` in APPEND) |
-| `app.log` | **`%APPDATA%\LucaMoneyManager\`**, fuori da OneDrive | `System.err`/`System.out` dirottati da `App.redirectLog()` | `PrintStream` **aperto per tutta la sessione**, mai chiuso |
+| **il giornale** (`op_log` + `change_log`) | **dentro il `.db`**, quindi su OneDrive | i 57 trigger di cattura e `Giornale` | **cosa ha fatto l'utente**, con sotto le righe di dati per annullarlo |
+| `app.log` | **`%APPDATA%\LucaMoneyManager\`**, fuori da OneDrive | `System.err`/`System.out` dirottati da `App.redirectLog()` | **cosa ha fatto il programma**: avvio, errori, query lente, avvisi `[Giornale]` |
+
+Il terzo file, `<nomedb>.log` (es. `luca.log`), **non viene più scritto dalla 1.26.0**. L'app non
+lo tocca né lo cancella: contiene la storia **precedente** al giornale, che il giornale non ha, e
+resta un archivio di sola lettura — visibile da **Cronologia → 📜 Archivio**. Lo elimina l'utente
+se vuole; l'app non cancella file suoi. Effetto collaterale gradito: un file sincronizzato in meno,
+che OneDrive ricaricava **per intero a ogni riga scritta**.
 
 ⚠️ **`app.log` non torna accanto al DB.** È diagnostica pura, non ha motivo di essere
 sincronizzata, e il suo stream resta aperto quanto il processo: stando su OneDrive era l'unico
@@ -136,33 +142,68 @@ concede `FILE_SHARE_DELETE` — leggibile sì, quindi l'upload passava, ma non s
 direzione download). Il path si ricava da `dataDir`, mai da `db.path`: nel `Bridge` sono
 **quattro** i punti che lo usano (`getSettings`, `openAppLog`, `clearAppLog`, `appLogErrors`).
 
-⚠️ **Nel log accanto al DB non si scrivono eventi di sfondo.** Ogni riga costa a OneDrive il
-ricaricamento del **file intero** (nessun delta su file piccoli), quindi ci va solo ciò che
-l'utente ha davvero fatto. Dalla 1.25.11 sono spariti gli ultimi tre eventi automatici:
+⚠️ **Nel giornale non si scrivono eventi di sfondo.** Vale oggi come valeva per il vecchio
+`.log`, e per lo stesso motivo: il giornale sta **dentro il `.db`**, e ogni scrittura costa a
+OneDrive il ricaricamento del file intero (nessun delta su file piccoli). Ci va solo ciò che
+l'utente ha davvero fatto. Gli eventi automatici che si mordevano la coda erano tre —
+`DB TOCCO ESTERNO` e `DB MODIFICATO ESTERNAMENTE` in `ensureOpen()` (OneDrive tocca il `.db` →
+l'app scrive → OneDrive deve ricaricare) e `DB IDLE-RELEASE` in `scheduleIdleRelease()` (una riga
+a ogni rilascio del lock, cioè proprio mentre OneDrive prova a sincronizzare). Non sono tornati e
+non devono tornare.
 
-| evento tolto | dove stava | perché faceva danno |
-|---|---|---|
-| `DB TOCCO ESTERNO` | `ensureOpen()` | si mordeva la coda: OneDrive toccava il `.db` → l'app scriveva una riga → OneDrive doveva ricaricare il `.log` |
-| `DB MODIFICATO ESTERNAMENTE` | `ensureOpen()` | idem, più il problema qui sotto |
-| `DB IDLE-RELEASE` | `scheduleIdleRelease()` | una riga a ogni rilascio del lock, cioè proprio mentre OneDrive prova a sincronizzare |
+> **Regola per chi aggiunge un evento di sistema: va su `app.log`, mai nel giornale.**
+> `app.log` non è sincronizzato, quindi segnalare non costa niente a nessuno.
 
-Le prime due, in più, **non** sono in `SYSTEM_ACTIONS`: contavano quindi come modifiche di
-sessione in `hasChanges()`, e un tocco esterno bastava a far scattare alla chiusura un backup
-dell'intero DB senza che l'utente avesse cambiato nulla.
-
-⚠️ **È sparita solo la scrittura sul log, non la logica.** I due rami di `ensureOpen()` restano e
-devono restare: consumano l'evento (`lastClosedMtime/Size = -1`) e fanno partire
+⚠️ **È sparita solo la scrittura, non la logica.** I due rami di `ensureOpen()` restano e devono
+restare: consumano l'evento (`lastClosedMtime/Size = -1`) e fanno partire
 `externalChangeCallback`, cioè il refresh del frontend dopo una sync vera.
 
-Corollario per chi aggiunge un evento di sistema: se serve tracciarlo va su `app.log`
-(`System.err`), che non è sincronizzato. `DbLogger` è il registro di **cosa ha fatto l'utente**,
-ed è anche ciò che finisce nel sidecar `.json` del backup.
+⚠️ **Un evento di sistema non deve far scattare il backup all'uscita.** Prima ci si arrivava per
+un'altra strada (i due eventi di `ensureOpen()` non erano in `SYSTEM_ACTIONS`, quindi un tocco
+esterno contava come modifica di sessione). Oggi la difesa è nel tipo: `hasChanges()` è
+`SELECT EXISTS(… WHERE id > soglia AND tipo='utente')`, e `tipo` vale `'utente'` solo se
+l'operazione ha un'annotazione **e** arriva da `desktop`/`lan`. Avvio, manutenzione e
+importazioni restano `'sistema'` e non fanno backup a vuoto.
 
-⚠️ Da `SYSTEM_ACTIONS` un nome si toglie **solo se nessun log in giro lo contiene più**: quelle
-righe diventerebbero altrimenti impurgabili da "ripulisci log di sistema" e tornerebbero a
-contare come modifiche di sessione, facendo scattare backup a vuoto. `DB IDLE-RELEASE` è potuto
-uscire dall'elenco perché i `.log` sono stati azzerati nella stessa occasione: dalla 1.25.11 si
-riparte da file nuovi, in cui quel nome non compare.
+### La pagina Cronologia (1.26.0)
+
+La voce **Log** in sidebar è diventata **Cronologia** ([cronologia.js](src/main/resources/web/js/pages/cronologia.js)).
+Non è un visualizzatore di file: legge `op_log`, e da lì si annulla.
+
+⚠️ **Operazioni e punti di ripristino stanno sulla stessa linea del tempo**, in ordine
+cronologico. È il punto dell'integrazione, non un vezzo: la scelta fra il bisturi (annullo quel
+gesto) e il ripristino totale si fa guardando **una** schermata invece di incrociarne due. Era il
+buco del vecchio assetto — fra due backup non esisteva niente.
+
+Tre cose che sembrano dettagli e non lo sono:
+
+1. **I nomi congelati non si sostituiscono.** Il giornale ha registrato `categoria:Carburante`;
+   se oggi quella categoria si chiama «Benzina», la pagina scrive `Carburante (oggi: Benzina)`.
+   Riscrivere il nome storico falsificherebbe la storia, ometterlo lascerebbe una riga
+   incomprensibile. I nomi attuali arrivano da `Giornale.cronologia()`, che li risolve dagli id
+   conservati in `change_log` — e **solo quando il candidato è uno**: su una transazione
+   suddivisa le categorie sono più d'una e non si saprebbe a quale si riferisce.
+2. **Un gesto composto mostra in riga solo l'ultima annotazione**, quella che chiude
+   l'operazione, col resto dietro a un `+N` che si apre espandendo. Registrare una pianificata
+   produce `TRANSAZIONE AGGIUNTA: … | PIANIFICATA AVANZATA: …`: corretto e illeggibile.
+3. **Il rifiuto non è un errore.** Quando i tre controlli dicono di no, la pagina mostra il
+   motivo **e l'operazione che blocca**, con il pulsante per annullare anche quella (insieme
+   minimo, non "torna indietro a quel giorno"). Un rifiuto con un messaggio opaco vale un bug.
+
+⚠️ **`stato` e `annullata_da` di `op_log` sono derivati, non cronaca.** Un'operazione è annullata
+se e solo se esiste un annullamento **ancora in vigore** che l'ha disfatta — e quello a sua volta
+può essere stato annullato. `Giornale.ricalcolaStati()` li ricalcola con una passata dalla più
+recente alla più vecchia (chi annulla è sempre più recente di ciò che annulla), e gira **solo**
+quando l'operazione appena chiusa è un annullamento. Marcare soltanto «annullata» chi viene
+disfatto, senza guardare la catena, produce una pagina che mente: dopo *annulla → ripeti →
+annulla → ripeti* il dato è al suo posto ma la riga resta barrata. La storia vera — le righe di
+`change_log` — non si tocca mai: si aggiunge.
+
+**In Impostazioni resta solo ciò che è preferenza** (cartella backup, copie da conservare, backup
+all'uscita). Le due sezioni che contenevano *azioni* — «Ripristina backup» e «Log operazioni» —
+sono diventate un rimando alla Cronologia. La regola che ne esce, valida anche per il futuro:
+
+> **Impostazioni = come voglio che si comporti · Cronologia = la cosa in sé.**
 
 ### Una scrittura a vuoto costa un upload intero (`ensureSystemTags`)
 
@@ -561,7 +602,7 @@ riferimento disponibile. Le due schede si somigliano ma questo pezzo non va unif
 
 - **Lingua:** tutto in italiano (commenti, stringhe UI, messaggi errore)
 - **Naming:** PascalCase classi, camelCase metodi/variabili, UPPER_SNAKE_CASE costanti, snake_case tabelle DB
-- **Nessun test automatico** sulla logica — test manuale via UI. Fanno eccezione quattro verifiche di non regressione: `test-titoli.ps1` (portafoglio), `test-giornale.ps1` (cattura delle modifiche), `test-annulla.ps1` (annullamento, 63 scenari) e `confronta-query.ps1` (ogni lettura di `Database`, prima/dopo una modifica). Per la **resa grafica** esiste una verifica automatizzabile: vedi "Verifica visiva dell'UI" più sotto
+- **Nessun test automatico** sulla logica — test manuale via UI. Fanno eccezione quattro verifiche di non regressione: `test-titoli.ps1` (portafoglio), `test-giornale.ps1` (cattura delle modifiche), `test-annulla.ps1` (annullamento, 71 scenari) e `confronta-query.ps1` (ogni lettura di `Database`, prima/dopo una modifica). Per la **resa grafica** esiste una verifica automatizzabile: vedi "Verifica visiva dell'UI" più sotto
 - ⚠️ **I banchi di prova si misurano a differenze, mai a valori assoluti.** Partono da una copia del DB vero, il cui giornale contiene già le operazioni di chi usa l'app: un controllo che pretende `COUNT(*) = 0` passa solo il primo giorno
 - **Nessun framework JS** — Vanilla JS puro
 - **Commenti sezione** con separatori Unicode `── ──`
@@ -856,14 +897,21 @@ sempre del **solo carico**, mai del ricavo; annullare un'operazione riporta i sa
 dov'erano; e nessuna singola scrittura di un'operazione può sparire da sola.
 
 ⚠️ **Lo strumento scrive** — compra, vende, annulla. Per questo non lavora mai sul DB indicato
-ma su una **copia temporanea**, che cancella alla fine insieme al `.log` che `DbLogger` le
-scrive accanto. Da qui due comodità: si lancia ad app aperta senza contendere il lock, e
+ma su una **copia temporanea**, che cancella alla fine. Da qui due comodità: si lancia ad app
+aperta senza contendere il lock, e
 `-Database prod` è innocuo perché i dati veri vengono solo letti per fare la copia.
 
 Il classpath mette `target\classes` **prima** del fat JAR: nel JAR ci sono le classi
 dell'ultima build, in `target\classes` quelle appena compilate. Senza quest'ordine si
 verificherebbe il codice vecchio credendo di provare il nuovo — quindi prima serve
 `mvn -o compile`. Esce con codice diverso da zero se un controllo fallisce.
+
+⚠️ **`mvn -o compile` è incrementale e può dire `BUILD SUCCESS` su un albero che non compila.**
+Ricompila i soli sorgenti più recenti dei rispettivi `.class` e risolve gli altri dalle classi
+già in `target\classes`: togliendo un metodo da una classe, chi lo chiama continua a vedere la
+versione vecchia e non protesta. Da lì in poi i banchi provano un misto di codice nuovo e
+vecchio. Dopo aver **rimosso o rinominato** qualcosa di pubblico, `rm -rf target/classes/com` e
+ricompilare — oppure fidarsi solo di una compilazione pulita.
 
 ---
 
@@ -879,7 +927,7 @@ silenzio.
 .\tools\test-giornale.ps1 -Verbose        # stampa anche atteso/ottenuto
 ```
 
-**Trentuno controlli**, in sette gruppi:
+**Trentadue controlli**, in sette gruppi:
 
 | gruppo | cosa difende |
 |---|---|
@@ -891,9 +939,11 @@ silenzio.
 | gesto fallito | niente operazione, niente dati, **nessuna riga orfana** (`op_id IS NULL`): una riga orfana verrebbe assegnata al gesto successivo, cioè a quello sbagliato |
 | cambio di database | rifiutato a metà gesto (`close()` non chiude con lavoro in volo: la connessione vecchia resterebbe **orfana**, col lock su OneDrive per sempre), e un cambio legittimo non ruba il contesto alla richiesta che l'ha chiesto |
 
-L'ultimo gruppo è il confronto **1:1 col vecchio log**: per cinque gesti veri, una riga in
-`<db>.log` e una in `op_log`, con la stessa etichetta. Finché `DbLogger` scrive in parallelo
-(fase 1 e 2) è la prova che nel passaggio non si è perso niente.
+L'ultimo gruppo difende il passaggio alla 1.26.0: cinque gesti veri producono **una riga di
+cronologia ciascuno** e **non toccano di un byte** il vecchio `<db>.log`, che da quella versione
+è un archivio di sola lettura. Fino alla fase 2 lo stesso gruppo faceva il confronto opposto —
+una riga di log e una di `op_log`, stessa etichetta — per dimostrare che nel passaggio non si
+perdeva niente.
 
 Valgono le stesse regole di `test-titoli.ps1`: **lo strumento scrive**, quindi lavora su una
 copia temporanea che cancella alla fine, si può lanciare ad app aperta, e `-Database prod` è

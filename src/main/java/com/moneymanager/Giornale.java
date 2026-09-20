@@ -194,7 +194,6 @@ public class Giornale {
     public void log(String azione, String... campi) {
         Operazione op = corrente.get();
         if (op != null) op.annotazioni.add(new String[]{ azione, String.join(" · ", campi) });
-        file.log(azione, campi);   // fase 1: il .log continua in parallelo
     }
 
     // ── Materializzazione ───────────────────────────────────────────────────────
@@ -233,7 +232,43 @@ public class Giornale {
         // si marcano soltanto. La storia si aggiunge, non si corregge — ed è ciò che rende
         // l'annullamento a sua volta annullabile (il "ripeti").
         for (long annullata : op.annullate)
-            db.execute("UPDATE op_log SET stato='annullata', annullata_da=? WHERE id=?", id, annullata);
+            db.execute("UPDATE op_log SET annullata_da=? WHERE id=?", id, annullata);
+        if (!op.annullate.isEmpty()) ricalcolaStati();
+    }
+
+    /**
+     * Ricalcola quali operazioni sono <b>in vigore</b>, dopo un annullamento.
+     *
+     * <p>⚠️ Lo stato non si aggiorna a colpi locali: si deriva. Un'operazione è annullata se
+     * e solo se esiste un annullamento <b>ancora in vigore</b> che l'ha disfatta — e quello a
+     * sua volta può essere stato annullato. Marcare soltanto «annullata» chi viene disfatto,
+     * senza guardare la catena, produce una pagina che mente: dopo annulla → ripeti → annulla
+     * → ripeti la transazione è tornata al suo posto ma la sua riga resta barrata, col
+     * pulsante «ripeti» puntato a un annullamento a sua volta annullato.</p>
+     *
+     * <p>Il calcolo va <b>dalla più recente alla più vecchia</b>: chi annulla è sempre più
+     * recente di ciò che annulla, quindi arrivando a un'operazione si sa già se il suo
+     * annullatore è in vigore. Nessuna ricorsione, una passata sola.</p>
+     *
+     * <p>Gira solo quando l'operazione appena chiusa è un annullamento: è l'unico momento in
+     * cui questi stati possono cambiare. {@code annullata_da} non si azzera mai — resta il
+     * riferimento all'ultimo annullatore, e serve al «ripeti».</p>
+     */
+    private void ricalcolaStati() throws SQLException {
+        Map<Long, Boolean> inVigore = new HashMap<>();
+        for (Map<String, Object> o : db.queryList(
+                "SELECT id, stato, annullata_da FROM op_log ORDER BY id DESC")) {
+            long id = ((Number) o.get("id")).longValue();
+            String stato = String.valueOf(o.get("stato"));
+            // Un'operazione non annullabile è comunque in vigore: semplicemente non la si può
+            // disfare, e il suo stato non è un'informazione da ricalcolare.
+            if ("non_annullabile".equals(stato)) { inVigore.put(id, true); continue; }
+            Object da = o.get("annullata_da");
+            boolean viva = da == null || !Boolean.TRUE.equals(inVigore.get(((Number) da).longValue()));
+            inVigore.put(id, viva);
+            String nuovo = viva ? "attiva" : "annullata";
+            if (!nuovo.equals(stato)) db.execute("UPDATE op_log SET stato=? WHERE id=?", nuovo, id);
+        }
     }
 
     /** L'etichetta è l'<b>ultima</b> annotazione: è quella che chiude l'operazione e la
@@ -323,9 +358,11 @@ public class Giornale {
         if (op == null) throw new SQLException("annulla() va chiamato dentro una richiesta");
 
         long opId = insieme.iterator().next();   // la più vecchia: è lei a dettare i conflitti
+        List<String> etichette = new ArrayList<>();
         for (long id : insieme) {
             Map<String, Object> testa = db.queryOne("SELECT * FROM op_log WHERE id=?", id);
             if (testa == null) throw new SQLException("Operazione " + id + " non trovata.");
+            etichette.add("#" + id + " " + testa.get("etichetta"));
             String stato = String.valueOf(testa.get("stato"));
             if ("annullata".equals(stato))
                 return rifiuto("L'operazione #" + id + " è già stata annullata.", List.of());
@@ -409,6 +446,11 @@ public class Giornale {
         // L'annullamento è a sua volta un'operazione: il legame si scrive in materializza(),
         // che è l'unico punto in cui si conosce il suo id.
         op.annullate.addAll(insieme);
+        // ⚠️ L'annotazione non è decorativa: senza, l'operazione nascerebbe senza etichetta e
+        // quindi `tipo='sistema'` — cioè nascosta di default nella pagina che l'ha appena
+        // prodotta. Annullare è un gesto dell'utente e va letto come tale.
+        log(insieme.size() == 1 ? "OPERAZIONE ANNULLATA" : "OPERAZIONI ANNULLATE",
+            "operazioni:" + String.join(" · ", etichette), "righe:" + righe.size());
         return Map.of("ok", true, "righe", righe.size(), "operazioni", new ArrayList<>(insieme));
     }
 
@@ -628,6 +670,174 @@ public class Giornale {
         return fk;
     }
 
+    // ── Lettura: quello che la pagina Cronologia mostra ──────────────────────────
+
+    /**
+     * Le operazioni del giornale, dalla più recente.
+     *
+     * <p>Non filtra e non pagina: con la retention a 30 giorni sono qualche centinaio di righe,
+     * e la pagina filtra in locale come faceva il vecchio visualizzatore del {@code .log} —
+     * scrivere ogni filtro anche in SQL sarebbe una seconda copia delle stesse regole.</p>
+     *
+     * <p>Ogni operazione porta con sé i <b>nomi di oggi</b> delle categorie e dei conti che ha
+     * toccato: il giornale registra il nome del momento, e dopo un rinomina la pagina deve poter
+     * scrivere «categoria: Carburante (oggi: Benzina)». ⚠️ Il nome storico non si sostituisce mai
+     * con quello attuale — quel giorno si chiamava così, e riscriverlo falsificherebbe la
+     * storia.</p>
+     */
+    public List<Map<String, Object>> cronologia(int limite) throws SQLException {
+        List<Map<String, Object>> ops = db.queryList("""
+                SELECT o.id, o.ts, o.etichetta, o.dettaglio, o.origine, o.tipo, o.stato, o.motivo,
+                       o.annulla_op, o.annullata_da,
+                       (SELECT COUNT(*) FROM change_log c WHERE c.op_id = o.id) AS righe
+                FROM op_log o ORDER BY o.id DESC LIMIT ?""", limite);
+        if (ops.isEmpty()) return ops;
+        aggiungiNomiDiOggi(ops);
+        return ops;
+    }
+
+    /**
+     * Per ogni operazione, i nomi <b>attuali</b> delle categorie e dei conti che ha toccato.
+     *
+     * <p>Gli id si leggono dalle righe di {@code change_log}, che li conservano: è il motivo per
+     * cui il confronto è possibile. Le righe di verso {@code I} non hanno un "prima" e quindi
+     * non contribuiscono — ma è proprio sulle modifiche e sulle cancellazioni che il nome
+     * congelato confonde, quindi il caso utile è coperto.</p>
+     *
+     * <p>Tre query in tutto, non una per operazione: l'intervallo di id coperto è quello delle
+     * ultime <i>n</i> operazioni, quindi basta un {@code BETWEEN}.</p>
+     */
+    private void aggiungiNomiDiOggi(List<Map<String, Object>> ops) throws SQLException {
+        long max = ((Number) ops.get(0).get("id")).longValue();
+        long min = ((Number) ops.get(ops.size() - 1).get("id")).longValue();
+        Set<Long> idCategorie = new TreeSet<>(), idConti = new TreeSet<>();
+        List<Object[]> usi = new ArrayList<>();        // {op_id, category_id, account_id}
+        for (Map<String, Object> r : db.queryList("""
+                SELECT op_id, json_extract(riga,'$.category_id') AS categoria,
+                       json_extract(riga,'$.account_id')  AS conto
+                FROM change_log
+                WHERE op_id BETWEEN ? AND ? AND riga IS NOT NULL""", min, max)) {
+            long op = ((Number) r.get("op_id")).longValue();
+            Long cat = r.get("categoria") instanceof Number n ? n.longValue() : null;
+            Long acc = r.get("conto")     instanceof Number n ? n.longValue() : null;
+            if (cat != null) idCategorie.add(cat);
+            if (acc != null) idConti.add(acc);
+            if (cat != null || acc != null) usi.add(new Object[]{op, cat, acc});
+        }
+        if (usi.isEmpty()) return;
+        Map<Long, String> nomiCategorie = nomiDi("categories", idCategorie);
+        Map<Long, String> nomiConti     = nomiDi("accounts",   idConti);
+
+        Map<Long, Map<String, Set<String>>> perOp = new HashMap<>();
+        for (Object[] u : usi) {
+            Map<String, Set<String>> m = perOp.computeIfAbsent((Long) u[0], k -> new LinkedHashMap<>());
+            String nc = u[1] != null ? nomiCategorie.get((Long) u[1]) : null;
+            String na = u[2] != null ? nomiConti.get((Long) u[2])     : null;
+            if (nc != null) m.computeIfAbsent("categoria", k -> new TreeSet<>()).add(nc);
+            if (na != null) m.computeIfAbsent("conto",     k -> new TreeSet<>()).add(na);
+        }
+        for (Map<String, Object> o : ops) {
+            Map<String, Set<String>> m = perOp.get(((Number) o.get("id")).longValue());
+            if (m == null) continue;
+            Map<String, Object> nomi = new LinkedHashMap<>();
+            m.forEach((k, v) -> nomi.put(k, new ArrayList<>(v)));
+            o.put("nomi_oggi", nomi);
+        }
+    }
+
+    /** {@code id → name} per un insieme di id già validati come numeri. */
+    private Map<Long, String> nomiDi(String tabella, Set<Long> ids) throws SQLException {
+        Map<Long, String> out = new HashMap<>();
+        if (ids.isEmpty()) return out;
+        for (Map<String, Object> r : db.queryList(
+                "SELECT id, name FROM " + tabella + " WHERE id IN "
+                + ids.stream().map(String::valueOf).collect(Collectors.joining(",", "(", ")"))))
+            out.put(((Number) r.get("id")).longValue(), String.valueOf(r.get("name")));
+        return out;
+    }
+
+    /** Peso e copertura del giornale: quello che la pagina mostra in testa. */
+    public Map<String, Object> infoGiornale() throws SQLException {
+        Map<String, Object> out = new LinkedHashMap<>();
+        Map<String, Object> o = db.queryOne(
+                "SELECT COUNT(*) AS n, MIN(ts) AS dal, MAX(ts) AS al FROM op_log");
+        Map<String, Object> c = db.queryOne("""
+                SELECT COUNT(*) AS n, COALESCE(SUM(LENGTH(COALESCE(riga,''))+LENGTH(chiave)),0) AS peso
+                FROM change_log""");
+        out.put("operazioni", o != null ? o.get("n")   : 0);
+        out.put("dal",        o != null ? o.get("dal") : null);
+        out.put("al",         o != null ? o.get("al")  : null);
+        out.put("righe",      c != null ? c.get("n")   : 0);
+        // Peso del solo contenuto JSON: sottostima il costo su disco (indici e intestazioni di
+        // pagina non ci sono dentro), ma è l'unico numero che si ottiene senza scrivere.
+        out.put("byte", c != null ? c.get("peso") : 0);
+        Map<String, Object> r = db.queryOne(
+                "SELECT value FROM app_settings WHERE key='journal.retention_days'");
+        int giorni = 30;
+        if (r != null) try { giorni = Integer.parseInt(String.valueOf(r.get("value")).trim()); }
+                       catch (NumberFormatException ignored) { /* valore sporco: resta il default */ }
+        out.put("retention_giorni", giorni);
+        return out;
+    }
+
+    /**
+     * Cosa ha cambiato un'operazione, riga per riga: è il corpo che la pagina apre espandendo
+     * una voce.
+     *
+     * <p>Per una modifica mostra <b>solo i campi diversi</b>, confrontando la riga registrata
+     * (il prima) con quella attuale: registrare anche il dopo raddoppierebbe il peso del
+     * giornale per un'informazione che è già nella tabella.</p>
+     */
+    public Map<String, Object> dettaglioOperazione(long opId) throws SQLException {
+        Map<String, Object> testa = db.queryOne("SELECT * FROM op_log WHERE id=?", opId);
+        if (testa == null) throw new SQLException("Operazione " + opId + " non trovata.");
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (Map<String, Object> r : db.queryList(
+                "SELECT tabella, chiave, verso, riga FROM change_log WHERE op_id=? ORDER BY id", opId)) {
+            String tabella = (String) r.get("tabella"), verso = (String) r.get("verso");
+            String chiave  = (String) r.get("chiave"),  riga   = (String) r.get("riga");
+            Map<String, Object> prima = riga == null ? Map.of() : jsonInMappa(riga);
+            Map<String, Object> ora   = "D".equals(verso) ? Map.of() : rigaAttuale(tabella, chiave);
+            List<Map<String, Object>> campi = new ArrayList<>();
+            for (String col : colonne(tabella)) {
+                String p = testo(prima.get(col)), d = testo(ora.get(col));
+                if ("U".equals(verso) && java.util.Objects.equals(p, d)) continue;
+                Map<String, Object> campo = new LinkedHashMap<>();
+                campo.put("campo", col);
+                campo.put("prima", "I".equals(verso) ? null : p);
+                campo.put("dopo",  "D".equals(verso) ? null : d);
+                campi.add(campo);
+            }
+            Map<String, Object> voce = new LinkedHashMap<>();
+            voce.put("tabella",    tabella);
+            voce.put("verso",      verso);
+            voce.put("chiave",     chiave);
+            voce.put("esiste_ora", !ora.isEmpty());
+            voce.put("campi",      campi);
+            out.add(voce);
+        }
+        return Map.of("operazione", testa, "righe", out);
+    }
+
+    private static String testo(Object v) { return v == null ? null : String.valueOf(v); }
+
+    /** Il JSON di una riga di {@code change_log} come mappa colonna→valore, letto da SQLite
+     *  stesso: è lui che l'ha scritto, ed è lui a sapere come rileggerlo. */
+    private Map<String, Object> jsonInMappa(String json) throws SQLException {
+        Map<String, Object> m = new LinkedHashMap<>();
+        for (Map<String, Object> r : db.queryList("SELECT key, value FROM json_each(?)", json))
+            m.put(String.valueOf(r.get("key")), r.get("value"));
+        return m;
+    }
+
+    /** La riga com'è adesso, o una mappa vuota se non esiste più. */
+    private Map<String, Object> rigaAttuale(String tabella, String chiave) throws SQLException {
+        List<String> pk = chiavePrimaria(tabella);
+        Map<String, Object> r = db.queryOne("SELECT * FROM " + tabella + " WHERE " + doveChiave(pk),
+                ripeti(chiave, pk.size()));
+        return r == null ? Map.of() : r;
+    }
+
     // ── Trigger: generazione e guardia di allineamento ───────────────────────────
 
     /**
@@ -678,6 +888,10 @@ public class Giornale {
             System.err.println("[Giornale] trigger riallineati: " + rifatti + " su " + attesi.size());
 
         attivo = true;
+        // La soglia delle modifiche di sessione si fissa qui: da questo momento in poi ciò
+        // che compare in op_log è opera di questa sessione. Fissarla più tardi (alla prima
+        // domanda, che arriva alla chiusura) direbbe sempre "nessuna modifica".
+        resetSession();
         segnalaTabelleScoperte();
     }
 
@@ -735,14 +949,76 @@ public class Giornale {
                 .collect(Collectors.joining(" AND "));
     }
 
-    // ── Deleghe al vecchio log testuale (fase 1; spariscono in fase 3) ───────────
+    // ── Modifiche di sessione: la domanda del backup all'uscita ──────────────────
 
-    public void setDbPath(String dbPath)                         { file.setDbPath(dbPath); }
-    public boolean hasChanges()                                  { return file.hasChanges(); }
-    public void resetSession()                                   { file.resetSession(); }
-    public List<Map<String, Object>> getSessionEntries()         { return file.getSessionEntries(); }
-    public java.nio.file.Path getLogFile()                       { return file.getLogFile(); }
-    public Map<String, Object> getLogDateRange()                 { return file.getLogDateRange(); }
-    public Map<String, Object> purgeLogBefore(String cutoffDate) { return file.purgeLogBefore(cutoffDate); }
-    public Map<String, Object> purgeSystemEntries()              { return file.purgeSystemEntries(); }
+    /**
+     * L'ultima operazione già coperta da un backup. Sopra questa soglia ci sono le modifiche
+     * di questa sessione.
+     *
+     * <p>Prende il posto di tre campi e di tutta la loro aritmetica ({@code startOffset},
+     * {@code shiftSessionOffset}, {@code removedBytesBeforeOffset}), che esistevano per
+     * rispondere <i>contando byte in un file di testo</i> a una domanda che è un
+     * {@code COUNT}. Tre bug pagati stavano lì dentro.</p>
+     */
+    private volatile long sogliaSessione = 0;
+
+    /** True se in questa sessione l'<b>utente</b> ha cambiato qualcosa.
+     *  ⚠️ Solo {@code tipo='utente'}: avvio, manutenzione e importazioni non devono far
+     *  scattare alla chiusura il backup dell'intero database. */
+    public boolean hasChanges() {
+        if (!attivo) return false;
+        try {
+            Map<String, Object> r = db.queryOne(
+                    "SELECT EXISTS(SELECT 1 FROM op_log WHERE id > ? AND tipo='utente') AS x",
+                    sogliaSessione);
+            return r != null && ((Number) r.get("x")).intValue() == 1;
+        } catch (SQLException e) {
+            // Dal lato sicuro: se non si riesce a leggere il giornale si fa il backup.
+            System.err.println("[Giornale] hasChanges: " + e.getMessage());
+            return true;
+        }
+    }
+
+    /** Sposta la soglia all'ultima operazione: da qui in poi si riparte a contare.
+     *  Chiamata dopo un backup riuscito e all'avvio. */
+    public void resetSession() {
+        if (!attivo) return;
+        try {
+            Map<String, Object> r = db.queryOne("SELECT COALESCE(MAX(id),0) AS n FROM op_log");
+            sogliaSessione = r == null ? 0 : ((Number) r.get("n")).longValue();
+        } catch (SQLException e) {
+            System.err.println("[Giornale] resetSession: " + e.getMessage());
+        }
+    }
+
+    /** Le operazioni dell'utente da quando è stata fissata la soglia: è ciò che finisce nel
+     *  sidecar {@code .json} accanto al {@code .bak} (che sparisce in fase 4, quando il
+     *  backup imparerà a leggersi il proprio {@code op_log}). */
+    public List<Map<String, Object>> getSessionEntries() {
+        if (!attivo) return List.of();
+        try {
+            List<Map<String, Object>> out = new ArrayList<>();
+            for (Map<String, Object> r : db.queryList(
+                    "SELECT ts, etichetta, dettaglio FROM op_log WHERE id > ? AND tipo='utente'"
+                    + " ORDER BY id", sogliaSessione))
+                out.add(Map.of("time", String.valueOf(r.get("ts")),
+                               "op",   String.valueOf(r.get("etichetta")),
+                               "desc", r.get("dettaglio") == null ? "" : String.valueOf(r.get("dettaglio"))));
+            return out;
+        } catch (SQLException e) {
+            System.err.println("[Giornale] getSessionEntries: " + e.getMessage());
+            return List.of();
+        }
+    }
+
+    // ── Il vecchio .log: archivio di sola lettura ────────────────────────────────
+    //
+    // Dalla 1.26.0 l'app non lo scrive più e non lo tocca. Non è inutile: contiene la storia
+    // PRECEDENTE al giornale, che il giornale non ha. Lo si legge dalla Cronologia, pulsante
+    // «Archivio». Lo cancella l'utente, se vuole: l'app non cancella file suoi.
+    // ⚠️ Effetto collaterale gradito su OneDrive: un file sincronizzato in meno che veniva
+    // ricaricato per intero a ogni riga scritta.
+
+    public void setDbPath(String dbPath)   { file.setDbPath(dbPath); }
+    public java.nio.file.Path getLogFile() { return file.getLogFile(); }
 }

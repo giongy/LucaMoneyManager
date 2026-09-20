@@ -22,7 +22,7 @@ param(
   [int]$Port      = 7890,
   [string]$Theme  = "",                        # nebbia | carta | petrolio | glassy | "" = non cambiare
   [string[]]$Pages = @("dashboard","accounts","transactions","budgets","scheduled",
-                       "portfolio","analytics","categories","tags","notes","settings"),
+                       "portfolio","analytics","categories","tags","notes","cronologia","settings"),
   [int]$CdpPort   = 9222,
   [switch]$AllThemes,                          # cicla su tutti i temi built-in
   [switch]$NoShots                             # niente PNG: solo i controlli

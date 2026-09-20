@@ -766,6 +766,15 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                 yield Map.of("ok", true);
             }
 
+            // Apre la cartella che contiene un .bak (il path arriva da listBackups, non
+            // dall'utente): serve al 📂 accanto ai punti di ripristino in Cronologia.
+            case "openBackupFolder" -> {
+                java.nio.file.Path dir = java.nio.file.Path.of(p.get("path").getAsString()).getParent();
+                if (dir != null && java.nio.file.Files.isDirectory(dir))
+                    openAsync("cartella backup", () -> java.awt.Desktop.getDesktop().open(dir.toFile()));
+                yield Map.of("ok", true);
+            }
+
             case "openUrl" -> {
                 // URI costruito (e validato) sul thread di dispatch: un URL malformato deve
                 // ancora tornare come errore al JS, non finire silenzioso in app.log.
@@ -887,11 +896,21 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             case "saveReport"    -> db.saveReport(p);
             case "deleteReport"  -> db.deleteReport(p.get("id").getAsInt());
 
-            // ─── Log ───────────────────────────────────────────────────────────────
-            case "readLog"    -> db.readLog(p.has("lines") ? p.get("lines").getAsInt() : 500);
-            case "getLogInfo"      -> db.getLogInfo();
-            case "purgeLog"        -> db.purgeLog(p.get("cutoff").getAsString());
-            case "purgeSystemLog"  -> db.purgeSystemLog();
+            // ─── Cronologia (giornale delle operazioni) ────────────────────────────
+            // Letture: non scrivono nulla, quindi non lasciano a loro volta una riga di
+            // cronologia (l'operazione nasce alla prima scrittura, vedi Giornale).
+            case "getCronologia" -> Map.of(
+                    "operazioni", db.cronologia(p.has("limite") ? p.get("limite").getAsInt() : 500),
+                    "info",       db.infoGiornale());
+            case "getOperazione" -> db.dettaglioOperazione(p.get("id").getAsLong());
+
+            // Scritture: ognuna è a sua volta un'operazione, quindi annullabile ("ripeti").
+            case "annullaOperazione"  -> db.annullaOperazione(p.get("id").getAsLong());
+            case "annullaACatena"     -> db.annullaOperazioneACatena(p.get("id").getAsLong());
+            case "riportaAOperazione" -> db.riportaAOperazione(p.get("id").getAsLong());
+
+            // ─── Archivio: il vecchio .log, in sola lettura (Cronologia → Archivio) ─
+            case "readLog" -> db.readLog(p.has("lines") ? p.get("lines").getAsInt() : 500);
 
             // ─── Prezzi online (HTTP server: blocca il virtual thread, JCEF: async in onQuery) ──
             case "fetchOnlinePrice" -> doFetchOnlinePrice(p.get("isin").getAsString());

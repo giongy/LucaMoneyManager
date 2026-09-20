@@ -916,6 +916,21 @@ public class Database {
         return logger.riportaA(opId);
     }
 
+    /** Le operazioni del giornale, dalla più recente: è ciò che mostra la pagina Cronologia. */
+    public List<Map<String, Object>> cronologia(int limite) throws SQLException {
+        return logger.cronologia(limite);
+    }
+
+    /** Peso e copertura del giornale (operazioni, righe, byte, finestra coperta, retention). */
+    public Map<String, Object> infoGiornale() throws SQLException {
+        return logger.infoGiornale();
+    }
+
+    /** Cosa ha cambiato un'operazione, riga per riga. */
+    public Map<String, Object> dettaglioOperazione(long opId) throws SQLException {
+        return logger.dettaglioOperazione(opId);
+    }
+
     /** Chiude un'operazione implicita (creata da una scrittura fuori da una richiesta
      *  dichiarata) e ne dimentica il contesto. */
     private void chiudiImplicita(boolean ok) throws SQLException {
@@ -5638,34 +5653,11 @@ public class Database {
     /** Espone il giornale per uso esterno (es. Bridge). */
     public Giornale getLogger() { return logger; }
 
-    /** Prima/ultima data e totale righe nel file di log, con percorso e dimensione file. */
-    public Map<String, Object> getLogInfo() {
-        Map<String, Object> result = new java.util.HashMap<>(logger.getLogDateRange());
-        java.nio.file.Path logFile = logger.getLogFile();
-        if (logFile != null) {
-            result.put("log_path", logFile.toString());
-            result.put("log_dir",  logFile.getParent() != null ? logFile.getParent().toString() : "");
-            try { result.put("log_size", java.nio.file.Files.size(logFile)); }
-            catch (java.io.IOException ignored) {}
-        }
-        return result;
-    }
-
-    /** Elimina le righe di log di sistema (avvio, backup, manutenzione). */
-    public Map<String, Object> purgeSystemLog() {
-        Map<String, Object> result = logger.purgeSystemEntries();
-        if (!result.containsKey("error"))
-            logger.log("MANUTENZIONE", "LOG SISTEMA RIPULITO: eliminate " + result.get("deleted") + " righe");
-        return result;
-    }
-
-    /** Elimina le righe di log precedenti a cutoffDate (yyyy-MM-dd). */
-    public Map<String, Object> purgeLog(String cutoffDate) {
-        Map<String, Object> result = logger.purgeLogBefore(cutoffDate);
-        if (!result.containsKey("error"))
-            logger.log("MANUTENZIONE", "LOG RIPULITO: eliminate " + result.get("deleted") + " righe prima di " + cutoffDate);
-        return result;
-    }
+    // ⚠️ Niente più potatura del file di testo (getLogInfo/purgeLog/purgeSystemLog sono
+    // spariti con la 1.26.0): il .log non viene più scritto, quindi non cresce e non c'è
+    // niente da potare. È un archivio della storia precedente al giornale, di sola lettura —
+    // resta leggibile da Cronologia → Archivio, e lo cancella l'utente se vuole.
+    // La potatura del giornale vero è un'altra cosa e arriva col momento di manutenzione.
 
     // ─── Allegati ─────────────────────────────────────────────────────────────
 

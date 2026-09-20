@@ -64,6 +64,27 @@ final class Manutenzione {
      *                sembra prudente.
      */
     Map<String, Object> esegui(boolean manuale) {
+        return esegui(manuale, -1);
+    }
+
+    /**
+     * Potatura decisa sul momento: conserva gli ultimi {@code giorni} giorni di cronologia,
+     * qualunque cosa dica {@code journal.retention_days}. {@code 0} = via tutto.
+     *
+     * <p>Serve perché la retention automatica può essere spenta ({@code 0} = non potare mai) e
+     * chi la spegne deve comunque poter ripulire quando vuole. Senza questa strada l'unica leva
+     * sarebbe cambiare l'impostazione, far girare la manutenzione e rimetterla a posto.</p>
+     *
+     * <p>⚠️ <b>Passa dallo stesso blocco</b>, backup compreso, e non pota se il backup fallisce.
+     * La regola «prima la copia, poi si taglia» non ha eccezioni — meno che mai quando è
+     * l'utente a chiedere il taglio, perché è lì che si perde roba senza accorgersene.</p>
+     */
+    Map<String, Object> pota(int giorni) {
+        return esegui(true, Math.max(0, giorni));
+    }
+
+    /** @param giorniForzati giorni da conservare, oppure {@code -1} per usare l'impostazione. */
+    private Map<String, Object> esegui(boolean manuale, int giorniForzati) {
         long t0 = System.currentTimeMillis();
         Map<String, Object> out = new LinkedHashMap<>();
 
@@ -88,8 +109,15 @@ final class Manutenzione {
         }
 
         // ── 2 e 3. potatura e compattazione ──────────────────────────────────────
-        int giorni = retention();
-        out.put("retention_giorni", giorni);
+        // ⚠️ Due significati diversi di "0" da tenere separati: nelle impostazioni
+        // `journal.retention_days = 0` vuol dire «non potare mai», mentre per potaECompatta
+        // 0 vuol dire «taglia tutto fino a adesso». La traduzione avviene qui, ed è l'unico
+        // punto in cui avviene: -1 = non potare.
+        int impostata = retention();
+        int giorni = giorniForzati >= 0 ? giorniForzati
+                                        : (impostata > 0 ? impostata : -1);
+        out.put("retention_giorni", impostata);
+        if (giorniForzati >= 0) out.put("giorni_richiesti", giorniForzati);
         if (!riuscito) {
             out.put("potatura_saltata", "backup fallito: la cronologia non si pota senza una copia");
         } else {

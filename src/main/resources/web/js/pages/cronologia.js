@@ -95,7 +95,11 @@ function cronRenderInfo() {
     <span>${i.righe || 0} righe di dati</span>
     <span>~${peso}</span>
     <span>${dal ? `annullabile ${da} <strong>${esc(dal)}</strong>` : 'giornale vuoto'}</span>
-    <span>retention ${i.retention_giorni} gg</span>`;
+    <span>${i.retention_giorni > 0 ? `si pota da sé oltre i ${i.retention_giorni} gg`
+                                   : 'nessuna potatura automatica'}</span>
+    <button class="btn btn-ghost cron-act" id="btnCronPota"
+            title="Elimina dalla cronologia le operazioni più vecchie di una data che scegli tu">🗑️ Pota…</button>`;
+  document.getElementById('btnCronPota').onclick = cronPota;
 }
 
 // Le etichette presenti nel giornale, non un elenco scritto a mano: un'operazione nuova
@@ -497,6 +501,84 @@ async function cronManutenzione() {
   } finally {
     btn.disabled = false;
     btn.textContent = testo;
+  }
+}
+
+/**
+ * Potatura a mano: si sceglie quanti giorni tenere, e via il resto.
+ *
+ * ⚠️ Esiste **sempre**, anche con la retention automatica spenta — anzi è proprio lì che
+ * serve: chi mette 0 nelle impostazioni ha detto «non potare da solo», non «non potare mai»,
+ * e senza questo pulsante l'unico modo per ripulire sarebbe cambiare l'impostazione, far
+ * girare la manutenzione e rimetterla com'era.
+ *
+ * ⚠️ Passa dallo stesso blocco della manutenzione, **backup compreso**: quello che si toglie
+ * dal database resta dentro il .bak fatto un istante prima. Qui sotto si dice quale.
+ */
+async function cronPota() {
+  const giorniDefault = _cronInfo.retention_giorni > 0 ? _cronInfo.retention_giorni : 30;
+  const ultimoBak = _cronBaks[0];   // già ordinati dal più recente in cronLoad()
+  const backupAttivo = _cronInfo.backup_attivo;
+
+  // Dove finirà la storia che si sta per togliere: è la domanda che uno si fa dopo, non prima.
+  const rete = backupAttivo
+    ? `<p class="settings-hint" style="margin:8px 0 0">Prima di potare viene fatto un backup, se c'è
+         qualcosa di nuovo da salvare: quello che togli resta là dentro, e si rivede ripristinando
+         quella copia.${ultimoBak ? ` L'ultimo punto di ripristino è del <strong>${esc(ultimoBak.displayTs)}</strong>.` : ''}</p>`
+    : `<p class="settings-hint" style="margin:8px 0 0;color:var(--expense)">⚠️ Il backup all'uscita è
+         <strong>disattivato</strong>: quello che togli ora non finirà in nessuna copia nuova.
+         ${ultimoBak ? `L'unica che ce l'ha è quella del <strong>${esc(ultimoBak.displayTs)}</strong>.`
+                     : 'E non esiste nessun punto di ripristino: quello che togli è perso.'}</p>`;
+
+  openModal('Pota la cronologia', `
+    <p style="color:var(--txt2);line-height:1.7">Elimina dal database le operazioni più vecchie
+      del numero di giorni che scegli. Quelle più recenti restano annullabili come adesso.</p>
+    <div style="display:flex;align-items:center;gap:8px;margin-top:10px">
+      <span style="color:var(--txt2)">Conserva gli ultimi</span>
+      <input type="number" class="form-control" id="potaGiorni" style="width:90px"
+             min="0" max="3650" value="${giorniDefault}">
+      <span style="color:var(--txt2)">giorni</span>
+      <span class="settings-hint" id="potaStima" style="margin-left:6px"></span>
+    </div>
+    ${rete}`,
+    async () => {
+      const giorni = Math.max(0, Math.min(3650, parseInt(
+        document.getElementById('potaGiorni').value, 10) || 0));
+      closeModal();
+      await cronEseguiPotatura(giorni);
+    },
+    '🗑️ Pota', 'btn-danger');
+
+  // Stima quante operazioni se ne andrebbero, contata sulle righe già caricate in pagina:
+  // nessuna chiamata in più. Se l'elenco è troncato lo si dice, invece di dare un numero
+  // preciso che preciso non è.
+  const campo = document.getElementById('potaGiorni');
+  const stima = document.getElementById('potaStima');
+  const aggiorna = () => {
+    const g = Math.max(0, parseInt(campo.value, 10) || 0);
+    const taglio = new Date(Date.now() - g * 86400000);
+    const n = _cronOps.filter(o => new Date(o.ts.replace(' ', 'T')) < taglio).length;
+    const parziale = _cronOps.length < (_cronInfo.operazioni || 0);
+    stima.textContent = n === 0
+      ? '— niente da togliere'
+      : `— ne toglie ${parziale ? 'almeno ' : ''}${n} su ${_cronInfo.operazioni}`;
+  };
+  campo.addEventListener('input', aggiorna);
+  aggiorna();
+}
+
+async function cronEseguiPotatura(giorni) {
+  try {
+    const r = await api.potaCronologia(giorni);
+    if (r.potatura_errore) { toast('Potatura fallita: ' + r.potatura_errore, 'error'); return; }
+    if (r.potatura_saltata) { toast('Non potata: ' + r.potatura_saltata, 'error'); return; }
+    const n = r.operazioni_potate || 0;
+    toast(n === 0 ? 'Non c\'era niente da togliere'
+                  : `${n === 1 ? 'Tolta 1 operazione' : `Tolte ${n} operazioni`}`
+                    + (r.compattato ? ' · file compattato' : ''), 'success');
+    await cronLoad();
+  } catch (e) {
+    toast('Potatura fallita: ' + (e.message || e), 'error');
   }
 }
 

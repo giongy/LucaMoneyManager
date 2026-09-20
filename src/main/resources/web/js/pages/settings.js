@@ -97,10 +97,16 @@ async function renderSettings() {
         <div class="settings-row">
           <div class="settings-label">
             <strong>Cronologia da conservare</strong>
-            <span class="settings-hint">Per quanti giorni tenere le operazioni annullabili. La potatura
-              avviene insieme al backup, e ciò che esce dalla finestra resta comunque dentro i .bak già
-              fatti: la storia vecchia non si perde, si sposta.<br>
-              <strong>0 = nessun limite</strong> — la poti tu, quando vuoi.</span>
+            <!-- ⚠️ "0" qui vuol dire «non potare MAI da solo», non «taglia tutto»: il valore
+                 opposto in potaECompatta, dove 0 = fino a adesso. La traduzione avviene in
+                 Manutenzione, che passa -1 per «non potare». Non propagare lo 0 alla cieca. -->
+            <span class="settings-hint">Per quanti giorni puoi tornare indietro. Le operazioni più
+              vecchie vengono <strong>eliminate dal database</strong> insieme al backup — ma
+              <strong>dopo</strong> che il backup è stato fatto, quindi restano dentro i file .bak:
+              per rivederle o recuperarle si ripristina una copia.<br>
+              <strong>0 = non si pota mai da sé</strong>, e la cronologia cresce senza limite.
+              In ogni caso puoi <strong>potare a mano quando vuoi</strong>, scegliendo la data dalla
+              pagina Cronologia — dove si legge anche quanto pesa adesso.</span>
           </div>
           <div class="settings-control">
             <input type="number" class="form-control" style="width:80px" min="0" max="3650"

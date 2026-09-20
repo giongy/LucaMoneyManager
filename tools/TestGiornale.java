@@ -9,6 +9,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Verifica di non regressione sul giornale delle operazioni (op_log + change_log).
@@ -289,6 +290,58 @@ public class TestGiornale {
            conta("SELECT COUNT(*) FROM change_log c"
                  + " WHERE c.op_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM op_log o WHERE o.id=c.op_id)"));
 
+
+        sezione("POTATURA A MANO");
+        // ⚠️ Esiste anche — anzi soprattutto — con la retention automatica spenta: mettere 0
+        // nelle impostazioni vuol dire «non potare da solo», non «non potare mai». E deve
+        // passare dallo stesso blocco della manutenzione, backup compreso: è il punto in cui
+        // si perde roba senza accorgersene.
+        app.iniziaRichiesta("setSetting", "desktop");
+        app.setAppSetting("journal.retention_days", "0");
+        app.terminaRichiesta(true);
+        vero("con retention 0 l'app dichiara che non pota da sé",
+             Integer.parseInt(String.valueOf(app.infoGiornale().get("retention_giorni"))) == 0);
+        vero("e dice se il backup è attivo (serve ad avvisare prima di potare)",
+             Boolean.TRUE.equals(app.infoGiornale().get("backup_attivo")));
+
+        try (Connection c = DriverManager.getConnection(url); Statement st = c.createStatement()) {
+            for (int g : new int[]{90, 45, 2}) {
+                st.executeUpdate("INSERT INTO op_log(ts,etichetta,dettaglio,origine,tipo,stato)"
+                        + " VALUES(datetime('now','localtime','-" + g + " days'),'PROVA MANO','g:"
+                        + g + "','desktop','utente','attiva')");
+                st.executeUpdate("INSERT INTO change_log(op_id,tabella,chiave,verso,riga)"
+                        + " VALUES((SELECT MAX(id) FROM op_log),'tags','[998]','U','{\"id\":998}')");
+            }
+        }
+        eq("tre operazioni finte da potare a mano", 3, conta("SELECT COUNT(*) FROM op_log WHERE etichetta='PROVA MANO'"));
+
+        Map<String, Object> esito = app.potaCronologia(30);
+        eq("la potatura a mano ignora la retention e usa i giorni chiesti", 1,
+           conta("SELECT COUNT(*) FROM op_log WHERE etichetta='PROVA MANO'"));
+        eq("e porta via anche le loro righe di dati", 1,
+           conta("SELECT COUNT(*) FROM change_log WHERE chiave='[998]'"));
+        vero("ha prodotto un backup",
+             esito.get("backup") != null && Files.exists(Path.of(String.valueOf(esito.get("backup")))));
+        // ⚠️ Il controllo che conta davvero, e l'unico che dimostra l'ORDINE: le tre operazioni
+        // non sono più nel database ma sono ancora nella copia, quindi la copia è stata fatta
+        // PRIMA del taglio. Senza, «pota» sarebbe un pulsante che butta via la storia senza
+        // rete — ed è irreversibile.
+        // (Contare i file .bak non funzionerebbe: il nome ha la risoluzione di un secondo,
+        // quindi due backup nello stesso secondo si sovrascrivono e il conto non cambia.)
+        vero("e il backup contiene ancora le tre operazioni che il taglio ha portato via",
+             contaNelBackup(String.valueOf(esito.get("backup")),
+                            "SELECT COUNT(*) FROM op_log WHERE etichetta='PROVA MANO'") == 3);
+
+        // ⚠️ Il taglio è `ts < adesso` con la risoluzione di un secondo, quindi le operazioni
+        // nate nello STESSO secondo della potatura sopravvivono. Si verifica perciò sulle righe
+        // finte, che hanno una data vera e non dipendono dall'istante in cui gira il banco:
+        // un controllo su `COUNT(*) = 0` fallirebbe a caso, a seconda di quanto è veloce la
+        // macchina.
+        app.potaCronologia(0);
+        eq("con 0 giorni va via anche quello che era dentro la finestra", 0,
+           conta("SELECT COUNT(*) FROM op_log WHERE etichetta='PROVA MANO'"));
+        eq("e non restano le loro righe di dati", 0,
+           conta("SELECT COUNT(*) FROM change_log WHERE chiave='[998]'"));
         sezione("RIPRISTINO DI UN BACKUP FATTO A CALDO");
         // La prova che conta davvero: il .bak prodotto a caldo si può rimettere al suo posto,
         // e quello che è successo dopo sparisce.
@@ -353,6 +406,18 @@ public class TestGiornale {
         try (ResultSet rs = st.executeQuery(sql)) { return rs.next() ? String.valueOf(rs.getString(1)) : "-"; }
     }
     static int conta(String sql)  throws SQLException { return Integer.parseInt(uno(sql)); }
+
+    /** Conta dentro un file di backup, in sola lettura. Serve a dimostrare che la copia fatta
+     *  prima del taglio contiene ancora quello che il taglio ha portato via: senza questo, la
+     *  frase «la storia non si perde, si sposta nei backup» resterebbe una promessa. */
+    static int contaNelBackup(String bak, String sql) throws SQLException {
+        try (Connection c = DriverManager.getConnection(
+                     "jdbc:sqlite:" + bak.replace(java.io.File.separatorChar, '/'));
+             Statement st = c.createStatement();
+             ResultSet rs = st.executeQuery(sql)) {
+            return rs.next() ? rs.getInt(1) : -1;
+        }
+    }
 
     /** Come {@link #conta} ma tollera la tabella assente: serve prima della migrazione a v27,
      *  quando op_log non esiste ancora. */

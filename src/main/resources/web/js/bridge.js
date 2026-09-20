@@ -217,6 +217,8 @@ const api = {
   restoreBackup:    (path)    => callJava('restoreBackup', {path}),
   // Backup, potatura della cronologia e compattazione: un blocco solo, lo stesso della chiusura.
   manutenzioneOra:  ()        => callJava('manutenzioneOra', {}),
+  // Potatura a mano: conserva gli ultimi N giorni di cronologia (0 = via tutto).
+  potaCronologia:   (giorni)  => callJava('potaCronologia', {giorni}),
   // Cosa c'era dentro un .bak: si legge il suo op_log, non un file accanto.
   operazioniBackup: (path)    => callJava('operazioniBackup', {path}),
 

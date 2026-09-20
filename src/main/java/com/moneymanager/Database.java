@@ -5885,7 +5885,14 @@ public class Database {
      * righe, quindi la manutenzione non lascia traccia in cronologia — che è quello che
      * vogliamo (vedi {@link Manutenzione}).</p>
      *
-     * @param giorni        finestra da conservare; {@code 0} = nessun limite, non si pota
+     * ⚠️ <b>Qui {@code 0} significa «taglia tutto fino a adesso», non «nessun limite».</b> È il
+     * contrario di cosa vuol dire {@code journal.retention_days} nelle impostazioni, dove
+     * {@code 0} = non potare mai. La traduzione fra i due sta in {@link Manutenzione}, che passa
+     * <b>{@code -1}</b> quando non si deve potare: un numero di giorni è una finestra, e non
+     * esiste una finestra che significhi «infinito». Confondere i due valori qui dentro
+     * cancellerebbe tutta la cronologia proprio a chi ha chiesto di non perderne mai.
+     *
+     * @param giorni        giorni da conservare; <b>{@code -1} = non potare</b>, {@code 0} = tutto
      * @param sogliaVacuum  quota di pagine libere oltre la quale compattare
      */
     Map<String, Object> potaECompatta(int giorni, double sogliaVacuum) throws SQLException {
@@ -5902,7 +5909,7 @@ public class Database {
                 // sarebbero appesi a operazioni che non esistono più.
                 st.execute("PRAGMA foreign_keys=ON");
 
-                if (giorni > 0) {
+                if (giorni >= 0) {
                     // `ts` è scritto con l'ora locale, quindi anche il taglio va in locale:
                     // con 'now' puro si poterebbe un'ora o due di troppo (o di meno).
                     String taglio = "datetime('now','localtime','-" + giorni + " days')";
@@ -5946,6 +5953,12 @@ public class Database {
     /** Il momento unico di backup e manutenzione. La regola sta in {@link Manutenzione}. */
     public Map<String, Object> manutenzione(boolean manuale) {
         return new Manutenzione(this).esegui(manuale);
+    }
+
+    /** Potatura a mano: conserva gli ultimi {@code giorni} giorni di cronologia, backup compreso.
+     *  Vedi {@link Manutenzione#pota(int)}. */
+    public Map<String, Object> potaCronologia(int giorni) {
+        return new Manutenzione(this).pota(giorni);
     }
 
     /** Svecchiamento con il backup obbligatorio che lo precede: vedi {@link Manutenzione#svecchia}. */

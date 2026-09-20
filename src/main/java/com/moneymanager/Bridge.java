@@ -845,6 +845,11 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             // Il momento unico: backup, potatura, compattazione. `true` = l'ha chiesto l'utente.
             case "manutenzioneOra" -> db.manutenzione(true);
 
+            // Potatura a mano, con la finestra scelta sul momento: stesso blocco, backup
+            // compreso. Serve a chi tiene la retention a 0 (mai potare da solo) e vuole
+            // comunque ripulire quando decide lui.
+            case "potaCronologia" -> db.potaCronologia(p.get("giorni").getAsInt());
+
             case "restoreBackup" -> {
                 String bDir = db.getAppSetting("backup.dir", "");
                 yield db.restoreBackup(p.get("path").getAsString(), bDir);

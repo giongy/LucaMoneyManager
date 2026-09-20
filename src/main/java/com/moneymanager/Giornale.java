@@ -778,6 +778,11 @@ public class Giornale {
         if (r != null) try { giorni = Integer.parseInt(String.valueOf(r.get("value")).trim()); }
                        catch (NumberFormatException ignored) { /* valore sporco: resta il default */ }
         out.put("retention_giorni", giorni);
+        // Serve alla potatura a mano, che deve poter dire in faccia all'utente se quello che
+        // sta per togliere finirà o no in una copia.
+        Map<String, Object> b = db.queryOne(
+                "SELECT value FROM app_settings WHERE key='backup.enabled'");
+        out.put("backup_attivo", b != null && "1".equals(String.valueOf(b.get("value"))));
         return out;
     }
 

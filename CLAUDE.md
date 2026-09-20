@@ -330,10 +330,17 @@ annulla → ripeti* il dato è al suo posto ma la riga resta barrata. La storia 
 `change_log` — non si tocca mai: si aggiunge.
 
 **In Impostazioni resta solo ciò che è preferenza** (cartella backup, copie da conservare, backup
-all'uscita). Le due sezioni che contenevano *azioni* — «Ripristina backup» e «Log operazioni» —
-sono diventate un rimando alla Cronologia. La regola che ne esce, valida anche per il futuro:
+all'uscita, giorni di cronologia). Le sezioni che contenevano *azioni* — «Ripristina backup»,
+«Log operazioni», il backup manuale — sono diventate **un solo** rimando alla Cronologia, in fondo
+alla sezione «Backup e cronologia» della scheda Dati. La regola che ne esce, valida anche per il
+futuro:
 
 > **Impostazioni = come voglio che si comporti · Cronologia = la cosa in sé.**
+
+⚠️ **Quel rimando è uno, e deve restare uno.** Ce n'erano tre, in due schede, uno per ogni
+funzione spostata di là: tre porte per la stessa stanza non fanno trovare la stanza, fanno
+pensare che siano tre stanze. Spostando un'altra funzione in Cronologia si **descrive** lì, non
+si apre un quarto rimando.
 
 ### Backup e manutenzione: un blocco solo (1.26.0)
 
@@ -349,7 +356,26 @@ la stessa sequenza ([Manutenzione.java](src/main/java/com/moneymanager/Manutenzi
 ⚠️ **L'ordine backup → potatura, mai l'inverso.** Il `.bak` conserva così la cronologia
 **intera** fino a quell'istante: la storia più vecchia della retention non si perde, si sposta
 nei backup. È ciò che rende accettabile una finestra corta (30 giorni di default,
-`journal.retention_days`, `0` = nessun limite) sul DB vivo.
+`journal.retention_days`, `0` = non potare mai da sé) sul DB vivo.
+
+**Lo stesso blocco gira anche per la potatura a mano** (`🗑️ Pota…` nella banda in cima a
+Cronologia, `Manutenzione.pota(giorni)`), con la finestra scelta sul momento invece di quella
+salvata. Esiste perché `0` nelle impostazioni vuol dire «non potare **da solo**», non «non potare
+mai»: senza quel pulsante, chi spegne la potatura automatica per ripulire dovrebbe cambiare
+l'impostazione, far girare la manutenzione e rimetterla com'era. ⚠️ **Passa dal backup come
+l'altra**, e non pota se il backup è richiesto e fallisce: è il punto in cui si butta via la
+storia senza accorgersene, quindi è l'ultimo posto dove ammettere una scorciatoia.
+
+⚠️ **`0` ha due significati opposti, e vanno tenuti separati.** Nelle impostazioni
+(`journal.retention_days`) `0` = *non potare mai*; per `Database.potaECompatta` `0` = *taglia
+tutto fino a adesso*, e **`-1`** = non potare. La traduzione avviene in **un solo punto**,
+`Manutenzione.esegui`. Propagare lo zero alla cieca cancellerebbe l'intera cronologia proprio a
+chi ha chiesto di non perderne mai.
+
+⚠️ **Il taglio ha la risoluzione di un secondo e il confronto è stretto** (`ts < adesso`): le
+operazioni nate nello stesso secondo della potatura sopravvivono. Innocuo per l'utente, ma un
+controllo che pretende `COUNT(*) = 0` dopo una potatura a 0 giorni fallisce a caso — infatti nel
+banco si verifica sulle righe finte, che hanno una data vera.
 
 ⚠️ **La potatura gira anche a backup disattivato**, altrimenti spegnendo il backup il giornale
 crescerebbe all'infinito in silenzio. **Ma non gira se un backup richiesto è fallito**: backup
@@ -1147,7 +1173,7 @@ silenzio.
 .\tools\test-giornale.ps1 -Verbose        # stampa anche atteso/ottenuto
 ```
 
-**Quarantotto controlli**, in dieci gruppi:
+**Cinquantasette controlli**, in undici gruppi:
 
 | gruppo | cosa difende |
 |---|---|
@@ -1161,6 +1187,7 @@ silenzio.
 | il vecchio `.log` non si scrive più | cinque gesti veri producono **una riga di cronologia ciascuno** e **non toccano di un byte** il file di testo, che dalla 1.26.0 è un archivio di sola lettura |
 | **backup a caldo** | il `.bak` nasce a connessione aperta, è integro, contiene gli stessi dati **e il proprio giornale** (che ha preso il posto del sidecar); dentro un'operazione è rifiutato e **non lascia il file parziale da 0 byte** |
 | **potatura** | con retention 0 non si pota; con retention 30 restano solo le operazioni dentro la finestra e le loro righe di dati **se ne vanno con loro** — è il controllo che smaschera la connessione esclusiva senza `foreign_keys=ON`, dove resterebbero tutte |
+| **potatura a mano** | usa i giorni chiesti e non la retention, funziona anche con la retention a 0, e **fa il backup prima di tagliare** — dimostrato non contando i file (due backup nello stesso secondo hanno lo stesso nome e si sovrascrivono) ma verificando che la copia contenga ancora le operazioni che il taglio ha portato via |
 | **ripristino a caldo** | il `.bak` prodotto così si rimette davvero al suo posto, e quello che è successo dopo sparisce |
 
 Il gruppo sul `.log` difende il passaggio alla 1.26.0. Fino alla fase 2 faceva il confronto

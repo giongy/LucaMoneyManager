@@ -2970,16 +2970,29 @@ tr.tx-selected td { background:rgba(124,124,255,.07); }
 .cron-info {
   display: flex;
   flex-wrap: wrap;
-  gap: 14px;
+  align-items: center;
+  gap: 6px 18px;
   font-size: 12px;
-  color: var(--txt2);
-  padding: 6px 12px;
+  color: var(--txt3);
+  padding: 8px 12px;
   margin-bottom: 8px;
   background: var(--bg3);
   border: 1px solid var(--border);
   border-radius: 6px;
 }
-.cron-info strong { color: var(--txt); }
+/* Il numero in chiaro, l'unità di misura in grigio: senza questa differenza i cinque dati
+   si leggono come una frase sola e non si distingue un valore da un'etichetta. */
+.cron-kpi   { color: var(--txt3); white-space: nowrap; }
+.cron-kpi b { color: var(--txt); font-weight: 700; }
+/* ⚠️ NON usa .cron-act (padding 1px, 11px): quello è lo stile delle azioni dentro una riga,
+   e in una banda dello stesso colore faceva sembrare il pulsante un'altra etichetta grigia.
+   `margin-left:auto` lo stacca dai dati e lo porta a destra, dove ci si aspetta un comando. */
+.cron-pota {
+  margin-left: auto;
+  padding: 3px 12px !important;
+  font-size: 11px !important;
+  white-space: nowrap;
+}
 .cron-check {
   display: flex;
   align-items: center;

@@ -90,14 +90,16 @@ function cronRenderInfo() {
   const dal = i.dal ? _cronGiorno(i.dal.slice(0, 10)) : null;
   // "annullabile da oggi" ma "annullabile dal 21/08": la preposizione segue l'etichetta.
   const da = dal === 'oggi' || dal === 'ieri' ? 'da' : 'dal';
+  // Valore in chiaro, etichetta in grigio: cinque numeri tutti dello stesso peso si leggono
+  // come una riga di testo unica, e il pulsante in fondo spariva in mezzo a loro.
   el.innerHTML = `
-    <span><strong>${i.operazioni || 0}</strong> operazioni</span>
-    <span>${i.righe || 0} righe di dati</span>
-    <span>~${peso}</span>
-    <span>${dal ? `annullabile ${da} <strong>${esc(dal)}</strong>` : 'giornale vuoto'}</span>
-    <span>${i.retention_giorni > 0 ? `si pota da sé oltre i ${i.retention_giorni} gg`
-                                   : 'nessuna potatura automatica'}</span>
-    <button class="btn btn-ghost cron-act" id="btnCronPota"
+    <span class="cron-kpi"><b>${i.operazioni || 0}</b> operazioni</span>
+    <span class="cron-kpi"><b>${i.righe || 0}</b> righe di dati</span>
+    <span class="cron-kpi"><b>~${peso}</b></span>
+    <span class="cron-kpi">${dal ? `annullabile ${da} <b>${esc(dal)}</b>` : 'giornale vuoto'}</span>
+    <span class="cron-kpi">potatura automatica
+      <b>${i.retention_giorni > 0 ? i.retention_giorni + ' gg' : 'no'}</b></span>
+    <button class="btn btn-ghost cron-pota" id="btnCronPota"
             title="Elimina dalla cronologia le operazioni più vecchie di una data che scegli tu">🗑️ Pota…</button>`;
   document.getElementById('btnCronPota').onclick = cronPota;
 }

@@ -100,7 +100,7 @@ function cronRenderInfo() {
     <span class="cron-kpi">potatura automatica
       <b>${i.retention_giorni > 0 ? i.retention_giorni + ' gg' : 'no'}</b></span>
     <button class="btn btn-ghost cron-pota" id="btnCronPota"
-            title="Elimina dalla cronologia le operazioni più vecchie di una data che scegli tu">🗑️ Pota…</button>`;
+            title="Elimina dalla cronologia le operazioni più vecchie di una data che scegli tu">🗑️ Pota la cronologia</button>`;
   document.getElementById('btnCronPota').onclick = cronPota;
 }
 

@@ -200,8 +200,8 @@ Switch gigante in [Bridge.java](../src/main/java/com/moneymanager/Bridge.java) �
 | Allegati | attachFile, openAttachment, setAttachmentPath, removeAttachment | filesystem + `db.*` |
 | Backup / DB | listBackups, operazioniBackup, restoreBackup, manutenzioneOra, dbVacuum, dbIntegrityCheck, dbReindex, dbAnalyze, archiveTransactions | `db.*` |
 | Cronologia | getCronologia, getOperazione, annullaOperazione, annullaACatena, riportaAOperazione | `Giornale` |
-| Log | openAppLog, getAppLogErrors, clearAppLog, readLog (archivio del vecchio .log) | filesystem |
-| Sistema | openUrl, openDataDir, openLogFolder, exportHtmlReport, reloadDb, seedExampleData | `java.awt.Desktop` |
+| Log | openAppLog, getAppLogErrors, clearAppLog | filesystem |
+| Sistema | openUrl, openDataDir, exportHtmlReport, reloadDb, seedExampleData | `java.awt.Desktop` |
 | Performance | setPerfEnabled, getPerfLog, clearPerfLog | buffer in-memory in Bridge |
 | Stato DB | dbStatus, dbOpen, dbClose | usato soprattutto via WebServer (vedi §7) |
 
@@ -473,8 +473,9 @@ ricaricamento del file intero. Ci va solo ciò che ha fatto **l'utente**: gli ev
 si rompeva prima — sta in `CLAUDE.md`, sezioni "I due registri e OneDrive" e "Backup e
 manutenzione".
 
-Il vecchio `<dbname>.log` **non viene più aggiornato dalla 1.26.0**: resta
-come archivio di sola lettura della storia precedente, consultabile da Cronologia → Archivio.
+Il vecchio `<dbname>.log` **non viene più né scritto né letto**: l'app non lo tocca in nessun
+modo. L'«Archivio» che lo mostrava in Cronologia è stato tolto; il file resta sul disco finché
+è l'utente a cancellarlo.
 
 ---
 
@@ -581,7 +582,7 @@ http://<IP-PC>:7890/bridge   POST      →   stesso Bridge.dispatch di JCEF, pay
 Il contesto `/bridge` filtra le **operazioni desktop-only prima del dispatch**, rispondendo
 `{ok:false, webOnly:true}` senza eseguirle: controlli finestra (`minimize`, `maximize`, `close`,
 `get/setWindowBounds`, `isMaximized`), dialog nativi (`choose*`), e le azioni che aprirebbero
-qualcosa **sul PC** invece che sul browser remoto (`openDataDir`, `openLogFolder`, `openUrl`,
+qualcosa **sul PC** invece che sul browser remoto (`openDataDir`, `openUrl`,
 `exportHtmlReport`).
 
 Due protezioni non ovvie, entrambe nate da modi reali di far cadere l'app:

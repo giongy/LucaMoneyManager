@@ -148,7 +148,7 @@ public class Database {
     /** Apre il DB e prepara lo schema: crea tabelle, applica migrazioni e dati di default. */
     public Database(String dbPath) throws SQLException {
         currentDbPath = dbPath;
-        logger = new Giornale(dbPath, this);
+        logger = new Giornale(this);
         conn = openConnection(dbPath);
         avvia(dbPath, "AVVIO");
     }
@@ -250,7 +250,6 @@ public class Database {
         // una falsa "modifica esterna" al primo accesso.
         lastClosedMtime = -1;
         lastClosedSize  = -1;
-        logger.setDbPath(dbPath);
         conn = openConnection(dbPath);
     }
 
@@ -5652,10 +5651,10 @@ public class Database {
     /** Espone il giornale per uso esterno (es. Bridge). */
     public Giornale getLogger() { return logger; }
 
-    // ⚠️ Niente più potatura del file di testo (getLogInfo/purgeLog/purgeSystemLog sono
-    // spariti con la 1.26.0): il .log non viene più scritto, quindi non cresce e non c'è
-    // niente da potare. È un archivio della storia precedente al giornale, di sola lettura —
-    // resta leggibile da Cronologia → Archivio, e lo cancella l'utente se vuole.
+    // ⚠️ Il file di testo `<db>.log` non lo tocca più nessuno: non si scrive (dalla 1.26.0),
+    // non si pota (getLogInfo/purgeLog/purgeSystemLog sono spariti con lei) e non si legge
+    // più (l'Archivio in Cronologia è stato tolto). Resta sul disco dei database vecchi, e
+    // lo cancella l'utente se vuole: l'app non cancella file suoi.
     // La potatura del giornale vero è un'altra cosa e arriva col momento di manutenzione.
 
     // ─── Allegati ─────────────────────────────────────────────────────────────
@@ -5670,20 +5669,6 @@ public class Database {
     public void removeAttachment(int txId) throws SQLException {
         execute("UPDATE transactions SET attachment_path=NULL WHERE id=?", txId);
         touchSyncMeta();
-    }
-
-    /** Restituisce le ultime {@code lines} righe del file di log come lista di stringhe. */
-    public Map<String, Object> readLog(int lines) {
-        Path logFile = logger.getLogFile();
-        if (logFile == null || !Files.exists(logFile))
-            return Map.of("lines", List.of(), "path", "");
-        try {
-            List<String> all = Files.readAllLines(logFile, java.nio.charset.StandardCharsets.UTF_8);
-            int from = Math.max(0, all.size() - lines);
-            return Map.of("lines", all.subList(from, all.size()), "path", logFile.toString());
-        } catch (IOException e) {
-            return Map.of("lines", List.of(), "path", logFile.toString(), "error", e.getMessage());
-        }
     }
 
     // ─── Statistiche ──────────────────────────────────────────────────────────

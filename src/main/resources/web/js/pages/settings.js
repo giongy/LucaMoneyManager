@@ -100,13 +100,9 @@ async function renderSettings() {
             <!-- ⚠️ "0" qui vuol dire «non potare MAI da solo», non «taglia tutto»: il valore
                  opposto in potaECompatta, dove 0 = fino a adesso. La traduzione avviene in
                  Manutenzione, che passa -1 per «non potare». Non propagare lo 0 alla cieca. -->
-            <span class="settings-hint">Per quanti giorni puoi tornare indietro. Le operazioni più
-              vecchie vengono <strong>eliminate dal database</strong> insieme al backup — ma
-              <strong>dopo</strong> che il backup è stato fatto, quindi restano dentro i file .bak:
-              per rivederle o recuperarle si ripristina una copia.<br>
-              <strong>0 = non si pulisce mai da sé</strong>, e la cronologia cresce senza limite.
-              In ogni caso puoi fare la <strong>pulizia a mano quando vuoi</strong>, scegliendo fin
-              dove dalla pagina Cronologia — dove si legge anche quanto pesa adesso.</span>
+            <span class="settings-hint">Per quanti giorni puoi tornare indietro. Le operazioni
+              più vecchie escono dal database, ma solo <strong>dopo</strong> il backup: restano
+              dentro i <code>.bak</code>. <strong>0</strong> = non si pulisce mai da sé.</span>
           </div>
           <div class="settings-control">
             <input type="number" class="form-control" style="width:80px" min="0" max="3650"
@@ -127,16 +123,14 @@ async function renderSettings() {
             <strong>Cronologia e ripristino</strong>
             <span class="settings-hint">Qui sopra ci sono le preferenze; le azioni stanno in Cronologia.</span>
           </div>
-          <div class="settings-control" style="flex-direction:column;align-items:flex-start;gap:10px">
-            <p class="settings-hint" style="margin:0;max-width:60ch;line-height:1.7">
-              Ogni gesto che fai è registrato nel database <strong>insieme alle righe che ha cambiato</strong>:
-              da lì si può <strong>annullare una singola operazione</strong> — anche di giorni fa — oppure
-              <strong>riportare il database indietro</strong> fino a un punto preciso.<br><br>
-              Sulla stessa linea del tempo compaiono anche i <strong>punti di ripristino</strong>, cioè i file
-              <code>.bak</code> creati con le impostazioni qui sopra: così la scelta fra «disfo quel gesto» e
-              «torno a ieri sera» si fa guardando una schermata sola, invece di incrociarne due.<br><br>
-              Da lì parte anche <strong>Backup e manutenzione ora</strong> (lo stesso blocco che gira alla
-              chiusura dell'app) e si consulta l'archivio del vecchio file di log.
+          <div class="settings-control" style="display:flex;flex-direction:column;align-items:flex-start;gap:12px">
+            <p class="settings-hint" style="margin:0;max-width:62ch;line-height:1.7">
+              Ogni gesto è registrato <strong>insieme alle righe che ha cambiato</strong>: da lì si
+              <strong>annulla una singola operazione</strong> — anche di giorni fa — o si
+              <strong>riporta il database indietro</strong> fino a un punto preciso.<br><br>
+              Sulla stessa linea del tempo ci sono anche i <strong>punti di ripristino</strong> (i
+              file <code>.bak</code> creati con le impostazioni qui sopra) e il pulsante
+              <strong>Backup e manutenzione ora</strong>.
             </p>
             <button class="btn btn-secondary" onclick="navigate('cronologia')">🕘 Apri Cronologia</button>
           </div>
@@ -357,8 +351,8 @@ async function renderSettings() {
 
       <!-- ⚠️ Impostazioni = come voglio che si comporti · Cronologia = la cosa in sé.
            Qui non ci sono più azioni sul log: il file di testo non viene più scritto (la
-           storia sta nel giornale, dentro il database) e quello vecchio è un archivio di
-           sola lettura, che l'app non tocca. Il rimando alla Cronologia sta nella scheda
+           storia sta nel giornale, dentro il database) e non viene nemmeno
+           più letto: l'«Archivio» è stato tolto. Il rimando alla Cronologia sta nella scheda
            Dati, ed è uno solo in tutte le Impostazioni: non rimetterlo anche qui. -->`,
 
     archive: `

@@ -27,9 +27,9 @@ import java.util.Map;
  *   <li><b>nessuna riga resta orfana</b> ({@code op_id IS NULL}) — verrebbe assegnata al gesto
  *       successivo, cioè a quello sbagliato;</li>
  *   <li><b>un gesto fallito non lascia niente a metà</b>;</li>
- *   <li><b>il vecchio {@code <db>.log} non viene più scritto</b> — dalla 1.26.0 è un archivio
- *       di sola lettura, e cinque gesti veri non devono cambiarlo di un byte; ciascuno di
- *       quei gesti resta però una riga sola di cronologia.</li>
+ *   <li><b>il vecchio {@code <db>.log} non viene più scritto</b> — dalla 1.26.0 l'app non lo
+ *       tocca più in nessun modo, e cinque gesti veri non devono cambiarlo di un byte;
+ *       ciascuno di quei gesti resta però una riga sola di cronologia.</li>
  * </ul>
  */
 public class TestGiornale {

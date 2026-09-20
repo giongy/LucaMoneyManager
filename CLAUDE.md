@@ -51,7 +51,7 @@ sopravvive al lavoro che descrive diventa un secondo posto dove cercare la verit
 ```
 JS Frontend (js/pages/*.js, 14 moduli)
     ↓  cefQuery (payload JSON in Base64)      ↑ stessa API anche via HTTP LAN (WebServer)
-Bridge.java (~1130 LOC) — dispatch 142 operazioni (+4 dialog nativi fuori dispatch)
+Bridge.java (~1130 LOC) — dispatch 141 operazioni (+4 dialog nativi fuori dispatch)
     ↓
 Database.java (~7070 LOC) — tutte le query JDBC, schema, transazioni
     ↓            ↘ classi di dominio: Giornale (~1060), Manutenzione (~160)
@@ -139,10 +139,12 @@ sincronizzato, l'altro no.
 | **il giornale** (`op_log` + `change_log`) | **dentro il `.db`**, quindi su OneDrive | i 57 trigger di cattura e `Giornale` | **cosa ha fatto l'utente**, con sotto le righe di dati per annullarlo |
 | `app.log` | **`%APPDATA%\LucaMoneyManager\`**, fuori da OneDrive | `System.err`/`System.out` dirottati da `App.redirectLog()` | **cosa ha fatto il programma**: avvio, errori, query lente, avvisi `[Giornale]` |
 
-Il terzo file, `<nomedb>.log` (es. `luca.log`), **non viene più scritto dalla 1.26.0**. L'app non
-lo tocca né lo cancella: contiene la storia **precedente** al giornale, che il giornale non ha, e
-resta un archivio di sola lettura — visibile da **Cronologia → 📜 Archivio**. Lo elimina l'utente
-se vuole; l'app non cancella file suoi. Effetto collaterale gradito: un file sincronizzato in meno,
+Il terzo file, `<nomedb>.log` (es. `luca.log`), **non viene più scritto né letto**. Dalla 1.26.0
+l'app smette di scriverlo; da questa versione non lo legge nemmeno più — il pulsante
+**Cronologia → 📜 Archivio** e tutto ciò che gli stava dietro (`readLog`, `openLogFolder`,
+`Giornale.getLogFile`) sono stati tolti, perché la storia che contiene è quella di un altro
+programma e non serve più. Il file resta dov'è: l'app non cancella file suoi, lo elimina
+l'utente se vuole. Effetto collaterale gradito: un file sincronizzato in meno,
 che OneDrive ricaricava **per intero a ogni riga scritta**.
 
 ⚠️ **`app.log` non torna accanto al DB.** È diagnostica pura, non ha motivo di essere

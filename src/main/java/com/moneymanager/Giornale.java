@@ -63,9 +63,9 @@ import java.util.stream.Collectors;
  * garanzia in più rispetto a prima: fino alla 1.26.0 solo le scritture dentro {@code inTx}
  * erano serializzate, le {@code execute()} nude no.</p>
  *
- * <p>Il vecchio file {@code <db>.log} non viene più scritto dalla 1.26.0: resta come archivio
- * di sola lettura della storia precedente al giornale, raggiungibile da Cronologia → Archivio.
- * L'app non lo tocca e non lo cancella.</p>
+ * <p>Il vecchio file {@code <db>.log} non viene più scritto dalla 1.26.0, e da questa versione
+ * non viene nemmeno più letto: l'«Archivio» in Cronologia è stato tolto. L'app non lo tocca e non
+ * lo cancella — resta sul disco dei database vecchi finché è l'utente a volerlo via.</p>
  */
 public class Giornale {
 
@@ -120,9 +120,8 @@ public class Giornale {
 
     private int contatoreSavepoint = 0;
 
-    Giornale(String dbPath, Database db) {
+    Giornale(Database db) {
         this.db = db;
-        setDbPath(dbPath);
     }
 
     // ── L'operazione in corso ────────────────────────────────────────────────────
@@ -1060,29 +1059,4 @@ public class Giornale {
     static String s(Object v) {
         return v != null ? v.toString() : "-";
     }
-
-    // ── Il vecchio .log: archivio di sola lettura ────────────────────────────────
-    //
-    // Dalla 1.26.0 l'app non lo scrive più e non lo tocca. Non è inutile: contiene la storia
-    // PRECEDENTE al giornale, che il giornale non ha. Lo si legge dalla Cronologia, pulsante
-    // «Archivio». Lo cancella l'utente, se vuole: l'app non cancella file suoi.
-    // ⚠️ Effetto collaterale gradito su OneDrive: un file sincronizzato in meno che veniva
-    // ricaricato per intero a ogni riga scritta.
-    //
-    // ⚠️ Qui non si scrive: c'è solo il percorso. Se un giorno servisse di nuovo scrivere un
-    // registro testuale, non è questo il posto — va su app.log, che non è sincronizzato.
-
-    private volatile java.nio.file.Path archivio;
-
-    /** Ricalcola il percorso dell'archivio quando si cambia database. */
-    public void setDbPath(String dbPath) {
-        if (dbPath == null || dbPath.isBlank()) { archivio = null; return; }
-        java.nio.file.Path db = java.nio.file.Path.of(dbPath);
-        String base = db.getFileName().toString().replaceAll("\\.[^.]+$", "");
-        archivio = db.resolveSibling(base + ".log");
-    }
-
-    /** Il vecchio {@code <db>.log}, o {@code null} se non c'è un database aperto.
-     *  Può non esistere su disco: un database nato dalla 1.26.0 non ne ha mai avuto uno. */
-    public java.nio.file.Path getLogFile() { return archivio; }
 }

@@ -30,8 +30,6 @@ async function renderCronologia() {
           <input type="checkbox" id="cronShowSystem"> di sistema
         </label>
         <button class="btn btn-ghost" id="btnCronRefresh" title="Aggiorna">↻</button>
-        <button class="btn btn-ghost" id="btnCronArchive"
-                title="Il vecchio file .log: la storia precedente alla cronologia, in sola lettura">📜 Archivio</button>
         <button class="btn btn-secondary" id="btnCronManut"
                 title="Backup, pulizia della cronologia e compattazione del file: lo stesso blocco che gira alla chiusura">💾 Backup e manutenzione ora</button>
       </div>
@@ -44,7 +42,6 @@ async function renderCronologia() {
     </div>`;
 
   document.getElementById('btnCronRefresh').onclick = cronLoad;
-  document.getElementById('btnCronArchive').onclick = cronMostraArchivio;
   document.getElementById('btnCronManut').onclick   = cronManutenzione;
 
   // I rimandi `#N` nascono sia nelle righe sia nei corpi espansi: si ascolta una volta sola
@@ -696,62 +693,9 @@ function _cronGiorno(iso) {
   return `${g}/${m}/${y}`;
 }
 
-/* ─── Archivio: il vecchio file .log ──────────────────────────────────────────
-   Non è più il registro dell'app — quello è il giornale — ma contiene la storia
-   PRECEDENTE alla cronologia, che il giornale non ha. L'app smette di scriverlo e
-   non lo tocca: lo cancella l'utente se e quando vuole.                        */
-
-async function cronMostraArchivio() {
-  openModal('📜 Archivio — vecchio file di log',
-    '<div class="cron-loading">Caricamento…</div>', null, '', '', 'modal-wide');
-  const body = document.getElementById('modalBody');
-  try {
-    const data = await api.readLog(2000);
-    const righe = data.lines || [];
-    body.innerHTML = `
-      <p class="settings-hint" style="margin:0 0 8px">
-        Storia precedente alla cronologia. L'app non scrive più questo file e non lo modifica:
-        resta come archivio di sola lettura, e lo cancelli tu se e quando vuoi.<br>
-        <code style="font-size:11px">${esc(data.path || '—')}</code>
-        <button class="btn btn-ghost" style="padding:1px 8px;font-size:11px;margin-left:6px"
-                onclick="callJava('openLogFolder')">Apri cartella ↗</button>
-      </p>
-      <div class="log-wrap" style="max-height:52vh">
-        ${righe.length ? righe.map(_cronRigaArchivio).join('')
-                       : '<div style="color:var(--txt3);padding:20px;text-align:center">Nessuna riga.</div>'}
-      </div>`;
-    const w = body.querySelector('.log-wrap');
-    if (w) w.scrollTop = w.scrollHeight;
-  } catch (e) {
-    body.innerHTML = `<div style="color:var(--expense)">❌ ${esc(e.message || e)}</div>`;
-  }
-}
-
-// Formato storico del .log: "YYYY-MM-DD  HH:mm:ss  AZIONE  |  campo:val  |  ..."
-function _cronRigaArchivio(line) {
-  const rest   = line.substring(22).trimStart();
-  const sepIdx = rest.indexOf('  |  ');
-  const action = sepIdx >= 0 ? rest.substring(0, sepIdx).trim() : rest.trim();
-  const fields = sepIdx >= 0 ? rest.substring(sepIdx + 5).split('  |  ') : [];
-  const color  = LOG_ACTION_COLORS[action] || 'var(--txt2)';
-  // Il log contiene testo utente (le descrizioni delle transazioni): va escapato.
-  const fieldsHtml = fields.map(f => {
-    const ci = f.indexOf(':');
-    if (ci < 0) return `<span class="log-field">${esc(f)}</span>`;
-    return `<span class="log-field"><span class="log-key">${esc(f.substring(0, ci))}</span>`
-         + `<span class="log-val">${esc(f.substring(ci + 1))}</span></span>`;
-  }).join('');
-  return `<div class="log-row">
-      <span class="log-date">${esc(line.substring(0, 10))}</span>
-      <span class="log-time">${esc(line.substring(12, 20))}</span>
-      <span class="log-action" style="color:${color}">${esc(action)}</span>
-      <span class="log-fields">${fieldsHtml}</span>
-    </div>`;
-}
-
 /* ─── Colori delle etichette ──────────────────────────────────────────────────
-   Le stesse etichette che scrive Giornale.log(): servono sia alla linea del tempo
-   sia all'archivio. Un'etichetta assente ricade sul colore neutro.             */
+   Le stesse etichette che scrive Giornale.log(), usate dalla linea del tempo.
+   Un'etichetta assente ricade sul colore neutro.                             */
 
 const LOG_ACTION_COLORS = {
   'TRANSAZIONE AGGIUNTA':   '#3fb950',

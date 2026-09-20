@@ -756,16 +756,6 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                 yield Map.of("ok", true);
             }
 
-            case "openLogFolder" -> {
-                java.nio.file.Path logFile = db.getLogger().getLogFile();
-                if (logFile != null) {
-                    java.nio.file.Path dir = logFile.getParent();
-                    if (dir != null && java.nio.file.Files.exists(dir))
-                        openAsync("cartella log", () -> java.awt.Desktop.getDesktop().open(dir.toFile()));
-                }
-                yield Map.of("ok", true);
-            }
-
             // Apre la cartella che contiene un .bak (il path arriva da listBackups, non
             // dall'utente): serve al 📂 accanto ai punti di ripristino in Cronologia.
             case "openBackupFolder" -> {
@@ -907,9 +897,6 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
             case "annullaOperazione"  -> db.annullaOperazione(p.get("id").getAsLong());
             case "annullaACatena"     -> db.annullaOperazioneACatena(p.get("id").getAsLong());
             case "riportaAOperazione" -> db.riportaAOperazione(p.get("id").getAsLong());
-
-            // ─── Archivio: il vecchio .log, in sola lettura (Cronologia → Archivio) ─
-            case "readLog" -> db.readLog(p.has("lines") ? p.get("lines").getAsInt() : 500);
 
             // ─── Prezzi online (HTTP server: blocca il virtual thread, JCEF: async in onQuery) ──
             case "fetchOnlinePrice" -> doFetchOnlinePrice(p.get("isin").getAsString());

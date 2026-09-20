@@ -2341,16 +2341,25 @@ tr.tx-selected td { background:rgba(124,124,255,.07); }
 .settings-tab:hover:not(.settings-tab-active)::after { width:30%; background:var(--txt3); }
 .settings-tab-active { color:var(--accent); font-weight:600; }
 .settings-tab-active::after { width:60%; }
-.settings-wrap { display:flex; flex-direction:column; gap:16px; max-width:685px; }
+.settings-wrap { display:flex; flex-direction:column; gap:16px; max-width:780px; }
 .settings-section { background:var(--bg2); border:1px solid var(--border); border-radius:10px; overflow:hidden; }
 .settings-section-title { padding:10px 16px; font-size:var(--fs-sm,11px); font-weight:700;
   color:var(--txt2); text-transform:uppercase; letter-spacing:.5px;
   border-bottom:1px solid var(--border); background:var(--bg2); }
 .settings-row { display:flex; gap:20px; padding:14px 16px; align-items:flex-start; }
 .settings-label { flex:0 0 220px; }
-.settings-label strong { display:block; margin-bottom:3px; color:var(--txt); }
-.settings-control { flex:1; }
+/* ⚠️ Selettore FIGLIO, non discendente. A blocco ci va il titolo della riga e basta: con il
+   discendente la regola prendeva anche i <strong> dentro .settings-hint, e ogni parola in
+   grassetto mandava a capo — la descrizione della retention si leggeva a pezzi, una riga
+   per grassetto. Aggiungendo un grassetto in una descrizione, non deve succedere di nuovo. */
+.settings-label > strong { display:block; margin-bottom:3px; color:var(--txt); }
+/* ⚠️ La regola generica resta com'era: `.settings-hint` vive in una quarantina di punti fuori
+   da qui (modali di Cronologia, Portafoglio, Transazioni…), dove un `<p class="settings-hint">`
+   conta su questo margin-top per non prendersi il margine di default del browser. Le aggiunte
+   qui sotto valgono quindi solo per la descrizione sotto al titolo di una riga. */
 .settings-hint { font-size:var(--fs-sm,11px); color:var(--txt2); margin-top:4px; }
+.settings-label .settings-hint { display:block; line-height:1.55; }
+.settings-control { flex:1; min-width:0; }
 /* Il campo del percorso va a capo insieme ai bottoni invece di comprimerli: flex-basis
    generosa perché su una riga larga stia con loro, min-width:0 perché possa comunque
    accorciarsi (un input di suo non scende sotto la propria larghezza di default). */
@@ -3121,39 +3130,6 @@ tr.tx-selected td { background:rgba(124,124,255,.07); }
   color: var(--txt2);
 }
 .cron-blocker-detail { color: var(--txt3); font-size: 11px; }
-
-/* ─── Archivio del vecchio .log (modale in Cronologia) ────────────────────── */
-.log-wrap {
-  flex: 1;
-  overflow-y: auto;
-  font-family: 'Consolas', 'Fira Mono', monospace;
-  font-size: 12px;
-  line-height: 1.6;
-  padding: 4px 0;
-  min-height: 0;
-}
-.log-row {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  padding: 2px 12px;
-  border-bottom: 1px solid var(--border);
-  flex-wrap: wrap;
-}
-.log-row:hover { background: var(--bg3); }
-.log-date { color: var(--txt3); white-space: nowrap; }
-.log-time { color: var(--txt3); white-space: nowrap; }
-.log-action { font-weight: 600; min-width: 200px; white-space: nowrap; }
-.log-fields { display: flex; flex-wrap: wrap; gap: 6px; }
-.log-field {
-  background: var(--bg3);
-  border-radius: 4px;
-  padding: 0 6px;
-  white-space: nowrap;
-}
-.log-key { color: var(--txt3); }
-.log-key::after { content: ':'; margin-right: 2px; }
-.log-val { color: var(--txt); }
 
 /* ── Budget vs Pianificate ──────────────────────────────────────────────────
    Stesso formato delle altre due liste lunghe (transazioni e pianificate): la

@@ -26,7 +26,7 @@ public class DbQuery {
 
     // I due DB fra cui si sbaglia: quello vero su OneDrive e la copia di lavoro nel progetto.
     static final String PROD  = "C:/Users/lucaa/OneDrive/Documents/Luca_Money_Manager/luca.db";
-    static final String LOCAL = "D:/LucaMoneyManager/luca.db";
+    static final String LOCAL = "D:/LucaMoneyManager/lucatest.db";
 
     public static void main(String[] args) throws Exception {
         // Nomi di categorie e conti sono pieni di accentate: senza forzare UTF-8 qui escono

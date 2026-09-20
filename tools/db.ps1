@@ -8,7 +8,7 @@
 #   .\tools\db.ps1 -Database prod "SELECT * FROM accounts" -Limit 50
 #   .\tools\db.ps1 -File .\query.sql -Json
 #
-# -Database local (default) = D:\LucaMoneyManager\luca.db  ·  prod = quello su OneDrive.
+# -Database local (default) = D:\LucaMoneyManager\lucatest.db  ·  prod = quello su OneDrive.
 # ⚠️ Il parametro è -Database e non -Db: "db" è già l'alias del parametro comune -Debug,
 # e PowerShell rifiuta lo script all'avvio per collisione di alias.
 # La connessione è read-only a livello di driver: nessuna query può modificare il DB.

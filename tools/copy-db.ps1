@@ -20,7 +20,7 @@ $ErrorActionPreference = 'Stop'
 
 # Gli stessi due path di tools\DbQuery.java (PROD / LOCAL): se cambiano lì, cambiano qui.
 $src = 'C:\Users\lucaa\OneDrive\Documents\Luca_Money_Manager\luca.db'
-$dst = 'D:\LucaMoneyManager\luca.db'
+$dst = 'D:\LucaMoneyManager\lucatest.db'
 
 # Descrive un file in una riga: esiste o no, quanto pesa, di quando è.
 function Descrivi($path) {

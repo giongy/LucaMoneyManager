@@ -2984,15 +2984,12 @@ tr.tx-selected td { background:rgba(124,124,255,.07); }
    si leggono come una frase sola e non si distingue un valore da un'etichetta. */
 .cron-kpi   { color: var(--txt3); white-space: nowrap; }
 .cron-kpi b { color: var(--txt); font-weight: 700; }
-/* ⚠️ NON usa .cron-act (padding 1px, 11px): quello è lo stile delle azioni dentro una riga,
-   e in una banda dello stesso colore faceva sembrare il pulsante un'altra etichetta grigia.
+/* ⚠️ Nessun override di dimensione: è un comando come gli altri e ha la misura di .btn.
+   Prima usava .cron-act (padding 1px, 11px), lo stile delle azioni dentro una riga: in una
+   banda dello stesso colore sembrava un'altra etichetta grigia, non un pulsante. Rimpicciolire
+   un comando perché "sta in una barra" è esattamente il modo di renderlo invisibile.
    `margin-left:auto` lo stacca dai dati e lo porta a destra, dove ci si aspetta un comando. */
-.cron-pota {
-  margin-left: auto;
-  padding: 3px 12px !important;
-  font-size: 11px !important;
-  white-space: nowrap;
-}
+.cron-pota { margin-left: auto; }
 .cron-check {
   display: flex;
   align-items: center;

@@ -3023,6 +3023,28 @@ tr.tx-selected td { background:rgba(124,124,255,.07); }
 }
 .cron-row:hover { background: var(--bg3); }
 .cron-time  { color: var(--txt3); white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* Il numero dell'operazione: è il nome con cui il giornale parla di sé stesso
+   («annulla l'operazione #7»), quindi deve essere visibile dove le operazioni si guardano. */
+.cron-id {
+  color: var(--txt3);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  min-width: 34px;
+  white-space: nowrap;
+}
+/* Rimando a un'altra operazione: si vede che è cliccabile, senza gridare. */
+.cron-ref {
+  color: var(--accent);
+  cursor: pointer;
+  border-bottom: 1px dotted currentColor;
+}
+.cron-ref:hover { filter: brightness(1.25); }
+/* Lampeggio di chi arriva da un rimando: due battiti e basta, giusto per farsi trovare. */
+@keyframes cronEvidenzia {
+  0%, 100% { background: transparent; }
+  25%, 75% { background: color-mix(in srgb, var(--accent) 26%, transparent); }
+}
+.cron-evidenzia { animation: cronEvidenzia 1.4s ease-in-out; }
 .cron-label { font-weight: 600; min-width: 190px; white-space: nowrap; }
 .cron-detail {
   flex: 1;

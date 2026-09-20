@@ -47,6 +47,13 @@ async function renderCronologia() {
   document.getElementById('btnCronArchive').onclick = cronMostraArchivio;
   document.getElementById('btnCronManut').onclick   = cronManutenzione;
 
+  // I rimandi `#N` nascono sia nelle righe sia nei corpi espansi: si ascolta una volta sola
+  // sul contenitore, invece di riagganciare un gestore a ogni ridisegno.
+  document.getElementById('cronWrap').addEventListener('click', ev => {
+    const a = ev.target.closest('.cron-ref');
+    if (a) { ev.preventDefault(); cronVaiA(a.dataset.va); }
+  });
+
   let t;
   document.getElementById('cronSearch').addEventListener('input', () => {
     clearTimeout(t); t = setTimeout(cronRender, 150);
@@ -173,7 +180,10 @@ function cronRender() {
     };
   });
   wrap.querySelectorAll('.cron-row[data-op]').forEach(r => {
-    r.onclick = () => cronEspandi(Number(r.dataset.op));
+    // ⚠️ Un clic su un rimando `#N` non deve anche espandere la riga che lo contiene: il
+    // controllo va qui, non nel gestore dei rimandi, perché la riga riceve l'evento PRIMA
+    // (l'ordine è target → riga → contenitore) e uno stopPropagation più in là arriverebbe tardi.
+    r.onclick = ev => { if (!ev.target.closest('.cron-ref')) cronEspandi(Number(r.dataset.op)); };
   });
   wrap.querySelectorAll('.cron-row[data-bak]').forEach(r => {
     r.onclick = () => cronEspandiBak(Number(r.dataset.bak), r.dataset.path);
@@ -207,8 +217,12 @@ function cronRigaOp(o) {
     azioni = `<span class="cron-nope" title="Questa operazione non ha cambiato dati">—</span>`;
   }
 
+  // ⚠️ Il numero dell'operazione va mostrato: senza, i rimandi «annulla l'operazione #7» non
+  // si possono seguire — il #7 non compare da nessuna parte in pagina. È il numero con cui il
+  // giornale parla di sé stesso, quindi deve essere visibile dove le operazioni si guardano.
   return `<div class="cron-row${annullata ? ' cron-undone' : ''}" data-op="${o.id}">
       <span class="cron-time">${esc(o.ts.slice(11, 16))}</span>
+      <span class="cron-id" title="Numero dell'operazione">#${o.id}</span>
       <span class="cron-label" style="color:${colore}">${esc(o.etichetta)}</span>
       <span class="cron-detail">${cronDettaglio(o)}</span>
       <span class="cron-actions">${azioni}</span>
@@ -289,11 +303,63 @@ function cronDettaglio(o) {
     // d'una e non si saprebbe a quale si riferisce il nome scritto nel giornale.
     const nota = (oggi && oggi.length === 1 && oggi[0] !== v)
       ? `<span class="cron-today">(oggi: ${esc(oggi[0])})</span>` : '';
-    return `<span class="cron-field"><span class="log-key">${esc(k)}</span><span class="log-val">${esc(v)}</span>${nota}</span>`;
+    // ⚠️ I riferimenti `#N` si rendono cliccabili SOLO nel campo `operazioni`, che è scritto
+    // da noi (Giornale.annullaInsieme): lì un #N è di sicuro un'operazione. Cercarli in tutto
+    // il dettaglio trasformerebbe in collegamento anche un "#3" scritto dall'utente dentro la
+    // descrizione di una transazione, e il collegamento porterebbe altrove o da nessuna parte.
+    const val = k === 'operazioni' ? cronRiferimenti(v) : `${esc(v)}${nota}`;
+    return `<span class="cron-field"><span class="log-key">${esc(k)}</span><span class="log-val">${val}</span></span>`;
   }).join('');
   const piu = parti.length > 1
     ? `<span class="cron-more" title="Questo gesto ha fatto più cose: espandi per vederle">+${parti.length - 1}</span>` : '';
   return campi + piu;
+}
+
+/* ─── Rimandi fra operazioni ──────────────────────────────────────────────────
+   Il giornale parla di sé stesso per numero («annulla l'operazione #7»). Perché
+   un rimando sia utile devono valere due cose: che il numero si veda anche sulle
+   righe (.cron-id) e che ci si possa andare sopra con un clic.               */
+
+/** Trasforma i `#N` di un testo NOSTRO in collegamenti all'operazione. */
+function cronRiferimenti(testo) {
+  return esc(testo).replace(/#(\d+)/g,
+    (_, id) => `<a class="cron-ref" data-va="${id}" title="Vai all'operazione #${id}">#${id}</a>`);
+}
+
+/**
+ * Porta in vista l'operazione `id` e la fa lampeggiare.
+ *
+ * ⚠️ Può non essere in pagina per tre motivi diversi, e dirlo è tutto il valore del rimando:
+ * nascosta da un filtro (si tolgono i filtri e si va), fuori dalle ultime caricate, oppure non
+ * c'è più perché la pulizia se l'è portata via. Un clic che non fa niente lascerebbe a pensare
+ * che sia rotto il collegamento, non che l'operazione non ci sia.
+ */
+function cronVaiA(id) {
+  const evidenzia = () => {
+    const r = document.querySelector(`.cron-row[data-op="${id}"]`);
+    if (!r) return false;
+    r.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    r.classList.remove('cron-evidenzia');
+    void r.offsetWidth;                  // forza il restart dell'animazione se si riclicca
+    r.classList.add('cron-evidenzia');
+    return true;
+  };
+  if (evidenzia()) return;
+
+  const op = _cronOps.find(o => String(o.id) === String(id));
+  if (!op) {
+    toast(`L'operazione #${id} non è più in cronologia: è stata eliminata da una pulizia,`
+        + ` oppure è più vecchia delle ultime caricate.`, 'error');
+    return;
+  }
+  // C'è, ma un filtro la nasconde: si tolgono i filtri invece di lasciare il clic senza esito.
+  document.getElementById('cronSearch').value = '';
+  document.getElementById('cronTypeFilter').value = '';
+  document.getElementById('cronOnlyUndoable').checked = false;
+  if (op.tipo === 'sistema') document.getElementById('cronShowSystem').checked = true;
+  cronRender();
+  toast(`Ho tolto i filtri per mostrarti l'operazione #${id}`, 'info');
+  setTimeout(evidenzia, 50);
 }
 
 /* ─── Espansione: cosa ha cambiato davvero ────────────────────────────────── */
@@ -336,8 +402,8 @@ async function cronEspandi(id, forza = false) {
       // riferimento all'ultimo annullatore, che serve al «ripeti»): il legame si mostra
       // guardando lo stato, non la presenza del campo.
       `<div class="cron-meta">operazione #${op.id} · origine ${esc(op.origine || '')} · ${esc(op.tipo || '')}`
-      + (op.stato === 'annullata' ? ` · annullata dall'operazione #${op.annullata_da}` : '')
-      + (op.annulla_op ? ` · annulla l'operazione #${op.annulla_op}` : '') + `</div>`;
+      + (op.stato === 'annullata' ? ` · annullata dall'${cronRiferimenti('operazione #' + op.annullata_da)}` : '')
+      + (op.annulla_op ? ` · annulla l'${cronRiferimenti('operazione #' + op.annulla_op)}` : '') + `</div>`;
     body.dataset.loaded = '1';
   } catch (e) {
     body.innerHTML = `<div class="cron-loading" style="color:var(--expense)">❌ ${esc(e.message || e)}</div>`;

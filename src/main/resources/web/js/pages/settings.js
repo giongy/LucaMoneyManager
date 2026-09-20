@@ -104,9 +104,9 @@ async function renderSettings() {
               vecchie vengono <strong>eliminate dal database</strong> insieme al backup — ma
               <strong>dopo</strong> che il backup è stato fatto, quindi restano dentro i file .bak:
               per rivederle o recuperarle si ripristina una copia.<br>
-              <strong>0 = non si pota mai da sé</strong>, e la cronologia cresce senza limite.
-              In ogni caso puoi <strong>potare a mano quando vuoi</strong>, scegliendo la data dalla
-              pagina Cronologia — dove si legge anche quanto pesa adesso.</span>
+              <strong>0 = non si pulisce mai da sé</strong>, e la cronologia cresce senza limite.
+              In ogni caso puoi fare la <strong>pulizia a mano quando vuoi</strong>, scegliendo fin
+              dove dalla pagina Cronologia — dove si legge anche quanto pesa adesso.</span>
           </div>
           <div class="settings-control">
             <input type="number" class="form-control" style="width:80px" min="0" max="3650"

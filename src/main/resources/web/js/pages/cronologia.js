@@ -33,7 +33,7 @@ async function renderCronologia() {
         <button class="btn btn-ghost" id="btnCronArchive"
                 title="Il vecchio file .log: la storia precedente alla cronologia, in sola lettura">📜 Archivio</button>
         <button class="btn btn-secondary" id="btnCronManut"
-                title="Backup, potatura della cronologia e compattazione del file: lo stesso blocco che gira alla chiusura">💾 Backup e manutenzione ora</button>
+                title="Backup, pulizia della cronologia e compattazione del file: lo stesso blocco che gira alla chiusura">💾 Backup e manutenzione ora</button>
       </div>
     </div>
     <div class="cron-info" id="cronInfo">Caricamento…</div>
@@ -97,10 +97,10 @@ function cronRenderInfo() {
     <span class="cron-kpi"><b>${i.righe || 0}</b> righe di dati</span>
     <span class="cron-kpi"><b>~${peso}</b></span>
     <span class="cron-kpi">${dal ? `annullabile ${da} <b>${esc(dal)}</b>` : 'giornale vuoto'}</span>
-    <span class="cron-kpi">potatura automatica
+    <span class="cron-kpi">pulizia automatica
       <b>${i.retention_giorni > 0 ? i.retention_giorni + ' gg' : 'no'}</b></span>
     <button class="btn btn-ghost cron-pota" id="btnCronPota"
-            title="Elimina dalla cronologia le operazioni più vecchie di una data che scegli tu">🗑️ Pota la cronologia</button>`;
+            title="Elimina dalla cronologia le operazioni più vecchie di una data che scegli tu">🗑️ Pulizia della cronologia</button>`;
   document.getElementById('btnCronPota').onclick = cronPota;
 }
 
@@ -482,11 +482,13 @@ async function cronManutenzione() {
     else if (r.backup_errore) righe.push(`❌ Backup fallito: ${esc(r.backup_errore)}`);
     else                      righe.push(`➖ Nessun backup: ${esc(r.backup_saltato || '')}`);
 
-    if (r.potatura_saltata)      righe.push(`➖ Potatura saltata: ${esc(r.potatura_saltata)}`);
-    else if (r.potatura_errore)  righe.push(`❌ Potatura fallita: ${esc(r.potatura_errore)}`);
-    else if (r.operazioni_potate) righe.push(`🗑️ Potate ${r.operazioni_potate} operazioni oltre i ${r.retention_giorni} giorni`);
-    else if (r.retention_giorni === 0) righe.push('➖ Nessuna potatura: retention illimitata');
-    else                         righe.push(`➖ Niente da potare: la cronologia sta nei ${r.retention_giorni} giorni`);
+    // ⚠️ Le chiavi del resoconto restano `potatura_*` (è il nome nel codice): qui si traduce
+    // per chi legge. La parola che vede l'utente è «pulizia», una sola in tutta l'app.
+    if (r.potatura_saltata)      righe.push(`➖ Pulizia saltata: ${esc(r.potatura_saltata)}`);
+    else if (r.potatura_errore)  righe.push(`❌ Pulizia fallita: ${esc(r.potatura_errore)}`);
+    else if (r.operazioni_potate) righe.push(`🗑️ Eliminate ${r.operazioni_potate} operazioni oltre i ${r.retention_giorni} giorni`);
+    else if (r.retention_giorni === 0) righe.push('➖ Nessuna pulizia: non c\'è un limite impostato');
+    else                         righe.push(`➖ Niente da pulire: la cronologia sta nei ${r.retention_giorni} giorni`);
 
     if (r.compattato) {
       const risparmio = Math.max(0, (r.byte_prima || 0) - (r.byte_dopo || 0));
@@ -507,10 +509,15 @@ async function cronManutenzione() {
 }
 
 /**
- * Potatura a mano: si sceglie quanti giorni tenere, e via il resto.
+ * Pulizia a mano: si sceglie quanti giorni tenere, e via il resto.
  *
- * ⚠️ Esiste **sempre**, anche con la retention automatica spenta — anzi è proprio lì che
- * serve: chi mette 0 nelle impostazioni ha detto «non potare da solo», non «non potare mai»,
+ * ⚠️ Per l'utente si chiama <b>pulizia</b> — una parola sola in tutta l'app. Nel codice i nomi
+ * sono rimasti {@code pota*} ({@code Manutenzione.pota}, {@code potaECompatta}, le chiavi
+ * {@code potatura_*} del resoconto): la traduzione avviene qui e negli altri punti che scrivono
+ * a schermo, non a metà del motore.
+ *
+ * ⚠️ Esiste **sempre**, anche con la pulizia automatica spenta — anzi è proprio lì che
+ * serve: chi mette 0 nelle impostazioni ha detto «non pulire da solo», non «non pulire mai»,
  * e senza questo pulsante l'unico modo per ripulire sarebbe cambiare l'impostazione, far
  * girare la manutenzione e rimetterla com'era.
  *
@@ -524,7 +531,7 @@ async function cronPota() {
 
   // Dove finirà la storia che si sta per togliere: è la domanda che uno si fa dopo, non prima.
   const rete = backupAttivo
-    ? `<p class="settings-hint" style="margin:8px 0 0">Prima di potare viene fatto un backup, se c'è
+    ? `<p class="settings-hint" style="margin:8px 0 0">Prima della pulizia viene fatto un backup, se c'è
          qualcosa di nuovo da salvare: quello che togli resta là dentro, e si rivede ripristinando
          quella copia.${ultimoBak ? ` L'ultimo punto di ripristino è del <strong>${esc(ultimoBak.displayTs)}</strong>.` : ''}</p>`
     : `<p class="settings-hint" style="margin:8px 0 0;color:var(--expense)">⚠️ Il backup all'uscita è
@@ -532,7 +539,7 @@ async function cronPota() {
          ${ultimoBak ? `L'unica che ce l'ha è quella del <strong>${esc(ultimoBak.displayTs)}</strong>.`
                      : 'E non esiste nessun punto di ripristino: quello che togli è perso.'}</p>`;
 
-  openModal('Pota la cronologia', `
+  openModal('Pulizia della cronologia', `
     <p style="color:var(--txt2);line-height:1.7">Elimina dal database le operazioni più vecchie
       del numero di giorni che scegli. Quelle più recenti restano annullabili come adesso.</p>
     <div style="display:flex;align-items:center;gap:8px;margin-top:10px">
@@ -549,7 +556,7 @@ async function cronPota() {
       closeModal();
       await cronEseguiPotatura(giorni);
     },
-    '🗑️ Pota', 'btn-danger');
+    '🗑️ Pulisci', 'btn-danger');
 
   // Stima quante operazioni se ne andrebbero, contata sulle righe già caricate in pagina:
   // nessuna chiamata in più. Se l'elenco è troncato lo si dice, invece di dare un numero
@@ -572,15 +579,15 @@ async function cronPota() {
 async function cronEseguiPotatura(giorni) {
   try {
     const r = await api.potaCronologia(giorni);
-    if (r.potatura_errore) { toast('Potatura fallita: ' + r.potatura_errore, 'error'); return; }
-    if (r.potatura_saltata) { toast('Non potata: ' + r.potatura_saltata, 'error'); return; }
+    if (r.potatura_errore) { toast('Pulizia fallita: ' + r.potatura_errore, 'error'); return; }
+    if (r.potatura_saltata) { toast('Pulizia non eseguita: ' + r.potatura_saltata, 'error'); return; }
     const n = r.operazioni_potate || 0;
     toast(n === 0 ? 'Non c\'era niente da togliere'
                   : `${n === 1 ? 'Tolta 1 operazione' : `Tolte ${n} operazioni`}`
                     + (r.compattato ? ' · file compattato' : ''), 'success');
     await cronLoad();
   } catch (e) {
-    toast('Potatura fallita: ' + (e.message || e), 'error');
+    toast('Pulizia fallita: ' + (e.message || e), 'error');
   }
 }
 

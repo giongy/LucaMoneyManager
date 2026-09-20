@@ -358,9 +358,16 @@ la stessa sequenza ([Manutenzione.java](src/main/java/com/moneymanager/Manutenzi
 nei backup. È ciò che rende accettabile una finestra corta (30 giorni di default,
 `journal.retention_days`, `0` = non potare mai da sé) sul DB vivo.
 
-**Lo stesso blocco gira anche per la potatura a mano** (`🗑️ Pota…` nella banda in cima a
-Cronologia, `Manutenzione.pota(giorni)`), con la finestra scelta sul momento invece di quella
-salvata. Esiste perché `0` nelle impostazioni vuol dire «non potare **da solo**», non «non potare
+⚠️ **A schermo si chiama «pulizia», nel codice `pota*`.** L'utente legge «Pulizia della
+cronologia», «pulizia automatica 30 gg», «Pulisci»; il codice tiene `Manutenzione.pota`,
+`potaECompatta`, le chiavi `potatura_*` del resoconto. La traduzione avviene **solo** nei punti
+che scrivono a schermo (`cronologia.js`, `settings.js`), mai a metà del motore. Se un giorno si
+rinominano gli identificatori, si rinominano tutti insieme: due vocabolari a metà sono peggio di
+due vocabolari netti.
+
+**Lo stesso blocco gira anche per la pulizia a mano** (`🗑️ Pulizia della cronologia` nella banda
+in cima a Cronologia, `Manutenzione.pota(giorni)`), con la finestra scelta sul momento invece di
+quella salvata. Esiste perché `0` nelle impostazioni vuol dire «non potare **da solo**», non «non potare
 mai»: senza quel pulsante, chi spegne la potatura automatica per ripulire dovrebbe cambiare
 l'impostazione, far girare la manutenzione e rimetterla com'era. ⚠️ **Passa dal backup come
 l'altra**, e non pota se il backup è richiesto e fallisce: è il punto in cui si butta via la

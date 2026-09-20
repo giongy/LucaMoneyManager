@@ -3073,6 +3073,14 @@ tr.tx-selected td { background:rgba(124,124,255,.07); }
   text-overflow: ellipsis;
 }
 .cron-row:hover .cron-field { background: var(--bg4, var(--bg)); }
+/* Chiave e valore dentro un .cron-field ("id:2345", "importo:83.41"…): il separatore è
+   qui, non nel testo di cronDettaglio(), per poterlo stilizzare a parte dal valore.
+   ⚠️ Non sono solo dell'Archivio (rimosso in 2ee6799): cronDettaglio() le usa per OGNI
+   riga della cronologia vera. Rimosse per sbaglio insieme al resto di quel modale — se
+   i campi tornano a comparire senza ":" né spaziatura, sono sparite di nuovo. */
+.log-key { color: var(--txt3); }
+.log-key::after { content: ':'; margin-right: 2px; }
+.log-val { color: var(--txt); }
 /* Il nome di oggi accanto a quello congelato: si distingue, ma non prende il posto
    di quello storico — che resta la verità di quel giorno. */
 .cron-today { color: var(--accent); margin-left: 4px; font-style: italic; }

@@ -109,29 +109,30 @@ async function renderSettings() {
             <span class="settings-hint" style="margin-left:8px">giorni</span>
           </div>
         </div>
-        <div class="settings-row">
+        <!-- ⚠️ Questo è l'UNICO rimando a Cronologia in tutte le Impostazioni, ed è voluto.
+             Ce n'erano tre, in due schede diverse (backup manuale, ripristino, cronologia in
+             Manutenzione): tre porte per la stessa stanza non fanno trovare la stanza, fanno
+             pensare che siano tre stanze. Aggiungendo una funzione della Cronologia, si
+             descrive qui — non si apre un quarto rimando.
+             Sopra restano solo preferenze ("come voglio che si comporti"); tutto ciò che si
+             FA sta di là. -->
+        <div class="settings-row" style="align-items:flex-start">
           <div class="settings-label">
-            <strong>Backup e manutenzione ora</strong>
-            <span class="settings-hint">Backup, potatura della cronologia e compattazione del file, in un
-              blocco solo — lo stesso che gira alla chiusura. Il pulsante sta in Cronologia, insieme a ciò
-              che produce.</span>
+            <strong>Cronologia e ripristino</strong>
+            <span class="settings-hint">Qui sopra ci sono le preferenze; le azioni stanno in Cronologia.</span>
           </div>
-          <div class="settings-control">
-            <button class="btn btn-secondary" onclick="navigate('cronologia')">🕘 Vai a Cronologia</button>
-          </div>
-        </div>
-        <!-- ⚠️ Qui ci sono solo preferenze: "come voglio che si comporti". I backup veri —
-             vederli, ripristinarli — stanno in Cronologia, sulla stessa linea del tempo delle
-             operazioni: è lì che si sceglie fra annullare un gesto e tornare indietro del
-             tutto, e quella scelta si fa guardando una schermata sola. -->
-        <div class="settings-row">
-          <div class="settings-label">
-            <strong>Ripristina un backup</strong>
-            <span class="settings-hint">I punti di ripristino stanno in Cronologia, in mezzo alle operazioni:
-              da lì si vede cos'è successo prima e dopo ciascuno.</span>
-          </div>
-          <div class="settings-control">
-            <button class="btn btn-secondary" onclick="navigate('cronologia')">🕘 Vai a Cronologia</button>
+          <div class="settings-control" style="flex-direction:column;align-items:flex-start;gap:10px">
+            <p class="settings-hint" style="margin:0;max-width:60ch;line-height:1.7">
+              Ogni gesto che fai è registrato nel database <strong>insieme alle righe che ha cambiato</strong>:
+              da lì si può <strong>annullare una singola operazione</strong> — anche di giorni fa — oppure
+              <strong>riportare il database indietro</strong> fino a un punto preciso.<br><br>
+              Sulla stessa linea del tempo compaiono anche i <strong>punti di ripristino</strong>, cioè i file
+              <code>.bak</code> creati con le impostazioni qui sopra: così la scelta fra «disfo quel gesto» e
+              «torno a ieri sera» si fa guardando una schermata sola, invece di incrociarne due.<br><br>
+              Da lì parte anche <strong>Backup e manutenzione ora</strong> (lo stesso blocco che gira alla
+              chiusura dell'app) e si consulta l'archivio del vecchio file di log.
+            </p>
+            <button class="btn btn-secondary" onclick="navigate('cronologia')">🕘 Apri Cronologia</button>
           </div>
         </div>
       </div>
@@ -351,22 +352,8 @@ async function renderSettings() {
       <!-- ⚠️ Impostazioni = come voglio che si comporti · Cronologia = la cosa in sé.
            Qui non ci sono più azioni sul log: il file di testo non viene più scritto (la
            storia sta nel giornale, dentro il database) e quello vecchio è un archivio di
-           sola lettura, che l'app non tocca. -->
-      <div class="settings-section">
-        <div class="settings-section-title">🕘 Cronologia delle operazioni</div>
-        <div class="settings-row">
-          <div class="settings-label">
-            <strong>Cosa hai fatto, e come tornare indietro</strong>
-            <span class="settings-hint">Ogni gesto è registrato dentro il database, insieme alle righe che ha
-              cambiato: da Cronologia si annulla una singola operazione o si riporta indietro tutto
-              da un punto preciso. Lì ci sono anche i punti di ripristino (.bak) e l'archivio del
-              vecchio file di log.</span>
-          </div>
-          <div class="settings-control">
-            <button class="btn btn-secondary" onclick="navigate('cronologia')">🕘 Vai a Cronologia</button>
-          </div>
-        </div>
-      </div>`,
+           sola lettura, che l'app non tocca. Il rimando alla Cronologia sta nella scheda
+           Dati, ed è uno solo in tutte le Impostazioni: non rimetterlo anche qui. -->`,
 
     archive: `
       <div class="settings-section">

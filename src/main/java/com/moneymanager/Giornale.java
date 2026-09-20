@@ -23,7 +23,8 @@ import java.util.stream.Collectors;
  * <p>Due tabelle, due pesi, due ruoli:</p>
  * <ul>
  *   <li><b>{@code op_log}</b> è <b>il gesto</b>: una riga, in italiano, quella che l'utente
- *       legge. È l'erede diretto della riga di testo che scriveva {@link DbLogger}.</li>
+ *       legge. È l'erede diretto della riga di testo che fino alla 1.25.x finiva nel
+ *       file {@code <db>.log}.</li>
  *   <li><b>{@code change_log}</b> sono <b>le conseguenze sui dati</b>: n righe, in JSON, la
  *       riga di tabella <i>com'era prima</i>. Non si leggono, si eseguono a ritroso.</li>
  * </ul>
@@ -62,10 +63,9 @@ import java.util.stream.Collectors;
  * garanzia in più rispetto a prima: fino alla 1.26.0 solo le scritture dentro {@code inTx}
  * erano serializzate, le {@code execute()} nude no.</p>
  *
- * <p><b>Fase 1:</b> {@link DbLogger} continua a scrivere il file {@code <db>.log} in parallelo,
- * per poter confrontare riga per riga il vecchio meccanismo col nuovo. Sparisce in fase 3.</p>
- *
- * @see <a href="../../../../../docs/DISEGNO_CRONOLOGIA.md">docs/DISEGNO_CRONOLOGIA.md</a>
+ * <p>Il vecchio file {@code <db>.log} non viene più scritto dalla 1.26.0: resta come archivio
+ * di sola lettura della storia precedente al giornale, raggiungibile da Cronologia → Archivio.
+ * L'app non lo tocca e non lo cancella.</p>
  */
 public class Giornale {
 
@@ -110,7 +110,6 @@ public class Giornale {
             "tx.range", "cf.range", "proj.", "fc.", "portfolio.active_only");
 
     private final Database db;
-    private final DbLogger file;            // fase 1: scrittura parallela sul .log
 
     /** false finché op_log/change_log non esistono di sicuro (primo avvio su DB nuovo):
      *  prima di allora non si materializza niente, e non c'è niente da materializzare. */
@@ -122,8 +121,8 @@ public class Giornale {
     private int contatoreSavepoint = 0;
 
     Giornale(String dbPath, Database db) {
-        this.db   = db;
-        this.file = new DbLogger(dbPath);
+        this.db = db;
+        setDbPath(dbPath);
     }
 
     // ── L'operazione in corso ────────────────────────────────────────────────────
@@ -184,9 +183,11 @@ public class Giornale {
     // ── Annotazioni ─────────────────────────────────────────────────────────────
 
     /**
-     * Annota cosa sta facendo l'operazione in corso. <b>Stessa firma e stessi argomenti</b> di
-     * {@code DbLogger.log}: gli ~85 punti di chiamata in {@link Database} non cambiano di un
-     * carattere, cambia solo dove finisce il testo.
+     * Annota cosa sta facendo l'operazione in corso.
+     *
+     * <p>La firma è <b>la stessa</b> del vecchio {@code DbLogger.log}: è ciò che ha permesso di
+     * sostituire il meccanismo senza toccare di un carattere gli ~85 punti di chiamata in
+     * {@link Database}. Il testo non finisce più in un file, ma nell'operazione in corso.</p>
      *
      * @param azione etichetta dell'operazione (es. "TRANSAZIONE ELIMINATA")
      * @param campi  coppie "chiave:valore"
@@ -1011,6 +1012,24 @@ public class Giornale {
         }
     }
 
+    // ── Formattazione dei campi di un'annotazione ───────────────────────────────
+    //
+    // Usate da ~70 punti di `Database` nelle chiamate a log(). Erano statiche in DbLogger
+    // insieme alla scrittura del file di testo, ma non c'entravano con quella: formattano il
+    // VALORE di un campo, e il campo oggi finisce nel giornale.
+
+    /** Un numero come importo leggibile (due decimali); {@code null} → {@code "0.00"}. */
+    static String amt(Object v) {
+        if (v == null) return "0.00";
+        double d = ((Number) v).doubleValue();
+        return String.format("%.2f", d);
+    }
+
+    /** Stringa da un Object qualsiasi; {@code null} → {@code "-"}. */
+    static String s(Object v) {
+        return v != null ? v.toString() : "-";
+    }
+
     // ── Il vecchio .log: archivio di sola lettura ────────────────────────────────
     //
     // Dalla 1.26.0 l'app non lo scrive più e non lo tocca. Non è inutile: contiene la storia
@@ -1018,7 +1037,21 @@ public class Giornale {
     // «Archivio». Lo cancella l'utente, se vuole: l'app non cancella file suoi.
     // ⚠️ Effetto collaterale gradito su OneDrive: un file sincronizzato in meno che veniva
     // ricaricato per intero a ogni riga scritta.
+    //
+    // ⚠️ Qui non si scrive: c'è solo il percorso. Se un giorno servisse di nuovo scrivere un
+    // registro testuale, non è questo il posto — va su app.log, che non è sincronizzato.
 
-    public void setDbPath(String dbPath)   { file.setDbPath(dbPath); }
-    public java.nio.file.Path getLogFile() { return file.getLogFile(); }
+    private volatile java.nio.file.Path archivio;
+
+    /** Ricalcola il percorso dell'archivio quando si cambia database. */
+    public void setDbPath(String dbPath) {
+        if (dbPath == null || dbPath.isBlank()) { archivio = null; return; }
+        java.nio.file.Path db = java.nio.file.Path.of(dbPath);
+        String base = db.getFileName().toString().replaceAll("\\.[^.]+$", "");
+        archivio = db.resolveSibling(base + ".log");
+    }
+
+    /** Il vecchio {@code <db>.log}, o {@code null} se non c'è un database aperto.
+     *  Può non esistere su disco: un database nato dalla 1.26.0 non ne ha mai avuto uno. */
+    public java.nio.file.Path getLogFile() { return archivio; }
 }

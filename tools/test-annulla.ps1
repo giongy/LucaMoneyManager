@@ -81,7 +81,7 @@ if ($Keep) {
   Write-Host "`nCopia conservata: $copia"
 } else {
   # Oltre alla copia: il journal di SQLite se la corsa si è interrotta a metà, e il .log che
-  # DbLogger scrive accanto al DB (ha il nome del DB, quindi finisce anche lui in temp).
+  # Un eventuale .log accanto al DB (nome del DB, quindi finisce anche lui in temp).
   $base = [IO.Path]::Combine([IO.Path]::GetDirectoryName($copia), [IO.Path]::GetFileNameWithoutExtension($copia))
   Get-ChildItem "$base*" -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
 }

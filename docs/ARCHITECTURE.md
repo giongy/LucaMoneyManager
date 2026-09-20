@@ -64,7 +64,7 @@ mostra in un dialog.
 │   ├─ 7.  new Database(dbPath)                                               │
 │   │       openConnection()  ─ SQLiteConfig: DELETE journal, FULL sync,      │
 │   │                           cache 16MB, FK on                             │
-│   │       initSchema()      ─ CREATE TABLE IF NOT EXISTS (20 tabelle)       │
+│   │       initSchema()      ─ CREATE TABLE IF NOT EXISTS (22 tabelle)       │
 │   │       migrate()         ─ schema_version step-by-step (vedi §6)         │
 │   │       seedDefaultData() ─ categorie default, tag di sistema, ecc.       │
 │   │                                                                         │
@@ -393,26 +393,41 @@ aggiungere un metodo che tocca `conn`.
 ### Pipeline `Database(dbPath)`
 
 ```
-initSchema()        Crea le 20 tabelle "canoniche" se mancano.
-                    Rispecchia lo schema COMPLETO alla v23 e timbra
-                    subito schema_version = 23 sui DB nuovi.
+initSchema()        Crea le 22 tabelle "canoniche" se mancano.
+                    Rispecchia lo schema COMPLETO alla v27 e timbra
+                    subito schema_version = 27 sui DB nuovi.
        │
        ▼
 migrate()           Solo per DB creati da versioni precedenti.
-                    Esce immediatamente se schema_version >= 23.
+                    Esce immediatamente se schema_version >= 27.
                     v21: accounts.is_hidden
                     v22: accounts.payment_day / payment_account_id / auto_settle
                     v23: categories.mobile_favorite
+                    v24: portfolio_transactions.parent_pt_id
+                    v25: categories.system_key (+ indice UNIQUE + backfill)
+                    v26: portfolio_transactions.accrued_interest
+                    v27: giornale — nessun ALTER: op_log e change_log
+                         nascono in initSchema, i trigger li installa
+                         Giornale.allineaTrigger() subito dopo
+       │
+       ▼
+allineaTrigger()    Genera il testo atteso dei 57 trigger di cattura e lo
+                    confronta con sqlite_master: identici → non scrive
+                    niente; diversi → DROP + CREATE dei soli divergenti.
        │
        ▼
 seedDefaultData()   Categorie default, tag di sistema, range preset, ecc.
                     Inserite solo se le tabelle sono vuote.
 ```
 
-**Come si aggiunge una migrazione (v24+):** un blocco `if (currentVersion < 24) { try { ALTER … }
+**Come si aggiunge una migrazione (v28+):** un blocco `if (currentVersion < 28) { try { ALTER … }
 catch (SQLException ignored) {} }` in `migrate()`, **e** la colonna nella `CREATE TABLE` di
 `initSchema()`. Il `try/catch` è voluto: su un DB creato da `initSchema` già aggiornato l'`ALTER`
 fallisce, ed è corretto ignorarlo.
+
+⚠️ **Una tabella nuova va aggiunta anche a `Giornale.TABELLE`** (o a `ESCLUSE_NOTE`, se le sue
+modifiche non devono essere annullabili). Non è una cosa da ricordare: `allineaTrigger()` la
+segnala in `app.log` come «tabella senza giornale» al primo avvio.
 
 ⚠️ Le migrazioni **fino alla v20 sono state consolidate** in `initSchema()` e non esistono più come
 step. Un DB a `version < 20` arriverebbe in fondo e verrebbe timbrato senza che nessuno abbia
@@ -420,7 +435,7 @@ aggiunto le colonne mancanti (`initSchema` crea solo le tabelle **assenti**, non
 esistenti). Non è un caso reale — non esistono backup anteriori alla v20 — quindi non è gestito.
 `dbGetInfo()` espone comunque `schema_version` accanto a `schema_latest`.
 
-### Tabelle (22 in totale)
+### Tabelle (24 in totale)
 | Dominio | Tabelle |
 |---------|---------|
 | Core | `accounts`, `categories`, `transactions`, `transaction_splits`, `tags`, `transaction_tags` |
@@ -429,10 +444,11 @@ esistenti). Non è un caso reale — non esistono backup anteriori alla v20 — 
 | Portfolio | `portfolio`, `portfolio_transactions` |
 | Previsioni | `forecasts` (archived), `forecast_categories` |
 | Sistema | `app_settings`, `reports`, `range_presets`, `notes`, `note_tags`, `schema_version` |
+| Giornale (v27) | `op_log` (il gesto), `change_log` (le righe com'erano prima) + 57 trigger di cattura |
 | Sync Android | `sync_meta`, `imported_pending` |
 
 ⚠️ Le due tabelle **Sync Android non sono in `initSchema`**: nascono a runtime, `sync_meta` in
-`touchSyncMeta()` e `imported_pending` in `importPending()`. Le altre 20 sì.
+`touchSyncMeta()` e `imported_pending` in `importPending()`. Le altre 22 sì.
 
 ### Coda pendenti dal telefono
 L'app Android apre il DB in **sola lettura** e accoda gli inserimenti in un `pending.jsonl` accanto
@@ -457,7 +473,7 @@ ricaricamento del file intero. Ci va solo ciò che ha fatto **l'utente**: gli ev
 si rompeva prima — sta in `CLAUDE.md`, sezioni "I due registri e OneDrive" e "Backup e
 manutenzione".
 
-Il vecchio `<dbname>.log` scritto da `DbLogger` **non viene più aggiornato dalla 1.26.0**: resta
+Il vecchio `<dbname>.log` **non viene più aggiornato dalla 1.26.0**: resta
 come archivio di sola lettura della storia precedente, consultabile da Cronologia → Archivio.
 
 ---
@@ -648,7 +664,8 @@ essere visibile (no riavvio JVM).
 | Impostazioni nuove | Default lato JS in [init.js](../src/main/resources/web/js/init.js); persistite con `api.setSetting(key, value)` → DB | Solo le 4 chiavi bootstrap restano in `settings.properties` |
 | Tray / autostart | [TrayManager.java](../src/main/java/com/moneymanager/TrayManager.java) | Solo Windows (HKCU Run) |
 | Bridge HTTP remoto | [WebServer.java](../src/main/java/com/moneymanager/WebServer.java) | Blocklist dei method desktop-only nel contesto `/bridge`, prima del dispatch |
-| Logging modifiche DB | [DbLogger.java](../src/main/java/com/moneymanager/DbLogger.java) | `db.logger.log("AZIONE", "campo:val")` |
+| Cronologia / annullamento | [Giornale.java](../src/main/java/com/moneymanager/Giornale.java) | `db.getLogger().log("AZIONE", "campo:val")` annota il gesto; la cattura dei dati la fanno i trigger, generati da `TABELLE` |
+| Backup e manutenzione | [Manutenzione.java](../src/main/java/com/moneymanager/Manutenzione.java) | `db.manutenzione(manuale)`; il *come* (`backup to`, accesso esclusivo) sta in `Database` |
 
 ---
 

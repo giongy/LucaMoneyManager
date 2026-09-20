@@ -12,11 +12,16 @@ Due piattaforme: **desktop (primaria)** e **Android (secondaria)**, database SQL
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Mappa del flusso: avvio, bridge, router, DB, tray, WebServer, build. Da leggere prima di toccare il codice. |
 | [docs/AUDIT_JAVA_2026-07.md](docs/AUDIT_JAVA_2026-07.md) | Audit dei 52 finding Java + rilettura indipendente. **Storico, non aggiornare** |
 | [docs/AUDIT_ROBUSTEZZA_JAVA.md](docs/AUDIT_ROBUSTEZZA_JAVA.md) · [docs/AUDIT-RESOURCES.md](docs/AUDIT-RESOURCES.md) | Altri audit datati. Stessa regola: sono fotografie, non documentazione viva. |
-| [docs/DISEGNO_CRONOLOGIA.md](docs/DISEGNO_CRONOLOGIA.md) | **Lavoro in corso**: giornale delle operazioni, annullamento, pagina Cronologia, backup e manutenzione (1.26.0 / schema v27). Fasi 1-3 fatte, restano 4 (manutenzione e backup) e 5 (pulizia). Fonte unica finché il lavoro è aperto; a fine lavoro le invarianti migrano qui, il flusso in `ARCHITECTURE.md`, e il file si elimina. |
 
 ⚠️ I file `AUDIT*` sono **registri storici**: descrivono lo stato a una certa data e vanno letti come
 tali. La documentazione da tenere aggiornata è solo questa terna: `CLAUDE.md`, `README.md`,
-`docs/ARCHITECTURE.md` — più `DISEGNO_*` finché il lavoro che descrivono è aperto.
+`docs/ARCHITECTURE.md`.
+
+Un file `DISEGNO_*` può comparire mentre un lavoro grosso è in corso: è la **fonte unica** finché
+resta aperto, e a lavoro chiuso le sue invarianti migrano qui, il flusso in `ARCHITECTURE.md`, e
+il file **si elimina**. È quello che è successo a `DISEGNO_CRONOLOGIA.md` con la 1.26.0: quel
+documento è vissuto cinque fasi ed è servito proprio perché aveva una scadenza — un progetto che
+sopravvive al lavoro che descrive diventa un secondo posto dove cercare la verità.
 
 ---
 
@@ -26,7 +31,7 @@ tali. La documentazione da tenere aggiornata è solo questa terna: `CLAUDE.md`, 
 - **Linguaggio:** Java 25, Maven 3.x
 - **UI:** JCEF v146 (Chromium embedded) + Swing per dialogs/titlebar/splash
 - **Frontend:** Vanilla JS puro (`src/main/resources/web/`, modulare in `js/pages/*.js`), no React/Vue
-- **Versione:** 1.25.17 — output `target/moneymanager-1.25.17.jar` (fat JAR, web/ esclusa)
+- **Versione:** 1.26.0 — output `target/moneymanager-1.26.0.jar` (fat JAR, web/ esclusa)
 - **Web assets:** serviti da filesystem (cartella `web/` accanto al `.exe` in produzione, `target/classes/web/` in IDE)
 - **DB path:** `%APPDATA%\LucaMoneyManager\data.db` (`%APPDATA%` = `...\Roaming`)
 - **Due registri distinti, in due posti diversi** — vedi "I due registri e OneDrive"
@@ -46,14 +51,14 @@ tali. La documentazione da tenere aggiornata è solo questa terna: `CLAUDE.md`, 
 ```
 JS Frontend (js/pages/*.js, 14 moduli)
     ↓  cefQuery (payload JSON in Base64)      ↑ stessa API anche via HTTP LAN (WebServer)
-Bridge.java (~1080 LOC) — dispatch 137 operazioni (+4 dialog nativi fuori dispatch)
+Bridge.java (~1130 LOC) — dispatch 142 operazioni (+4 dialog nativi fuori dispatch)
     ↓
-Database.java (~5890 LOC) — tutte le query JDBC
-    ↓
-SQLite
+Database.java (~7070 LOC) — tutte le query JDBC, schema, transazioni
+    ↓            ↘ classi di dominio: Giornale (~1060), Manutenzione (~160)
+SQLite  ← 57 trigger di cattura scrivono il giornale a ogni modifica
 ```
 
-**Classi Java:** `App` (entry point), `MainWindow` (Swing + JCEF), `Bridge` (dispatch JS↔Java), `Database` (JDBC), `Settings` (preferenze utente), `IconFactory` (icona app + tray per stato DB), `SplashWindow` (splash Swing 70%×70%, fade 350ms), `TrayManager` (system tray), `SingleInstance` (lock istanza unica), `WebServer` (serve web/ da filesystem + bridge LAN), `Giornale` (cronologia delle operazioni: confine del gesto, trigger di cattura, annullamento), `Manutenzione` (il blocco backup → potatura → compattazione, e il backup obbligatorio prima dello svecchiamento), `DbLogger` (il vecchio log testuale: non scrive più niente, resta solo per leggere l'archivio — sparisce in fase 5), `ContextMenuHandler` (menu tasto destro nativo: modifica/zoom/devtools)
+**Classi Java:** `App` (entry point), `MainWindow` (Swing + JCEF), `Bridge` (dispatch JS↔Java), `Database` (JDBC), `Settings` (preferenze utente), `IconFactory` (icona app + tray per stato DB), `SplashWindow` (splash Swing 70%×70%, fade 350ms), `TrayManager` (system tray), `SingleInstance` (lock istanza unica), `WebServer` (serve web/ da filesystem + bridge LAN), `Giornale` (cronologia delle operazioni: confine del gesto, trigger di cattura, annullamento), `Manutenzione` (il blocco backup → potatura → compattazione, e il backup obbligatorio prima dello svecchiamento), `ContextMenuHandler` (menu tasto destro nativo: modifica/zoom/devtools)
 
 **Moduli JS pagine** (LOC indicativi): `analytics` (3915), `portfolio` (2100), `budget` (1985), `settings` (1590), `transactions` (1470), `dashboard` (1460), `scheduled` (1075), `accounts` (825), `cronologia` (535), `notes` (360), `categories` (320), `forecasts` (240), `ranges` (195), `tags` (105)
 
@@ -169,6 +174,126 @@ esterno contava come modifica di sessione). Oggi la difesa è nel tipo: `hasChan
 `SELECT EXISTS(… WHERE id > soglia AND tipo='utente')`, e `tipo` vale `'utente'` solo se
 l'operazione ha un'annotazione **e** arriva da `desktop`/`lan`. Avvio, manutenzione e
 importazioni restano `'sistema'` e non fanno backup a vuoto.
+
+### Il giornale delle operazioni (1.26.0, schema v27)
+
+> **`op_log` è il gesto** — una riga, in italiano, quella che l'utente legge.
+> **`change_log` sono le conseguenze sui dati** — n righe, in JSON, la riga *com'era prima*.
+> Una si **legge**, l'altra si **esegue** a ritroso per annullare.
+
+Esempio vero: elimini la transazione 2146 → **una** riga in `op_log`
+(«TRANSAZIONE ELIMINATA · id:2146 · 34,52 · Contanti») e **quattro** in `change_log` (la
+transazione, due split e un tag: le tre figlie arrivano dalle `ON DELETE CASCADE`).
+
+**La cattura non sta nei metodi di scrittura**, sta in **57 trigger generati** (19 tabelle × 3)
+dall'elenco unico `Giornale.TABELLE`. Un metodo di scrittura nuovo è journalato senza che nessuno
+se ne debba ricordare. Le ~85 chiamate `logger.log("ETICHETTA", "campo:val", …)` sparse in
+`Database` **non** catturano i dati: annotano soltanto l'etichetta e il dettaglio che l'utente
+leggerà.
+
+⚠️ **I trigger catturano anche le righe eliminate dalle `ON DELETE CASCADE`** — verificato su
+SQLite 3.53.2, senza `recursive_triggers`. È il punto su cui si regge tutto: senza, annullare la
+cancellazione di una transazione ne restituirebbe il **guscio senza split né tag**, con saldi
+plausibili e totali per categoria sbagliati.
+
+#### Le invarianti da non violare
+
+1. **Ogni tabella di dati è journalata**, e lo garantisce la **guardia di allineamento**
+   all'avvio, non la memoria di chi aggiunge una tabella: `allineaTrigger()` genera il testo
+   atteso dei trigger e lo confronta con `sqlite_master`. Identici → **non scrive niente** (avvio
+   a scrittura zero); diversi → `DROP` + `CREATE` dei soli divergenti. Una tabella nuova fuori
+   dall'elenco diventa una riga in `app.log`, non un silenzio.
+2. **Un'operazione senza righe di `change_log` non lascia traccia**, nemmeno se ha
+   un'annotazione. Il giornale non deve mai trasformare un non-evento in una scrittura: vale per
+   `ensureSystemTags` su un DB a posto, per `syncCardSettlements` con l'importo già giusto, per
+   un `UPDATE` che non trova righe.
+3. **Un solo scrittore per volta.** `op_id` si assegna alla fine con
+   `UPDATE change_log SET op_id=? WHERE op_id IS NULL`: due operazioni concorrenti (thread UI di
+   JCEF + virtual thread del `WebServer`) si ruberebbero le righe a vicenda. Lo impedisce
+   `lockScrittura`, tenuto per l'operazione intera.
+4. **`inTx` annidato usa `SAVEPOINT`**, mai un no-op — vedi "Transazioni: l'unità è il gesto".
+5. **`op_log.annulla_op` e `annullata_da` sono `ON DELETE SET NULL`**, mai `CASCADE`: con
+   `CASCADE`, potare un'operazione vecchia porterebbe via **anche l'operazione recente che l'ha
+   annullata**, cioè la potatura mangerebbe in avanti invece che all'indietro.
+   **`change_log.op_id` è invece `ON DELETE CASCADE`**: è ciò che rende la potatura una `DELETE`
+   sola su `op_log`, con le due retention allineate per costruzione e non per disciplina.
+6. **Niente `AUTOINCREMENT`** su `op_log` e `change_log`. È la lezione di `ensureSystemTags`: su
+   una tabella `AUTOINCREMENT` il contatore in `sqlite_sequence` avanza anche per una riga poi
+   scartata, e quella è una pagina scritta — cioè un ricaricamento OneDrive del file intero.
+7. **L'annullamento è atomico e usa `PRAGMA defer_foreign_keys=ON`.** Reinserire una figlia prima
+   della madre violerebbe la chiave esterna; con le verifiche rimandate al commit l'ordine smette
+   di contare, e un annullamento davvero incoerente fallisce **in blocco**, senza lasciare niente
+   a metà. L'alternativa (ordinare le tabelle per grafo delle FK) sarebbe una seconda fonte di
+   verità da tenere allineata.
+8. **L'annullamento è a sua volta un'operazione**: scrive la propria riga in `op_log` e le proprie
+   righe in `change_log`. Da cui il **redo gratis** (annullare l'annullamento è la stessa identica
+   meccanica) e il fatto che **la storia non si riscrive mai**: nessuna riga sparisce, se ne
+   aggiungono.
+9. **L'elenco delle chiavi `app_settings` escluse è di esclusione, non di inclusione**
+   (`CHIAVI_VOLATILI`: `tx.range`, `cf.range`, `proj.`, `fc.`, `portfolio.active_only`, cioè
+   stato di navigazione riscritto a ogni clic). Una preferenza nuova viene journalata per
+   default: fa rumore, che è visibile e innocuo. Con un elenco di inclusione verrebbe dimenticata
+   e perderebbe l'annullamento **in silenzio**.
+
+#### I tre controlli prima di annullare
+
+⚠️ **Sono tre domande indipendenti: nessuna copre le altre.** Il primo disegno ne aveva una sola,
+e quattro scenari provati sui dati veri hanno mostrato che non basta.
+
+| | domanda | come |
+|---|---|---|
+| **1. conflitti in avanti** | qualcuno ha toccato queste righe **dopo** di me? | le `(tabella, chiave)` cercate fra le righe di operazioni successive ancora `attiva` |
+| **2. dipendenze** | le righe che rimetto puntano a righe **che esistono ancora**? | il grafo delle chiavi esterne (`pragma_foreign_key_list`) su ogni riga da reinserire |
+| **3. coerenza** | la realtà corrisponde a ciò che il giornale si aspetta? | per `D` la riga non deve esistere, per `U`/`I` deve esistere |
+
+Il caso che ha imposto il controllo 2: *cancello una transazione con un tag, poi cancello il tag,
+poi annullo*. Il controllo 1 non se ne accorge — la riga `transaction_tags` era già sparita,
+quindi la cancellazione del tag non l'ha mai toccata — e l'annullamento fallirebbe al commit con
+un opaco `FOREIGN KEY constraint failed`. Il giornale sa invece **di chi è la colpa**: la riga `D`
+che ha eliminato il tag è lì, con la sua operazione.
+
+⚠️ **Nel controllo 2 le righe che l'annullamento sta rimettendo nello stesso lotto contano come
+presenti.** Senza questa eccezione *ogni* annullamento di una cancellazione verrebbe rifiutato: le
+figlie puntano sempre a una madre che in quel momento non c'è ancora.
+
+⚠️ **Il controllo 3 va simulato in sequenza, non valutato riga per riga.** Dentro una sola
+operazione la stessa riga può essere toccata più volte (`updateTransaction` riscrive i tag
+cancellandoli e reinserendoli, quindi la stessa chiave compare come `I` e come `D`). Valutandole
+isolatamente, la `D` direbbe «esiste già» e **ogni modifica con tag o split risulterebbe non
+annullabile**.
+
+#### Due errori già pagati, da riconoscere se ricompaiono
+
+1. ⚠️ **`INSERT OR REPLACE` per rimettere una riga modificata distrugge le figlie.** È il modo
+   ovvio di scrivere l'inverso di una `U` e sembra equivalente a un `UPDATE`. Non lo è: `REPLACE`
+   **cancella** la riga in conflitto prima di reinserirla, e quella cancellazione fa scattare le
+   `ON DELETE CASCADE`. Misurato: la madre torna perfetta, le due figlie spariscono — cioè
+   annullare la modifica di una transazione la restituiva **senza split e senza tag**. Si usa
+   `UPDATE` per la `U` e `INSERT` per la `D`, mai `REPLACE`; ed è il **controllo 3** a dire quale
+   dei due serve, il che lo rende parte del meccanismo e non solo una guardia.
+2. ⚠️ **Gli id originali si conservano.** La transazione torna `2146`, non `2400`: allegati,
+   riferimenti e schede aperte continuano a funzionare. Conseguenza accettata: `sqlite_sequence`
+   non viene riavvolta, quindi il prossimo inserimento prende comunque un id più alto. È il
+   normale comportamento di SQLite.
+
+#### L'annullamento del portafoglio resta, e non è un doppione
+
+`undoPortfolioTransaction` (annulla un acquisto/vendita dalla pagina Investimenti, e smonta un
+titolo in `deletePortfolioItem`) **non è stato sostituito** dall'annullamento dal giornale, che
+pure è più esatto dove si applica — rimette `avg_price` com'era invece di ricalcolarlo.
+
+⚠️ Il motivo è la **retention**: il giornale copre una finestra (30 giorni di default), le
+operazioni di portafoglio no. Sul DB reale, al 2026-09, **46 operazioni madri su 49 sono più
+vecchie di 30 giorni**: con il solo giornale, «elimina titolo» fallirebbe su quasi tutte le
+posizioni esistenti. Le due strade rispondono a domande diverse e convivono:
+
+| | domanda | copertura |
+|---|---|---|
+| annullamento dal giornale | «disfa **questo gesto**» | dentro la finestra di retention, qualsiasi dominio, ripristino esatto |
+| `undoPortfolioTransaction` | «smonta **questa operazione** di portafoglio» | qualsiasi età, solo portafoglio, ricalcolo di dominio |
+
+Nessun conflitto fra le due: anche l'annullamento di dominio passa dal Bridge, quindi è
+journalato, e a sua volta annullabile dalla Cronologia.
 
 ### La pagina Cronologia (1.26.0)
 
@@ -343,8 +468,8 @@ I tre casi che il metodo deve continuare a coprire, e che vanno riprovati toccan
 - **Giornale (v27):** `op_log` (il gesto: una riga per operazione, quella che l'utente legge) e
   `change_log` (le conseguenze sui dati: la riga com'era prima, in JSON, da rieseguire a ritroso
   per annullare). Popolate da **57 trigger generati** da `Giornale.TABELLE`, non dai metodi di
-  scrittura. Vedi [docs/DISEGNO_CRONOLOGIA.md](docs/DISEGNO_CRONOLOGIA.md)
-- **Sync Android:** `sync_meta` (marcatori `last_modified`/`last_modified_by`), `imported_pending` (id delle righe di `pending.jsonl` già importate → idempotenza dell'import). ⚠️ Queste 2 tabelle **non** sono in `initSchema`: nascono a runtime in `touchSyncMeta()` e `importPending()`. Le altre 20 sì.
+  scrittura. Vedi "Il giornale delle operazioni" qui sopra.
+- **Sync Android:** `sync_meta` (marcatori `last_modified`/`last_modified_by`), `imported_pending` (id delle righe di `pending.jsonl` già importate → idempotenza dell'import). ⚠️ Queste 2 tabelle **non** sono in `initSchema`: nascono a runtime in `touchSyncMeta()` e `importPending()`. Le altre 22 sì.
 
 **Indici (oltre alle PK):** su `transactions(date, account_id, category_id, to_account_id)` + composito `(account_id, date)`; su `transaction_splits(transaction_id)` e `portfolio_transactions(transaction_id)` (FK non indicizzate da SQLite); su `categories(parent_id)`, `budgets(year)`, `scheduled_transactions(is_active)`, `transaction_tags(tag_id)`, `note_tags(tag_id)`, `portfolio(account_id)`
 

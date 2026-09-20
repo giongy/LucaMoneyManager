@@ -398,7 +398,7 @@ public class ConfrontaQuery {
         return l;
     }
 
-    /** Toglie il file e i suoi compagni (il .log di DbLogger, un eventuale -journal). */
+    /** Toglie il file e i suoi compagni (il vecchio .log accanto al DB, un eventuale -journal). */
     static void pulisci(Path db) throws Exception {
         String base = db.getFileName().toString().replaceFirst("\\.db$", "");
         try (var s = Files.list(db.getParent())) {

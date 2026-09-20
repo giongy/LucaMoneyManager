@@ -12,9 +12,9 @@
 # annullare la cancellazione di una transazione ne restituirebbe il guscio senza split né tag),
 # nessuna riga orfana, nessun gesto a metà.
 #
-# ⚠️ LO STRUMENTO SCRIVE: aggiunge, modifica, elimina. Per questo NON lavora mai sul DB
-# indicato ma su una COPIA temporanea, che cancella alla fine insieme al .log che DbLogger
-# le scrive accanto. Conseguenze pratiche, le stesse di test-titoli.ps1:
+# ⚠️ LO STRUMENTO SCRIVE: aggiunge, modifica, elimina, fa backup e pota. Per questo NON lavora
+# mai sul DB indicato ma su una COPIA temporanea, che cancella alla fine insieme ai file che le
+# nascono accanto. Conseguenze pratiche, le stesse di test-titoli.ps1:
 #   · si può lanciare ad app aperta, non c'è contesa sul lock;
 #   · -Database prod è innocuo: i dati veri vengono solo letti per fare la copia.
 #

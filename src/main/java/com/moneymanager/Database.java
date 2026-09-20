@@ -1387,8 +1387,8 @@ public class Database {
 
         // ─── Giornale delle operazioni (v27) ──────────────────────────────────
         // op_log = il gesto (la riga che l'utente legge), change_log = le conseguenze sui dati
-        // (la riga com'era prima, da rieseguire a ritroso per annullare). Vedi Giornale.java
-        // e docs/DISEGNO_CRONOLOGIA.md.
+        // (la riga com'era prima, da rieseguire a ritroso per annullare). Vedi Giornale.java e,
+        // per le invarianti, CLAUDE.md sezione "Il giornale delle operazioni".
         executePlain("""
             CREATE TABLE IF NOT EXISTS op_log (
                 id            INTEGER PRIMARY KEY,
@@ -1936,7 +1936,7 @@ public class Database {
                 intVal(p,"is_favorite") != null ? intVal(p,"is_favorite") : 0, 0, nextOrder);
         touchSyncMeta();
         logger.log("CONTO AGGIUNTO", "id:" + id, "nome:" + str(p,"name"), "tipo:" + str(p,"type"),
-                   "saldo_iniziale:" + DbLogger.amt(dbl2(p,"initial_balance")));
+                   "saldo_iniziale:" + Giornale.amt(dbl2(p,"initial_balance")));
         return queryOne("SELECT * FROM accounts WHERE id=?", id);
     }
 
@@ -2058,7 +2058,7 @@ public class Database {
 
         execute("DELETE FROM accounts WHERE id=?", id);
         touchSyncMeta();
-        logger.log("CONTO ELIMINATO", "id:" + id, "nome:" + DbLogger.s(old != null ? old.get("name") : null));
+        logger.log("CONTO ELIMINATO", "id:" + id, "nome:" + Giornale.s(old != null ? old.get("name") : null));
         return Map.of("id", id, "deleted", true);
     }
 
@@ -2190,7 +2190,7 @@ public class Database {
         execute("UPDATE categories SET mobile_favorite=? WHERE id=?", on ? 1 : 0, id);
         Map<String, Object> row = queryOne("SELECT * FROM categories WHERE id=?", id);
         logger.log("CATEGORIA ANDROID", "id:" + id,
-                   "nome:" + DbLogger.s(row != null ? row.get("name") : null), "attiva:" + on);
+                   "nome:" + Giornale.s(row != null ? row.get("name") : null), "attiva:" + on);
         return row;
     }
 
@@ -2207,7 +2207,7 @@ public class Database {
         Map<String, Object> existing = queryOne("SELECT * FROM categories WHERE id=?", id);
         if (existing != null && "transfer".equals(existing.get("type")))
             throw new SQLException("La categoria Trasferimento non può essere eliminata");
-        logger.log("CATEGORIA ELIMINATA", "id:" + id, "nome:" + DbLogger.s(existing != null ? existing.get("name") : null));
+        logger.log("CATEGORIA ELIMINATA", "id:" + id, "nome:" + Giornale.s(existing != null ? existing.get("name") : null));
         execute("DELETE FROM categories WHERE id=?", id);
         return Map.of("id", id, "deleted", true);
     }
@@ -2374,8 +2374,8 @@ public class Database {
             carrySystemKeys(fromId, toId);
             execute("DELETE FROM categories WHERE id=?", fromId);
             touchSyncMeta();
-            logger.log("CATEGORIA RIASSEGNATA", "da:" + DbLogger.s(fromCat.get("name")),
-                       "a:" + DbLogger.s(toCat.get("name")),
+            logger.log("CATEGORIA RIASSEGNATA", "da:" + Giornale.s(fromCat.get("name")),
+                       "a:" + Giornale.s(toCat.get("name")),
                        "transazioni:" + nTx, "split:" + nSplit, "pianificate:" + nSched);
             return null;
         });
@@ -2409,7 +2409,7 @@ public class Database {
             String key = String.valueOf(k.get("system_key"));
             if (!destKey.isBlank()) {
                 logger.log("CHIAVE DI SISTEMA PERSA", "chiave:" + key,
-                           "da:" + DbLogger.s(k.get("name")),
+                           "da:" + Giornale.s(k.get("name")),
                            "motivo:la destinazione «" + destName + "» ha già la chiave «" + destKey + "»");
                 continue;
             }
@@ -2419,7 +2419,7 @@ public class Database {
             execute("UPDATE categories SET system_key=? WHERE id=?", key, toId);
             destKey = key;
             logger.log("CHIAVE DI SISTEMA SPOSTATA", "chiave:" + key,
-                       "da:" + DbLogger.s(k.get("name")), "a:" + destName);
+                       "da:" + Giornale.s(k.get("name")), "a:" + destName);
         }
     }
 
@@ -2638,10 +2638,10 @@ public class Database {
             "id:" + id,
             "data:" + str(p,"date"),
             "tipo:" + str(p,"type"),
-            "importo:" + DbLogger.amt(dbl2(p,"amount")),
-            "conto:" + DbLogger.s(tx != null ? tx.get("account_name") : null),
+            "importo:" + Giornale.amt(dbl2(p,"amount")),
+            "conto:" + Giornale.s(tx != null ? tx.get("account_name") : null),
             "categoria:" + logCategoria(id, tx),
-            "descrizione:" + DbLogger.s(str(p,"description")));
+            "descrizione:" + Giornale.s(str(p,"description")));
         return tx;
     }
 
@@ -2776,9 +2776,9 @@ public class Database {
                 execute("INSERT OR IGNORE INTO imported_pending(id,imported_at) VALUES(?,?)",
                         id, LocalDateTime.now().toString());
                 logger.log("CODA — RIGA ANNULLATA DAL TELEFONO", "id:" + id,
-                           "data:" + DbLogger.s(o.has("date") ? o.get("date").getAsString() : null),
-                           "importo:" + DbLogger.s(o.has("amount") ? o.get("amount").getAsString() : null),
-                           "descrizione:" + DbLogger.s(o.has("description") ? o.get("description").getAsString() : null));
+                           "data:" + Giornale.s(o.has("date") ? o.get("date").getAsString() : null),
+                           "importo:" + Giornale.s(o.has("amount") ? o.get("amount").getAsString() : null),
+                           "descrizione:" + Giornale.s(o.has("description") ? o.get("description").getAsString() : null));
             }
 
             // Pulizia: riga già applicata e abbastanza vecchia → non riscriverla (rimossa dal file).
@@ -3025,10 +3025,10 @@ public class Database {
                 "id:" + id,
                 "data:" + str(p,"date"),
                 "tipo:" + str(p,"type"),
-                "importo:" + DbLogger.amt(dbl2(p,"amount")),
-                "conto:" + DbLogger.s(tx != null ? tx.get("account_name") : null),
+                "importo:" + Giornale.amt(dbl2(p,"amount")),
+                "conto:" + Giornale.s(tx != null ? tx.get("account_name") : null),
                 "categoria:" + logCategoria(id, tx),
-                "descrizione:" + DbLogger.s(str(p,"description")));
+                "descrizione:" + Giornale.s(str(p,"description")));
             return tx;
         });
     }
@@ -3145,11 +3145,11 @@ public class Database {
         touchSyncMeta();
         logger.log("TRANSAZIONE ELIMINATA",
             "id:" + id,
-            "data:" + DbLogger.s(tx != null ? tx.get("date") : null),
-            "tipo:" + DbLogger.s(tx != null ? tx.get("type") : null),
-            "importo:" + DbLogger.amt(tx != null ? tx.get("amount") : null),
-            "conto:" + DbLogger.s(tx != null ? tx.get("account_name") : null),
-            "descrizione:" + DbLogger.s(tx != null ? tx.get("description") : null));
+            "data:" + Giornale.s(tx != null ? tx.get("date") : null),
+            "tipo:" + Giornale.s(tx != null ? tx.get("type") : null),
+            "importo:" + Giornale.amt(tx != null ? tx.get("amount") : null),
+            "conto:" + Giornale.s(tx != null ? tx.get("account_name") : null),
+            "descrizione:" + Giornale.s(tx != null ? tx.get("description") : null));
         return Map.of("id", id, "deleted", true);
     }
 
@@ -3181,7 +3181,7 @@ public class Database {
         if (old != null && Integer.valueOf(1).equals(old.get("is_system")))
             throw new SQLException("Il tag '" + old.get("name") + "' è di sistema e non può essere eliminato.");
         execute("DELETE FROM tags WHERE id=?", id);
-        logger.log("TAG ELIMINATO", "id:" + id, "nome:" + DbLogger.s(old != null ? old.get("name") : null));
+        logger.log("TAG ELIMINATO", "id:" + id, "nome:" + Giornale.s(old != null ? old.get("name") : null));
         return Map.of("id", id, "deleted", true);
     }
 
@@ -3239,11 +3239,11 @@ public class Database {
                 execute("UPDATE notes SET title=?, content=?, color=?, pinned=?, updated_at=? WHERE id=?",
                         title, content, color, pinned, now, id);
                 newId = id;
-                logger.log("NOTA MODIFICATA", "id:" + id, "titolo:" + DbLogger.s(title));
+                logger.log("NOTA MODIFICATA", "id:" + id, "titolo:" + Giornale.s(title));
             } else {
                 newId = execute("INSERT INTO notes(title,content,color,pinned,updated_at) VALUES(?,?,?,?,?)",
                         title, content, color, pinned, now);
-                logger.log("NOTA AGGIUNTA", "id:" + newId, "titolo:" + DbLogger.s(title));
+                logger.log("NOTA AGGIUNTA", "id:" + newId, "titolo:" + Giornale.s(title));
             }
             // Tag (sostituisce tutti)
             if (p.has("tag_ids") && p.get("tag_ids").isJsonArray()) {
@@ -3261,7 +3261,7 @@ public class Database {
         Map<String, Object> old = queryOne("SELECT title FROM notes WHERE id=?", id);
         execute("DELETE FROM notes WHERE id=?", id);
         touchSyncMeta();
-        logger.log("NOTA ELIMINATA", "id:" + id, "titolo:" + DbLogger.s(old != null ? old.get("title") : null));
+        logger.log("NOTA ELIMINATA", "id:" + id, "titolo:" + Giornale.s(old != null ? old.get("title") : null));
         return Map.of("id", id, "deleted", true);
     }
 
@@ -3299,7 +3299,7 @@ public class Database {
     public Map<String, Object> deleteRangePreset(int id) throws SQLException {
         Map<String, Object> old = queryOne("SELECT label FROM range_presets WHERE id=?", id);
         execute("DELETE FROM range_presets WHERE id=?", id);
-        logger.log("RANGE PRESET ELIMINATO", "id:" + id, "etichetta:" + DbLogger.s(old != null ? old.get("label") : null));
+        logger.log("RANGE PRESET ELIMINATO", "id:" + id, "etichetta:" + Giornale.s(old != null ? old.get("label") : null));
         return Map.of("id", id, "deleted", true);
     }
 
@@ -3336,7 +3336,7 @@ public class Database {
     public Map<String, Object> deleteReport(int id) throws SQLException {
         Map<String, Object> old = queryOne("SELECT name FROM reports WHERE id=?", id);
         execute("DELETE FROM reports WHERE id=?", id);
-        logger.log("REPORT ELIMINATO", "id:" + id, "nome:" + DbLogger.s(old != null ? old.get("name") : null));
+        logger.log("REPORT ELIMINATO", "id:" + id, "nome:" + Giornale.s(old != null ? old.get("name") : null));
         return Map.of("id", id, "deleted", true);
     }
 
@@ -3422,9 +3422,9 @@ public class Database {
      */
     private String logCategoria(long id, Map<String, Object> tx) throws SQLException {
         Object catName = tx != null ? tx.get("category_name") : null;
-        if (catName != null) return DbLogger.s(catName);
+        if (catName != null) return Giornale.s(catName);
         List<Map<String, Object>> splits = getTransactionSplits((int) id);
-        if (splits.isEmpty()) return DbLogger.s(null);
+        if (splits.isEmpty()) return Giornale.s(null);
         StringBuilder sb = new StringBuilder("[suddivisa] ");
         for (int i = 0; i < splits.size(); i++) {
             Map<String, Object> s = splits.get(i);
@@ -3432,7 +3432,7 @@ public class Database {
             Object name = s.get("category_name");
             sb.append(name != null ? name : "-")
               .append(' ')
-              .append(DbLogger.amt(s.get("amount")));
+              .append(Giornale.amt(s.get("amount")));
         }
         return sb.toString();
     }
@@ -3504,9 +3504,9 @@ public class Database {
         """, catId, dbl2(p,"amount"), month, year);
         Map<String, Object> cat = queryOne("SELECT name FROM categories WHERE id=?", catId);
         logger.log("BUDGET IMPOSTATO",
-            "categoria:" + DbLogger.s(cat != null ? cat.get("name") : catId),
+            "categoria:" + Giornale.s(cat != null ? cat.get("name") : catId),
             "mese:" + month + "/" + year,
-            "importo:" + DbLogger.amt(dbl2(p,"amount")));
+            "importo:" + Giornale.amt(dbl2(p,"amount")));
         return queryOne("SELECT * FROM budgets WHERE category_id=? AND month=? AND year=?", catId, month, year);
     }
 
@@ -3647,8 +3647,8 @@ public class Database {
             ON CONFLICT(category_id, year) DO UPDATE SET mode=excluded.mode, master_amount=excluded.master_amount
         """, categoryId, year, mode, r2(masterAmount));
         Map<String, Object> cat = queryOne("SELECT name FROM categories WHERE id=?", categoryId);
-        logger.log("BUDGET CONFIG", "categoria:" + DbLogger.s(cat != null ? cat.get("name") : categoryId),
-                   "anno:" + year, "modalita:" + mode, "importo:" + DbLogger.amt(masterAmount));
+        logger.log("BUDGET CONFIG", "categoria:" + Giornale.s(cat != null ? cat.get("name") : categoryId),
+                   "anno:" + year, "modalita:" + mode, "importo:" + Giornale.amt(masterAmount));
     }
 
     /** Imposta i 12 valori mensili per una categoria in un anno (0/null = rimuove).
@@ -3671,7 +3671,7 @@ public class Database {
                 }
             }
             Map<String, Object> cat = queryOne("SELECT name FROM categories WHERE id=?", categoryId);
-            logger.log("BUDGET BULK", "categoria:" + DbLogger.s(cat != null ? cat.get("name") : categoryId),
+            logger.log("BUDGET BULK", "categoria:" + Giornale.s(cat != null ? cat.get("name") : categoryId),
                        "anno:" + year);
             return null;
         });
@@ -3694,7 +3694,7 @@ public class Database {
         execute("DELETE FROM budgets WHERE category_id=? AND month=? AND year=?",
                 categoryId, month, year);
         Map<String, Object> cat = queryOne("SELECT name FROM categories WHERE id=?", categoryId);
-        logger.log("BUDGET MESE ELIMINATO", "categoria:" + DbLogger.s(cat != null ? cat.get("name") : categoryId),
+        logger.log("BUDGET MESE ELIMINATO", "categoria:" + Giornale.s(cat != null ? cat.get("name") : categoryId),
                    "mese:" + month + "/" + year);
     }
 
@@ -3803,7 +3803,7 @@ public class Database {
                 if (existing != null) {
                     int oldId = ((Number) existing.get("id")).intValue();
                     execute("DELETE FROM scheduled_transactions WHERE id=?", oldId);
-                    logger.log("SALDO CARTA RIMOSSO", "carta:" + DbLogger.s(cardName),
+                    logger.log("SALDO CARTA RIMOSSO", "carta:" + Giornale.s(cardName),
                                "mese:" + settled, "motivo:nessuna spesa");
                     changed++;
                 }
@@ -3834,8 +3834,8 @@ public class Database {
                        SET amount=?, description=?, account_id=?, category_id=?
                      WHERE id=?
                 """, total, desc, srcId, transferCatId, schedId);
-                logger.log("SALDO CARTA AGGIORNATO", "carta:" + DbLogger.s(cardName),
-                           "mese:" + settled, "importo:" + DbLogger.amt(total),
+                logger.log("SALDO CARTA AGGIORNATO", "carta:" + Giornale.s(cardName),
+                           "mese:" + settled, "importo:" + Giornale.amt(total),
                            "data:" + payDate);
             } else {
                 long schedId = execute("""
@@ -3846,8 +3846,8 @@ public class Database {
                 """, total, desc, srcId, cardId, transferCatId, payDate.toString());
                 execute("INSERT OR IGNORE INTO scheduled_transaction_tags(scheduled_id,tag_id) VALUES(?,?)",
                         schedId, tagId);
-                logger.log("SALDO CARTA CREATO", "carta:" + DbLogger.s(cardName),
-                           "mese:" + settled, "importo:" + DbLogger.amt(total),
+                logger.log("SALDO CARTA CREATO", "carta:" + Giornale.s(cardName),
+                           "mese:" + settled, "importo:" + Giornale.amt(total),
                            "data:" + payDate);
             }
             changed++;
@@ -3919,7 +3919,7 @@ public class Database {
                 str(p,"start_date"));
         saveSchedTags(id, p);
         logger.log("PIANIFICATA AGGIUNTA", "id:" + id, "descrizione:" + str(p,"description"),
-                   "tipo:" + str(p,"type"), "importo:" + DbLogger.amt(dbl2(p,"amount")),
+                   "tipo:" + str(p,"type"), "importo:" + Giornale.amt(dbl2(p,"amount")),
                    "frequenza:" + str(p,"frequency"), "inizio:" + str(p,"start_date"));
         return queryOne("SELECT * FROM scheduled_transactions WHERE id=?", id);
     }
@@ -3947,7 +3947,7 @@ public class Database {
                 id);
         saveSchedTags(id, p);
         logger.log("PIANIFICATA MODIFICATA", "id:" + id, "descrizione:" + str(p,"description"),
-                   "tipo:" + str(p,"type"), "importo:" + DbLogger.amt(dbl2(p,"amount")),
+                   "tipo:" + str(p,"type"), "importo:" + Giornale.amt(dbl2(p,"amount")),
                    "frequenza:" + str(p,"frequency"), "attiva:" + p.get("is_active"));
         return queryOne("SELECT * FROM scheduled_transactions WHERE id=?", id);
     }
@@ -3957,8 +3957,8 @@ public class Database {
         Map<String, Object> old = queryOne("SELECT description, amount, type FROM scheduled_transactions WHERE id=?", id);
         execute("DELETE FROM scheduled_transactions WHERE id=?", id);
         logger.log("PIANIFICATA ELIMINATA", "id:" + id,
-                   "descrizione:" + DbLogger.s(old != null ? old.get("description") : null),
-                   "importo:" + DbLogger.amt(old != null ? old.get("amount") : null));
+                   "descrizione:" + Giornale.s(old != null ? old.get("description") : null),
+                   "importo:" + Giornale.amt(old != null ? old.get("amount") : null));
         return Map.of("id", id, "deleted", true);
     }
 
@@ -4352,19 +4352,19 @@ public class Database {
                     INSERT INTO portfolio_transactions(portfolio_id,type,quantity,price,date,transaction_id,notes)
                     VALUES(?,?,?,?,?,?,?)
                 """, portfolioId, "coupon", 0, tx.get("amount"), tx.get("date"), transactionId,
-                        DbLogger.s(s.get("description")));
+                        Giornale.s(s.get("description")));
             }
         }
 
         if ("once".equals(plan.freq())) {
             execute("UPDATE scheduled_transactions SET is_active=0 WHERE id=?", scheduledId);
             logger.log("PIANIFICATA COMPLETATA", "id:" + scheduledId,
-                       "descrizione:" + DbLogger.s(s.get("description")));
+                       "descrizione:" + Giornale.s(s.get("description")));
         } else if (plan.next() != null) {
             execute("UPDATE scheduled_transactions SET start_date=? WHERE id=?",
                     plan.next().toString(), scheduledId);
             logger.log("PIANIFICATA AVANZATA", "id:" + scheduledId,
-                       "descrizione:" + DbLogger.s(s.get("description")),
+                       "descrizione:" + Giornale.s(s.get("description")),
                        "registrata:" + registeredDate, "prossima:" + plan.next());
         }
     }
@@ -4777,7 +4777,7 @@ public class Database {
         var stamped = queryList("SELECT system_key, name FROM categories WHERE system_key IS NOT NULL ORDER BY id");
         for (var r : stamped)
             logger.log("CATEGORIA MARCATA DI SISTEMA", "chiave:" + r.get("system_key"),
-                       "nome:" + DbLogger.s(r.get("name")), "via:migrazione_v25");
+                       "nome:" + Giornale.s(r.get("name")), "via:migrazione_v25");
     }
 
     /**
@@ -4990,7 +4990,7 @@ public class Database {
                     INSERT INTO portfolio_transactions(portfolio_id,type,quantity,price,date,transaction_id,notes,commission,parent_pt_id)
                     VALUES(?,?,?,?,?,?,?,?,?)
                 """, portfolioId, "expense", 0, commissions, date, null, "Commissione acquisto", commissions, buyPtId);
-                logger.log("COMMISSIONE ACQUISTO", "ticker:" + ticker, "importo:" + DbLogger.amt(commissions),
+                logger.log("COMMISSIONE ACQUISTO", "ticker:" + ticker, "importo:" + Giornale.amt(commissions),
                            "nel giroconto:si");
             }
 
@@ -5014,13 +5014,13 @@ public class Database {
                     INSERT INTO portfolio_transactions(portfolio_id,type,quantity,price,date,transaction_id,notes,accrued_interest,parent_pt_id)
                     VALUES(?,?,?,?,?,?,?,?,?)
                 """, portfolioId, "expense", 0, accruedInterest, date, rateoTxId, "Rateo acquisto", accruedInterest, buyPtId);
-                logger.log("RATEO ACQUISTO", "ticker:" + ticker, "importo:" + DbLogger.amt(accruedInterest),
+                logger.log("RATEO ACQUISTO", "ticker:" + ticker, "importo:" + Giornale.amt(accruedInterest),
                            "nel giroconto:no", "conto:" + fromAccountId);
             }
 
             logger.log("TITOLO ACQUISTATO", "ticker:" + ticker, "nome:" + name,
-                       "quantita:" + qty, "prezzo:" + DbLogger.amt(price),
-                       "commissioni:" + DbLogger.amt(commissions), "rateo:" + DbLogger.amt(accruedInterest),
+                       "quantita:" + qty, "prezzo:" + Giornale.amt(price),
+                       "commissioni:" + Giornale.amt(commissions), "rateo:" + Giornale.amt(accruedInterest),
                        "data:" + date);
             return queryOne("SELECT * FROM portfolio WHERE id=?", portfolioId);
         });
@@ -5140,12 +5140,12 @@ public class Database {
             }
 
             logger.log("TITOLO VENDUTO", "ticker:" + ticker,
-                       "quantita:" + qty, "prezzo:" + DbLogger.amt(price),
-                       "ricavo_lordo:" + DbLogger.amt(gross),
-                       "commissione:" + DbLogger.amt(commission),
-                       "carico:" + DbLogger.amt(carico),
-                       "plusvalenza:" + DbLogger.amt(gain),
-                       "accreditato:" + DbLogger.amt(credited), "data:" + date);
+                       "quantita:" + qty, "prezzo:" + Giornale.amt(price),
+                       "ricavo_lordo:" + Giornale.amt(gross),
+                       "commissione:" + Giornale.amt(commission),
+                       "carico:" + Giornale.amt(carico),
+                       "plusvalenza:" + Giornale.amt(gain),
+                       "accreditato:" + Giornale.amt(credited), "data:" + date);
             return queryOne("SELECT * FROM portfolio WHERE id=?", portfolioId);
         });
     }
@@ -5328,7 +5328,7 @@ public class Database {
         """, name, accountId, quantity, avgPrice, curPrice,
              totalComm, assetType, maturityDate, couponRate, couponFreq, couponTax, notes, country, id);
         logger.log("PORTAFOGLIO MODIFICATO", "id:" + id, "nome:" + name,
-                   "quantita:" + quantity, "prezzo_medio:" + DbLogger.amt(avgPrice));
+                   "quantita:" + quantity, "prezzo_medio:" + Giornale.amt(avgPrice));
         return queryOne("SELECT * FROM portfolio WHERE id=?", id);
     }
 
@@ -5374,7 +5374,7 @@ public class Database {
             tagInvestment(txId);
 
             logger.log("IMPOSTA CAPITAL GAIN REGISTRATA", "ticker:" + ticker,
-                       "importo:" + DbLogger.amt(amount), "data:" + date, "note:" + DbLogger.s(notes));
+                       "importo:" + Giornale.amt(amount), "data:" + date, "note:" + Giornale.s(notes));
             return Map.of("ok", true, "transaction_id", txId);
         });
     }
@@ -5414,8 +5414,8 @@ public class Database {
             tagInvestment(txId);
 
             logger.log("CEDOLA REGISTRATA", "ticker:" + ticker,
-                       "importo:" + DbLogger.amt(amount), "data:" + date,
-                       "note:" + DbLogger.s(notes));
+                       "importo:" + Giornale.amt(amount), "data:" + date,
+                       "note:" + Giornale.s(notes));
             return Map.of("ok", true, "transaction_id", txId);
         });
     }
@@ -5451,8 +5451,8 @@ public class Database {
             tagInvestment(txId);
 
             logger.log("DIVIDENDO REGISTRATO", "ticker:" + ticker,
-                       "importo:" + DbLogger.amt(amount), "data:" + date,
-                       "note:" + DbLogger.s(notes));
+                       "importo:" + Giornale.amt(amount), "data:" + date,
+                       "note:" + Giornale.s(notes));
             return Map.of("ok", true, "transaction_id", txId);
         });
     }
@@ -5505,8 +5505,8 @@ public class Database {
             // scriverlo qui una spesa senza categoria sembrerebbe una dimenticanza dell'app.
             var cat = catId != null ? queryOne("SELECT name FROM categories WHERE id=?", catId) : null;
             logger.log("SPESA PORTFOLIO REGISTRATA", "ticker:" + ticker,
-                       "label:" + DbLogger.s(label), "importo:" + DbLogger.amt(amount), "data:" + date,
-                       "categoria:" + (cat != null ? DbLogger.s(cat.get("name")) : "nessuna (scelta dall'utente)"));
+                       "label:" + Giornale.s(label), "importo:" + Giornale.amt(amount), "data:" + date,
+                       "categoria:" + (cat != null ? Giornale.s(cat.get("name")) : "nessuna (scelta dall'utente)"));
             return Map.of("ok", true, "transaction_id", txId);
         });
     }
@@ -5553,7 +5553,7 @@ public class Database {
                 txCount += n;
                 if (detail.length() > 0) detail.append(", ");
                 detail.append(row.get("tx_type")).append(":").append(n)
-                      .append(" (").append(DbLogger.amt(row.get("tot"))).append(")");
+                      .append(" (").append(Giornale.amt(row.get("tot"))).append(")");
             }
 
             var mothers = queryList("""
@@ -5575,8 +5575,8 @@ public class Database {
             execute("DELETE FROM portfolio WHERE id=?", id);
             touchSyncMeta();
             logger.log("TITOLO ELIMINATO", "id:" + id,
-                       "ticker:" + DbLogger.s(old.get("ticker")),
-                       "nome:" + DbLogger.s(old.get("name")),
+                       "ticker:" + Giornale.s(old.get("ticker")),
+                       "nome:" + Giornale.s(old.get("name")),
                        "operazioni-annullate:" + mothers.size(),
                        "transazioni-eliminate:" + txCount,
                        "residui-ripuliti:" + leftovers.size(),
@@ -6315,7 +6315,7 @@ public class Database {
                         cat.get("type").getAsString(),
                         r2(cat.get("projected_amount").getAsDouble()));
             }
-            logger.log("PREVISIONE SALVATA", "data:" + forecastDate, "saldo:" + DbLogger.amt(projectedBalance));
+            logger.log("PREVISIONE SALVATA", "data:" + forecastDate, "saldo:" + Giornale.amt(projectedBalance));
             return id;
         });
     }

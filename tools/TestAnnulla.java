@@ -490,24 +490,33 @@ public class TestAnnulla {
         gruppo("RIPORTA INDIETRO CON ANNULLAMENTI IN MEZZO");
         giro = 4;
         // ⚠️ Il caso che ha rotto "riporta a prima di qui" nell'uso vero, trovato da Luca.
-        // Sulla stessa riga: la si elimina, si annulla (torna), si annulla l'annullamento
-        // (sparisce), si annulla ancora (torna). Le operazioni ATTIVE sono solo la seconda e la
-        // quarta — e tutte e due INSERISCONO la riga: disfarle in fila vuol dire cancellarla due
-        // volte, e la seconda volta non c'e' piu' (il controllo 3 rifiutava, giustamente).
-        // La correzione e' includere anche gli anelli gia' annullati: cosi' gli inversi si
-        // alternano (cancella, inserisci, cancella, inserisci) e si arriva allo stato di
-        // partenza. Se qui torna a fallire, e' tornata la vecchia SELECT con stato='attiva'.
-        riportaA("nota: elimina, annulla, ri-annulla, ri-ri-annulla", () -> {
+        // Sulla stessa riga: la si elimina, si annulla (torna), la si rielimina, si annulla
+        // ancora (torna). Le operazioni ATTIVE sono solo la seconda e la quarta — i due
+        // annullamenti — e tutte e due INSERISCONO la riga: disfarle in fila vuol dire
+        // cancellarla due volte, e la seconda volta non c'e' piu'. Oggi il secondo colpo a vuoto
+        // viene assorbito come un'eco (vedi "Due errori nel combinare piu' operazioni" in
+        // CLAUDE.md), quindi il sintomo non e' piu' un rifiuto ma una nota che resta cancellata:
+        // misurato rimettendo il filtro, l'esito e' [DIFFERENZE] "notes: 1 non tornate".
+        // La correzione e' includere anche gli anelli gia' annullati: cosi' gli
+        // inversi si alternano (cancella, inserisci, cancella, inserisci) e si arriva allo stato
+        // di partenza. Se qui torna a fallire, e' tornata la vecchia SELECT con stato='attiva'.
+        //
+        // ⚠️ La seconda eliminazione e' un gesto VERO (deleteNote), non l'annullamento
+        // dell'annullamento: da quando un annullamento non si annulla, quella catena non e' piu'
+        // producibile: ne' dalla pagina ne' dal Bridge. Questa lo e', ha la stessa forma
+        // (due attive che inseriscono entrambe) ed e' anche piu' realistica.
+        riportaA("nota: elimina, annulla, rielimina, annulla di nuovo", () -> {
             int n = ((Number) app.saveNote(j("{'title':'Nota catena','content':'x'}")).get("id")).intValue();
             fissa();
             long daQui = ultimaOp() + 1;          // tutto quello che viene dopo la fotografia
-            gesto("deleteNote",     () -> app.deleteNote(n));
+            gesto("deleteNote",        () -> app.deleteNote(n));
             long opElimina = ultimaOp();
-            gesto("annulla",        () -> app.annullaOperazione(opElimina));
-            long opAnnulla = ultimaOp();
-            gesto("ri-annulla",     () -> app.annullaOperazione(opAnnulla));
-            long opRiAnnulla = ultimaOp();
-            gesto("ri-ri-annulla",  () -> app.annullaOperazione(opRiAnnulla));
+            // L'annullamento rimette la nota con il suo id originale, quindi la si puo'
+            // rieliminare per id senza rileggerlo.
+            gesto("annulla",           () -> app.annullaOperazione(opElimina));
+            gesto("rielimina",         () -> app.deleteNote(n));
+            long opElimina2 = ultimaOp();
+            gesto("annulla di nuovo",  () -> app.annullaOperazione(opElimina2));
             return daQui;
         });
         gruppo("ANNULLA A CATENA DOPO UN REDO");
@@ -536,9 +545,10 @@ public class TestAnnulla {
                     + "'splits':[{'category_id':" + spesa + ",'amount':50,'description':'a'},"
                     + "{'category_id':" + spesa + ",'amount':20,'description':'b'}]}")));
             long opModifica = ultimaOp();
-            gesto("annulla",  () -> app.annullaOperazione(opModifica));
-            long opAnnulla = ultimaOp();
-            gesto("ri-annulla (redo)", () -> app.annullaOperazione(opAnnulla));
+            gesto("annulla",       () -> app.annullaOperazione(opModifica));
+            // Il redo si chiede dal GESTO barrato, non dalla riga di annullamento: e' il
+            // pulsante ↷ Ripeti della pagina (vedi Giornale.ripeti).
+            gesto("ripeti (redo)", () -> app.ripetiOperazione(opModifica));
             return opModifica;
         });
 

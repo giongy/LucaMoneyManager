@@ -893,9 +893,12 @@ public class Bridge extends CefMessageRouterHandlerAdapter {
                     "info",       db.infoGiornale());
             case "getOperazione" -> db.dettaglioOperazione(p.get("id").getAsLong());
 
-            // Scritture: ognuna è a sua volta un'operazione, quindi annullabile ("ripeti").
+            // Scritture: ognuna è a sua volta un'operazione, e resta in cronologia. Un
+            // annullamento però non si annulla: si rifà il gesto con `ripetiOperazione`, che
+            // prende l'id del GESTO e non della riga di annullamento (vedi Giornale.ripeti).
             case "annullaOperazione"  -> db.annullaOperazione(p.get("id").getAsLong());
             case "annullaACatena"     -> db.annullaOperazioneACatena(p.get("id").getAsLong());
+            case "ripetiOperazione"   -> db.ripetiOperazione(p.get("id").getAsLong());
             case "riportaAOperazione" -> db.riportaAOperazione(p.get("id").getAsLong());
 
             // ─── Prezzi online (HTTP server: blocca il virtual thread, JCEF: async in onQuery) ──

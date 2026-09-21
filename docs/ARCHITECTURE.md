@@ -174,6 +174,15 @@ JCEF tronca le stringhe per byte e non per carattere: un emoji a 4 byte (es. �
 Vedi `_toB64`/`_fromB64` in [bridge.js](../src/main/resources/web/js/bridge.js) e `onQuery` in
 [Bridge.java](../src/main/java/com/moneymanager/Bridge.java).
 
+⚠️ **Gli errori viaggiano nella stessa busta**, non in JSON nudo: il client decodifica *sempre*
+base64, quindi una risposta d'errore spedita in chiaro non gli arriva come errore ma come
+`Failed to execute 'atob'` — il motivo vero sparisce, e da telefono ogni guasto dell'app diventa
+lo stesso messaggio muto. È il motivo per cui `WebServer.respond` prende lo **stato HTTP** come
+parametro: il ramo d'errore di `/bridge` passa di lì, con 500 e il corpo incapsulato come tutti
+gli altri. Lato client `callJava` decodifica in `try`, e se non ci riesce alza un errore che dice
+**stato e corpo** ricevuti: quella rete serve a ciò che il server non può incapsulare — risposta
+troncata dal timeout, app a metà spegnimento, qualcosa in mezzo.
+
 ### Operazioni che escono dal dispatch
 Trattate a parte in `onQuery`, prima dello switch, perché aprono UI bloccante o fanno HTTP esterno —
 in entrambi i casi su `Thread.ofVirtual()`, per non bloccare il thread chiamante:
@@ -199,7 +208,7 @@ Switch gigante in [Bridge.java](../src/main/java/com/moneymanager/Bridge.java) �
 | Impostazioni | getSettings, setSetting, openSettingsFile | `settings` + `db.app_settings` |
 | Allegati | attachFile, openAttachment, setAttachmentPath, removeAttachment | filesystem + `db.*` |
 | Backup / DB | listBackups, operazioniBackup, restoreBackup, manutenzioneOra, dbVacuum, dbIntegrityCheck, dbReindex, dbAnalyze, archiveTransactions | `db.*` |
-| Cronologia | getCronologia, getOperazione, annullaOperazione, annullaACatena, riportaAOperazione | `Giornale` |
+| Cronologia | getCronologia, getOperazione, annullaOperazione, annullaACatena, ripetiOperazione, riportaAOperazione | `Giornale` |
 | Log | openAppLog, getAppLogErrors, clearAppLog | filesystem |
 | Sistema | openUrl, openDataDir, exportHtmlReport, reloadDb, seedExampleData | `java.awt.Desktop` |
 | Performance | setPerfEnabled, getPerfLog, clearPerfLog | buffer in-memory in Bridge |
@@ -461,6 +470,13 @@ un unico punto deterministico. Viene invocata da `init()` a ogni avvio.
 una riga in `op_log` e, sotto, le righe di dati che ha cambiato in `change_log` (catturate da 57
 trigger generati, non dai metodi di scrittura). Da lì si annulla, e da lì `hasChanges()` sa se il
 backup all'uscita serve davvero. Il confine del gesto è la richiesta del `Bridge`.
+
+L'annullamento è a sua volta un'operazione e resta in cronologia, ma **non si annulla**: la sua
+riga non ha pulsanti. Tutto si chiede dalla riga del **gesto**, che fa da interruttore —
+`annulla` quando è in vigore, `ripeti` quando è barrato — e in entrambi i casi `Giornale`
+disfa l'**ultimo anello** della sua catena (`ultimoAnello`, che risale per `annullata_da`).
+Unica eccezione `riportaA`, che è un punto nel tempo e attraversa gli annullamenti. Il perché di
+ognuna di queste tre cose è in `CLAUDE.md`, «L'interruttore sul gesto».
 
 [Manutenzione.java](../src/main/java/com/moneymanager/Manutenzione.java) — alla chiusura e dal
 pulsante in Cronologia: backup a caldo (`backup to`), potatura del giornale oltre la retention,

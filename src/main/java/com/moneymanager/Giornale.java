@@ -231,7 +231,8 @@ public class Giornale {
         // Il legame fra le operazioni si scrive qui perché è l'unico punto in cui si conosce
         // l'id della nuova. Le operazioni annullate NON spariscono e non vengono riscritte:
         // si marcano soltanto. La storia si aggiunge, non si corregge — ed è ciò che rende
-        // l'annullamento a sua volta annullabile (il "ripeti").
+        // possibile il "ripeti", che disfa proprio questa riga (vedi Giornale.ripeti: si chiede
+        // dal gesto barrato, mai da qui — un annullamento non ha pulsanti).
         for (long annullata : op.annullate)
             db.execute("UPDATE op_log SET annullata_da=? WHERE id=?", id, annullata);
         if (!op.annullate.isEmpty()) ricalcolaStati();
@@ -319,7 +320,104 @@ public class Giornale {
      * @return {@code {ok:true, righe:n}} oppure {@code {ok:false, motivo:…, bloccanti:[…]}}
      */
     public Map<String, Object> annulla(long opId) throws SQLException {
-        return annullaInsieme(new TreeSet<>(List.of(opId)));
+        return interruttore(opId, true);
+    }
+
+    /**
+     * Rifà un gesto annullato: è il «↷ Ripeti» della pagina Cronologia, cioè l'altro verso di
+     * {@link #annulla}.
+     *
+     * <p>⚠️ <b>Prende l'id del gesto vero, non quello dell'annullamento</b>, e non è un dettaglio
+     * di comodo: è ciò che permette di rifiutare categoricamente le righe di annullamento
+     * (vedi {@link #rifiutoSeAnnullamento}). Meccanicamente si finisce nello stesso motore — il
+     * giornale sa fare un verbo solo, «disfa l'operazione N» — ma la N la ricava il codice dal
+     * gesto che l'utente ha indicato, invece di farsela passare.</p>
+     */
+    public Map<String, Object> ripeti(long opId) throws SQLException {
+        return interruttore(opId, false);
+    }
+
+    /**
+     * Il motore dell'interruttore: <b>disfa l'ultimo anello della catena di {@code opId}</b>.
+     *
+     * <p>Un gesto e i suoi annullamenti formano una catena — il gesto, chi l'ha disfatto, chi ha
+     * disfatto quello… — e l'unico anello su cui si possa ancora agire è il <b>più recente</b>,
+     * perché è l'unico che nessuno ha già disfatto. Da qui l'interruttore: finché il gesto è in
+     * vigore la pagina offre «↶ Annulla», quando è barrato offre «↷ Ripeti», e le due non
+     * compaiono mai insieme. Sempre sulla riga del gesto, mai su quelle di servizio.</p>
+     *
+     * <p>⚠️ <b>Non basta disfare {@code opId} quando è in vigore.</b> Sembra di sì — se il gesto
+     * non è annullato, annullarlo vuol dire disfare lui — e invece dopo un «↷ Ripeti» è falso:
+     * lì il gesto è di nuovo in vigore <b>non perché non sia mai stato toccato</b>, ma perché un
+     * annullamento l'ha rimesso in piedi. Disfare {@code opId} in quel punto viene rifiutato dal
+     * controllo 1 («altre operazioni più recenti hanno modificato le stesse righe»: sono proprio
+     * i due anelli della sua catena) — e siccome quelle righe non hanno pulsanti, il rifiuto non
+     * lascia nessuna strada. Misurato: annulla → ripeti → annulla finiva in un vicolo cieco.
+     * Disfacendo l'ultimo anello, invece, il giro torna sempre al punto di prima.</p>
+     *
+     * @param annullando {@code true} per «↶ Annulla» (il gesto dev'essere in vigore), {@code false}
+     *        per «↷ Ripeti» (dev'essere barrato). Lo stato si ricontrolla qui e non ci si fida di
+     *        quello che la pagina aveva in mano: fra il disegno e il clic può averlo cambiato il
+     *        telefono, o un'altra finestra in LAN.
+     */
+    private Map<String, Object> interruttore(long opId, boolean annullando) throws SQLException {
+        Map<String, Object> no = rifiutoSeAnnullamento(opId);
+        if (no != null) return no;
+        Map<String, Object> testa = db.queryOne("SELECT stato FROM op_log WHERE id=?", opId);
+        if (testa == null) throw new SQLException("Operazione " + opId + " non trovata.");
+
+        boolean inVigore = !"annullata".equals(String.valueOf(testa.get("stato")));
+        if (annullando && !inVigore)
+            return rifiuto("L'operazione #" + opId + " è già annullata.", List.of());
+        if (!annullando && inVigore)
+            return rifiuto("L'operazione #" + opId + " non è annullata: non c'è niente da rifare.",
+                    List.of());
+
+        return annullaInsieme(new TreeSet<>(List.of(ultimoAnello(opId))));
+    }
+
+    /**
+     * L'anello più recente della catena di {@code opId}: {@code opId} stessa se non è mai stata
+     * annullata, altrimenti l'annullamento in cima.
+     *
+     * <p>Si sale per {@code annullata_da}, che non si azzera mai ed è quindi la catena scritta.
+     * La salita termina perché ogni anello ha un id più grande del precedente — chi annulla è
+     * sempre più recente di ciò che annulla — e gli id sono finiti; il tetto è lì per non
+     * trasformare un giornale corrotto in un ciclo infinito.</p>
+     */
+    private long ultimoAnello(long opId) throws SQLException {
+        long anello = opId;
+        for (int giri = 0; giri < 10_000; giri++) {
+            Map<String, Object> r = db.queryOne("SELECT annullata_da FROM op_log WHERE id=?", anello);
+            if (r == null || r.get("annullata_da") == null) return anello;
+            anello = ((Number) r.get("annullata_da")).longValue();
+        }
+        throw new SQLException("Catena di annullamenti senza fine a partire da #" + opId);
+    }
+
+    /**
+     * Il rifiuto pronto se {@code opId} è un annullamento, {@code null} se è un gesto qualunque.
+     *
+     * <p>⚠️ <b>Un annullamento non si annulla.</b> Disfare la riga «OPERAZIONE ANNULLATA» ha lo
+     * stesso effetto del «↷ Ripeti» sul gesto che aveva disfatto, ma chiede all'utente di leggere
+     * un doppio negativo su una riga di servizio — e dopo due o tre giri la pagina è una pila di
+     * «OPERAZIONE ANNULLATA» in cui non si capisce più quale fosse il gesto di partenza. La
+     * strada resta una: l'interruttore sulla riga vera (vedi {@link #ripeti}).</p>
+     *
+     * <p>⚠️ La guardia sta qui e non nella pagina perché <b>la UI non è l'unica via d'ingresso</b>:
+     * il Bridge risponde anche in HTTP dalla LAN. Vale per {@link #annulla} e
+     * {@link #annullaACatena}, cioè per le due strade che puntano a <i>un'operazione indicata</i>;
+     * non per {@link #riportaA}, che è un punto nel tempo e <b>deve</b> attraversare gli
+     * annullamenti (vedi il suo commento).</p>
+     */
+    private Map<String, Object> rifiutoSeAnnullamento(long opId) throws SQLException {
+        Map<String, Object> testa = db.queryOne("SELECT annulla_op FROM op_log WHERE id=?", opId);
+        if (testa == null || testa.get("annulla_op") == null) return null;
+        long gesto = ((Number) testa.get("annulla_op")).longValue();
+        return rifiuto("L'operazione #" + opId + " è un annullamento, e un annullamento non si"
+                + " annulla. Per rimettere le cose come le avevi lasciate usa «↷ Ripeti» sulla riga"
+                + " dell'operazione #" + gesto + ", che è il gesto che era stato disfatto.",
+                List.of());
     }
 
     /**
@@ -331,6 +429,8 @@ public class Giornale {
      * stesse righe, si annullano due operazioni, non ventuno.</p>
      */
     public Map<String, Object> annullaACatena(long opId) throws SQLException {
+        Map<String, Object> no = rifiutoSeAnnullamento(opId);
+        if (no != null) return no;
         return annullaInsieme(bloccantiTransitivi(opId));
     }
 

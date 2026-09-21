@@ -909,6 +909,11 @@ public class Database {
         return logger.annullaACatena(opId);
     }
 
+    /** Rifà un gesto annullato (il «↷ Ripeti»): prende l'id del gesto, non dell'annullamento. */
+    public Map<String, Object> ripetiOperazione(long opId) throws SQLException {
+        return logger.ripeti(opId);
+    }
+
     /** Riporta il database a prima di un'operazione: annulla lei e tutto ciò che è venuto dopo. */
     public Map<String, Object> riportaAOperazione(long opId) throws SQLException {
         return logger.riportaA(opId);

@@ -199,11 +199,25 @@ function cronRigaOp(o) {
   const colore = LOG_ACTION_COLORS[o.etichetta] || 'var(--txt2)';
   const annullata = o.stato === 'annullata';
   const nonAnn    = o.stato === 'non_annullabile';
+  // Una riga che annulla qualcos'altro è una riga di SERVIZIO: dice cos'è successo, non offre
+  // niente da fare.
+  const servizio  = o.annulla_op != null;
 
   let azioni = '';
-  if (annullata) {
-    azioni = `<button class="btn btn-ghost cron-act" data-cron-act="ripeti" data-id="${o.annullata_da}"
-                 title="Annulla l'annullamento: rimette le cose com'erano">↷ Ripeti</button>`;
+  if (servizio) {
+    // ⚠️ Va controllato PRIMA di `annullata`: un annullamento a sua volta disfatto (il
+    // ping-pong annulla → ripeti → annulla) è sia l'uno sia l'altro, e qui deve restare muto.
+    //
+    // ⚠️ Niente pulsanti, nemmeno il ⋯. Il gesto che questa riga ha disfatto ce l'ha già tutti:
+    // finché è in vigore si annulla, quando è barrato si ripete. Offrirli anche qui sarebbe la
+    // stessa azione da due righe diverse — e scritta al contrario («annulla l'annullamento»),
+    // che dopo due giri rende la pagina illeggibile. La guardia vera è in Giornale.annulla:
+    // questa toglie solo la tentazione.
+    azioni = `<span class="cron-nope" title="Un annullamento non si annulla: per rifare il gesto`
+           + ` usa ↷ Ripeti sulla riga dell'operazione #${o.annulla_op}">annullamento</span>`;
+  } else if (annullata) {
+    azioni = `<button class="btn btn-ghost cron-act" data-cron-act="ripeti" data-id="${o.id}"
+                 title="Rifà questo gesto: rimette le cose come le avevi lasciate">↷ Ripeti</button>`;
   } else if (nonAnn) {
     azioni = `<span class="cron-nope" title="${esc(o.motivo || '')}">non annullabile</span>`;
   } else if (cronAnnullabile(o)) {
@@ -415,18 +429,34 @@ async function cronAnnulla(id) {
   const ok = await confirm('Annulla operazione',
     `Rimettere le cose com'erano prima di <strong>${esc(o.etichetta)}</strong>`
     + ` delle ${esc(o.ts.slice(11, 16))}?<br><br>`
-    + `<span style="color:var(--txt3)">L'annullamento è a sua volta un'operazione: resta in cronologia e si può disfare.</span>`,
+    + `<span style="color:var(--txt3)">Se cambi idea, questa riga resta in cronologia con il pulsante ↷ Ripeti.</span>`,
     '↶ Annulla operazione', 'btn-danger');
   if (!ok) return;
   await cronEsegui('annullaOperazione', id, o);
 }
 
-async function cronRipeti(idAnnullamento) {
+// ⚠️ `id` è il gesto barrato, NON l'annullamento che lo ha disfatto: è il Bridge a risalire
+// dall'uno all'altro (vedi Giornale.ripeti). Così l'unica riga su cui si agisce è sempre quella
+// che l'utente riconosce, e le righe di annullamento restano mute.
+async function cronRipeti(id) {
+  const o = _cronOps.find(x => x.id === id);
+  if (!o) return;
+  // ⚠️ Un annullamento può averne disfatti PIÙ D'UNO in un colpo («annulla anche quelle»,
+  // «riporta indietro»): rifarlo li rimette tutti, e il pulsante compare su ognuno di quei
+  // gesti. Dirne uno solo sarebbe una conferma che sottostima quello che sta per succedere —
+  // e siccome i compagni si riconoscono solo dall'annullamento in comune, il conto si fa qui.
+  const insieme = _cronOps.filter(x => x.stato === 'annullata' && x.annullata_da === o.annullata_da);
+  const quante = Math.max(1, insieme.length);
+  const altri = quante > 1
+    ? `<br><br>Erano state annullate <strong>insieme</strong>, quindi ne rifà <strong>${quante}</strong>:`
+      + `<div class="cron-steps">${insieme.map(x => `<div>#${x.id} ${esc(x.etichetta)}</div>`).join('')}</div>`
+    : '';
   const ok = await confirm('Ripeti operazione',
-    'Annullare l\'annullamento, cioè rimettere le cose come le avevi lasciate?',
+    `Rifare <strong>${esc(o.etichetta)}</strong> delle ${esc(o.ts.slice(11, 16))}?${altri}<br><br>`
+    + `<span style="color:var(--txt3)">Rimette le cose come le avevi lasciate prima di annullarla.</span>`,
     '↷ Ripeti', 'btn-primary');
   if (!ok) return;
-  await cronEsegui('annullaOperazione', idAnnullamento, null);
+  await cronEsegui('ripetiOperazione', id, o, quante);
 }
 
 async function cronRiportaA(id) {
@@ -444,7 +474,7 @@ async function cronRiportaA(id) {
 
 // Esegue l'annullamento e reagisce all'esito. Un rifiuto non è un errore: è il giornale che
 // dice perché non si può, e da lì si sceglie la strada più forte.
-async function cronEsegui(metodo, id, o) {
+async function cronEsegui(metodo, id, o, quante = 1) {
   let res;
   try {
     res = await callJava(metodo, { id });
@@ -454,8 +484,15 @@ async function cronEsegui(metodo, id, o) {
   }
   if (res.ok) {
     const n = res.operazioni.length, r = res.righe;
-    toast(`${n === 1 ? 'Annullata 1 operazione' : `Annullate ${n} operazioni`}`
-        + ` · ${r} rig${r === 1 ? 'a rimessa' : 'he rimesse'} a posto`, 'success');
+    // Ripeti passa dallo stesso motore (disfa l'annullamento), ma all'utente non è un
+    // annullamento: dirgli «annullata 1 operazione» dopo che ha premuto ↷ Ripeti sarebbe
+    // proprio il doppio negativo che questa pagina ha tolto.
+    // Per il ripeti `n` sarebbe 1 anche quando l'annullamento ne copriva diversi (l'operazione
+    // disfatta è una sola): il numero che interessa all'utente è quanti GESTI sono tornati.
+    const fatto = metodo === 'ripetiOperazione'
+      ? (quante === 1 ? 'Operazione rifatta' : `Rifatte ${quante} operazioni`)
+      : (n === 1 ? 'Annullata 1 operazione' : `Annullate ${n} operazioni`);
+    toast(`${fatto} · ${r} rig${r === 1 ? 'a rimessa' : 'he rimesse'} a posto`, 'success');
     // I saldi in sidebar cambiano subito; le altre pagine si ridisegnano quando ci si va
     // sopra (il router chiama sempre il loro render).
     await updateSidebar();
@@ -475,6 +512,11 @@ async function cronEsegui(metodo, id, o) {
 function cronMostraRifiuto(o, id, res, metodo) {
   const bloccanti = res.bloccanti || [];
   const stoRiportando = metodo === 'riportaAOperazione';
+  // ⚠️ Ripetendo, `id` è il gesto barrato e non l'annullamento che si sta disfacendo: una
+  // catena lanciata da lì partirebbe dalla parte sbagliata e annullerebbe proprio il gesto che
+  // l'utente ha chiesto di rifare. Qui «annulla anche quelle» non si offre mai.
+  const stoRipetendo  = metodo === 'ripetiOperazione';
+  const catenaOfferta = bloccanti.length > 0 && !stoRiportando && !stoRipetendo;
   const lista = bloccanti.length ? `
     <div class="cron-blockers">
       ${bloccanti.map(b => `<div><strong>#${b.id}</strong> ${esc(b.ts || '')} — ${esc(b.etichetta || '')}
@@ -482,10 +524,16 @@ function cronMostraRifiuto(o, id, res, metodo) {
     </div>` : '';
 
   let coda;
-  if (bloccanti.length && !stoRiportando) {
+  if (catenaOfferta) {
     coda = `<p class="settings-hint" style="margin-top:10px">
         Puoi annullare <strong>anche quelle</strong>: verranno disfatte tutte insieme, come un solo gesto.
         Non è «torna indietro a quel giorno» — si annulla solo l'insieme minimo che blocca.
+      </p>`;
+  } else if (stoRipetendo) {
+    coda = `<p class="settings-hint" style="margin-top:10px">
+        Dopo che avevi annullato questo gesto, altre operazioni hanno toccato le stesse righe:
+        rifarlo adesso le sovrascriverebbe. Resta <strong>⏮ riporta il database a prima di qui</strong>,
+        dal menu ⋯ della riga da cui vuoi ripartire.
       </p>`;
   } else if (stoRiportando) {
     // Qui la strada larga è già stata tentata: se non basta nemmeno lei, il giornale non
@@ -502,9 +550,11 @@ function cronMostraRifiuto(o, id, res, metodo) {
       </p>`;
   }
 
-  openModal(stoRiportando ? 'Non si può riportare indietro così' : 'Non si può annullare così',
+  openModal(stoRipetendo  ? 'Non si può ripetere così'
+          : stoRiportando ? 'Non si può riportare indietro così'
+          : 'Non si può annullare così',
     `<p style="color:var(--txt2);line-height:1.6">${esc(res.motivo)}</p>${lista}${coda}`,
-    (bloccanti.length && !stoRiportando) ? async () => {
+    catenaOfferta ? async () => {
       closeModal();
       await cronEsegui('annullaACatena', id, o);
     } : null,

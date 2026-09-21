@@ -73,13 +73,13 @@ public class WebServer {
                 System.err.println("[WebServer] /bridge fallito: " + e);
                 e.printStackTrace();
                 try {
-                    ex.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
-                    ex.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
-                    byte[] err = gson.toJson(Map.of("error", e.getMessage() != null ? e.getMessage()
-                                    : e.getClass().getSimpleName()))
-                            .getBytes(StandardCharsets.UTF_8);
-                    ex.sendResponseHeaders(500, err.length);
-                    ex.getResponseBody().write(err);
+                    // ⚠️ Stessa busta della risposta buona: base64. Il client decodifica SEMPRE
+                    // (`_fromB64` in bridge.js), quindi un errore spedito in JSON nudo non gli
+                    // arrivava come errore ma come «Failed to execute 'atob'» — il motivo vero
+                    // spariva, e da telefono ogni guasto diventava lo stesso messaggio muto.
+                    // Lo stato resta 500: è corretto, e il client legge comunque il corpo.
+                    respond(ex, Map.of("error", e.getMessage() != null ? e.getMessage()
+                            : e.getClass().getSimpleName()), 500);
                 } catch (IOException io) {
                     // Client sparito a metà risposta: non c'è più niente da dirgli.
                     System.err.println("[WebServer] invio errore fallito: " + io);
@@ -166,12 +166,20 @@ public class WebServer {
 
     /** Serializza data in JSON, lo codifica in Base64 e lo invia come risposta 200 (come fa Bridge per JCEF). */
     private static void respond(HttpExchange ex, Object data) throws IOException {
+        respond(ex, data, 200);
+    }
+
+    /**
+     * Risposta del bridge: JSON incapsulato in base64, che è l'unica busta che il client sa
+     * aprire. Vale anche per gli errori — vedi il {@code catch} di {@code /bridge}.
+     */
+    private static void respond(HttpExchange ex, Object data, int stato) throws IOException {
         String json = gson.toJson(data);
         String b64  = Base64.getEncoder().encodeToString(json.getBytes(StandardCharsets.UTF_8));
         byte[] bytes = b64.getBytes(StandardCharsets.UTF_8);
         ex.getResponseHeaders().set("Content-Type", "text/plain; charset=utf-8");
         ex.getResponseHeaders().set("Access-Control-Allow-Origin", "*");
-        ex.sendResponseHeaders(200, bytes.length);
+        ex.sendResponseHeaders(stato, bytes.length);
         ex.getResponseBody().write(bytes);
         ex.getResponseBody().close();
     }

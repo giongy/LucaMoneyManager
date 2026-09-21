@@ -51,7 +51,7 @@ sopravvive al lavoro che descrive diventa un secondo posto dove cercare la verit
 ```
 JS Frontend (js/pages/*.js, 14 moduli)
     ↓  cefQuery (payload JSON in Base64)      ↑ stessa API anche via HTTP LAN (WebServer)
-Bridge.java (~1130 LOC) — dispatch 141 operazioni (+4 dialog nativi fuori dispatch)
+Bridge.java (~1130 LOC) — dispatch 142 operazioni (+4 dialog nativi fuori dispatch)
     ↓
 Database.java (~7070 LOC) — tutte le query JDBC, schema, transazioni
     ↓            ↘ classi di dominio: Giornale (~1060), Manutenzione (~160)
@@ -228,9 +228,12 @@ plausibili e totali per categoria sbagliati.
    a metà. L'alternativa (ordinare le tabelle per grafo delle FK) sarebbe una seconda fonte di
    verità da tenere allineata.
 8. **L'annullamento è a sua volta un'operazione**: scrive la propria riga in `op_log` e le proprie
-   righe in `change_log`. Da cui il **redo gratis** (annullare l'annullamento è la stessa identica
-   meccanica) e il fatto che **la storia non si riscrive mai**: nessuna riga sparisce, se ne
-   aggiungono.
+   righe in `change_log`. Da cui il **redo gratis** (rifare un gesto è la stessa identica
+   meccanica, a ritroso di un anello più in là) e il fatto che **la storia non si riscrive mai**:
+   nessuna riga sparisce, se ne aggiungono.
+   ⚠️ **Ma un annullamento non si annulla**: `Giornale` rifiuta `annulla` e `annullaACatena` su
+   una riga con `annulla_op` non nullo, e la pagina non le dà pulsanti. Vedi «L'interruttore
+   sul gesto» sotto: la meccanica resta, l'unica porta è la riga del gesto vero.
 9. **L'elenco delle chiavi `app_settings` escluse è di esclusione, non di inclusione**
    (`CHIAVI_VOLATILI`: `tx.range`, `cf.range`, `proj.`, `fc.`, `portfolio.active_only`, cioè
    stato di navigazione riscritto a ogni clic). Una preferenza nuova viene journalata per
@@ -279,10 +282,11 @@ finiscono nell'insieme.
 è la differenza fra funzionare e no.** Filtrare per `stato='attiva'` sembra ovvio — disfare
 qualcosa che è già stato disfatto non ha senso — ma salta **anelli in mezzo alla catena** e
 rompe il replay a ritroso. Caso vero, arrivato dall'uso: una nota eliminata (#6), rimessa
-annullando (#7), rieliminata (#8), rimessa di nuovo (#9). Le attive sono solo #7 e #9, e
-**tutte e due la inseriscono**: disfarle in fila significa cancellare la riga due volte, e la
-seconda volta non c'è più — il controllo 3 rifiuta, giustamente, con «una riga che
-l'annullamento dovrebbe eliminare non esiste più». Con tutte e quattro gli inversi si alternano
+annullando (#7), rieliminata a mano (#8), rimessa di nuovo annullando (#9). Le attive sono solo
+#7 e #9 — i due annullamenti — e **tutte e due la inseriscono**: disfarle in fila significa
+cancellare la riga due volte, e la seconda volta non c'è più. (Oggi il secondo colpo a vuoto
+viene assorbito come un'**eco**, vedi sotto, quindi il sintomo non è più un rifiuto ma una nota
+che resta cancellata.) Con tutte e quattro gli inversi si alternano
 (cancella, inserisci, cancella, inserisci) e si arriva esattamente a prima di #6. È il motivo
 per cui `annullaInsieme` prende `intervalloCompleto`: solo su un intervallo chiuso è lecito
 includere le annullate, mentre l'annullamento singolo continua a rifiutarle. Lo difende lo
@@ -393,6 +397,38 @@ Tre cose che sembrano dettagli e non lo sono:
 3. **Il rifiuto non è un errore.** Quando i tre controlli dicono di no, la pagina mostra il
    motivo **e l'operazione che blocca**, con il pulsante per annullare anche quella (insieme
    minimo, non "torna indietro a quel giorno"). Un rifiuto con un messaggio opaco vale un bug.
+
+#### L'interruttore sul gesto, e le righe di servizio
+
+⚠️ **Su una riga di annullamento non si agisce, in nessun verso.** «OPERAZIONE ANNULLATA» è una
+riga di **servizio**: dice cos'è successo e non ha pulsanti — né `↶ Annulla`, né `↷ Ripeti`, né
+il menu `⋯`. Ogni azione sta sulla riga del **gesto vero**, che fa da interruttore: finché è in
+vigore mostra `↶ Annulla`, quando è barrato mostra `↷ Ripeti`, e i due non compaiono mai insieme.
+
+Prima la stessa cosa si poteva chiedere da due righe diverse — `↷ Ripeti` sul gesto barrato e
+`↶ Annulla` sulla riga di annullamento — con lo **stesso identico effetto**: due porte per la
+stessa stanza, e una scritta al contrario. Dopo due giri la pagina era una pila di «OPERAZIONE
+ANNULLATA» in cui non si capiva più quale fosse il gesto di partenza.
+
+⚠️ **`ripeti` prende l'id del gesto, non dell'annullamento**, ed è ciò che rende possibile il
+rifiuto categorico: se prendesse l'annullamento, «ripeti» sarebbe solo un altro nome per
+«annulla un annullamento». La guardia (`Giornale.rifiutoSeAnnullamento`) vale per `annulla`,
+`annullaACatena` **e** `ripeti`, e sta nel dominio e non nella pagina perché **la UI non è
+l'unica via d'ingresso**: il Bridge risponde anche in HTTP dalla LAN.
+
+⚠️ **`riportaA` è l'eccezione, e deve restarlo**: è un punto nel tempo, non un gesto, e
+**attraversa** gli annullamenti — includerli è l'invariante difesa da `RIPORTA INDIETRO CON
+ANNULLAMENTI IN MEZZO`. Per lo stesso motivo il menu `⋯`, che la contiene, resta sulle righe dei
+gesti e non su quelle di servizio.
+
+⚠️ **L'interruttore disfa l'ultimo anello della catena, non `opId`.** Sembra che basti disfare il
+gesto quando è in vigore, e invece **dopo un `↷ Ripeti` è falso**: lì il gesto è in vigore non
+perché nessuno l'abbia toccato, ma perché un annullamento l'ha rimesso in piedi. Disfare `opId`
+in quel punto lo fa rifiutare dal **controllo 1** («altre operazioni più recenti hanno modificato
+le stesse righe» — sono proprio i due anelli della sua catena), e siccome quelle righe non hanno
+pulsanti il rifiuto **non lascia nessuna strada**: vicolo cieco, misurato su *annulla → ripeti →
+annulla*. `Giornale.ultimoAnello()` risale per `annullata_da` — che non si azzera mai, ed è
+quindi la catena scritta — e il giro torna sempre al punto di prima, quante volte si voglia.
 
 ⚠️ **`stato` e `annullata_da` di `op_log` sono derivati, non cronaca.** Un'operazione è annullata
 se e solo se esiste un annullamento **ancora in vigore** che l'ha disfatta — e quello a sua volta
@@ -1359,15 +1395,20 @@ tocca quelle stesse righe, quindi l'annullamento della seconda diventerebbe subi
 per la prima. In cronologia resta una riga sola, che si può disfare in un colpo.
 
 Il settantaduesimo scenario sta a sé, nel gruppo **`RIPORTA INDIETRO CON ANNULLAMENTI IN
-MEZZO`**: una nota eliminata, rimessa, rieliminata e rimessa di nuovo, poi riportata indietro
-tutta. Difende l'invariante di `riportaA` — l'insieme comprende anche le operazioni già
-annullate, vedi "Le due strade larghe" — ed è il caso che l'ha rotta nell'uso vero. Se torna a
-essere `[RIFIUTATO]`, è tornato il filtro `stato='attiva'`.
+MEZZO`**: una nota eliminata, rimessa annullando, **rieliminata a mano** e rimessa di nuovo, poi
+riportata indietro tutta. Difende l'invariante di `riportaA` — l'insieme comprende anche le
+operazioni già annullate, vedi "Le due strade larghe" — ed è il caso che l'ha rotta nell'uso
+vero. Se torna a fallire, è tornato il filtro `stato='attiva'`.
+
+⚠️ La seconda eliminazione è un **gesto vero**, non l'annullamento dell'annullamento: da quando
+un annullamento non si annulla, quella catena non è più producibile — né dalla pagina né dal
+Bridge. Questa ha la stessa forma (due attive che inseriscono entrambe) ed è anche più
+realistica. Verificato rimettendo il filtro: l'esito è `[DIFFERENZE] notes: 1 non tornate`.
 
 Gli altri due sono arrivati da una sessione di test esplorativi (simulare operazioni vere e
 provare i ripristini in condizioni strane), non da un caso d'uso singolo: **`ANNULLA A CATENA
-DOPO UN REDO`** (una transazione con split e tag, modificata, annullata, ri-fatta, poi
-ricatenata) e **`RIPORTA INDIETRO CON UNA CATEGORIA NATA E MORTA NELLA FINESTRA`** (categoria
+DOPO UN REDO`** (una transazione con split e tag, modificata, annullata, ri-fatta con `↷ Ripeti`
+sul gesto, poi ricatenata) e **`RIPORTA INDIETRO CON UNA CATEGORIA NATA E MORTA NELLA FINESTRA`** (categoria
 creata, usata da una transazione, sposta-ed-eliminata, tutto nella stessa finestra). Difendono
 i due errori descritti in "Due errori nel combinare più operazioni" qui sopra. Se tornano a
 fallire con un messaggio su `transaction_splits` o su una categoria "che non esiste più", sono

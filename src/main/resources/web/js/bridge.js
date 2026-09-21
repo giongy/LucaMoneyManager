@@ -62,9 +62,22 @@ function callJava(method, params = {}) {
     });
   }
   // Modalità browser: usa HTTP bridge
-  return fetch('/bridge', { method: 'POST', body: payload })
-    .then(r => r.text())
-    .then(b64 => finish(_checkError(JSON.parse(_fromB64(b64)))));
+  return fetch('/bridge', { method: 'POST', body: payload }).then(async r => {
+    const testo = await r.text();
+    let dati;
+    try {
+      dati = JSON.parse(_fromB64(testo));
+    } catch (_) {
+      // ⚠️ Il server incapsula in base64 ANCHE gli errori (vedi WebServer.respond), quindi
+      // arrivare qui vuol dire che la risposta non viene dal bridge: app a metà spegnimento,
+      // risposta troncata dal timeout, qualcosa in mezzo. Senza questo ramo l'unica cosa che
+      // si vedeva era «Failed to execute 'atob'», che nasconde sia lo stato HTTP sia il corpo
+      // — ed è il messaggio che da telefono copriva qualsiasi guasto.
+      throw new Error(`Risposta non decodificabile dal bridge (HTTP ${r.status}): `
+        + (testo ? testo.slice(0, 200) : '(corpo vuoto)'));
+    }
+    return finish(_checkError(dati));
+  });
 }
 
 // Facciata tipata delle operazioni Bridge: ogni metodo corrisponde a un "case" in

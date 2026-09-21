@@ -26,7 +26,7 @@ $root = Split-Path $PSScriptRoot -Parent
 try { [Console]::OutputEncoding = [Text.Encoding]::UTF8 } catch {}
 
 $PROD  = "$env:USERPROFILE\OneDrive\Documents\Luca_Money_Manager\luca.db"
-$LOCAL = Join-Path $root 'luca.db'
+$LOCAL = Join-Path $root 'lucatest.db'
 $src = switch ($Database) {
   'local' { $LOCAL }
   'prod'  { $PROD }

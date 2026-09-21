@@ -1033,13 +1033,18 @@ Sfrutta due cose già presenti, senza installare nulla (niente Node/npm/Playwrig
   così non c'è modo di confondersi coi dati reali su OneDrive.
 - ⚠️ Prima di test che **scrivono**, verificare sempre su quale DB si sta operando:
   `getSettings` restituisce `db.path`.
-- ⚠️ **E anche `backup.dir`.** Il DB di progetto è una copia di quello vero, quindi si porta
-  dietro la sua cartella di backup: **quella di produzione su OneDrive**. Un «Backup e
-  manutenzione ora» dall'istanza di sviluppo scriverebbe lì un `.bak` del DB di prova e — peggio
-  — la rotazione a `backup.max` copie ne butterebbe fuori uno **vero**. Sul DB di progetto la
-  cartella va puntata in locale (`D:\LucaMoneyManager\backups-test`, in `.gitignore`), e va
-  rifatto **ogni volta che si rinfresca il DB con `copy-db.ps1`**, che riporta indietro anche
-  quell'impostazione.
+- ⚠️ **E anche `backup.dir` — e `attachments.dir`, che ha lo stesso problema.** Le impostazioni
+  stanno dentro il DB (`app_settings`): un DB di progetto che le avesse ereditate da quello vero
+  punterebbe alle **cartelle di produzione su OneDrive**. Un «Backup e manutenzione ora»
+  dall'istanza di sviluppo scriverebbe lì un `.bak` del DB di prova e — peggio — la rotazione a
+  `backup.max` copie ne butterebbe fuori uno **vero**; togliere un allegato da una transazione
+  di prova **eliminerebbe il file vero**. Per questo `copy-db.ps1` **non copia il file**:
+  ricostruisce le tabelle e lascia `app_settings` del test com'è (vedi «Leggere il DB senza
+  avviare l'app»). Le due cartelle si puntano in locale **una volta** — il backup su
+  `D:\LucaMoneyManager\backups-test`, in `.gitignore` — e restano; a ogni giro lo script le
+  stampa e **avvisa** se una è identica a quella di prod. Su un DB di test nato adesso
+  `app_settings` è vuota: senza cartella backup l'app rifiuta il backup, senza cartella allegati
+  rifiuta gli allegati — non scrive da nessuna parte.
 
 ### Uso
 
@@ -1166,11 +1171,40 @@ accetta anche un path esplicito. Ogni esecuzione stampa in testa **quale DB** ha
 dimensione e data di modifica — è l'errore che costa di più. Altre opzioni: `-Limit`
 (default 200), `-Json`, `-Quiet` (niente intestazione, output parsabile).
 
-Per **rinfrescare il DB di test con i dati veri** c'è `tools\copy-db.ps1`: copia prod → test in
-una direzione sola (l'inversa sovrascriverebbe i dati veri), mostra i due file con dimensione e
-data e chiede conferma con INVIO. Il DB di test viene sovrascritto senza copie di sicurezza: è
-una copia di lavoro, si rigenera rilanciando lo script. Si ferma prima di toccare qualcosa se il
-DB di destinazione è bloccato dall'app aperta.
+Per **rifare il DB di test sui dati veri** c'è `tools\copy-db.ps1` (il motore è
+[CopiaDb.java](tools/CopiaDb.java), come `DbQuery.java` per `db.ps1`): prod → test in una
+direzione sola (l'inversa sovrascriverebbe i dati veri). Mostra i due DB e le cartelle impostate
+nel test, e chiede conferma con INVIO (`-Yes` per saltarla). Il DB di test viene ricostruito
+senza copie di sicurezza: è una copia di lavoro, si rigenera rilanciando lo script. Si ferma
+prima di toccare qualcosa se il DB di test è bloccato dall'app aperta.
+
+**Non copia il file**: droppa e ricrea le tabelle del test rileggendole da prod, che apre in sola
+lettura (`ATTACH … ?mode=ro`: il driver rifiuta ogni scrittura, come in `DbQuery`). Fa eccezione
+`app_settings`, di cui restano **le righe** — cartella backup, cartella allegati e ogni altra
+preferenza sono quelle del test, non di prod. La copia di file le riportava indietro tutte, e il
+DB di progetto andava ripuntato in locale a ogni giro.
+
+⚠️ Su cosa si regge, da non toccare:
+
+1. **Una transazione sola.** SQLite ha il DDL transazionale: DROP + CREATE + INSERT sono atomici,
+   e la verifica contro prod (schema, righe di ogni tabella, contatori, `integrity_check`) gira
+   **prima** del COMMIT. Se qualcosa non torna, ROLLBACK e il test resta com'era — misurato: dopo
+   un COMMIT fallito il file è byte-identico. La copia di file poteva lasciarlo a metà.
+2. **Indici, trigger e viste dopo i dati.** I 57 trigger di cattura scrivono in `change_log` a
+   ogni INSERT: creati prima, il giornale del test si riempirebbe di una riga per ogni riga
+   copiata.
+3. **Foreign key spente** per tutto il lavoro: accese, un DROP TABLE innesca le CASCADE o viene
+   rifiutato, e l'ordine dei DROP diventerebbe un problema.
+4. **`sqlite_sequence` si copia.** Il contatore AUTOINCREMENT può essere più alto di `MAX(id)`
+   (righe eliminate) e decide l'id della prossima riga. Le `sqlite_stat*` no: `PRAGMA optimize`
+   le rifà alla chiusura dell'app.
+5. **Di `app_settings` restano le righe, non gli oggetti attorno**: indici e trigger si rifanno da
+   prod come per ogni altra tabella (sono derivati, e quelli vecchi possono riferirsi a tabelle
+   che prod non ha). Se la tabella manca del tutto, nasce vuota.
+
+Ne discende che il DB di test ha sempre lo **schema di prod**, anche se l'app di sviluppo l'aveva
+già migrato più avanti (`schema_version` compresa): la migrazione a cui si sta lavorando si
+riprova sui dati veri a ogni giro.
 
 **Read-only per costruzione**: `tools/DbQuery.java` apre la connessione con
 `SQLiteConfig.setReadOnly(true)`, quindi il driver rifiuta ogni DML (`SQLITE_READONLY`) — non

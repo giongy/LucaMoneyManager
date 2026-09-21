@@ -5292,10 +5292,21 @@ public class Database {
         return Map.of("ok", true, "portfolio_id", portfolioId);
     }
 
-    /** Aggiorna solo il prezzo corrente di mercato di una posizione. */
+    /**
+     * Aggiorna solo il prezzo corrente di mercato di una posizione.
+     *
+     * <p>⚠️ Annotata con {@code logSistema} e non con {@code log}: la riga di cronologia va
+     * scritta in italiano — senza annotazione mostrerebbe {@code updateStockPrice} — ma un
+     * prezzo di mercato non è un fatto contabile e non deve far scattare il backup alla
+     * chiusura. Vedi {@link Giornale#logSistema}.</p>
+     */
     public Map<String, Object> updateStockPrice(int id, double price) throws SQLException {
         execute("UPDATE portfolio SET current_price=? WHERE id=?", r4(price), id);
-        return queryOne("SELECT * FROM portfolio WHERE id=?", id);
+        Map<String, Object> pos = queryOne("SELECT * FROM portfolio WHERE id=?", id);
+        if (pos != null)
+            logger.logSistema("PREZZO AGGIORNATO",
+                    "ticker:" + pos.get("ticker"), "prezzo:" + r4(price));
+        return pos;
     }
 
     /** Modifica una posizione esistente (tutto tranne ticker). */

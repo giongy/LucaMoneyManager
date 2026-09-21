@@ -174,8 +174,18 @@ restare: consumano l'evento (`lastClosedMtime/Size = -1`) e fanno partire
 un'altra strada (i due eventi di `ensureOpen()` non erano in `SYSTEM_ACTIONS`, quindi un tocco
 esterno contava come modifica di sessione). Oggi la difesa è nel tipo: `hasChanges()` è
 `SELECT EXISTS(… WHERE id > soglia AND tipo='utente')`, e `tipo` vale `'utente'` solo se
-l'operazione ha un'annotazione **e** arriva da `desktop`/`lan`. Avvio, manutenzione e
-importazioni restano `'sistema'` e non fanno backup a vuoto.
+l'operazione ha un'annotazione **e** arriva da `desktop`/`lan` **e** non è marcata
+`logSistema`. Avvio, manutenzione e importazioni restano `'sistema'` perché girano con
+`origine='avvio'`, e non fanno backup a vuoto.
+
+⚠️ **Etichetta e tipo erano legati, e non sono la stessa domanda.** Senza annotazione la riga
+di cronologia mostra il **nome del metodo del Bridge** (`updateStockPrice`, in inglese e senza
+dettaglio); ma appena la si annota l'operazione diventa `'utente'` e fa scattare il backup.
+«Cosa è successo» va scritto **sempre**, «vale un backup» no: è per questo che esiste
+`Giornale.logSistema()`, che annota **e** tiene `tipo='sistema'`. Il caso che l'ha imposto sono
+i prezzi di mercato — dati veri che cambiano, ma **ri-scaricabili con un clic**: contarli come
+modifiche farebbe sì che una sessione in cui si aggiornano solo i prezzi si mangi uno slot
+della rotazione a `backup.max` copie, buttandone fuori una più vecchia e davvero diversa.
 
 ### Il giornale delle operazioni (1.26.0, schema v27)
 
@@ -416,10 +426,29 @@ rifiuto categorico: se prendesse l'annullamento, «ripeti» sarebbe solo un altr
 `annullaACatena` **e** `ripeti`, e sta nel dominio e non nella pagina perché **la UI non è
 l'unica via d'ingresso**: il Bridge risponde anche in HTTP dalla LAN.
 
+⚠️ **Nemmeno un'operazione `tipo='sistema'` si annulla.** Non è un gesto contabile: l'app quei
+dati li rigenera da sé (i prezzi si riscaricano, il saldo carte si ricalcola), quindi non c'è
+niente da disfare — e `tipo` è già il flag con cui il giornale dice «non vale un backup». Le due
+conseguenze vengono dalla stessa domanda, quindi seguono lo stesso flag. Di norma queste righe
+**non si vedono nemmeno**: `cronRender` le filtra via, salvo spuntare «di sistema». La regola sta
+in `cronAnnullabile()` e non nel disegno della riga, perché **alimenta anche il filtro «solo
+annullabili»**: scritta altrove, il filtro prometterebbe righe che poi non offrono nulla.
+
+⚠️ **Niente `⋯`, su nessuna delle due.** Era rimasto sulle righe di sistema con la scusa che
+«riporta il database a prima di qui» è una domanda sul **tempo** e non sul gesto. Non regge: la
+riga dichiara «niente da disfare» e accanto offriva **l'azione più distruttiva della pagina**,
+ancorata per giunta a un istante arbitrario — i prezzi sono decine di righe quasi identiche, e
+quale si scelga non vuol dire nulla. L'altra voce del menu è un doppione: «mostra cosa ha
+cambiato» si ottiene **cliccando la riga**, che continua a espandersi anche qui. Chi vuole
+tornare indietro nel tempo parte da un gesto vero o da un punto di ripristino, che sono le righe
+sempre visibili.
+
+> **La regola in una riga: porta un'azione solo la riga di un gesto tuo.** Tutto il resto si
+> legge e si espande, e non offre niente.
+
 ⚠️ **`riportaA` è l'eccezione, e deve restarlo**: è un punto nel tempo, non un gesto, e
 **attraversa** gli annullamenti — includerli è l'invariante difesa da `RIPORTA INDIETRO CON
-ANNULLAMENTI IN MEZZO`. Per lo stesso motivo il menu `⋯`, che la contiene, resta sulle righe dei
-gesti e non su quelle di servizio.
+ANNULLAMENTI IN MEZZO`.
 
 ⚠️ **L'interruttore disfa l'ultimo anello della catena, non `opId`.** Sembra che basti disfare il
 gesto quando è in vigore, e invece **dopo un `↷ Ripeti` è falso**: lì il gesto è in vigore non

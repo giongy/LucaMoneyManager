@@ -192,7 +192,13 @@ function cronRender() {
 // i tre veri controlli (conflitti, dipendenze, coerenza) girano in Java al momento del clic,
 // perché richiedono una transazione e sanno dire CHI blocca — cosa che un pulsante spento no.
 function cronAnnullabile(o) {
-  return o.stato === 'attiva' && o.righe > 0;
+  return o.stato === 'attiva' && o.righe > 0
+      // Un annullamento non si annulla (vedi Giornale.rifiutoSeAnnullamento).
+      && o.annulla_op == null
+      // Un'operazione di sistema non è un gesto contabile: l'app la rigenera da sé (i prezzi
+      // si riscaricano, il saldo carte si ricalcola), quindi non c'è niente da disfare. È lo
+      // stesso flag con cui il giornale decide che non vale un backup alla chiusura.
+      && o.tipo !== 'sistema';
 }
 
 function cronRigaOp(o) {
@@ -202,6 +208,7 @@ function cronRigaOp(o) {
   // Una riga che annulla qualcos'altro è una riga di SERVIZIO: dice cos'è successo, non offre
   // niente da fare.
   const servizio  = o.annulla_op != null;
+  const sistema   = o.tipo === 'sistema';
 
   let azioni = '';
   if (servizio) {
@@ -215,6 +222,19 @@ function cronRigaOp(o) {
     // questa toglie solo la tentazione.
     azioni = `<span class="cron-nope" title="Un annullamento non si annulla: per rifare il gesto`
            + ` usa ↷ Ripeti sulla riga dell'operazione #${o.annulla_op}">annullamento</span>`;
+  } else if (sistema) {
+    // ⚠️ Nessun pulsante, nemmeno il ⋯. Non è un gesto dell'utente e disfarlo non vuol dire
+    // niente — il prossimo aggiornamento riscrive comunque il prezzo.
+    //
+    // ⚠️ Il ⋯ era rimasto con la scusa che «riporta il database a prima di qui» è una domanda
+    // sul tempo e non sul gesto. Non regge: la riga dichiara «niente da disfare» e accanto
+    // offriva l'azione più distruttiva della pagina, ancorata per giunta a un istante
+    // arbitrario (i prezzi sono decine di righe quasi identiche). L'altra voce era un
+    // doppione: «mostra cosa ha cambiato» si ottiene cliccando la riga, che continua a
+    // espandersi anche qui. Chi vuole tornare indietro nel tempo lo fa da un gesto vero o da
+    // un punto di ripristino, che sono le righe sempre visibili.
+    azioni = `<span class="cron-nope" title="Operazione di sistema: cambia dati che l'app`
+           + ` rigenera da sé, quindi non c'è un gesto da disfare">di sistema</span>`;
   } else if (annullata) {
     azioni = `<button class="btn btn-ghost cron-act" data-cron-act="ripeti" data-id="${o.id}"
                  title="Rifà questo gesto: rimette le cose come le avevi lasciate">↷ Ripeti</button>`;

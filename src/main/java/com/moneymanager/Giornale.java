@@ -136,6 +136,7 @@ public class Giornale {
         java.sql.Connection conn;     // catturata all'apertura, mai riletta dal campo di Database
         final Set<Long> annullate = new TreeSet<>();   // le operazioni che questa annulla
         final List<String[]> annotazioni = new ArrayList<>();   // {etichetta, campi}
+        boolean sistema;              // annotata, ma non è un fatto contabile: vedi logSistema
 
         Operazione(String metodo, String origine, boolean implicita) {
             this.metodo = metodo; this.origine = origine; this.implicita = implicita;
@@ -197,6 +198,33 @@ public class Giornale {
         if (op != null) op.annotazioni.add(new String[]{ azione, String.join(" · ", campi) });
     }
 
+    /**
+     * Come {@link #log}, ma l'operazione resta {@code tipo='sistema'} anche se arriva da
+     * desktop/lan.
+     *
+     * <p>⚠️ Serve perché <b>etichetta e tipo erano legati</b>: senza annotazione la riga di
+     * cronologia mostra il nome del metodo del Bridge — {@code updateStockPrice}, in inglese e
+     * senza dettaglio — ma appena la si annota l'operazione diventa {@code 'utente'}, e
+     * {@link #hasChanges()} fa scattare il backup alla chiusura. Le due cose non sono la stessa
+     * domanda: <b>«cosa è successo» si scrive sempre, «vale un backup» no.</b></p>
+     *
+     * <p>Il caso che l'ha imposto sono i prezzi di mercato: cambiano dei dati veri, quindi il
+     * giornale li cattura e la riga va scritta in italiano, ma sono <b>ri-scaricabili con un
+     * clic</b>. Contarli come modifiche dell'utente vorrebbe dire che una sessione in cui si
+     * aggiornano solo i prezzi si mangia uno slot della rotazione a {@code backup.max} copie,
+     * buttandone fuori una più vecchia e davvero diversa — lo stesso danno che il pulsante di
+     * backup manuale evita non facendo un {@code .bak} a vuoto.</p>
+     *
+     * <p>⚠️ Da qui discende anche che la pagina non offre {@code ↶ Annulla} su queste righe:
+     * {@code tipo} è il flag con cui l'app dice «non è un gesto contabile», e vale per
+     * entrambe le conseguenze.</p>
+     */
+    public void logSistema(String azione, String... campi) {
+        log(azione, campi);
+        Operazione op = corrente.get();
+        if (op != null) op.sistema = true;
+    }
+
     // ── Materializzazione ───────────────────────────────────────────────────────
 
     /**
@@ -216,8 +244,11 @@ public class Giornale {
         Map<String, Object> n = db.queryOne("SELECT COUNT(*) AS n FROM change_log WHERE op_id IS NULL");
         if (n == null || ((Number) n.get("n")).longValue() == 0) return;
 
+        // ⚠️ `op.sistema` è l'unico modo di avere l'etichetta senza il backup: senza di lui
+        // annotare un metodo lo promuove automaticamente a 'utente'. Vedi logSistema().
         boolean utente = !op.annotazioni.isEmpty()
-                      && ("desktop".equals(op.origine) || "lan".equals(op.origine));
+                      && ("desktop".equals(op.origine) || "lan".equals(op.origine))
+                      && !op.sistema;
 
         long id = db.execute(
                 "INSERT INTO op_log(ts,etichetta,dettaglio,origine,tipo,stato,annulla_op)"

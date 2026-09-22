@@ -187,6 +187,54 @@ i prezzi di mercato — dati veri che cambiano, ma **ri-scaricabili con un clic*
 modifiche farebbe sì che una sessione in cui si aggiornano solo i prezzi si mangi uno slot
 della rotazione a `backup.max` copie, buttandone fuori una più vecchia e davvero diversa.
 
+### L'ora: un orologio solo (v28)
+
+Nel DB c'erano **due orologi**, e lo si vedeva in cronologia: la stessa riga diceva che il gesto
+era delle **18:46** e che il `created_at` della transazione appena creata era delle **16:46**.
+Nessuno dei due era sbagliato — erano due fusi. `op_log.ts` lo scrive Java in ora locale; il
+`DEFAULT` delle colonne era `CURRENT_TIMESTAMP`, che in SQLite è **sempre UTC e non è
+configurabile**.
+
+> **La regola: ogni timestamp del DB è in ora locale, nel formato `yyyy-MM-dd HH:mm:ss`.**
+> Da Java si scrive con `Database.adesso()`, dallo schema con
+> `DEFAULT (datetime('now','localtime'))`. Sono la stessa ora e lo stesso formato, quindi si
+> possono confrontare fra loro.
+
+⚠️ **L'unica eccezione è `sync_meta.last_modified`**, che resta `Instant` UTC: lì non si sta
+datando un gesto da leggere, si confronta un istante fra due dispositivi che possono stare in
+fusi diversi — e `Instant.toString()` finisce con la `Z`, quindi *dice* di essere UTC. Era
+`CURRENT_TIMESTAMP` a essere ambiguo, non l'UTC in sé.
+
+⚠️ **I valori già scritti restano in UTC, ed è voluto.** Sono ciò che erano; riscriverli
+sposterebbe anche i `created_at` sintetici delle righe importate dal programma precedente (tutte
+a mezzanotte del 1° gennaio), cioè falsificherebbe un dato che non significa niente. La colonna
+è quindi mista al confine della migrazione: conta per `created_at`, che nessuna query confronta
+con «adesso», e non per `op_log.ts`, che è sempre stato locale.
+
+⚠️ **La v28 riscrive il testo dello schema, non le tabelle.** SQLite non sa cambiare un `DEFAULT`
+con `ALTER TABLE`, e la via ufficiale (tabella nuova, copia, `DROP`, rinomina, indici e trigger
+da rifare) costerebbe la riscrittura dell'**intero file** — su OneDrive un ricaricamento
+completo — più la conservazione a mano di indici, `sqlite_sequence` e ordine delle colonne, che
+su un DB migrato dalla v20 **non** è quello di `initSchema`. Il `DEFAULT` vive però solo nel
+testo della `CREATE TABLE`: `migraTimestampLocali()` riscrive quello con
+`PRAGMA writable_schema`, e dati, indici, trigger e contatori restano dove sono.
+
+È l'attrezzo più affilato del progetto — un testo malformato lì dentro rende il DB illeggibile —
+e le tre difese non sono ornamentali: **(1)** il testo nuovo si prova prima creando una tabella
+usa-e-getta, così un rifiuto del parser arriva mentre `sqlite_master` è ancora intatto;
+**(2)** tutto sta nella transazione dell'avvio, quindi un fallimento a metà annulla anche il
+resto; **(3)** `integrity_check` prima che quella transazione si chiuda. E il
+`PRAGMA schema_version` finale non è cosmetico: invalida lo schema che la connessione tiene in
+memoria, senza il quale **proprio l'avvio che migra** continuerebbe a scrivere in UTC fino al
+riavvio successivo.
+
+⚠️ **Un fallimento qui deve propagare**, a differenza degli `ALTER` idempotenti delle migrazioni
+precedenti (tutti in `try/catch` ignorato): timbrare la v28 su una migrazione non riuscita
+significherebbe non riprovarla mai più, lasciando i due orologi per sempre.
+
+Lo difende il gruppo **`UN OROLOGIO SOLO`** di `test-giornale.ps1`: un gesto vero, e l'ora del
+gesto deve coincidere col `created_at` della riga che ha creato.
+
 ### Il giornale delle operazioni (1.26.0, schema v27)
 
 > **`op_log` è il gesto** — una riga, in italiano, quella che l'utente legge.
@@ -628,7 +676,7 @@ I tre casi che il metodo deve continuare a coprire, e che vanno riprovati toccan
 
 ---
 
-## Schema DB (v27, 24 tabelle)
+## Schema DB (v28, 24 tabelle)
 
 - **Core:** `accounts` (3 stati: `is_closed`, `is_hidden` — nascosto ⇒ sempre chiuso; per le carte anche `payment_day`, `payment_account_id`, `auto_settle` — vedi "Saldo automatico carte"), `categories` (gerarchiche, `expense_nature`, `mobile_favorite` — vedi "Categorie per Android" — `system_key` — vedi "Titoli"), `transactions` (`reconciled`, `attachment_path`, `color`), `transaction_splits`, `transaction_tags`, `tags` (`is_system`, `system_key`)
 - **Budget:** `budgets`, `budget_config` (master_amount mensile/annuale)
@@ -1353,7 +1401,7 @@ silenzio.
 .\tools\test-giornale.ps1 -Verbose        # stampa anche atteso/ottenuto
 ```
 
-**Cinquantasette controlli**, in undici gruppi:
+**Cinquantanove controlli**, in dodici gruppi:
 
 | gruppo | cosa difende |
 |---|---|
@@ -1361,6 +1409,7 @@ silenzio.
 | **avvio a scrittura zero** | change counter nell'header, dimensione e mtime invariati dopo una seconda apertura. Su OneDrive un avvio che scrive costa il ricaricamento del file **a ogni apertura, per sempre** |
 | una lettura non lascia traccia | stesso danno, moltiplicato per ogni pagina aperta |
 | un gesto con le sue figlie | eliminando una transazione con split e tag, il giornale deve averle **tutte** (le figlie arrivano dalle `ON DELETE CASCADE`): senza, l'annullamento restituirebbe il guscio, con i totali per categoria sbagliati e nessun segnale |
+| **un orologio solo** | il gesto e la riga che ha creato portano la **stessa ora**, e nessuna tabella ha più un DEFAULT in UTC. Vedi "L'ora: un orologio solo" |
 | preferenze sì, navigazione no | cambiare periodo in Transazioni non deve scrivere in cronologia |
 | gesto fallito | niente operazione, niente dati, **nessuna riga orfana** (`op_id IS NULL`): una riga orfana verrebbe assegnata al gesto successivo, cioè a quello sbagliato |
 | cambio di database | rifiutato a metà gesto (`close()` non chiude con lavoro in volo: la connessione vecchia resterebbe **orfana**, col lock su OneDrive per sempre), e un cambio legittimo non ruba il contesto alla richiesta che l'ha chiesto |

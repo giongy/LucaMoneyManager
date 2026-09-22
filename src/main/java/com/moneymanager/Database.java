@@ -1164,12 +1164,39 @@ public class Database {
     // ─── sync_meta ────────────────────────────────────────────────────────────
 
     /** Aggiorna i marcatori di sync (last_modified + last_modified_by='desktop')
-     *  letti da Android per sapere chi ha toccato il DB per ultimo via OneDrive. */
+     *  letti da Android per sapere chi ha toccato il DB per ultimo via OneDrive.
+     *
+     *  ⚠️ È l'<b>unica</b> eccezione all'orologio di {@link #adesso()}, e deve restarlo: qui non
+     *  si sta datando un gesto da leggere, si sta confrontando un istante fra due dispositivi
+     *  che possono avere fusi diversi. {@code Instant.toString()} è UTC e lo dice — finisce con
+     *  la Z — quindi non è ambiguo come lo era {@code CURRENT_TIMESTAMP}. */
     private void touchSyncMeta() throws SQLException {
         executePlain("CREATE TABLE IF NOT EXISTS sync_meta (key TEXT PRIMARY KEY, value TEXT)");
         String now = java.time.Instant.now().toString();
         execute("INSERT OR REPLACE INTO sync_meta(key,value) VALUES('last_modified',?)", now);
         execute("INSERT OR REPLACE INTO sync_meta(key,value) VALUES('last_modified_by','desktop')");
+    }
+
+    // ─── L'ora: un orologio solo ──────────────────────────────────────────────
+
+    /** Il formato dei timestamp nel DB, lo stesso che produce il DEFAULT delle colonne. */
+    private static final DateTimeFormatter TS_DB = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
+    /**
+     * Adesso, in ora locale e nel formato dei timestamp del DB.
+     *
+     * <p>⚠️ <b>Esiste per non avere due orologi nello stesso file.</b> {@code CURRENT_TIMESTAMP}
+     * di SQLite è sempre UTC e non è configurabile: accanto a un'ora scritta da Java, la stessa
+     * riga di cronologia mostrava il gesto delle <b>18:46</b> e il {@code created_at} delle
+     * <b>16:46</b>, senza che niente segnalasse la differenza. Dalla v28 il DEFAULT delle
+     * colonne è {@code datetime('now','localtime')} e ogni timestamp scritto da Java passa di
+     * qui: stesso fuso e stesso formato, quindi confrontabili fra loro e con
+     * {@code op_log.ts}.</p>
+     *
+     * <p>L'unica eccezione è {@code sync_meta.last_modified} — vedi {@link #touchSyncMeta()}.</p>
+     */
+    static String adesso() {
+        return LocalDateTime.now().format(TS_DB);
     }
 
     // ─── Schema ───────────────────────────────────────────────────────────────
@@ -1205,7 +1232,7 @@ public class Database {
                 payment_day        INTEGER,
                 payment_account_id INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
                 auto_settle        INTEGER DEFAULT 0,
-                created_at      TEXT    DEFAULT CURRENT_TIMESTAMP
+                created_at      TEXT    DEFAULT (datetime('now','localtime'))
             );
             CREATE TABLE IF NOT EXISTS categories (
                 id                   INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1223,7 +1250,7 @@ public class Database {
                 -- Categoria di sistema delle operazioni su titoli (vedi v25): è la chiave con cui
                 -- il codice la ritrova, al posto del nome. NULL = categoria normale dell'utente.
                 system_key           TEXT,
-                created_at           TEXT    DEFAULT CURRENT_TIMESTAMP
+                created_at           TEXT    DEFAULT (datetime('now','localtime'))
             );
             CREATE TABLE IF NOT EXISTS transactions (
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1237,7 +1264,7 @@ public class Database {
                 reconciled      INTEGER DEFAULT 1,
                 color           TEXT,
                 attachment_path TEXT,
-                created_at      TEXT    DEFAULT CURRENT_TIMESTAMP
+                created_at      TEXT    DEFAULT (datetime('now','localtime'))
             );
             CREATE TABLE IF NOT EXISTS transaction_splits (
                 id             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1278,7 +1305,7 @@ public class Database {
                 coupon_tax         REAL    DEFAULT 12.5,
                 total_commissions  REAL    DEFAULT 0,
                 country            TEXT,
-                created_at         TEXT    DEFAULT CURRENT_TIMESTAMP
+                created_at         TEXT    DEFAULT (datetime('now','localtime'))
             );
             CREATE TABLE IF NOT EXISTS portfolio_transactions (
                 id             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1298,7 +1325,7 @@ public class Database {
                 -- bonifico ma MAI in avg_price (torna con la prima cedola, non è un vero carico).
                 -- Vedi buyStock e CLAUDE.md sezione "Titoli".
                 accrued_interest REAL  DEFAULT 0,
-                created_at     TEXT    DEFAULT CURRENT_TIMESTAMP
+                created_at     TEXT    DEFAULT (datetime('now','localtime'))
             );
             CREATE TABLE IF NOT EXISTS tags (
                 id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1306,7 +1333,7 @@ public class Database {
                 color      TEXT    DEFAULT '#58a6ff',
                 is_system  INTEGER DEFAULT 0,
                 system_key TEXT    UNIQUE,
-                created_at TEXT    DEFAULT CURRENT_TIMESTAMP
+                created_at TEXT    DEFAULT (datetime('now','localtime'))
             );
             CREATE TABLE IF NOT EXISTS transaction_tags (
                 transaction_id INTEGER NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
@@ -1331,7 +1358,7 @@ public class Database {
                 reconciled          INTEGER DEFAULT 1,
                 portfolio_id        INTEGER REFERENCES portfolio(id) ON DELETE SET NULL,
                 original_start_date TEXT,
-                created_at          TEXT    DEFAULT CURRENT_TIMESTAMP
+                created_at          TEXT    DEFAULT (datetime('now','localtime'))
             );
             CREATE TABLE IF NOT EXISTS scheduled_transaction_tags (
                 scheduled_id INTEGER NOT NULL REFERENCES scheduled_transactions(id) ON DELETE CASCADE,
@@ -1344,11 +1371,11 @@ public class Database {
                 filters_json TEXT    NOT NULL DEFAULT '{}',
                 groupby      TEXT    NOT NULL DEFAULT 'none',
                 chart_type   TEXT    NOT NULL DEFAULT 'none',
-                created_at   TEXT    DEFAULT CURRENT_TIMESTAMP
+                created_at   TEXT    DEFAULT (datetime('now','localtime'))
             );
             CREATE TABLE IF NOT EXISTS forecasts (
                 id                INTEGER PRIMARY KEY AUTOINCREMENT,
-                created_at        TEXT    DEFAULT CURRENT_TIMESTAMP,
+                created_at        TEXT    DEFAULT (datetime('now','localtime')),
                 forecast_date     TEXT    NOT NULL,
                 projected_balance REAL    NOT NULL,
                 notes             TEXT,
@@ -1379,8 +1406,8 @@ public class Database {
                 color      TEXT    DEFAULT '',
                 pinned     INTEGER DEFAULT 0,
                 sort_order INTEGER DEFAULT 0,
-                created_at TEXT    DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT    DEFAULT CURRENT_TIMESTAMP
+                created_at TEXT    DEFAULT (datetime('now','localtime')),
+                updated_at TEXT    DEFAULT (datetime('now','localtime'))
             );
             CREATE TABLE IF NOT EXISTS note_tags (
                 note_id INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
@@ -1494,7 +1521,7 @@ public class Database {
         }
     }
 
-    private static final int SCHEMA_VERSION = 27;
+    private static final int SCHEMA_VERSION = 28;
 
     /**
      * Migrazioni incrementali dello schema per DB creati con versioni precedenti.
@@ -1588,12 +1615,111 @@ public class Database {
         // Il blocco resta per non lasciare un buco nella sequenza: a chi legge la migrazione
         // deve risultare che la v27 esiste e dove sta.
 
-        // ── v28+: aggiungere qui i blocchi futuri, es.:
-        //   if (currentVersion < 28) { try { executePlain("ALTER TABLE ..."); } catch (SQLException ignored) {} }
+        // ── v28: created_at/updated_at passano all'ora locale. Erano l'unico punto del DB con
+        // un secondo orologio: il DEFAULT era CURRENT_TIMESTAMP, che in SQLite è sempre UTC e
+        // non è configurabile, mentre op_log.ts e la potatura lavorano in ora locale. La stessa
+        // riga di cronologia mostrava quindi il gesto delle 18:46 con dentro created_at 16:46.
+        // Vedi migraTimestampLocali(): riscrive il DEFAULT, non tocca i valori già scritti.
+        if (currentVersion < 28) migraTimestampLocali();
+
+        // ── v29+: aggiungere qui i blocchi futuri, es.:
+        //   if (currentVersion < 29) { try { executePlain("ALTER TABLE ..."); } catch (SQLException ignored) {} }
 
         // Segna il DB come aggiornato all'ultima versione
         executePlain("DELETE FROM schema_version");
         executePlain("INSERT INTO schema_version(version) VALUES(" + SCHEMA_VERSION + ")");
+    }
+
+    /** Il DEFAULT che sostituisce {@code CURRENT_TIMESTAMP}: stesso formato, ora locale. */
+    private static final String DEFAULT_ORA_LOCALE = "DEFAULT (datetime('now','localtime'))";
+
+    /** Tabella usa-e-getta su cui si prova il testo nuovo prima di scriverlo in sqlite_master. */
+    private static final String TABELLA_PROVA = "_v28_prova_default";
+
+    /**
+     * v28: porta in ora locale il DEFAULT delle colonne {@code created_at}/{@code updated_at}.
+     *
+     * <p><b>Riscrive il DEFAULT, non i valori già scritti.</b> Quelli restano in UTC ed è
+     * voluto: sono ciò che erano, e riscriverli significherebbe spostare anche i
+     * {@code created_at} sintetici delle righe importate dal programma precedente (tutte a
+     * mezzanotte del 1° gennaio), cioè falsificare un dato che non vuol dire niente.</p>
+     *
+     * <p>⚠️ <b>Perché non la ricostruzione delle tabelle.</b> SQLite non sa cambiare un DEFAULT
+     * con {@code ALTER TABLE}: la via ufficiale è la danza in dodici passi (tabella nuova, copia
+     * dei dati, {@code DROP}, rinomina, indici e trigger da rifare). Qui costerebbe la
+     * riscrittura dell'<b>intero file</b> — su OneDrive un ricaricamento completo — più la
+     * conservazione a mano di indici, {@code sqlite_sequence} e ordine delle colonne, che in un
+     * DB migrato dalla v20 non è quello di {@link #initSchema()}. Il DEFAULT vive però solo nel
+     * <b>testo</b> della {@code CREATE TABLE}: riscrivere quello tocca una pagina sola e lascia
+     * intatti dati, indici, trigger e contatori.</p>
+     *
+     * <p>⚠️ {@code PRAGMA writable_schema} è l'attrezzo affilato del lotto — un testo malformato
+     * lì dentro rende il DB illeggibile. Tre difese, tutte necessarie:</p>
+     * <ol>
+     *   <li>il testo nuovo si prova <b>prima</b> creando una tabella usa-e-getta: se il parser
+     *       lo rifiuta, l'errore arriva mentre {@code sqlite_master} è ancora intatto;</li>
+     *   <li>gira dentro la transazione dell'avvio, quindi un fallimento a metà annulla tutto;</li>
+     *   <li>{@code integrity_check} in coda, prima che quella transazione si chiuda.</li>
+     * </ol>
+     *
+     * <p>⚠️ Il {@code PRAGMA schema_version} finale non è cosmetico: è ciò che invalida lo schema
+     * tenuto in memoria dalla connessione. Senza, <b>questa</b> sessione continuerebbe a usare
+     * il DEFAULT vecchio fino al riavvio successivo — cioè scriverebbe ancora in UTC proprio
+     * l'avvio che ha migrato.</p>
+     *
+     * <p>Su un DB già a posto (nato da {@link #initSchema()} dalla v28 in poi) la query iniziale
+     * non trova niente e il metodo esce <b>senza scrivere</b>: vale la regola dell'avvio a
+     * scrittura zero.</p>
+     */
+    private void migraTimestampLocali() throws SQLException {
+        List<Map<String, Object>> tabelle = queryList("""
+            SELECT name, sql FROM sqlite_master
+            WHERE type='table' AND sql LIKE '%DEFAULT CURRENT_TIMESTAMP%'
+            ORDER BY name
+        """);
+        if (tabelle.isEmpty()) return;
+
+        long cookie = ((Number) queryOne("PRAGMA schema_version").get("schema_version")).longValue();
+        List<String> fatte = new ArrayList<>();
+        try {
+            for (Map<String, Object> t : tabelle) {
+                String nome  = (String) t.get("name");
+                String sql   = (String) t.get("sql");
+                int    apre  = sql.indexOf('(');
+                if (apre < 0) continue;   // non è una CREATE TABLE con colonne: non ci riguarda
+                String nuovo = sql.replace("DEFAULT CURRENT_TIMESTAMP", DEFAULT_ORA_LOCALE);
+
+                // Prova del testo: stesso corpo, nome diverso. Nasce e muore qui.
+                executeRaw("DROP TABLE IF EXISTS " + TABELLA_PROVA);
+                executeRaw("CREATE TABLE " + TABELLA_PROVA + " " + nuovo.substring(apre));
+                executeRaw("DROP TABLE " + TABELLA_PROVA);
+
+                executePlain("PRAGMA writable_schema=ON");
+                execute("UPDATE sqlite_master SET sql=? WHERE type='table' AND name=?", nuovo, nome);
+                executePlain("PRAGMA writable_schema=OFF");
+                fatte.add(nome);
+            }
+        } finally {
+            // Anche se qualcosa è andato storto: writable_schema aperto su una connessione che
+            // continua a vivere è l'unica condizione in cui una query qualsiasi può fare danni.
+            executePlain("PRAGMA writable_schema=OFF");
+        }
+
+        executePlain("PRAGMA schema_version=" + (cookie + 1));
+
+        Object esito = queryOne("PRAGMA integrity_check").get("integrity_check");
+        if (!"ok".equals(String.valueOf(esito)))
+            throw new SQLException("migrazione v28 annullata: integrity_check ha risposto '" + esito + "'");
+
+        System.out.println("[Schema v28] created_at/updated_at in ora locale: " + String.join(", ", fatte));
+
+        // Se il testo di una tabella scrivesse CURRENT_TIMESTAMP in un modo che la LIKE non
+        // riconosce (spaziatura o maiuscole diverse), quel DEFAULT resterebbe in UTC per sempre
+        // e nessuno se ne accorgerebbe: la versione viene comunque timbrata v28.
+        for (Map<String, Object> r : queryList(
+                "SELECT name FROM sqlite_master WHERE type='table' AND upper(sql) LIKE '%CURRENT_TIMESTAMP%'"))
+            System.err.println("[Schema v28] " + r.get("name") + ": CURRENT_TIMESTAMP non riconosciuto"
+                             + " nel testo dello schema, quel DEFAULT resta in UTC");
     }
 
     // ─── App settings nel DB ──────────────────────────────────────────────────
@@ -2125,9 +2251,11 @@ public class Database {
             where.append("\n  AND TRIM(description) LIKE ? ESCAPE '\\'");
             params.add(like);
         }
-        // Senza filtri: limita agli ultimi 6 mesi (le più recenti e rilevanti)
+        // Senza filtri: limita agli ultimi 6 mesi (le più recenti e rilevanti).
+        // 'localtime' come ovunque: senza, fra mezzanotte e le 2 il taglio cadrebbe un giorno
+        // indietro rispetto alla data che l'utente vede sulle transazioni.
         if (!hasQuery && !hasCategory)
-            where.append("\n  AND date >= date('now', '-6 months')");
+            where.append("\n  AND date >= date('now', 'localtime', '-6 months')");
 
         String sql = """
             SELECT TRIM(description) AS description, COUNT(*) AS usage_count
@@ -2778,7 +2906,7 @@ public class Database {
                                 && o.get("cancelled").getAsBoolean();
             if (cancelled && id != null && !alreadyImported(id)) {
                 execute("INSERT OR IGNORE INTO imported_pending(id,imported_at) VALUES(?,?)",
-                        id, LocalDateTime.now().toString());
+                        id, adesso());
                 logger.log("CODA — RIGA ANNULLATA DAL TELEFONO", "id:" + id,
                            "data:" + Giornale.s(o.has("date") ? o.get("date").getAsString() : null),
                            "importo:" + Giornale.s(o.has("amount") ? o.get("amount").getAsString() : null),
@@ -2804,7 +2932,7 @@ public class Database {
                 try {
                     Map<String, Object> tx = applyPendingEntry(o, phoneTagId);
                     execute("INSERT OR IGNORE INTO imported_pending(id,imported_at) VALUES(?,?)",
-                            id, LocalDateTime.now().toString());
+                            id, adesso());
                     if (tx != null) imported.add(tx);
                     o.addProperty("applied", true);
                     fileChanged = true;
@@ -3237,7 +3365,7 @@ public class Database {
             String content = str(p, "content") != null ? str(p, "content") : "";
             String color   = str(p, "color")   != null ? str(p, "color")   : "";
             int pinned     = intVal(p, "pinned") != null ? intVal(p, "pinned") : 0;
-            String now = java.time.Instant.now().toString();
+            String now = adesso();
             long newId;
             if (id != null) {
                 execute("UPDATE notes SET title=?, content=?, color=?, pinned=?, updated_at=? WHERE id=?",

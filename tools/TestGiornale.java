@@ -49,11 +49,19 @@ public class TestGiornale {
         // ⚠️ Tutto si misura a DIFFERENZE, mai a valori assoluti: il DB di partenza è quello
         // vero e il suo giornale contiene già le operazioni di chi usa l'app. Un banco che
         // pretende un giornale vuoto passa solo il primo giorno.
+        // ⚠️ Prima apertura a parte: se la copia arriva da un DB non ancora migrato, è l'unico
+        // avvio che scrive davvero (la migrazione dello schema), quindi mtime, dimensione e
+        // change counter cambiano. Tutto ciò che si misura dopo parte da un DB già allineato,
+        // dove vale la regola dell'avvio a scrittura zero.
+        // In op_log non lascia nulla, ed è coerente: sqlite_master non è journalata, quindi
+        // l'operazione di avvio resta senza righe di change_log e non viene registrata.
+        new Database(db.toString()).close();
+
         int opIniziali = contaTollerante("SELECT COUNT(*) FROM op_log");
         Database d = new Database(db.toString());
         d.close();
         try (Connection c = DriverManager.getConnection(url); Statement st = c.createStatement()) {
-            eq("schema allineato alla v27", "27", uno(st, "SELECT version FROM schema_version"));
+            eq("schema allineato alla v28", "28", uno(st, "SELECT version FROM schema_version"));
             eq("op_log e change_log esistono", "2", uno(st,
                 "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('op_log','change_log')"));
             eq("un trigger per ogni verso di ogni tabella journalata", "57", uno(st,
@@ -116,6 +124,27 @@ public class TestGiornale {
                  String.valueOf(uno(st, "SELECT chiave FROM change_log WHERE op_id=" + op + " AND tabella='transaction_tags'"))
                        .matches("\\[\\d+,\\d+\\]"));
         }
+
+        sezione("UN OROLOGIO SOLO");
+        // ⚠️ Il DEFAULT delle colonne created_at era CURRENT_TIMESTAMP, che in SQLite è SEMPRE
+        // UTC: la stessa riga di cronologia mostrava il gesto delle 18:46 con dentro un
+        // created_at delle 16:46, e nessun errore lo segnalava. Dalla v28 il DEFAULT è
+        // datetime('now','localtime'), lo stesso orologio che Java scrive in op_log.ts.
+        app.iniziaRichiesta("addAccount", "desktop");
+        long conto = ((Number) app.addAccount(json("""
+            {"name":"Orologio","type":"bank","currency":"EUR","initial_balance":0}""")).get("id")).longValue();
+        app.terminaRichiesta(true);
+        try (Connection c = DriverManager.getConnection(url); Statement st = c.createStatement()) {
+            String ts  = uno(st, "SELECT ts FROM op_log ORDER BY id DESC LIMIT 1");
+            String cre = uno(st, "SELECT created_at FROM accounts WHERE id=" + conto);
+            eq("il gesto e la riga che ha creato portano la stessa ora",
+               String.valueOf(ts).substring(0, 16), String.valueOf(cre).substring(0, 16));
+            eq("nessun DEFAULT rimasto in UTC", "0", uno(st,
+               "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND upper(sql) LIKE '%CURRENT_TIMESTAMP%'"));
+        }
+        app.iniziaRichiesta("deleteAccount", "desktop");
+        app.deleteAccount((int) conto);
+        app.terminaRichiesta(true);
 
         sezione("LE IMPOSTAZIONI: PREFERENZE SI, NAVIGAZIONE NO");
         int opPrima = conta("SELECT COUNT(*) FROM op_log");

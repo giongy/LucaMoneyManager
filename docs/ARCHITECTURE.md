@@ -403,12 +403,12 @@ aggiungere un metodo che tocca `conn`.
 
 ```
 initSchema()        Crea le 22 tabelle "canoniche" se mancano.
-                    Rispecchia lo schema COMPLETO alla v27 e timbra
-                    subito schema_version = 27 sui DB nuovi.
+                    Rispecchia lo schema COMPLETO alla v28 e timbra
+                    subito schema_version = 28 sui DB nuovi.
        │
        ▼
 migrate()           Solo per DB creati da versioni precedenti.
-                    Esce immediatamente se schema_version >= 27.
+                    Esce immediatamente se schema_version >= 28.
                     v21: accounts.is_hidden
                     v22: accounts.payment_day / payment_account_id / auto_settle
                     v23: categories.mobile_favorite
@@ -418,6 +418,10 @@ migrate()           Solo per DB creati da versioni precedenti.
                     v27: giornale — nessun ALTER: op_log e change_log
                          nascono in initSchema, i trigger li installa
                          Giornale.allineaTrigger() subito dopo
+                    v28: created_at/updated_at in ora locale — non un
+                         ALTER ma una riscrittura del testo dello schema
+                         (migraTimestampLocali): i valori già scritti
+                         non si toccano, cambia solo il DEFAULT
        │
        ▼
 allineaTrigger()    Genera il testo atteso dei 57 trigger di cattura e lo
@@ -429,10 +433,15 @@ seedDefaultData()   Categorie default, tag di sistema, range preset, ecc.
                     Inserite solo se le tabelle sono vuote.
 ```
 
-**Come si aggiunge una migrazione (v28+):** un blocco `if (currentVersion < 28) { try { ALTER … }
+**Come si aggiunge una migrazione (v29+):** un blocco `if (currentVersion < 29) { try { ALTER … }
 catch (SQLException ignored) {} }` in `migrate()`, **e** la colonna nella `CREATE TABLE` di
 `initSchema()`. Il `try/catch` è voluto: su un DB creato da `initSchema` già aggiornato l'`ALTER`
 fallisce, ed è corretto ignorarlo.
+
+⚠️ **Il `try/catch` vale per un `ALTER` idempotente, non per una migrazione che può fallire
+davvero.** La v28 riscrive il testo dello schema: lì un'eccezione deve propagare, perché
+timbrare la versione su una migrazione non riuscita significherebbe non riprovarla mai più.
+Sta tutto dentro la transazione dell'avvio, quindi un fallimento non lascia niente a metà.
 
 ⚠️ **Una tabella nuova va aggiunta anche a `Giornale.TABELLE`** (o a `ESCLUSE_NOTE`, se le sue
 modifiche non devono essere annullabili). Non è una cosa da ricordare: `allineaTrigger()` la

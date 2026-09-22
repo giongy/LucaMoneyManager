@@ -1,8 +1,6 @@
 package com.moneymanager;
 
 import java.sql.SQLException;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -69,8 +67,6 @@ import java.util.stream.Collectors;
  * lo cancella — resta sul disco dei database vecchi finché è l'utente a volerlo via.</p>
  */
 public class Giornale {
-
-    private static final DateTimeFormatter TS = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     /**
      * Le tabelle di dati che finiscono nel giornale. Elenco unico: da qui si generano i
@@ -253,7 +249,7 @@ public class Giornale {
         long id = db.execute(
                 "INSERT INTO op_log(ts,etichetta,dettaglio,origine,tipo,stato,annulla_op)"
                 + " VALUES(?,?,?,?,?,'attiva',?)",
-                LocalDateTime.now().format(TS), etichetta(op), dettaglio(op), op.origine,
+                Database.adesso(), etichetta(op), dettaglio(op), op.origine,
                 utente ? "utente" : "sistema",
                 op.annullate.isEmpty() ? null : op.annullate.iterator().next());
 

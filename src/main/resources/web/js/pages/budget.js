@@ -675,7 +675,7 @@ function renderBudgetAndamento() {
           data: budgetProg,
           borderColor: '#7c6cff',
           backgroundColor: 'transparent',
-          tension: 0.3, pointRadius: 3, pointHoverRadius: 5,
+          tension: 0.3, cubicInterpolationMode: 'monotone', pointRadius: 3, pointHoverRadius: 5,
           order: 1
         },
         {
@@ -684,7 +684,7 @@ function renderBudgetAndamento() {
           data: realeProg,
           borderColor: '#3fb950',
           backgroundColor: 'transparent',
-          tension: 0.3, pointRadius: 3, pointHoverRadius: 5,
+          tension: 0.3, cubicInterpolationMode: 'monotone', pointRadius: 3, pointHoverRadius: 5,
           spanGaps: false,
           order: 1
         },
@@ -695,7 +695,7 @@ function renderBudgetAndamento() {
           borderColor: '#b388ff',
           borderWidth: 1,
           fill: { target: 'origin', above: 'rgba(63,185,80,0.18)', below: 'rgba(248,81,73,0.18)' },
-          tension: 0.3, pointRadius: 2, pointHoverRadius: 4,
+          tension: 0.3, cubicInterpolationMode: 'monotone', pointRadius: 2, pointHoverRadius: 4,
           spanGaps: false,
           order: 1,
           segment: {
@@ -1847,7 +1847,7 @@ function _openBudgetDetail(catId, catName, isFirstOpen) {
             backgroundColor: 'rgba(124,124,255,0.08)',
             borderWidth: 2,
             pointRadius: 2,
-            tension: 0.3,
+            tension: 0.3, cubicInterpolationMode: 'monotone',
             fill: false,
           },
           {
@@ -1857,7 +1857,7 @@ function _openBudgetDetail(catId, catName, isFirstOpen) {
             backgroundColor: 'rgba(167,139,250,0.08)',
             borderWidth: 2,
             pointRadius: 2,
-            tension: 0.3,
+            tension: 0.3, cubicInterpolationMode: 'monotone',
             fill: false,
           },
           {
@@ -1865,7 +1865,7 @@ function _openBudgetDetail(catId, catName, isFirstOpen) {
             data: chartLabels.map((_,i) => { let a=0,b=0; for(let m=1;m<=i+1;m++){a+=am[m]||0;b+=bm[m]||0;} return a-b; }),
             borderWidth: 2,
             pointRadius: 2,
-            tension: 0.3,
+            tension: 0.3, cubicInterpolationMode: 'monotone',
             fill: {
               target: 'origin',
               above: isIncome ? 'rgba(63,185,80,0.20)' : 'rgba(248,81,73,0.20)',

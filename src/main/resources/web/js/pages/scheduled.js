@@ -534,7 +534,7 @@ async function loadProjectionChart(accounts) {
       data: totals,
       borderColor: '#7c6cff',
       backgroundColor: '#7c6cff22',
-      fill: true, tension: 0.3,
+      fill: true, tension: 0.3, cubicInterpolationMode: 'monotone',
       pointRadius: isDaily ? 2 : 2,
       pointHoverRadius: 4,
       spanGaps: true

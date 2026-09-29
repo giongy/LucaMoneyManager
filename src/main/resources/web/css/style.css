@@ -300,26 +300,6 @@ html:not(:where([data-theme="carta"],[data-theme="petrolio"],[data-theme="glassy
   & .stat-card:hover::before { width:auto; opacity:.9; }
   & .stat-label { color:var(--txt3); font-weight:600; }
 
-  /* Saldo totale della Dashboard: la card "hero", l'unica a fondo pieno. Indaco→viola
-     con due luci (bianca in alto a dx, acqua in basso a sx). Il testo si schiarisce
-     ridefinendo le variabili DENTRO la card: così seguono anche gli stili inline del JS
-     (lo .stat-sub ha color:var(--txt3) scritto nel markup). Il bianco al 90% sul punto
-     più chiaro del fondo sta a 4.6:1. */
-  & .stat-card.stat-balance {
-    --txt:#fff; --txt2:rgba(255,255,255,.9); --txt3:rgba(255,255,255,.9); --accent:#fff;
-    color:#fff;
-    background-color:#4c56d8;
-    background-image:
-      radial-gradient(320px 180px at 100% 0%,  rgba(255,255,255,.28), transparent 65%),
-      radial-gradient(300px 200px at 0% 120%, rgba(80,225,225,.45), transparent 65%),
-      linear-gradient(125deg, #4a55d6 0%, #5646c8 55%, #7348c9 100%);
-    border-color:rgba(255,255,255,.35);
-    box-shadow:0 2px 4px rgba(40,48,110,.12), 0 16px 36px -10px rgba(76,70,210,.6),
-               inset 0 1px 0 rgba(255,255,255,.35);
-  }
-  & .stat-card.stat-balance::before { display:none; }
-  & .stat-card.stat-balance .stat-value { text-shadow:0 1px 12px rgba(30,20,120,.25); }
-
   /* Riepilogo patrimonio (Conti): un velo d'indaco e lilla in diagonale. */
   & .acc-summary {
     background-image:linear-gradient(120deg, rgba(108,120,255,.12), rgba(190,150,255,.08) 45%, transparent 70%);

@@ -1058,7 +1058,7 @@ il tema scuro non è più il riferimento, ed è la causa della maggior parte del
 | 🪟 Vetro | `glassy` | `[data-theme="glassy"]` | `#161b25` |
 
 Nebbia e Carta sono chiari; Petrolio e Vetro scuri. **Nebbia "aurora"**: fondo a mesh
-gradient, card in vetro smerigliato, accento indaco, card hero sul Saldo totale, e l'unico tema con
+gradient, card in vetro smerigliato, accento indaco, e l'unico tema con
 **font propri** — Geist (testo) e Manrope (titoli e grandi importi), inclusi in `web/fonts/` (mai da
 Google Fonts: il link remoto bloccava il primo render). Tutto il tema sta in un solo blocco CSS
 annidato (`html:not(:where(...)) { & ... }`); la palette ha copie in `_BUILTIN_VARS.nebbia`

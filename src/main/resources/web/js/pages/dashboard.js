@@ -57,14 +57,27 @@ function _renderDashBudgetBubbles(budgetYear) {
     actual: actualMap[c.id] || 0,
     parent_name: c.parent_id ? (catMap[c.parent_id]?.name || '') : '',
   }));
-  // Chi entra nel widget: una regola sola per entrambi i tipi — la categoria ha un budget
-  // questo mese, oppure ci si è mosso del denaro. Sono i due casi in cui c'è qualcosa da
-  // confrontare; senza né l'uno né l'altro la card direbbe "0,00 € / —".
+  // "Pesante" = il budget vale ≥ 5% del budget uscite totale del mese (Spesa, Assicurazione...):
+  // categorie che muovono il mese. Decide sia chi entra nel widget sia chi resta fuori dal
+  // riepilogo collassato (_isMinorExp più sotto).
+  const _WEIGHT_SHARE = 0.05;
+  const _totExpBudgetAll = allCatData.filter(c => c.type === 'expense').reduce((s, c) => s + c.budget, 0);
+  const _isHeavyExp = c => _totExpBudgetAll > 0 && c.budget / _totExpBudgetAll >= _WEIGHT_SHARE;
+
+  // Chi entra nel widget:
+  //  - uscite: se questo mese c'è stata spesa, oppure se sono "pesanti". Una categoria piccola
+  //    ferma a zero ("0,00 € / 110 €") non ha niente da sorvegliare e occupava solo una card;
+  //    una pesante a zero invece sì — è una spesa grossa prevista e non ancora arrivata
+  //    (Assicurazione 0 / 754), che deve restare in vista.
+  //    Il budget delle escluse resta comunque nei totali in fondo (presi da allCatData).
+  //  - entrate: se ci si è mosso del denaro oppure c'è un budget. Qui lo zero È il segnale:
+  //    uno stipendio previsto e non arrivato a fine mese va mostrato in rosso (_isBad).
   // ⚠️ Prima la regola era `c.actual > 0 || c.type === 'income'`: le entrate entravano
   // TUTTE, incondizionatamente, anche mai usate e senza budget. Era già una card vuota, ed
   // è diventato anche un problema di spazio da quando la larghezza delle due colonne
   // dipende da quante card mostrano (vedi _colWeight più sotto).
-  const catData = allCatData.filter(c => c.actual > 0 || c.budget > 0);
+  const catData = allCatData.filter(c => c.actual > 0
+    || (c.type === 'income' ? c.budget > 0 : _isHeavyExp(c)));
 
   // Nessuna spesa né categoria entrata visibile questo mese: mostra comunque la card con
   // header + placeholder (niente display:none, che lasciava un vuoto a fianco del widget conti).
@@ -118,18 +131,21 @@ function _renderDashBudgetBubbles(budgetYear) {
   // Quali uscite in regola meritano una card: quelle su cui c'è ancora qualcosa "in gioco".
   //  - "peso": il budget vale ≥ 5% del budget uscite totale (Spesa, Fuori...) — categorie che
   //    muovono il mese, da tenere d'occhio anche quando sono perfettamente in regola;
-  //  - "residuo": resta da spendere almeno 50 €, quindi la categoria può ancora sforare.
-  // Il criterio è volutamente sull'importo e non sulla percentuale: le spese fisse/una-tantum
-  // (Dentista 112/112, TIM 76/76) stanno stabilmente al 100% del loro budget ma sono chiuse,
-  // non c'è nulla da sorvegliare — con una soglia percentuale resterebbero sempre visibili.
-  // Tutte le altre confluiscono nella riga riepilogo espandibile in fondo alla colonna.
-  const _WEIGHT_SHARE = 0.05;   // quota del budget uscite totale sopra cui la categoria è "pesante"
-  const _MIN_LEFT     = 50;     // € ancora da spendere sotto cui la categoria è "chiusa"
-  const _totExpBudgetAll = allCatData.filter(c => c.type === 'expense').reduce((s, c) => s + c.budget, 0);
+  //  - "a rischio": speso almeno l'80% del budget ma non tutto — basta un'altra spesa per
+  //    sforare (Giochi 174/175). È il caso che più serve vedere, non il contrario: il criterio
+  //    precedente ("restano ≥ 50 €") mostrava le categorie con molto margine e nascondeva
+  //    proprio quelle quasi al tetto.
+  // Il budget consumato esattamente (al centesimo) non è "a rischio" ma chiuso: sono le spese
+  // fisse/una-tantum (Dentista 112/112, TIM 76/76), già pagate, niente da sorvegliare.
+  // Tutte le altre — piccole e con margine — confluiscono nella riga riepilogo
+  // espandibile in fondo alla colonna.
+  const _RISK_SHARE   = 0.80;   // quota del budget speso oltre cui la categoria è "a rischio"
   const _isMinorExp = c => {
-    const heavy = _totExpBudgetAll > 0 && c.budget / _totExpBudgetAll >= _WEIGHT_SHARE;
-    const left  = c.budget > 0 && (c.budget - c.actual) >= _MIN_LEFT;
-    return !heavy && !left;
+    const heavy = _isHeavyExp(c);
+    // Confronto in centesimi: le somme in virgola mobile darebbero 76,2499… su un budget di 76,25.
+    const closed = Math.round(c.actual * 100) >= Math.round(c.budget * 100);
+    const atRisk = c.budget > 0 && !closed && c.actual / c.budget >= _RISK_SHARE;
+    return !heavy && !atRisk;
   };
   const expSplit = _splitSort(expCats, _isMinorExp);
   const incSplit = _splitSort(incCats);   // entrate: poche, nessuna finisce nel riepilogo collassato

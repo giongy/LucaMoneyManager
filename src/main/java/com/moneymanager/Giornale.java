@@ -977,19 +977,20 @@ public class Giornale {
      * una voce.
      *
      * <p>Per una modifica mostra <b>solo i campi diversi</b>, confrontando la riga registrata
-     * (il prima) con quella attuale: registrare anche il dopo raddoppierebbe il peso del
-     * giornale per un'informazione che è già nella tabella.</p>
+     * (il prima) con il suo dopo. Il dopo non è registrato — raddoppierebbe il peso del
+     * giornale — ma si ricava: vedi {@link #rigaDopo}.</p>
      */
     public Map<String, Object> dettaglioOperazione(long opId) throws SQLException {
         Map<String, Object> testa = db.queryOne("SELECT * FROM op_log WHERE id=?", opId);
         if (testa == null) throw new SQLException("Operazione " + opId + " non trovata.");
         List<Map<String, Object>> out = new ArrayList<>();
         for (Map<String, Object> r : db.queryList(
-                "SELECT tabella, chiave, verso, riga FROM change_log WHERE op_id=? ORDER BY id", opId)) {
+                "SELECT id, tabella, chiave, verso, riga FROM change_log WHERE op_id=? ORDER BY id", opId)) {
             String tabella = (String) r.get("tabella"), verso = (String) r.get("verso");
             String chiave  = (String) r.get("chiave"),  riga   = (String) r.get("riga");
             Map<String, Object> prima = riga == null ? Map.of() : jsonInMappa(riga);
-            Map<String, Object> ora   = "D".equals(verso) ? Map.of() : rigaAttuale(tabella, chiave);
+            Map<String, Object> ora   = "D".equals(verso) ? Map.of()
+                    : rigaDopo(((Number) r.get("id")).longValue(), tabella, chiave);
             List<Map<String, Object>> campi = new ArrayList<>();
             for (String col : colonne(tabella)) {
                 String p = testo(prima.get(col)), d = testo(ora.get(col));
@@ -1004,7 +1005,7 @@ public class Giornale {
             voce.put("tabella",    tabella);
             voce.put("verso",      verso);
             voce.put("chiave",     chiave);
-            voce.put("esiste_ora", !ora.isEmpty());
+            voce.put("esiste_ora", !rigaAttuale(tabella, chiave).isEmpty());
             voce.put("campi",      campi);
             out.add(voce);
         }
@@ -1020,6 +1021,26 @@ public class Giornale {
         for (Map<String, Object> r : db.queryList("SELECT key, value FROM json_each(?)", json))
             m.put(String.valueOf(r.get("key")), r.get("value"));
         return m;
+    }
+
+    /**
+     * La riga com'era <b>subito dopo</b> una certa modifica: è il «prima» del tocco
+     * successivo sulla stessa riga, e solo se nessuno l'ha più toccata è la riga attuale.
+     *
+     * <p>⚠️ Leggere sempre la riga attuale fa mentire la pagina: ogni modifica mostrerebbe
+     * come proprio risultato il valore di <b>oggi</b>, cioè quello scritto dall'ultima —
+     * un prezzo aggiornato ieri a 12,685 risulterebbe «12,605 → 12,9» appena oggi lo si
+     * porta a 12,9. Il tocco successivo è per forza una {@code U} o una {@code D} (dopo una
+     * {@code I} o una {@code U} la riga esiste), quindi il suo {@code riga} c'è sempre; si
+     * cerca per id di {@code change_log} e non di operazione, perché la stessa riga può
+     * essere toccata più volte dentro un gesto solo.</p>
+     */
+    private Map<String, Object> rigaDopo(long changeId, String tabella, String chiave) throws SQLException {
+        Map<String, Object> succ = db.queryOne("""
+                SELECT riga FROM change_log
+                WHERE tabella=? AND chiave=? AND id>? ORDER BY id LIMIT 1""", tabella, chiave, changeId);
+        if (succ != null && succ.get("riga") != null) return jsonInMappa((String) succ.get("riga"));
+        return rigaAttuale(tabella, chiave);
     }
 
     /** La riga com'è adesso, o una mappa vuota se non esiste più. */

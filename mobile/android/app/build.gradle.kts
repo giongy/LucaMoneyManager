@@ -1,6 +1,5 @@
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
 }
 
 android {
@@ -32,17 +31,11 @@ android {
         }
     }
 
+    // Vale anche per Kotlin: con Kotlin integrato (AGP 9) il target della JVM segue
+    // targetCompatibility, senza un blocco a parte da tenere allineato.
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
-    }
-}
-
-// Da Kotlin 2.4 il vecchio blocco android { kotlinOptions { jvmTarget = "21" } } è un errore:
-// il target della JVM si dichiara qui, e deve restare uguale a compileOptions sopra.
-kotlin {
-    compilerOptions {
-        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21)
     }
 }
 

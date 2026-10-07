@@ -140,7 +140,7 @@ Bridge.java — dispatches 137 operations
     ↓
 Database.java — all JDBC queries
     ↓
-SQLite (schema v26, 22 tables)
+SQLite (schema v29, 24 tables)
 ```
 
 **Tech stack:**

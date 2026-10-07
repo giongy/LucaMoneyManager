@@ -1521,7 +1521,7 @@ public class Database {
         }
     }
 
-    private static final int SCHEMA_VERSION = 28;
+    private static final int SCHEMA_VERSION = 29;
 
     /**
      * Migrazioni incrementali dello schema per DB creati con versioni precedenti.
@@ -1622,8 +1622,24 @@ public class Database {
         // Vedi migraTimestampLocali(): riscrive il DEFAULT, non tocca i valori già scritti.
         if (currentVersion < 28) migraTimestampLocali();
 
-        // ── v29+: aggiungere qui i blocchi futuri, es.:
-        //   if (currentVersion < 29) { try { executePlain("ALTER TABLE ..."); } catch (SQLException ignored) {} }
+        // ── v29: il tag di sistema «Investimenti» su tutte le transazioni del portafoglio che
+        // non ce l'hanno. Lo schema non cambia: è un riallineamento dei dati. Mancava per due
+        // strade — fino alla 1.25.15 lo mettevano solo cedole, dividendi, imposte e spese, e le
+        // cedole registrate da una pianificata (applyAdvance) non lo ricevevano affatto.
+        // Il criterio è il legame vero, portfolio_transactions, non la categoria né il nome.
+        // Se il tag non esistesse la subquery non restituisce righe e non si scrive niente.
+        if (currentVersion < 29) {
+            executePlain("""
+                INSERT OR IGNORE INTO transaction_tags(transaction_id, tag_id)
+                SELECT DISTINCT pt.transaction_id, g.id
+                  FROM portfolio_transactions pt
+                  JOIN tags g ON g.system_key = 'investment'
+                 WHERE pt.transaction_id IS NOT NULL
+            """);
+        }
+
+        // ── v30+: aggiungere qui i blocchi futuri, es.:
+        //   if (currentVersion < 30) { try { executePlain("ALTER TABLE ..."); } catch (SQLException ignored) {} }
 
         // Segna il DB come aggiornato all'ultima versione
         executePlain("DELETE FROM schema_version");
@@ -4485,6 +4501,9 @@ public class Database {
                     VALUES(?,?,?,?,?,?,?)
                 """, portfolioId, "coupon", 0, tx.get("amount"), tx.get("date"), transactionId,
                         Giornale.s(s.get("description")));
+                // Come ogni altra transazione nata dal portafoglio: senza, la cedola registrata
+                // da qui restava l'unica senza tag (registerCoupon lo mette da sempre).
+                tagInvestment(transactionId);
             }
         }
 

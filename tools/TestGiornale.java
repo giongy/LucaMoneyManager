@@ -61,7 +61,7 @@ public class TestGiornale {
         Database d = new Database(db.toString());
         d.close();
         try (Connection c = DriverManager.getConnection(url); Statement st = c.createStatement()) {
-            eq("schema allineato alla v28", "28", uno(st, "SELECT version FROM schema_version"));
+            eq("schema allineato alla v29", "29", uno(st, "SELECT version FROM schema_version"));
             eq("op_log e change_log esistono", "2", uno(st,
                 "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN ('op_log','change_log')"));
             eq("un trigger per ogni verso di ogni tabella journalata", "57", uno(st,

@@ -403,12 +403,12 @@ aggiungere un metodo che tocca `conn`.
 
 ```
 initSchema()        Crea le 22 tabelle "canoniche" se mancano.
-                    Rispecchia lo schema COMPLETO alla v28 e timbra
-                    subito schema_version = 28 sui DB nuovi.
+                    Rispecchia lo schema COMPLETO alla v29 e timbra
+                    subito schema_version = 29 sui DB nuovi.
        │
        ▼
 migrate()           Solo per DB creati da versioni precedenti.
-                    Esce immediatamente se schema_version >= 28.
+                    Esce immediatamente se schema_version >= 29.
                     v21: accounts.is_hidden
                     v22: accounts.payment_day / payment_account_id / auto_settle
                     v23: categories.mobile_favorite
@@ -422,6 +422,9 @@ migrate()           Solo per DB creati da versioni precedenti.
                          ALTER ma una riscrittura del testo dello schema
                          (migraTimestampLocali): i valori già scritti
                          non si toccano, cambia solo il DEFAULT
+                    v29: nessun cambio di schema — il tag di sistema
+                         «Investimenti» su tutte le transazioni legate a
+                         portfolio_transactions che non l'avevano
        │
        ▼
 allineaTrigger()    Genera il testo atteso dei 57 trigger di cattura e lo

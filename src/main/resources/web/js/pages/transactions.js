@@ -879,7 +879,11 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
         <label class="form-label">Tag</label>
         <div class="tag-selector" id="tagSelector">
           ${tags.filter(t=>!t.is_system).map(t=>`<span class="tag-chip" data-tag-id="${t.id}" style="--tc:${esc(t.color)}">${esc(t.name)}</span>`).join('')}
-          ${tags.filter(t=>t.is_system && t.system_key!=='oneoff' && (tx?.tags||[]).some(tt=>Number(tt.id)===t.id)).map(t=>`<span class="tag-chip" data-tag-id="${t.id}" style="--tc:${esc(t.color)}" title="Tag di sistema — puoi solo rimuoverlo">${esc(t.name)} 🔒</span>`).join('')}
+          <!-- «Investimenti» si può anche mettere a mano: è una pura etichetta (nessun calcolo
+               la legge) e serve sui movimenti che il portafoglio non conosce, es. quelli rimasti
+               da un titolo eliminato. Gli altri tag di sistema li assegna solo l'app. -->
+          ${tags.filter(t=>t.system_key==='investment').map(t=>`<span class="tag-chip" data-tag-id="${t.id}" style="--tc:${esc(t.color)}" title="Tag di sistema — l'app lo mette da sé ai movimenti del portafoglio, ma puoi assegnarlo anche a mano">${esc(t.name)}</span>`).join('')}
+          ${tags.filter(t=>t.is_system && t.system_key!=='oneoff' && t.system_key!=='investment' && (tx?.tags||[]).some(tt=>Number(tt.id)===t.id)).map(t=>`<span class="tag-chip" data-tag-id="${t.id}" style="--tc:${esc(t.color)}" title="Tag di sistema — puoi solo rimuoverlo">${esc(t.name)} 🔒</span>`).join('')}
           <span class="tag-chip tag-chip-new" id="tagChipNew">+ nuovo</span>
         </div>
       </div>

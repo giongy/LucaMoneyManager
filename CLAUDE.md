@@ -676,7 +676,7 @@ I tre casi che il metodo deve continuare a coprire, e che vanno riprovati toccan
 
 ---
 
-## Schema DB (v28, 24 tabelle)
+## Schema DB (v29, 24 tabelle)
 
 - **Core:** `accounts` (3 stati: `is_closed`, `is_hidden` — nascosto ⇒ sempre chiuso; per le carte anche `payment_day`, `payment_account_id`, `auto_settle` — vedi "Saldo automatico carte"), `categories` (gerarchiche, `expense_nature`, `mobile_favorite` — vedi "Categorie per Android" — `system_key` — vedi "Titoli"), `transactions` (`reconciled`, `attachment_path`, `color`), `transaction_splits`, `transaction_tags`, `tags` (`is_system`, `system_key`)
 - **Budget:** `budgets`, `budget_config` (master_amount mensile/annuale)
@@ -836,6 +836,15 @@ Il conto titoli torna così a zero sulla posizione chiusa: `carico + plusvalenza
      il legame vero è `portfolio_transactions`, che una cancellazione porta via, e il tag è la
      sola traccia che sopravvive. Fino alla 1.25.15 lo mettevano solo cedole, dividendi, imposte
      e spese — non i bonifici, il rateo e le plusvalenze, cioè gli importi grossi.
+     ⚠️ **Le strade che creano una riga di `portfolio_transactions` sono due**, e la seconda si
+     dimentica: oltre ai metodi del portafoglio c'è `applyAdvance`, che collega al titolo la
+     cedola registrata **da una pianificata**. Fino alla v29 non metteva il tag, ed era la
+     strada da cui passavano quasi tutte le cedole. La **v29** ha rimesso il tag su tutto il
+     pregresso (criterio: il legame in `portfolio_transactions`, non il nome né la categoria).
+     Nel modale di una transazione il chip «Investimenti» è l'unico tag di sistema che si può
+     anche **mettere a mano**: è una pura etichetta — nessun calcolo la legge — e serve sui
+     movimenti che il portafoglio non conosce. Se un giorno una query cominciasse a filtrare
+     per quel tag, questa libertà va rivista.
 
 La stessa spiegazione, in italiano e con i **nomi veri** delle categorie letti dalla chiave, sta
 dentro l'app: pulsante **❓ Come funziona** nella pagina Investimenti (`showPortfolioHelp` in
@@ -1356,12 +1365,13 @@ mesi — motivo per cui questa parte, sola in tutto il progetto, ha una verifica
 .\tools\test-titoli.ps1 -Keep           # conserva la copia per ispezionarla
 ```
 
-**Ottanta controlli** su quattro suite: azioni (acquisto con commissione, vendita in utile e
+**Ottantanove controlli** su quattro suite: azioni (acquisto con commissione, vendita in utile e
 in perdita, imposta differita anche a posizione chiusa, rifiuti attesi, annullamento),
 obbligazioni (prezzo in percentuale, vendita parziale, rimborso a scadenza, e il rateo lordo
 d'acquisto: non tocca il PMC, esce dal conto liquidità insieme al carico, compare come riga di
 storico dedicata, sparisce annullando l'acquisto), cedole/dividendi (che devono restare
-**dentro** budget e previsioni) e **difese** — quello che l'utente può fare per sbaglio:
+**dentro** budget e previsioni, e nascere col tag Investimenti sia dalla pagina sia da una
+pianificata) e **difese** — quello che l'utente può fare per sbaglio:
 smontare una vendita dalla pagina Transazioni, e spostare o eliminare la categoria in cui
 l'app registra le plusvalenze (dopo uno "sposta ed elimina" la vendita successiva deve
 scrivere nella destinazione scelta, senza far rinascere la categoria vecchia).

@@ -87,7 +87,7 @@ public class TestTitoli {
            count("SELECT COUNT(*) FROM portfolio_transactions WHERE portfolio_id=" + pid + " AND type='tax'"), 0);
         ok("la plusvalenza è esclusa da budget e report",
            count("SELECT COUNT(*) FROM transactions t JOIN categories c ON c.id=t.category_id"
-               + " WHERE t.description='Plusvalenza TESTAZ' AND c.name='Plusvalenze' AND c.excluded_from_budget=1"), 1);
+               + " WHERE t.description='Plusvalenza TESTAZ' AND c.system_key='plusvalenze' AND c.excluded_from_budget=1"), 1);
 
         sez("vendita 200 x 8,00 (in perdita)");
         double T2 = saldo(tit), U2 = saldo(uni);
@@ -98,7 +98,7 @@ public class TestTitoli {
         ok("registrata come USCITA in Minusvalenze, esclusa",
            count("SELECT COUNT(*) FROM transactions t JOIN categories c ON c.id=t.category_id"
                + " WHERE t.description='Minusvalenza TESTAZ' AND t.type='expense'"
-               + " AND c.name='Minusvalenze' AND c.excluded_from_budget=1"), 1);
+               + " AND c.system_key='minusvalenze' AND c.excluded_from_budget=1"), 1);
         ok("sul conto arriva comunque il ricavo", saldo(uni) - U2, 1600);
         ok("il conto investimenti scende del carico venduto", T2 - saldo(tit), 200 * avg);
 
@@ -109,7 +109,7 @@ public class TestTitoli {
         ok("il conto investimenti non viene toccato", saldo(tit), T3);
         ok("finisce in Imposte su rendite, esclusa",
            count("SELECT COUNT(*) FROM transactions t JOIN categories c ON c.id=t.category_id"
-               + " WHERE t.description='IMPOSTA TEST' AND c.name='Imposte su rendite' AND c.excluded_from_budget=1"), 1);
+               + " WHERE t.description='IMPOSTA TEST' AND c.system_key='imposte_rendite' AND c.excluded_from_budget=1"), 1);
 
         sez("imposta su una posizione CHIUSA (il caso normale)");
         int chiusa = id("SELECT id FROM portfolio WHERE quantity=0 AND id<>" + pid + " ORDER BY id LIMIT 1");
@@ -266,17 +266,44 @@ public class TestTitoli {
         d.registerCoupon(cedola(bond, uni, 25, "2026-10-20", "CEDOLA TEST"));
         ok("categoria giusta e visibile a budget e previsioni",
            count("SELECT COUNT(*) FROM transactions t JOIN categories c ON c.id=t.category_id"
-               + " WHERE t.description='CEDOLA TEST' AND c.name='Cedole e dividendi'"
+               + " WHERE t.description='CEDOLA TEST' AND c.system_key='cedole_dividendi'"
                + " AND COALESCE(c.excluded_from_budget,0)=0"), 1);
 
         sez("stessa sorte per il dividendo");
         d.registerDividend(cedola(bond, uni, 30, "2026-10-21", "DIVIDENDO TEST"));
         ok("categoria giusta",
            count("SELECT COUNT(*) FROM transactions t JOIN categories c ON c.id=t.category_id"
-               + " WHERE t.description='DIVIDENDO TEST' AND c.name='Cedole e dividendi'"), 1);
+               + " WHERE t.description='DIVIDENDO TEST' AND c.system_key='cedole_dividendi'"), 1);
+
+        // La cedola può nascere anche registrando una pianificata collegata al titolo: è un'altra
+        // strada (applyAdvance, non registerCoupon) e fino alla v29 era l'unica a non mettere il
+        // tag di sistema. Le due devono lasciare la transazione nello stesso stato.
+        sez("il tag Investimenti c'è da entrambe le strade");
+        String conTag = " AND EXISTS(SELECT 1 FROM transaction_tags tt JOIN tags g ON g.id=tt.tag_id"
+                      + " WHERE tt.transaction_id=t.id AND g.system_key='investment')";
+        ok("cedola registrata dalla pagina Investimenti",
+           count("SELECT COUNT(*) FROM transactions t WHERE t.description='CEDOLA TEST'" + conTag), 1);
+
+        int catCedole = id("SELECT id FROM categories WHERE system_key='cedole_dividendi'");
+        JsonObject pian = new JsonObject();
+        pian.addProperty("description", "CEDOLA PIANIFICATA TEST"); pian.addProperty("amount", 40);
+        pian.addProperty("type", "income");       pian.addProperty("account_id", uni);
+        pian.addProperty("category_id", catCedole); pian.addProperty("frequency", "yearly");
+        pian.addProperty("start_date", "2026-10-22"); pian.addProperty("portfolio_id", bond);
+        int sched = ((Number) d.addScheduled(pian).get("id")).intValue();
+        JsonObject txPian = new JsonObject();
+        txPian.addProperty("date", "2026-10-22"); txPian.addProperty("amount", 40);
+        txPian.addProperty("type", "income");     txPian.addProperty("account_id", uni);
+        txPian.addProperty("category_id", catCedole);
+        txPian.addProperty("description", "CEDOLA PIANIFICATA TEST");
+        d.addTransactionAndAdvanceScheduled(txPian, sched, "2026-10-22");
+        ok("cedola registrata da una pianificata",
+           count("SELECT COUNT(*) FROM transactions t WHERE t.description='CEDOLA PIANIFICATA TEST'" + conTag), 1);
 
         sez("pulizia");
-        for (int pt : ids("SELECT id FROM portfolio_transactions WHERE notes IN ('CEDOLA TEST','DIVIDENDO TEST')"))
+        d.deleteScheduled(sched);
+        for (int pt : ids("SELECT id FROM portfolio_transactions WHERE notes IN"
+                        + " ('CEDOLA TEST','DIVIDENDO TEST','CEDOLA PIANIFICATA TEST')"))
             d.deletePortfolioTransaction(pt);
         ok("nessuna transazione di prova residua", count("SELECT COUNT(*) FROM transactions"), tx0);
     }

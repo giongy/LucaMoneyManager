@@ -29,7 +29,7 @@ sopravvive al lavoro che descrive diventa un secondo posto dove cercare la verit
 
 ### Desktop
 - **Linguaggio:** Java 25, Maven 3.x
-- **UI:** JCEF v146 (Chromium embedded) + Swing per dialogs/titlebar/splash
+- **UI:** JCEF v152 (Chromium embedded) + Swing per dialogs/titlebar/splash
 - **Frontend:** Vanilla JS puro (`src/main/resources/web/`, modulare in `js/pages/*.js`), no React/Vue
 - **Versione:** 1.26.0 — output `target/moneymanager-1.26.0.jar` (fat JAR, web/ esclusa)
 - **Web assets:** serviti da filesystem (cartella `web/` accanto al `.exe` in produzione, `target/classes/web/` in IDE)

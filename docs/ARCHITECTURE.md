@@ -12,7 +12,7 @@
 ## 1. Stack in una riga
 
 ```
-Java 25  +  JCEF v146 (Chromium embedded)  +  SQLite (JDBC)
+Java 25  +  JCEF v152 (Chromium embedded)  +  SQLite (JDBC)
      │              │                              │
      │              └── ospita la UI web           └── DB locale (+ sync OneDrive)
      └── Swing per: titlebar, splash, dialog nativi, tray

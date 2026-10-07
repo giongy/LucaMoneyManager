@@ -145,7 +145,7 @@ SQLite (schema v29, 24 tables)
 
 **Tech stack:**
 - Java 25, Maven
-- JCEF v146 (Chromium Embedded Framework)
+- JCEF v152 (Chromium Embedded Framework)
 - Swing (window chrome, system tray, dialogs)
 - SQLite via JDBC
 - Chart.js (charts), Quill (notes editor, lazy-loaded)

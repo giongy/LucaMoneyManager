@@ -1,0 +1,20 @@
+version: 2
+updates:
+  # Desktop: pom.xml in radice (jcefmaven, sqlite-jdbc, gson, slf4j, plugin Maven)
+  - package-ecosystem: "maven"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+  # Android: i build.gradle.kts stanno in mobile/android, non in radice
+  - package-ecosystem: "gradle"
+    directory: "/mobile/android"
+    schedule:
+      interval: "weekly"
+
+  # Le action usate dai workflow in .github/workflows
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+

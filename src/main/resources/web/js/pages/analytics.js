@@ -714,7 +714,7 @@ async function renderAnalyticsCatCompare(token) {
   // Limiti dei date picker: dal primo giorno del mese più vecchio in DB a oggi
   const minDate = _analyticsOldestYm ? `${_analyticsOldestYm}-01` : '';
   const maxDate = _todayIso();
-  const dateInput = (id, val) => `<input type="date" class="form-control" id="${id}" value="${val}"
+  const dateInput = (id, val) => `<input type="date" class="form-control" id="${id}" value="${esc(val)}"
         ${minDate?`min="${minDate}"`:''} max="${maxDate}" style="font-size:12px;padding:3px 6px">`;
 
   // ⚠️ white-space:nowrap sulle etichette: senza, "Periodo A"/"Periodo B" vanno a capo
@@ -2590,8 +2590,11 @@ async function renderNatureReport(token) {
     const natureTotal = cats.reduce((s, c) => s + Number(c.total), 0);
     const naturePct = totalAll > 0 ? (natureTotal / totalAll * 100).toFixed(1) : '0.0';
     const natureTxCount = cats.reduce((s, c) => s + Number(c.tx_count), 0);
-    const df = filter.date_from || '';
-    const dt = filter.date_to   || '';
+    // Finiscono dentro una stringa JS nell'onclick qui sotto: lì esc() non basta (l'apice
+    // tornerebbe apice dopo la decodifica dell'attributo), quindi passa solo una data ISO.
+    const soloData = s => /^\d{4}-\d{2}-\d{2}$/.test(s || '') ? s : '';
+    const df = soloData(filter.date_from);
+    const dt = soloData(filter.date_to);
     const rows = cats.map(c => {
       const tot = Number(c.total);
       const pct = totalAll > 0 ? (tot / totalAll * 100).toFixed(1) : '0.0';
@@ -2645,7 +2648,8 @@ async function _updateReportHeader(r) {
     needPresets     ? api.getRangePresets() : Promise.resolve([]),
   ]);
 
-  const chip = label => `<span class="r-chip">${label}</span>`;
+  // I chip mostrano nomi di conti, categorie, tag e il testo cercato: sempre con escape.
+  const chip = label => `<span class="r-chip">${esc(label)}</span>`;
   const chips = [];
 
   if (f.range && f.range !== 'custom') {

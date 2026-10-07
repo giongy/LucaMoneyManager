@@ -219,9 +219,9 @@ async function renderTransactions() {
         <select class="form-control" id="txRange">
           ${buildRangeOptions(rangePresets, false, txFilters.range||'30d')}
         </select>
-        <input type="date" class="form-control" id="txFrom" value="${txFilters.date_from||''}"
+        <input type="date" class="form-control" id="txFrom" value="${esc(txFilters.date_from||'')}"
                style="display:${txFilters.range==='custom'?'':'none'}">
-        <input type="date" class="form-control" id="txTo"   value="${txFilters.date_to||''}"
+        <input type="date" class="form-control" id="txTo"   value="${esc(txFilters.date_to||'')}"
                style="display:${txFilters.range==='custom'?'':'none'}">
         <select class="form-control" id="txType">
           <option value="">Tutti i tipi</option>
@@ -265,7 +265,7 @@ async function renderTransactions() {
           <option value="1" ${txFilters.has_attachment==='1'?'selected':''}>📎 Con allegato</option>
           <option value="0" ${txFilters.has_attachment==='0'?'selected':''}>Senza allegato</option>
         </select>
-        <input class="form-control" id="txSearch" value="${txFilters.search||''}" placeholder="🔍 Cerca..." style="min-width:160px">
+        <input class="form-control" id="txSearch" value="${esc(txFilters.search||'')}" placeholder="🔍 Cerca..." style="min-width:160px">
         <button class="btn btn-ghost" title="Salva filtri correnti come resoconto" onclick="saveTxFiltersAsReport()" style="white-space:nowrap;flex-shrink:0">💾 Salva filtro</button>
       </div>
     </div>

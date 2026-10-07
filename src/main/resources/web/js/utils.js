@@ -206,7 +206,12 @@ function toast(msg, type='success') {
   const t = document.createElement('div');
   const icon = type==='success'?'✅':type==='error'?'❌':type==='warning'?'⚠️':'ℹ️';
   t.className = `toast toast-${type}`;
-  t.innerHTML = `<span>${icon}</span><span>${msg}</span>`;
+  // Il messaggio è testo, mai HTML: dentro ci finiscono nomi scritti dall'utente e messaggi
+  // d'errore, e con innerHTML un «<» in un nome verrebbe interpretato come un tag.
+  const ic = document.createElement('span'), tx = document.createElement('span');
+  ic.textContent = icon;
+  tx.textContent = msg;
+  t.append(ic, tx);
   c.appendChild(t);
   setTimeout(() => t.remove(), 3500);
 }

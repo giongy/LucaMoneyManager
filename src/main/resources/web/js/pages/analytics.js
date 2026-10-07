@@ -2590,18 +2590,18 @@ async function renderNatureReport(token) {
     const natureTotal = cats.reduce((s, c) => s + Number(c.total), 0);
     const naturePct = totalAll > 0 ? (natureTotal / totalAll * 100).toFixed(1) : '0.0';
     const natureTxCount = cats.reduce((s, c) => s + Number(c.tx_count), 0);
-    // Finiscono dentro una stringa JS nell'onclick qui sotto: lì esc() non basta (l'apice
-    // tornerebbe apice dopo la decodifica dell'attributo), quindi passa solo una data ISO.
-    const soloData = s => /^\d{4}-\d{2}-\d{2}$/.test(s || '') ? s : '';
-    const df = soloData(filter.date_from);
-    const dt = soloData(filter.date_to);
+    // Le date viaggiano in attributi data- e l'onclick le legge da lì: scritte dentro la
+    // stringa JS dell'onclick, esc() non basterebbe (l'apice tornerebbe apice dopo la
+    // decodifica dell'attributo).
+    const df = filter.date_from || '';
+    const dt = filter.date_to   || '';
     const rows = cats.map(c => {
       const tot = Number(c.total);
       const pct = totalAll > 0 ? (tot / totalAll * 100).toFixed(1) : '0.0';
       const catLabel = c.parent_name
         ? `<span style="opacity:.6">${esc(c.parent_name)}:</span>${esc(c.cat_name)}`
         : esc(c.cat_name);
-      return `<div class="nature-cat-row" onclick="txFilters={range:'custom',date_from:'${df}',date_to:'${dt}',category_id:${c.cat_id},type:'expense'};navigate('transactions')" title="Vedi transazioni" style="display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:6px;cursor:pointer">
+      return `<div class="nature-cat-row" data-df="${esc(df)}" data-dt="${esc(dt)}" onclick="txFilters={range:'custom',date_from:this.dataset.df,date_to:this.dataset.dt,category_id:${Number(c.cat_id)},type:'expense'};navigate('transactions')" title="Vedi transazioni" style="display:flex;align-items:center;gap:8px;padding:5px 8px;border-radius:6px;cursor:pointer">
         <span style="border-left:3px solid ${esc(c.color)};color:var(--txt);padding:2px 8px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0">${esc(c.icon)} ${catLabel}</span>
         <span style="font-weight:600;font-size:12px;white-space:nowrap">${fmt.currency(tot)}</span>
         <span style="color:var(--txt3);font-size:11px;white-space:nowrap;text-align:right;min-width:74px">${c.tx_count} tx · ${pct}%</span>

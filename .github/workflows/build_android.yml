@@ -2,6 +2,10 @@ name: Build Android APK
 
 on:
   workflow_dispatch:
+  # Le pull request (comprese quelle di Dependabot) vengono compilate ma non pubblicate:
+  # e' l'unico modo di sapere se un aggiornamento rompe la build prima di unirlo.
+  pull_request:
+    paths: [ 'mobile/**', '.github/workflows/build_android.yml' ]
   push:
     branches: [ master ]
     paths: [ 'mobile/**' ]
@@ -21,6 +25,9 @@ jobs:
           java-version: '21'
 
       - name: Build keystore from PEM secrets
+        # Sulle pull request i secret non ci sono (Dependabot non li riceve): li' si compila
+        # la variante debug, che non firma con questa chiave.
+        if: github.event_name != 'pull_request'
         env:
           SIGNING_KEY:  ${{ secrets.SIGNING_KEY }}
           SIGNING_CERT: ${{ secrets.SIGNING_CERT }}
@@ -38,11 +45,19 @@ jobs:
         working-directory: mobile/android
         run: chmod +x gradlew
 
+      - name: Build APK (debug, solo verifica)
+        if: github.event_name == 'pull_request'
+        working-directory: mobile/android
+        run: ./gradlew assembleDebug
+
       - name: Build APK
+        if: github.event_name != 'pull_request'
         working-directory: mobile/android
         run: ./gradlew assembleRelease
 
       - name: Publish APK as release
+        # Solo da master: un lancio a mano su un altro ramo sostituirebbe l'APK vero.
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |

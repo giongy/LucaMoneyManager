@@ -1309,7 +1309,7 @@ tr.tx-colored:hover td { filter:brightness(1.08); }
 .cat-picker-list {
   position:absolute; right:0; top:calc(100% + 4px); z-index:9999;
   background:var(--bg2); border:1px solid var(--border); border-radius:8px;
-  max-height:264px; overflow-y:auto; box-shadow:0 8px 24px rgba(0,0,0,.22);
+  max-height:400px; overflow-y:auto; box-shadow:0 8px 24px rgba(0,0,0,.22);
   display:none; padding:4px;
   /* Larghezza: dal testo più lungo (max-content) con pavimento sull'input.
      ⚠️ Lato di ancoraggio e max-width li riscrive initCatPicker (transactions.js) a ogni

@@ -1058,6 +1058,12 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
         if (Math.abs(splitTotal - txTotal) >= 0.005) {
           toast(`Le voci (${fmt.currency(splitTotal)}) non corrispondono al totale (${fmt.currency(txTotal)})`, 'error'); return false;
         }
+        // Una voce sola non è una suddivisione: si salva come transazione normale con
+        // quella categoria. Senza `splits` il server toglie anche le eventuali voci di prima.
+        if (splits.length === 1) {
+          data.category_id = splits[0].category_id;
+          data.splits = null;
+        }
       } else {
         if (!data.category_id) { _markErr('f_cat_input', 'Seleziona una categoria'); return false; }
       }
@@ -1250,11 +1256,14 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
 
   window.toggleSplit = () => {
     _splitActive = !_splitActive;
-    const catGroup = document.getElementById('catGroup');
+    // Si spegne il solo campo, non tutto #catGroup: lì dentro c'è anche questo pulsante, e
+    // con pointer-events:none sul gruppo «× Unisci» non era più cliccabile — una volta
+    // premuto Suddividi non si tornava indietro.
+    const catField = document.querySelector('#catGroup .cat-picker');
     const section  = document.getElementById('splitSection');
     const btn      = document.getElementById('splitToggleBtn');
-    catGroup.style.opacity       = _splitActive ? '0.4' : '1';
-    catGroup.style.pointerEvents = _splitActive ? 'none' : '';
+    catField.style.opacity       = _splitActive ? '0.4' : '';
+    catField.style.pointerEvents = _splitActive ? 'none' : '';
     section.style.display        = _splitActive ? '' : 'none';
     btn.textContent              = _splitActive ? '× Unisci' : '÷ Suddividi';
     if (_splitActive && !document.getElementById('splitRows').children.length) {
@@ -1264,9 +1273,30 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
     }
   };
 
+  // Chiamata a ogni battuta in un importo di voce. La riga toccata diventa «scritta a mano»;
+  // la prima riga ancora automatica (data-auto: importo proposto dall'app, mai toccato)
+  // prende il rimanente. Così, con totale 10, scrivere 3 nella prima voce porta la seconda
+  // a 7 senza doverla compilare. Le righe scritte a mano non vengono mai ritoccate.
+  window._splitAmountEdited = function _splitAmountEdited(input) {
+    delete input.dataset.auto;
+    const inputs = [...document.querySelectorAll('#splitRows .split-amount')];
+    const target = inputs.find(el => el !== input && el.dataset.auto);
+    if (target) {
+      const total  = evalAmount(document.getElementById('f_amount')?.value) || 0;
+      const others = inputs.filter(el => el !== target)
+                           .reduce((s, el) => s + (evalAmount(el.value) || 0), 0);
+      const rem = Math.round((total - others) * 100) / 100;
+      target.value = rem > 0 ? rem.toFixed(2) : '';
+    }
+    _updateSplitRemaining();
+  };
+
   window.addSplitRow = (catId = null, amount = null) => {
     const container = document.getElementById('splitRows');
     const type = document.getElementById('f_type')?.value || 'expense';
+    // Importo non passato = proposto dall'app (vedi _splitAmountEdited); passato = voce
+    // salvata che si sta ricaricando, quindi già decisa dall'utente.
+    const auto = amount === null;
     if (amount === null) {
       const total = evalAmount(document.getElementById('f_amount')?.value) || 0;
       const used  = [...container.querySelectorAll('.split-amount')]
@@ -1284,8 +1314,8 @@ function showTxModal(tx, categories, accounts, defaultType = 'expense', tags = [
       </select>
       <input type="text" inputmode="decimal" class="form-control split-amount"
              style="width:110px;flex:none;font-size:13px" value="${amount}"
-             placeholder="Importo"
-             oninput="_updateSplitRemaining()"
+             placeholder="Importo" ${auto ? 'data-auto="1"' : ''}
+             oninput="_splitAmountEdited(this)"
              onblur="const v=evalAmount(this.value);if(v!==null)this.value=v.toFixed(2);_updateSplitRemaining()">
       <button type="button" class="btn btn-ghost btn-icon" style="flex:none"
               onclick="this.closest('.split-row').remove();_updateSplitRemaining()">✕</button>`;

@@ -978,7 +978,11 @@ function renderBudgetScostamenti() {
         <td style="${tdS};text-align:right;color:var(--txt3);padding-right:4px">${i + 1}</td>
         <td class="budget-catcol" style="${tdS}">${_budgetCatLabel(r.cat, r.parent)}</td>
         <td style="${tdS};text-align:right;font-variant-numeric:tabular-nums">${fmt.currency(r.bDisplay)}</td>
-        <td style="${tdS};text-align:right;font-variant-numeric:tabular-nums">${hasActual ? fmt.currency(r.rDisplay) : '—'}</td>
+        ${hasActual
+          ? `<td class="budget-drill" style="${tdS};text-align:right;font-variant-numeric:tabular-nums"
+                 onclick="_budgetToTx(${r.cat.id},1,${untilMonth})"
+                 title="Mostra le transazioni da gennaio a ${untilName.toLowerCase()} ${budgetYear} in questa categoria">${fmt.currency(r.rDisplay)}</td>`
+          : `<td style="${tdS};text-align:right;font-variant-numeric:tabular-nums">—</td>`}
         <td style="${tdS};text-align:right;font-variant-numeric:tabular-nums;color:${pctCol};font-weight:600">${diffStr}</td>
         <td style="${tdS};min-width:110px">
           <div style="display:flex;align-items:center;gap:6px">
@@ -1343,6 +1347,18 @@ window._budgetMeseSetSort = key => {
   renderBudgetMese();
 };
 
+// Dallo Speso/Incassato di una riga → Transazioni, filtrata su quella categoria e sui mesi
+// che la cifra copre: uno solo dalla scheda Mese, da gennaio al mese di taglio da quella
+// "Da inizio anno". Le righe sono categorie foglia, quindi l'id basta da solo (il filtro di
+// Transazioni non discende la gerarchia, ma qui non c'è niente da discendere) e copre anche le
+// quote degli split, come il totale cliccato. Le date sono mesi interi, giorni futuri compresi:
+// è la stessa finestra su cui getBudgetYear somma il reale.
+window._budgetToTx = (catId, fromMonth, toMonth) => {
+  const p2   = n => String(n).padStart(2, '0');
+  const last = new Date(budgetYear, toMonth, 0).getDate();
+  navigateToCategoryTx(catId, `${budgetYear}-${p2(fromMonth)}-01`, `${budgetYear}-${p2(toMonth)}-${p2(last)}`);
+};
+
 function renderBudgetMese() {
   const el = document.getElementById('budgMeseWrap');
   if (!el || !_budgetData) return;
@@ -1404,7 +1420,11 @@ function renderBudgetMese() {
     return `<tr style="background:${zoneBg}">
       <td class="budget-catcol" style="${tdS}">${_budgetCatLabel(r.cat, r.parent)}</td>
       <td style="${tdS};text-align:right;font-variant-numeric:tabular-nums">${fmt.currency(r.budget)}</td>
-      <td style="${tdS};text-align:right;font-variant-numeric:tabular-nums">${fmt.currency(r.spent)}</td>
+      ${r.spent
+        ? `<td class="budget-drill" style="${tdS};text-align:right;font-variant-numeric:tabular-nums"
+               onclick="_budgetToTx(${r.cat.id},${viewMonth},${viewMonth})"
+               title="Mostra le transazioni di ${monthName} ${budgetYear} in questa categoria">${fmt.currency(r.spent)}</td>`
+        : `<td style="${tdS};text-align:right;font-variant-numeric:tabular-nums">${fmt.currency(r.spent)}</td>`}
       <td style="${tdS};text-align:right;font-variant-numeric:tabular-nums;color:${remColor};font-weight:600">${remLabel}</td>
       <td style="${tdS};min-width:130px">
         <div style="display:flex;align-items:center;gap:6px">

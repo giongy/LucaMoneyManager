@@ -2845,9 +2845,11 @@ tr.tx-selected td { background:rgba(124,124,255,.07); }
 /* Importi cliccabili del Confronto Periodi (→ Transazioni di quella categoria in quel periodo).
    Nessun segno permanente: sono due colonne di cifre fitte e sottolinearle tutte le renderebbe
    illeggibili. L'affordance sta nel cursore e nella sottolineatura all'hover, con la cella
-   evidenziata perché in una riga si capisca QUALE dei due periodi si sta per aprire. */
-.analytics-table tbody td.cc-drill { cursor:pointer; }
-.analytics-table tbody td.cc-drill:hover {
+   evidenziata perché in una riga si capisca QUALE dei due periodi si sta per aprire.
+   Stessa resa per lo Speso/Incassato delle schede Mese e Da inizio anno del Budget (td.budget-drill): è lo stesso
+   gesto, e deve riconoscersi come tale. */
+.analytics-table tbody td.cc-drill, td.budget-drill { cursor:pointer; }
+.analytics-table tbody td.cc-drill:hover, td.budget-drill:hover {
   text-decoration:underline dotted; text-underline-offset:3px;
   box-shadow:inset 0 0 0 9999px color-mix(in srgb, var(--accent) 14%, transparent);
 }

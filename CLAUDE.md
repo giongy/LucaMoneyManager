@@ -991,7 +991,7 @@ legge male.
 Due dettagli che sembrano arbitrari e non lo sono:
 
 - **L'accento è un `box-shadow` inset, non un `border-left`.** La colonna categoria è
-  `position:sticky` e petrolio/glassy ne riscrivono lo sfondo con `!important`: un bordo
+  `position:sticky` e warm_gray_dark/glassy ne riscrivono lo sfondo con `!important`: un bordo
   entrerebbe in conflitto con quelle regole.
 - **Le bande non hanno né `data-row-over` né `.budget-cell`**, i due selettori su cui agiscono
   "solo rossi" e "solo mese corrente". È ciò che le lascia piene mentre il resto sbiadisce, così
@@ -1056,37 +1056,52 @@ riferimento disponibile. Le due schede si somigliano ma questo pezzo non va unif
 
 ## UI — Temi
 
-Quattro temi built-in, più quelli personalizzati dall'utente. **Il default è chiaro** (Nebbia):
+Quattro temi built-in, più quelli personalizzati dall'utente. **Il default è chiaro** (Warm Gray):
 il tema scuro non è più il riferimento, ed è la causa della maggior parte delle trappole qui sotto.
 
 | Tema | Chiave | Dove vive | `--bg` |
 |---|---|---|---|
-| 🌁 Nebbia (default) | `nebbia` | `:root` — **nessun** `data-theme` | `#e3e7f1` |
+| 🪨 Warm Gray (default) | `warm_gray` | `:root` — **nessun** `data-theme` | `#fefdfc` |
 | 📜 Carta | `carta` | `[data-theme="carta"]` | `#ece5d8` |
-| 🛢️ Petrolio | `petrolio` | `[data-theme="petrolio"]` | `#0f1e23` |
+| 🌙 Warm Gray Dark | `warm_gray_dark` | `[data-theme="warm_gray_dark"]` | `#23211f` |
 | 🪟 Vetro | `glassy` | `[data-theme="glassy"]` | `#161b25` |
 
-Nebbia e Carta sono chiari; Petrolio e Vetro scuri. **Nebbia "aurora"**: fondo a mesh
-gradient, card in vetro smerigliato, accento indaco, e l'unico tema con
-**font propri** — Geist (testo) e Manrope (titoli e grandi importi), inclusi in `web/fonts/` (mai da
-Google Fonts: il link remoto bloccava il primo render). Tutto il tema sta in un solo blocco CSS
-annidato (`html:not(:where(...)) { & ... }`); la palette ha copie in `_BUILTIN_VARS.nebbia`
-(settings.js), nello sfondo del primo paint (index.html) e in `chartColors()` (utils.js).
+Warm Gray e Carta sono chiari; Warm Gray Dark e Vetro scuri. **Warm Gray** è la palette chiara
+`warm-gray` di [MangoDisk](https://github.com/harry0703/MangoDisk/tree/main/src/assets/themes)
+(lì in oklch, qui convertita in hex): superfici piatte, grigi caldi tendenti al beige, sidebar
+`#f4efea`, un solo accento arancio bruciato `#b64e00`, icone della sidebar monocrome, niente
+gradienti né vetro, raggi più stretti (10/6/5 px), font di sistema (Segoe UI). Tutto il tema sta
+in un solo blocco CSS annidato (`html:not(:where(...)) { & ... }`); la palette ha copie in
+`_BUILTIN_VARS.warm_gray` (settings.js), nello sfondo del primo paint (index.html, e i due
+colori Swing/Chromium in `App`/`MainWindow`) e in `chartColors()` (utils.js).
+**Warm Gray Dark** (ex Petrolio) è la variante scura della stessa palette (blocco
+`[data-theme='dark']` di MangoDisk): sidebar `#191715`, area di lavoro `#23211f`, card `#2d2b28`,
+accento mango `#fd8204` con testo quasi nero sopra. È il gemello del chiaro — stessa struttura,
+colori rovesciati — in un blocco annidato `[data-theme="warm_gray_dark"] { & ... }`. Un solo
+scostamento voluto da MangoDisk: `--expense` è `#f66d67` e non il `#cc272e` del loro
+`--destructive`, che è un fondo da bottone e come testo sulle card scende a 2,6:1.
+⚠️ I raggi `--radius`/`--radius-ctl`/`--radius-pill` di `:root` valgono anche per Carta e
+Vetro, che non li ridefiniscono: quelli di Warm Gray stanno nel blocco del tema (`&:root`).
+⚠️ **Le due varianti si tengono allineate a mano**: un ritocco di struttura (sidebar, schede,
+tabelle) fatto su una va riportato sull'altra.
 ⚠️ Cambiando font del corpo, verificare che `tnum` (applicato a tutte le celle) tocchi solo le
 cifre: Inter allarga anche trattino, virgola e spazio ("Famiglia - Noi : Fuori").
 I temi personalizzati (chiave `c:<id>`)
 applicano le proprie variabili **inline** su `<html>`, quindi vincono su qualsiasi regola di tema.
 `applyTheme()` ([settings.js](src/main/resources/web/js/pages/settings.js)) migra le chiavi
-storiche: `dark`→`nebbia`, e `salvia`/`cristallo`/`nebula`/`twilight`/`chiaro`→`petrolio`.
+storiche: `dark`/`nebbia`→`warm_gray`, e `salvia`/`cristallo`/`nebula`/`twilight`/`chiaro`/`petrolio`→`warm_gray_dark`.
+La migrazione è solo in lettura: il valore salvato in `appearance.theme` resta quello vecchio
+finché l'utente non sceglie un tema (nessuna scrittura all'avvio).
 
 **Regole da rispettare:**
 
-- **Mai bianco puro** sui temi chiari — l'utente lo trova aggressivo.
+- **Mai bianco puro** sui temi chiari — l'utente lo trova aggressivo. **Eccezione voluta:** le
+  card di Warm Gray sono `#ffffff` come in MangoDisk (lo sfondo resta `#fefdfc`).
 - **Gerarchia obbligatoria `bg3 < bg < bg2`**: le card (`bg2`) sono più chiare dello sfondo (`bg`),
   `bg3` è il livello più scuro (header tabella, righe alternate, hover). C'è anche `bg4`.
 - ⚠️ **Molte regole base hanno colori fissi nati quando il default era scuro** (toast su fondo
   scuro, `color:#000` sulle superfici d'accento, trasparenze bianche per hover). Servono ancora a
-  Petrolio e Vetro, quindi restano: Nebbia e Carta le neutralizzano in blocchi di override
+  Warm Gray Dark e Vetro, quindi restano: Warm Gray e Carta le neutralizzano in blocchi di override
   dedicati. Aggiungendo una regola con un colore fisso, verifica che regga su **tutti e quattro**.
 - ⚠️ **Il selettore del default elenca in negativo gli altri temi**
   (`html:not(:where([data-theme="carta"],...))`) e non `:not([data-theme])`: `applyTheme` imposta
@@ -1239,9 +1254,9 @@ vista, non il rendering. I colori dicono a colpo d'occhio quale tema è a scherm
 nemmeno aprire il file:
 
 ```
-PIXEL 9EC59A9D  #e9edf3 #e9edf3 #e9edf3     <- nebbia (chiaro grigio-azzurro)
+PIXEL F0783EE7  #ffffff #f4efea #fefdfc     <- warm_gray (bianco + beige della sidebar)
 PIXEL 82FE213E  #f4ede0 #f4ede0 #f4ede0     <- carta  (beige)
-PIXEL A64FB224  #16292f #0c191d #16292f     <- petrolio (teal scuro)
+PIXEL BDD168D7  #2d2b28 #191715 #2d2b28     <- warm_gray_dark (grigio caldo scuro)
 PIXEL A4E0F03C  #222732 #222c40 #212631     <- vetro/glassy (blu-grigio scuro)
 ```
 
@@ -1257,7 +1272,7 @@ Corollario pratico: per sapere quale tema è attivo **non dedurlo dai colori** �
 .\tools\screenshot.ps1 -Port 7891 -Probe -Js "document.documentElement.dataset.theme"
 ```
 
-Vale doppio perché nebbia non imposta `data-theme` (resta stringa vuota) e i temi personalizzati
+Vale doppio perché warm_gray non imposta `data-theme` (resta stringa vuota) e i temi personalizzati
 valgono `c:<id>`: sono gli unici due casi in cui la risposta non è il nome di un tema built-in.
 
 ### Limiti (importanti)

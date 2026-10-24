@@ -14,13 +14,13 @@
 #  ESEMPI
 #    .\tools\check-ui.ps1                       # tema corrente, porta 7890
 #    .\tools\check-ui.ps1 -Port 7891 -Theme carta
-#    .\tools\check-ui.ps1 -Theme petrolio -Pages dashboard,budgets
+#    .\tools\check-ui.ps1 -Theme warm_gray_dark -Pages dashboard,budgets
 #    .\tools\check-ui.ps1 -Port 7891 -AllThemes # tutti i temi built-in in sequenza
 #    .\tools\check-ui.ps1 -Port 7891 -NoShots   # solo diagnostica, nessun PNG (piu' veloce)
 # ═══════════════════════════════════════════════════════════════════════════
 param(
   [int]$Port      = 7890,
-  [string]$Theme  = "",                        # nebbia | carta | petrolio | glassy | "" = non cambiare
+  [string]$Theme  = "",                        # warm_gray | warm_gray_dark | carta | glassy | "" = non cambiare
   [string[]]$Pages = @("dashboard","accounts","transactions","budgets","scheduled",
                        "portfolio","analytics","categories","tags","notes","cronologia","settings"),
   [int]$CdpPort   = 9222,
@@ -130,7 +130,7 @@ $totale = 0
 if ($AllThemes) {
   # I quattro built-in. Un tema rotto si vede solo provandolo: le regole base
   # sono condivise, quindi una modifica "per un tema" puo' romperne un altro.
-  foreach ($t in @("nebbia","carta","petrolio","glassy")) { $totale += (Invoke-ThemeCheck $t) }
+  foreach ($t in @("warm_gray","warm_gray_dark","carta","glassy")) { $totale += (Invoke-ThemeCheck $t) }
 } else {
   $totale = Invoke-ThemeCheck $Theme
 }

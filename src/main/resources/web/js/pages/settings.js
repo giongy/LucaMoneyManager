@@ -179,8 +179,8 @@ async function renderSettings() {
           <div class="settings-control">
             <div style="display:flex;flex-direction:column;gap:10px">
               <div style="display:flex;gap:6px;flex-wrap:wrap">
-                ${[['nebbia','🌁 Nebbia'],['glassy','🪟 Vetro'],['petrolio','🛢️ Petrolio'],['carta','📜 Carta']].map(([key,label]) => `
-                  <button class="btn theme-btn ${(s['appearance.theme']||'nebbia')===key?'theme-btn-active':''}"
+                ${[['warm_gray','🪨 Warm Gray'],['glassy','🪟 Vetro'],['warm_gray_dark','🌙 Warm Gray Dark'],['carta','📜 Carta']].map(([key,label]) => `
+                  <button class="btn theme-btn ${_activeThemeKey===key?'theme-btn-active':''}"
                           onclick="settingsSetTheme('${key}')">${label}</button>
                   <button class="btn btn-ghost btn-icon" title="Duplica e personalizza" onclick="duplicateTheme('${key}')">⧉</button>`).join('')}
               </div>
@@ -190,7 +190,7 @@ async function renderSettings() {
                 ${_customThemes.map(ct => `
                   <div style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--border)">
                     <span style="font-size:13px;flex:1;color:var(--txt)">${esc(ct.name)}</span>
-                    <button class="btn theme-btn ${(s['appearance.theme']||'nebbia')==='c:'+ct.id?'theme-btn-active':''}" style="padding:4px 12px"
+                    <button class="btn theme-btn ${_activeThemeKey==='c:'+ct.id?'theme-btn-active':''}" style="padding:4px 12px"
                             onclick="settingsSetTheme('c:${ct.id}')">Attiva</button>
                     <button class="btn btn-ghost btn-icon" title="Modifica" onclick="showThemeEditor(_customThemes.find(t=>t.id==='${ct.id}'))">✏️</button>
                     <button class="btn btn-ghost btn-icon" title="Duplica" onclick="duplicateTheme('c:${ct.id}')">⧉</button>
@@ -937,7 +937,7 @@ window._clearAppLog = async () => {
 
 /* ─── Custom themes ──────────────────────────────────────────────────────── */
 let _customThemes  = [];
-let _activeThemeKey = 'nebbia';
+let _activeThemeKey = 'warm_gray';
 let _teWorkingTheme = null;
 let _teOriginalTheme = null;
 let _teDragState = null;
@@ -946,11 +946,11 @@ let _teDragState = null;
 // (punto di partenza di una copia e valore da ripristinare col tasto "reset" di ogni variabile).
 // Devono restare allineati alle palette in style.css.
 const _BUILTIN_VARS = {
-  nebbia: {
-    '--bg':'#e3e7f1','--bg2':'#f3f5fa','--bg3':'#dde2ec','--bg4':'#d2d9e6',
-    '--border':'#c9d0de','--accent':'#4c56d8','--accent2':'#0f7773',
-    '--income':'#15753f','--expense':'#c1343a','--warn':'#8a5a00',
-    '--txt':'#161d2e','--txt2':'#465269','--txt3':'#56617a',
+  warm_gray: {
+    '--bg':'#fefdfc','--bg2':'#ffffff','--bg3':'#f2efeb','--bg4':'#f0ece7',
+    '--border':'#d3cfc8','--accent':'#b64e00','--accent2':'#00717c',
+    '--income':'#53760e','--expense':'#c9222b','--warn':'#8b5500',
+    '--txt':'#26211c','--txt2':'#423c37','--txt3':'#665f58',
   },
   carta: {
     '--bg':'#ece5d8','--bg2':'#f4ede0','--bg3':'#e0d8cb','--bg4':'#d4ccbf',
@@ -958,11 +958,11 @@ const _BUILTIN_VARS = {
     '--income':'#1e6b2e','--expense':'#b52a1a','--warn':'#7a5600',
     '--txt':'#241a08','--txt2':'#5c4a2c','--txt3':'#8a7860',
   },
-  petrolio: {
-    '--bg':'#0f1e23','--bg2':'#16292f','--bg3':'#1e353c','--bg4':'#1a2f35',
-    '--border':'#294349','--accent':'#f0883e','--accent2':'#2fb9a0',
-    '--income':'#4ec76a','--expense':'#f4695f','--warn':'#e0a94a',
-    '--txt':'#e7f0f2','--txt2':'#9db3b8','--txt3':'#6a848a',
+  warm_gray_dark: {
+    '--bg':'#23211f','--bg2':'#2d2b28','--bg3':'#33312e','--bg4':'#393632',
+    '--border':'#45423e','--accent':'#fd8204','--accent2':'#00b3c2',
+    '--income':'#8ab549','--expense':'#f66d67','--warn':'#ebaa2d',
+    '--txt':'#edebe7','--txt2':'#b1ada8','--txt3':'#95918c',
   },
 };
 
@@ -1044,17 +1044,17 @@ function _clearCustomVars() {
 
 // Applica un tema: built-in (data-theme) o personalizzato ("c:id" → variabili inline). Non persiste.
 function applyTheme(theme) {
-  if (theme === 'salvia' || theme === 'cristallo' || theme === 'nebula' || theme === 'twilight' || theme === 'chiaro') theme = 'petrolio'; // migrazione: Salvia→Cristallo→Nebula→Twilight→Chiaro→Petrolio
-  if (theme === 'dark') theme = 'nebbia'; // migrazione: il tema Scuro è stato sostituito da Nebbia
-  _activeThemeKey = theme || 'nebbia';
+  if (theme === 'salvia' || theme === 'cristallo' || theme === 'nebula' || theme === 'twilight' || theme === 'chiaro' || theme === 'petrolio') theme = 'warm_gray_dark'; // migrazione: Salvia→Cristallo→Nebula→Twilight→Chiaro→Petrolio→Warm Gray Dark
+  if (theme === 'dark' || theme === 'nebbia') theme = 'warm_gray'; // migrazione: Scuro→Nebbia→Warm Gray
+  _activeThemeKey = theme || 'warm_gray';
   _clearCustomVars();
   if (theme && theme.startsWith('c:')) {
     const ct = _customThemes.find(t => t.id === theme.slice(2));
     document.documentElement.dataset.theme = '';
     if (ct) _applyCustomVars(ct);
   } else {
-    // Nebbia è il default in :root → nessun data-theme, come per i valori non riconosciuti.
-    const valid = ['carta', 'petrolio', 'glassy'];
+    // Warm Gray è il default in :root → nessun data-theme, come per i valori non riconosciuti.
+    const valid = ['carta', 'warm_gray_dark', 'glassy'];
     document.documentElement.dataset.theme = valid.includes(theme) ? theme : '';
   }
   _updateThemeBtn();
@@ -1095,11 +1095,11 @@ async function settingsSetTheme(theme) {
 }
 
 const _THEME_CYCLE = [
-  // 🌁 e non 🌫️: le emoji a colori ignorano il `color` CSS del pulsante, e la nuvola di
-  // 🌫️ è quasi bianca (luminanza ~220) → invisibile sulla titlebar chiara di Nebbia.
-  { key: 'nebbia',    icon: '🌁', label: 'Nebbia' },
+  // Le emoji a colori ignorano il `color` CSS del pulsante: per questo niente 🌫️ (quasi
+  // bianca, spariva sulla titlebar chiara). 🪨 è un grigio medio, leggibile sul chiaro.
+  { key: 'warm_gray', icon: '🪨', label: 'Warm Gray' },
   { key: 'glassy',    icon: '🪟', label: 'Vetro' },
-  { key: 'petrolio',  icon: '🛢️', label: 'Petrolio' },
+  { key: 'warm_gray_dark', icon: '🌙', label: 'Warm Gray Dark' },
   { key: 'carta',     icon: '📜', label: 'Carta' },
 ];
 
@@ -1133,7 +1133,7 @@ async function _toggleTheme() {
   const activeKey = _activeThemeKey || '';
   const currIdx = cycle.findIndex(x => x.key === activeKey);
   const next = cycle[(Math.max(currIdx, 0) + 1) % cycle.length];
-  await settingsSetTheme(next.key || 'nebbia');
+  await settingsSetTheme(next.key || 'warm_gray');
 }
 
 /* ─── Theme editor ───────────────────────────────────────────────────────── */
@@ -1145,11 +1145,11 @@ function duplicateTheme(sourceKey) {
     if (!ct) return;
     base = { ...ct, id: Date.now().toString(36), name: ct.name + ' (copia)', vars: { ...ct.vars } };
   } else {
-    const names = { nebbia: 'Nebbia', carta: 'Carta', petrolio: 'Petrolio', glassy: 'Vetro' };
+    const names = { warm_gray: 'Warm Gray', carta: 'Carta', warm_gray_dark: 'Warm Gray Dark', glassy: 'Vetro' };
     base = {
       id: Date.now().toString(36),
       name: (names[sourceKey] || 'Tema') + ' (copia)',
-      vars: { ...(_BUILTIN_VARS[sourceKey] || _BUILTIN_VARS.nebbia) },
+      vars: { ...(_BUILTIN_VARS[sourceKey] || _BUILTIN_VARS.warm_gray) },
       baseKey: sourceKey,
       fontFamily: '', fontSize: 13, radius: 8,
     };
@@ -1197,7 +1197,7 @@ function showThemeEditor(themeObj) {
     <div class="te-section-hdr">${g.title}</div>
     ${g.vars.map(([v, label]) => {
       const val = _teWorkingTheme.vars[v] || '#888888';
-      const base = _BUILTIN_VARS[_teWorkingTheme.baseKey || 'nebbia'] || _BUILTIN_VARS.nebbia;
+      const base = _BUILTIN_VARS[_teWorkingTheme.baseKey || 'warm_gray'] || _BUILTIN_VARS.warm_gray;
       const defVal = base[v] || '';
       const isDefault = defVal && val.toLowerCase() === defVal.toLowerCase();
       return `<div class="te-color-row">
@@ -1297,7 +1297,7 @@ function _teWireEvents() {
   document.querySelectorAll('#tePanel button.te-reset-btn').forEach(el => {
     el.addEventListener('click', e => {
       const v = e.currentTarget.dataset.var;
-      const base = _BUILTIN_VARS[_teWorkingTheme.baseKey || 'nebbia'] || _BUILTIN_VARS.nebbia;
+      const base = _BUILTIN_VARS[_teWorkingTheme.baseKey || 'warm_gray'] || _BUILTIN_VARS.warm_gray;
       const defVal = base[v];
       if (!defVal) return;
       _teWorkingTheme.vars[v] = defVal;
@@ -1358,17 +1358,17 @@ async function closeThemeEditor(save) {
     await _saveCustomThemesToDB();
     await settingsSetTheme('c:' + _teWorkingTheme.id);
   } else {
-    applyTheme(_teOriginalTheme || 'nebbia');
+    applyTheme(_teOriginalTheme || 'warm_gray');
   }
   panel.classList.remove('open');
   _teWorkingTheme = null;
 }
 
-// Elimina un tema personalizzato; se era attivo torna al tema di default (Nebbia).
+// Elimina un tema personalizzato; se era attivo torna al tema di default (Warm Gray).
 async function _deleteCustomTheme(id) {
   _customThemes = _customThemes.filter(t => t.id !== id);
   await _saveCustomThemesToDB();
-  if (_activeThemeKey === 'c:' + id) await settingsSetTheme('nebbia');
+  if (_activeThemeKey === 'c:' + id) await settingsSetTheme('warm_gray');
   const panel = document.getElementById('tePanel');
   if (panel) panel.classList.remove('open');
   if (currentPage === 'settings') renderSettings();

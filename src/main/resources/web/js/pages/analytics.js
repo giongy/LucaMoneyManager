@@ -2070,7 +2070,7 @@ async function renderAnalyticsHealth(token) {
           backgroundColor: savings.map(s => s>=0?'rgba(63,185,80,.5)':'rgba(248,81,73,.5)'),
           borderColor:      savings.map(s => s>=0?'rgba(63,185,80,.9)':'rgba(248,81,73,.9)'),
           borderWidth:1 },
-        // Colore dal tema: il giallo chiaro fisso spariva sui fondi chiari (carta, nebbia)
+        // Colore dal tema: il giallo chiaro fisso spariva sui fondi chiari (carta, warm gray)
         { type:'line', label:'Mediana per metà periodo', data:savRegLine,
           borderColor:cssVar('--accent'), borderDash:[6,3],
           pointRadius:0, stepped:'middle', fill:false, borderWidth:2, spanGaps:false }
@@ -2426,7 +2426,7 @@ function _renderAnalyticsTrendChart() {
     const pctSign = pctYear >= 0 ? '+' : '';
     const color = slope >= 0 ? 'var(--expense)' : 'var(--income)';
     // --accent invece del blu chiaro fisso: quest'ultimo è tarato sui temi scuri
-    // e sul fondo chiaro di Nebbia scendeva a 1.99:1.
+    // e sui fondi chiari scendeva a 1.99:1.
     slopeEl.innerHTML = `<span style="color:var(--accent);font-weight:600">${fmt.currency(avg)}/mese</span>`
       + `<span style="color:var(--txt3);margin-left:6px;margin-right:12px">media</span>`
       + `<span style="color:${color};font-weight:600">${sign}${fmt.currency(slope)}/mese</span>`
@@ -2437,7 +2437,7 @@ function _renderAnalyticsTrendChart() {
 
   const cc = chartColors();
   const t = document.documentElement.dataset.theme;
-  // Nebbia è il default (nessun data-theme) ed è un tema CHIARO: prima restava
+  // Warm Gray è il default (nessun data-theme) ed è un tema CHIARO: prima restava
   // fuori da isLight e prendeva le varianti pensate per i fondi scuri.
   const isLight    = t === 'carta' || !t;
   const lineBlue   = isLight ? 'rgba(20,70,190,1)'  : 'rgba(100,160,255,1)';
@@ -2546,7 +2546,7 @@ async function renderNatureReport(token) {
 
   // `color` = tinta viva, per barre e riempimenti (dove la saturazione serve).
   // `text`  = variabile di tema, per le scritte: i toni vivi sono tarati sui fondi
-  // scuri e come testo su Nebbia scendevano a 1.8-2.4:1.
+  // scuri e come testo sui temi chiari scendevano a 1.8-2.4:1.
   const NATURE = {
     essenziale: { label: 'Essenziale', color: '#3fb950', text: 'var(--income)',  icon: '🟢' },
     variabile:  { label: 'Variabile',  color: '#e3b341', text: 'var(--warn)',    icon: '🟡' },

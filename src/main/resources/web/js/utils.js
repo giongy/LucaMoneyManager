@@ -8,16 +8,16 @@ Chart.defaults.animation.duration = 700;
 Chart.defaults.animation.easing   = 'linear';
 
 // Colori di assi e griglie dei grafici, per tema.
-// ⚠️ Nebbia (default, fondo CHIARO) va nel suo ramo esplicito: prima cadeva nel
+// ⚠️ Warm Gray (default, fondo CHIARO) va nel suo ramo esplicito: prima cadeva nel
 // return finale, tarato per un tema scuro, con due effetti — tick #8b949e a
 // contrasto 2.62:1 sul fondo delle card (sotto il minimo AA di 4.5) e griglia
 // bianca al 6%, di fatto invisibile sul chiaro. Glassy resta l'unico sul default.
 const chartColors = () => {
   const t = document.documentElement.dataset.theme;
   if (t === 'carta') return { tick: '#6b5a42', grid: 'rgba(90,70,40,0.10)' };
-  if (t === 'petrolio') return { tick: '#9db3b8', grid: 'rgba(157,179,184,0.10)' };
+  if (t === 'warm_gray_dark') return { tick: '#b1ada8', grid: 'rgba(237,235,231,0.08)' };
   if (t === 'glassy') return { tick: '#8b949e', grid: 'rgba(255,255,255,0.06)' };
-  return { tick: '#465269', grid: 'rgba(60,70,130,0.12)' };   // nebbia
+  return { tick: '#665f58', grid: 'rgba(38,33,28,0.10)' };     // warm_gray
 };
 
 const zoomOpts = () => ({
@@ -54,8 +54,8 @@ function readableColor(hex, target = 4.5, veloAlpha = 0) {
   // Fondo di riferimento. Questi badge hanno il proprio colore al 13% (suffisso
   // '22') sopra il livello card, quindi il contrasto va calcolato su QUELLA
   // composizione, non sul fondo nudo: altrimenti si sottostima e il testo esce
-  // comunque poco leggibile. In Glassy/Petrolio i livelli card sono traslucidi
-  // su fondo scuro → si parte da --bg, che è sempre opaco.
+  // comunque poco leggibile. Sui temi scuri (in Glassy le card sono traslucide)
+  // si parte da --bg, che è sempre opaco.
   const bgv = getComputedStyle(document.documentElement).getPropertyValue(temaScuro ? '--bg' : '--bg2').trim();
   const bm = /^#?([a-f\d]{6})$/i.exec(bgv);
   let [br, bgc, bb] = bm ? [0, 2, 4].map(i => parseInt(bm[1].substr(i, 2), 16))

@@ -86,7 +86,7 @@ mostra in un dialog.
 │   │       root_cache   = <appdata>\jcef_cache\                              │
 │   │       jcefArgs     = --ignore-gpu-blocklist --enable-gpu-rasterization  │
 │   │                      --enable-zero-copy                                 │
-│   │       background   = #dce1e8 (sfondo tema Nebbia) → niente flash        │
+│   │       background   = #fefdfc (sfondo tema Warm Gray) → niente flash     │
 │   │       progressHandler aggiorna la splash durante il download al primo   │
 │   │       avvio (LOCATING → DOWNLOADING → EXTRACTING → INSTALL).            │
 │   │                                                                         │
@@ -642,8 +642,8 @@ Disabilitabile con `http.enabled=0` in `settings.properties`.
   con header `─── ───`)
 - Tema via `<html data-theme="…">` impostato da `applyTheme()` in
   [pages/settings.js](../src/main/resources/web/js/pages/settings.js)
-- **Quattro temi built-in:** 🌁 `nebbia` (default, chiaro — vive in `:root`, **senza** `data-theme`),
-  📜 `carta` (chiaro), 🛢️ `petrolio` (scuro), 🪟 `glassy` (scuro, "Vetro")
+- **Quattro temi built-in:** 🪨 `warm_gray` (default, chiaro — vive in `:root`, **senza** `data-theme`),
+  📜 `carta` (chiaro), 🌙 `warm_gray_dark` (scuro), 🪟 `glassy` (scuro, "Vetro")
 - Temi custom utente: salvati in `app_settings` chiave `appearance.custom_themes` (JSON), chiave
   `c:<id>`, applicano le variabili **inline** (vincono su tutto)
 - ⚠️ **Regole e trappole dei temi** (default chiaro con regole base nate scure, selettore in

@@ -121,7 +121,7 @@ their own height. The arrangement is saved and restored on the next launch.
 - Pinning, per-note colour, tag filtering and search
 
 ### Settings
-- **Themes** — four built-in (🌁 Nebbia, 📜 Carta, 🛢️ Petrolio, 🪟 Vetro) plus fully customizable colour themes
+- **Themes** — four built-in (🪨 Warm Gray, 🌙 Warm Gray Dark, 📜 Carta, 🪟 Vetro) plus fully customizable colour themes
 - **Backup** — automatic backup on close with configurable directory and retention count
 - **Attachments** — configurable storage directory
 - **HTTP server** — optional LAN web server for remote access

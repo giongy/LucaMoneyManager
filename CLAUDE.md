@@ -1151,7 +1151,7 @@ Sfrutta due cose già presenti, senza installare nulla (niente Node/npm/Playwrig
 
 - App **in esecuzione** con WebServer attivo (Impostazioni → accesso LAN).
 - Porta: **7890** in produzione. L'istanza lanciata da VSCode usa il DB di progetto
-  (`D:\LucaMoneyManager\lucatest.db`) e conviene tenerla su una porta diversa (es. **7891**),
+  (`D:\progetti-github\LucaMoneyManager\lucatest.db`) e conviene tenerla su una porta diversa (es. **7891**),
   così non c'è modo di confondersi coi dati reali su OneDrive.
 - ⚠️ Prima di test che **scrivono**, verificare sempre su quale DB si sta operando:
   `getSettings` restituisce `db.path`.
@@ -1163,7 +1163,7 @@ Sfrutta due cose già presenti, senza installare nulla (niente Node/npm/Playwrig
   di prova **eliminerebbe il file vero**. Per questo `copy-db.ps1` **non copia il file**:
   ricostruisce le tabelle e lascia `app_settings` del test com'è (vedi «Leggere il DB senza
   avviare l'app»). Le due cartelle si puntano in locale **una volta** — il backup su
-  `D:\LucaMoneyManager\backups-test`, in `.gitignore` — e restano; a ogni giro lo script le
+  `D:\progetti-github\LucaMoneyManager\backups-test`, in `.gitignore` — e restano; a ogni giro lo script le
   stampa e **avvisa** se una è identica a quella di prod. Su un DB di test nato adesso
   `app_settings` è vuota: senza cartella backup l'app rifiuta il backup, senza cartella allegati
   rifiuta gli allegati — non scrive da nessuna parte.
@@ -1288,7 +1288,7 @@ direttamente e funziona sempre.
 .\tools\db.ps1 -File .\query.sql -Json -Quiet
 ```
 
-`-Database local` (default) è `D:\LucaMoneyManager\lucatest.db`, `prod` è quello su OneDrive;
+`-Database local` (default) è `D:\progetti-github\LucaMoneyManager\lucatest.db`, `prod` è quello su OneDrive;
 accetta anche un path esplicito. Ogni esecuzione stampa in testa **quale DB** ha aperto, con
 dimensione e data di modifica — è l'errore che costa di più. Altre opzioni: `-Limit`
 (default 200), `-Json`, `-Quiet` (niente intestazione, output parsabile).

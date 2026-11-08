@@ -1,6 +1,6 @@
 /* ═══════════════════════════════════════════════════════════════════════════
    LucaMoneyManager — pages/portfolio.js
-   Pagina Portafoglio (3 tab: portfolio/analisi/storico)
+   Pagina Portafoglio (4 tab: portfolio/analisi/storico/proiezione — l'ultima in proiezione.js)
    (estratta da app.js, stadio 7d del refactor)
 
    Dipendenze esterne (lazy a runtime):
@@ -205,6 +205,7 @@ async function renderPortfolio() {
         <button class="sched-tab ${_portfolioTab==='portfolio'?'active':''}" onclick="_setPortfolioTab('portfolio')">📋 Portafoglio</button>
         <button class="sched-tab ${_portfolioTab==='analisi'?'active':''}"   onclick="_setPortfolioTab('analisi')">📊 Analisi</button>
         <button class="sched-tab ${_portfolioTab==='storico'?'active':''}"   onclick="_setPortfolioTab('storico')">📋 Storico</button>
+        <button class="sched-tab ${_portfolioTab==='proiezione'?'active':''}" onclick="_setPortfolioTab('proiezione')">🔮 Proiezione</button>
       </div>
       <button class="btn btn-ghost" style="margin-left:10px;flex-shrink:0" onclick="showPortfolioHelp()"
               title="Dove finiscono i soldi di un acquisto, cosa sono plusvalenze e imposte, cosa succede se tocchi le categorie">❓ Come funziona</button>
@@ -243,6 +244,8 @@ async function renderPortfolio() {
     <div id="pgPortfolioAnalisi"></div>
     ` : _portfolioTab === 'storico' ? `
     <div id="pgPortfolioStorico"></div>
+    ` : _portfolioTab === 'proiezione' ? `
+    <div id="pgPortfolioProiezione"></div>
     ` : `
     <div class="portfolio-summary">
       <div class="stat-card">
@@ -427,6 +430,9 @@ async function renderPortfolio() {
   }
   if (_portfolioTab === 'storico') {
     renderPortfolioStorico(items);
+  }
+  if (investAccounts.length && _portfolioTab === 'proiezione') {
+    renderPortfolioProiezione();
   }
 }
 

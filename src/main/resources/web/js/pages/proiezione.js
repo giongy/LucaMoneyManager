@@ -208,6 +208,7 @@ function renderPortfolioProiezione() {
       </div>
       <div style="min-width:0">
         <div id="projKpi" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:12px"></div>
+        <div id="projExplain" style="font-size:12px;color:var(--txt2);background:var(--bg3);border-radius:var(--radius-ctl,6px);padding:10px 12px;margin-bottom:12px;line-height:1.6"></div>
         <div id="projNote" style="font-size:12px;color:var(--txt3);margin-bottom:8px"></div>
         <div style="position:relative;height:340px"><canvas id="projChart"></canvas></div>
         <div style="font-size:11px;color:var(--txt3);margin-top:10px;line-height:1.5">
@@ -272,6 +273,43 @@ function _projUpdate() {
     card('🏛️ Imposte', fmt.currency(r.taxes),
       bond ? `${fmt.currency(r.couponTax)} sulle cedole · cedole nette ${fmt.currency(r.coupons)}` : (p.taxMode === 'yearly' ? 'pagate anno per anno' : 'da pagare alla vendita'),
       'var(--txt2)');
+
+  // ── Come leggere i quattro riquadri: le stesse cifre, dette a parole ─────────
+  // I riquadri da soli sono quattro numeri senza contesto («pagate anno per anno»
+  // cosa vuol dire? reale rispetto a cosa?): qui ognuno è spiegato con i valori
+  // della simulazione in corso, e si aggiorna insieme a loro.
+  const ex = document.getElementById('projExplain');
+  if (ex) {
+    const eur = fmt.currency;
+    const durata = capped ? `${anni} anni` : yLbl(p.years);
+    const nVers = p.contrib > 0
+      ? (p.contribFreq === 'monthly' ? Math.min(p._months, bond ? _projMonthsTo(bond.maturity_date) - 1 : p._months)
+                                     : Math.floor((bond ? Math.min(p._months, _projMonthsTo(bond.maturity_date) - 1) : p._months) / 12))
+      : 0;
+    const versRate = nVers ? `${eur(p.contrib)} ${p.contribFreq === 'monthly' ? 'al mese' : "all'anno"} (${nVers} versamenti)` : 'nessun versamento periodico';
+    const partenza = bond
+      ? [p.includePos ? `il carico della posizione che hai già (${eur(bond.quantity * (bond.avg_price || 100) / 100)})` : '',
+         p.initial > 0 ? `${eur(p.initial)} di acquisto iniziale` : ''].filter(Boolean).join(' + ')
+      : (p.initial > 0 ? `${eur(p.initial)} di capitale iniziale` : '');
+    const fattore = last.net ? last.real / last.net : 1;
+    let tasse;
+    if (bond) {
+      const cg = r.taxes - r.couponTax;
+      tasse = `il ${p.tax.toLocaleString('it-IT')}% trattenuto dalla banca su ogni cedola (${eur(r.couponTax)} in tutto)` +
+              (cg > 0.005 ? ` più quello sulla differenza fra ${capped ? 'rimborso' : 'prezzo di vendita'} e prezzo pagato (${eur(cg)})` : '') + '.';
+    } else if (p.taxMode === 'yearly') {
+      tasse = `il ${p.tax.toLocaleString('it-IT')}% trattenuto ogni anno sugli interessi maturati, come su un conto deposito. Sono già tolte mentre il capitale cresce: per questo il rendimento che si capitalizza è il netto (${(p.rate * (1 - p.tax / 100)).toLocaleString('it-IT', { maximumFractionDigits: 2 })}%), non il ${p.rate.toLocaleString('it-IT')}% lordo.`;
+    } else {
+      tasse = `il ${p.tax.toLocaleString('it-IT')}% sul guadagno, pagato una volta sola quando vendi, come per un fondo o un ETF ad accumulo. Fino ad allora il capitale cresce al lordo.`;
+    }
+    ex.innerHTML = `
+      <div style="font-weight:600;color:var(--txt);margin-bottom:4px">Come leggere i numeri</div>
+      <div>💶 <strong>Totale versato</strong>: i soldi che metti di tasca tua in ${durata}: ${partenza ? partenza + ' + ' : ''}${versRate}.</div>
+      <div>📈 <strong>Valore finale netto</strong>: quanto avresti alla fine ${bond && capped ? 'col rimborso del titolo' : 'vendendo tutto'}, imposte già pagate. Rispetto al versato sono ${eur(Math.abs(gain))} ${gain >= 0 ? 'in più' : 'in meno'}.</div>
+      <div>🛒 <strong>Valore reale</strong>: lo stesso valore finale in euro di oggi. Con prezzi che salgono del ${p.inflation.toLocaleString('it-IT')}% l'anno, fra ${durata} ${eur(last.net)} compreranno quanto oggi ne comprano ${eur(last.real)}${p.inflation > 0 ? ` (${Math.round(fattore * 100)}%)` : ''}.${last.real < last.invested ? ' <strong>È meno del versato</strong>: al netto di imposte e inflazione il potere d\'acquisto cala.' : ''}</div>
+      <div>🏛️ <strong>Imposte</strong>: ${tasse}</div>
+      <div style="margin-top:4px;color:var(--txt3)">Nel grafico: linea piena = valore netto, verde = valore reale, tratteggiata = soldi versati fino a quel momento. Dove la linea verde scende sotto la tratteggiata, l'inflazione mangia più di quanto l'investimento renda.</div>`;
+  }
 
   const note = document.getElementById('projNote');
   if (note) {

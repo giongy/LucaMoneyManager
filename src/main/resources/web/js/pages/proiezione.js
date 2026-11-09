@@ -210,7 +210,7 @@ function renderPortfolioProiezione() {
         <div id="projKpi" style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:12px"></div>
         <div id="projExplain" style="font-size:12px;color:var(--txt2);background:var(--bg3);border-radius:var(--radius-ctl,6px);padding:10px 12px;margin-bottom:12px;line-height:1.6"></div>
         <div id="projNote" style="font-size:12px;color:var(--txt3);margin-bottom:8px"></div>
-        <div style="position:relative;height:340px"><canvas id="projChart"></canvas></div>
+        <div style="position:relative;height:340px"><canvas id="pfProjChart"></canvas></div>
         <div style="font-size:11px;color:var(--txt3);margin-top:10px;line-height:1.5">
           ${bond
             ? "Ipotesi: si compra sempre al prezzo del momento, che converge in linea retta a 100 alla scadenza; niente commissioni né rateo. All'imposta sulle cedole si aggiunge quella sulla differenza fra rimborso (o prezzo) e costo; le minusvalenze non danno credito."
@@ -323,7 +323,7 @@ function _projUpdate() {
 }
 
 function _projDrawChart(pts) {
-  const el = document.getElementById('projChart');
+  const el = document.getElementById('pfProjChart');
   if (!el) return;
   const cc = chartColors();
   const css = getComputedStyle(document.documentElement);

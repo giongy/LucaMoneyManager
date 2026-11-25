@@ -252,7 +252,8 @@ se ne debba ricordare. Le ~85 chiamate `logger.log("ETICHETTA", "campo:val", …
 leggerà.
 
 ⚠️ **I trigger catturano anche le righe eliminate dalle `ON DELETE CASCADE`** — verificato su
-SQLite 3.53.2, senza `recursive_triggers`. È il punto su cui si regge tutto: senza, annullare la
+SQLite 3.53.2 e riverificato su 3.54.1 (gruppo «un gesto con le sue figlie» di
+`test-giornale.ps1`, da rilanciare a ogni aggiornamento di `sqlite-jdbc`), senza `recursive_triggers`. È il punto su cui si regge tutto: senza, annullare la
 cancellazione di una transazione ne restituirebbe il **guscio senza split né tag**, con saldi
 plausibili e totali per categoria sbagliati.
 
